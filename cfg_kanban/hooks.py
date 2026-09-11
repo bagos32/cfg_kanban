@@ -6,6 +6,13 @@ app_email = "engineering@example.com"
 app_license = "MIT"
 required_apps = ["erpnext"]
 
+doctype_js = {
+    "CFG Kanban Card": "public/js/cfg_kanban_card.js",
+    "CFG Kanban Signal": "public/js/cfg_kanban_signal.js",
+    "CFG Kanban Process Execution": "public/js/cfg_kanban_process_execution.js",
+    "CFG Kanban Cycle": "public/js/cfg_kanban_cycle.js",
+}
+
 fixtures = [
     {
         "dt": "Custom Field",
@@ -31,4 +38,3 @@ doc_events = {
 }
 
 after_install = "cfg_kanban.install.after_install"
-

@@ -10,7 +10,8 @@
  "is_hidden": 0,
  "label": "CFG Kanban",
  "links": [
-  {"hidden":0,"is_query_report":0,"label":"Configuration","link_count":3,"onboard":0,"type":"Card Break"},
+  {"hidden":0,"is_query_report":0,"label":"Configuration","link_count":4,"onboard":0,"type":"Card Break"},
+  {"hidden":0,"is_query_report":0,"label":"Kanban Operator","link_to":"kanban-operator","link_type":"Page","onboard":0,"type":"Link"},
   {"hidden":0,"is_query_report":0,"label":"Kanban Settings","link_to":"CFG Kanban Settings","link_type":"DocType","onboard":0,"type":"Link"},
   {"hidden":0,"is_query_report":0,"label":"Kanban Masters","link_to":"CFG Kanban Master","link_type":"DocType","onboard":0,"type":"Link"},
   {"hidden":0,"is_query_report":0,"label":"Kanban Cards","link_to":"CFG Kanban Card","link_type":"DocType","onboard":0,"type":"Link"},

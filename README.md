@@ -21,6 +21,9 @@ intentionally deferred.
 - ERPNext `doc_events` feedback for Work Order, Job Card, and Stock Entry changes.
 - Unique database-backed idempotency keys for signals and commands, plus active-cycle protection.
 - Whitelisted scan and incremental progress API skeletons.
+- A Desk **Kanban Operator** console for scanning/finding cards, triggering consumption,
+  starting linked Job Cards, entering dynamic progress data, and viewing the cycle timeline.
+- Form actions on cards, signals, executions, and cycles, including supervisor signal approval.
 
 ## Control flow
 
@@ -74,6 +77,10 @@ Add `kanban.localhost` to the hosts file if the local resolver does not handle i
 5. Create cards with unique card numbers and scan tokens.
 6. Call `/api/method/cfg_kanban.api.scan.scan` with `token`, `action=consume`, and a stable
    `event_token` supplied by the scanner for retries.
+
+Operators can use `/app/kanban-operator` instead of calling the API directly. Signal approval is
+restricted server-side to Manufacturing Manager or System Manager. The console deliberately uses
+the ERP command gateway for Job Card actions and Work Order creation.
 
 For the Cooking → Bottling → Cartoning pilot, configure Cooking as full-batch handoff, Bottling as
 incremental digital-quantity handoff with the carton transfer multiple, and Cartoning as full-batch
