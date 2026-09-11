@@ -1,0 +1,2 @@
+recursive-include cfg_kanban *.css *.csv *.html *.ico *.js *.json *.md *.png *.py *.svg *.txt
+

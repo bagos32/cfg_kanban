@@ -1,0 +1,9 @@
+*.py[cod]
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+node_modules/
+*.egg-info/
+/AGENTS.md
+/sources/

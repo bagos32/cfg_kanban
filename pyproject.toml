@@ -1,0 +1,19 @@
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "cfg_kanban"
+authors = [{name = "CFG", email = "engineering@example.com"}]
+description = "Kanban process-control layer for ERPNext manufacturing"
+requires-python = ">=3.10"
+dynamic = ["version"]
+dependencies = []
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["cfg_kanban/tests"]
+
