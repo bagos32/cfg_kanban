@@ -28,7 +28,13 @@ function build_toc($manual) {
 	$headings.each((index, heading) => {
 		const id = `manual-section-${index + 1}`;
 		heading.id = id;
-		$("<li></li>").append($("<a></a>").attr("href", `#${id}`).text($(heading).text())).appendTo($toc.find("ol"));
+		const $link = $("<a href='#'></a>").text($(heading).text());
+		$link.on("click", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			heading.scrollIntoView({ behavior: "smooth", block: "start" });
+		});
+		$("<li></li>").append($link).appendTo($toc.find("ol"));
 	});
 	$manual.find("h1").first().after($toc);
 }
