@@ -14,7 +14,7 @@ doctype_js = {
     "CFG Kanban Handling Unit": "public/js/cfg_kanban_handling_unit.js",
 }
 
-jenv = {
+jinja = {
     "methods": [
         "cfg_kanban.services.printing.get_card_route",
         "cfg_kanban.services.printing.get_card_print_context",
