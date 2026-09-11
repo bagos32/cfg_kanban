@@ -49,6 +49,15 @@ def consume_card(card_name, *, device_id=None, event_token=None):
 def create_work_order_command(signal_name):
     signal = frappe.get_doc("CFG Kanban Signal", signal_name)
     master = frappe.get_doc("CFG Kanban Master", signal.kanban_master)
+    if signal.kanban_card:
+        card = frappe.get_doc("CFG Kanban Card", signal.kanban_card)
+        if card.current_state == "Signal Created":
+            transition_card(
+                card,
+                "Replenishment Requested",
+                event_type="Replenishment Requested",
+                cycle=signal.kanban_cycle,
+            )
     key = canonical_key("command", signal.name, "Create Work Order")
     command, _ = insert_once(frappe.get_doc({
         "doctype": "CFG ERP Command", "command_type": "Create Work Order", "source_signal": signal.name,
@@ -63,4 +72,3 @@ def create_work_order_command(signal_name):
     record("ERP Command Created", card=signal.kanban_card, cycle=signal.kanban_cycle,
            reference_doctype=command.doctype, reference_name=command.name)
     return command
-
