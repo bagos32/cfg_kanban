@@ -4,8 +4,8 @@
 **when and why** replenishment or a process handoff is required; ERPNext remains the system of
 record for Work Orders, Job Cards, Stock Entries, stock, batches, and accounting.
 
-This initial vertical slice covers production only. Sales Order-driven and supplier Kanban are
-intentionally deferred.
+The app covers production control plus an approval-first Sales Order demand proposal flow.
+Supplier Kanban remains intentionally deferred.
 
 ## Included
 
@@ -24,6 +24,8 @@ intentionally deferred.
 - A Desk **Kanban Operator** console for scanning/finding cards, triggering consumption,
   starting linked Job Cards, entering dynamic progress data, and viewing the cycle timeline.
 - Form actions on cards, signals, executions, and cycles, including supervisor signal approval.
+- Confirmed Sales Order evaluation with projected-stock/open-cycle deductions, fixed-card rounding,
+  available-card reservation, idempotent demand proposals, and supervisor approval before release.
 - Two reusable English Kanban Card print formats: A6 landscape double-sided Standard Card and
   A6 landscape single-sided Operational Card.
 - Disposable 45 mm × 250 mm monochrome Handling Unit tags with QR and Code 128 identities,
@@ -98,6 +100,33 @@ Select **Print Thermal Tag** to produce the monochrome 45 mm × 250 mm tag. Repr
 reason and increment the print counter. Replacement actions issue a new opaque token and revision,
 link old and new records, and make the old identity unusable. A tag scan can only advance its own
 Issued → Attached → Dispatched → Received lifecycle (or Void); it never creates replenishment.
+
+## Sales Order demand proposals
+
+Enable **Sales Order Trigger** on the applicable Kanban Master. By default, the inventory target is
+the destination warehouse's **Reorder Level** in ERPNext Item → Reorder. Use **Kanban Override**
+only when a loop intentionally needs its own minimum. The Master's replenishment quantity remains
+the quantity represented by one card; it is not the inventory threshold.
+
+The proposal deducts ERPNext projected availability, open Kanban cycles, and other waiting
+proposals from the target, then rounds the remaining shortage up to the Master's fixed card
+quantity. Sales Order outstanding quantity is retained for audit but is not added a second time,
+because submitted demand is already represented by ERPNext projected quantity. A Manufacturing
+Manager must select **Approve and Release**. Approval reserves the
+required available cards, creates one traceable Signal and Cycle, then sends a controlled Work
+Order command through the ERP gateway. It does not mark a physical card as consumed or simulate a
+shop-floor scan.
+
+Multiple Masters for one item are supported when they represent distinct loops. Selection first
+uses the Sales Order warehouse, then the most specific matching Demand Scope (Customer, Sales
+Territory, or Production Line takes precedence over General), then the highest Master Priority.
+The app rejects duplicate active Masters with the same item, destination warehouse, and scope. A
+remaining tie is blocked and recorded as a configuration exception; it never creates two Work
+Orders for the same shortage.
+
+If available cards are insufficient, the demand becomes Blocked and an exception is recorded.
+Cancelling a Sales Order cancels an unreleased proposal; if production was already released, the
+app raises an exception for supervisor review rather than silently cancelling ERP production.
 
 For the Cooking → Bottling → Cartoning pilot, configure Cooking as full-batch handoff, Bottling as
 incremental digital-quantity handoff with the carton transfer multiple, and Cartoning as full-batch

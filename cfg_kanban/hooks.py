@@ -7,11 +7,13 @@ app_license = "MIT"
 required_apps = ["erpnext"]
 
 doctype_js = {
+    "Sales Order": "public/js/sales_order.js",
     "CFG Kanban Card": "public/js/cfg_kanban_card.js",
     "CFG Kanban Signal": "public/js/cfg_kanban_signal.js",
     "CFG Kanban Process Execution": "public/js/cfg_kanban_process_execution.js",
     "CFG Kanban Cycle": "public/js/cfg_kanban_cycle.js",
     "CFG Kanban Handling Unit": "public/js/cfg_kanban_handling_unit.js",
+    "CFG Kanban Demand": "public/js/cfg_kanban_demand.js",
 }
 
 jinja = {
@@ -31,6 +33,11 @@ fixtures = [
 ]
 
 doc_events = {
+    "Sales Order": {
+        "on_submit": "cfg_kanban.integrations.sales_order_feedback.on_submit",
+        "on_update_after_submit": "cfg_kanban.integrations.sales_order_feedback.on_update_after_submit",
+        "on_cancel": "cfg_kanban.integrations.sales_order_feedback.on_cancel",
+    },
     "Work Order": {
         "on_update": "cfg_kanban.integrations.erp_feedback.on_work_order_update",
         "on_submit": "cfg_kanban.integrations.erp_feedback.on_work_order_update",
@@ -48,3 +55,4 @@ doc_events = {
 }
 
 after_install = "cfg_kanban.install.after_install"
+after_migrate = "cfg_kanban.install.after_migrate"
