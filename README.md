@@ -128,6 +128,23 @@ If available cards are insufficient, the demand becomes Blocked and an exception
 Cancelling a Sales Order cancels an unreleased proposal; if production was already released, the
 app raises an exception for supervisor review rather than silently cancelling ERP production.
 
+### Customer make-to-order production
+
+For a customer whose product cannot be made for stock, use a Customer-scoped Master with
+**Production Policy = Customer Make-to-Order**. Set the Master's maximum extra-production
+tolerance and whether the Work Order should be planned to the maximum permitted quantity. On the
+Sales Order, record whether the customer PO allows extra quantity, the PO percentage, and the PO
+clause or amendment reference. The effective percentage is always the lower of the Master and PO
+limits; without explicit PO authorization it is zero.
+
+Approval creates one digital Cycle and Work Order per Sales Order line, without reserving a
+reusable Kanban card. It also creates one dedicated ERPNext Batch whose expiry is calculated from
+the Item shelf life. Submitted Manufacture Stock Entries are rejected when they use another batch
+or would take cumulative accepted output above the customer-authorized maximum. Authorized excess
+is recorded against the Demand and PO reference. The app deliberately does not silently increase
+the submitted Sales Order; invoicing or delivery of excess remains subject to ERPNext's normal
+Sales Order amendment and over-delivery controls.
+
 For the Cooking → Bottling → Cartoning pilot, configure Cooking as full-batch handoff, Bottling as
 incremental digital-quantity handoff with the carton transfer multiple, and Cartoning as full-batch
 handoff to finished goods. `allow_parallel` permits ERPNext Job Cards to be active concurrently;

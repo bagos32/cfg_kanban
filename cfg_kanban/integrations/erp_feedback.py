@@ -1,4 +1,5 @@
 import frappe
+from frappe.utils import flt
 
 from cfg_kanban.services.events import record
 from cfg_kanban.services.state_machine import set_cycle_state, transition_card
@@ -50,7 +51,60 @@ def on_stock_entry_submit(doc, method=None):
     record("Stock Entry Submitted", cycle=cycle.name, card=cycle.kanban_card,
            reference_doctype=doc.doctype, reference_name=doc.name)
     if doc.stock_entry_type == "Manufacture":
+        _update_mto_output(doc, cycle)
         set_cycle_state(cycle, "Waiting FG Receipt", event_type="Manufacture Submitted")
+
+
+def validate_stock_entry(doc, method=None):
+    if not _cycle(doc) or doc.stock_entry_type != "Manufacture":
+        return
+    cycle = frappe.get_doc("CFG Kanban Cycle", doc.cfg_kanban_cycle)
+    if cycle.get("production_policy") != "Customer Make-to-Order":
+        return
+    demand = frappe.get_doc("CFG Kanban Demand", cycle.sales_demand)
+    finished_rows = _mto_finished_rows(doc, cycle)
+    if not finished_rows:
+        frappe.throw("MTO Manufacture entry must contain the ordered finished item")
+    wrong_batches = [row.batch_no or "(blank)" for row in finished_rows
+                     if row.batch_no != cycle.batch_no]
+    if wrong_batches:
+        frappe.throw(f"All MTO finished output must use planned Batch {cycle.batch_no}")
+    prior_qty = _submitted_mto_qty(cycle.name, cycle.item_code)
+    resulting_qty = prior_qty + sum(flt(row.qty) for row in finished_rows)
+    if resulting_qty > flt(demand.maximum_authorized_qty) + 0.000001:
+        frappe.throw(f"MTO output {resulting_qty} exceeds customer-authorized maximum "
+                     f"{demand.maximum_authorized_qty}")
+
+
+def _update_mto_output(doc, cycle):
+    if cycle.get("production_policy") != "Customer Make-to-Order":
+        return
+    demand = frappe.get_doc("CFG Kanban Demand", cycle.sales_demand)
+    actual = _submitted_mto_qty(cycle.name, cycle.item_code)
+    excess = max(0, actual - flt(demand.outstanding_qty))
+    acceptance = "PO Authorized" if excess else "Not Applicable"
+    demand.db_set({"actual_accepted_qty": actual, "excess_qty": excess,
+                   "excess_acceptance_status": acceptance}, update_modified=True)
+    cycle.db_set("actual_good_qty", actual)
+    if excess:
+        record("MTO Excess Accepted by Customer PO", cycle=cycle.name, qty=excess,
+               reference_doctype="Sales Order", reference_name=demand.sales_order,
+               notes=demand.po_tolerance_reference)
+
+
+def _mto_finished_rows(doc, cycle):
+    return [row for row in doc.items if row.item_code == cycle.item_code and row.t_warehouse]
+
+
+def _submitted_mto_qty(cycle_name, item_code):
+    return flt(frappe.db.sql("""
+        select coalesce(sum(sed.qty), 0)
+        from `tabStock Entry Detail` sed
+        inner join `tabStock Entry` se on se.name=sed.parent
+        where se.docstatus=1 and se.cfg_kanban_cycle=%s
+          and se.stock_entry_type='Manufacture' and sed.item_code=%s
+          and ifnull(sed.t_warehouse, '') != ''
+    """, (cycle_name, item_code))[0][0])
 
 
 def on_stock_entry_cancel(doc, method=None):

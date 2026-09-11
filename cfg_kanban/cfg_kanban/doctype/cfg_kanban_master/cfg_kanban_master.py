@@ -17,8 +17,13 @@ class CFGKanbanMaster(Document):
         scope = self.get("demand_scope") or "General"
         if scope != "General" and not self.get("demand_scope_value"):
             frappe.throw("Demand Scope Value is required for a non-General demand scope")
-        if self.get("threshold_source") == "Kanban Override" and self.get("minimum_stock_override") <= 0:
+        if self.get("threshold_source") == "Kanban Override" and (self.get("minimum_stock_override") or 0) <= 0:
             frappe.throw("Minimum Stock Override must be greater than zero")
+        if self.get("production_policy") == "Customer Make-to-Order":
+            if scope != "Customer":
+                frappe.throw("Customer Make-to-Order Masters must use Customer demand scope")
+            if (self.get("mto_extra_tolerance_pct") or 0) < 0:
+                frappe.throw("MTO Extra Production Tolerance cannot be negative")
         matches = frappe.get_all("CFG Kanban Master", filters={
             "active": 1, "enable_sales_order_trigger": 1, "item_code": self.item_code,
             "destination_warehouse": self.destination_warehouse,

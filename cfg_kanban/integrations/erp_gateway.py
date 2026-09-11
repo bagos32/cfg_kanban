@@ -50,7 +50,8 @@ def create_work_order(command, payload):
         "source_warehouse": payload.get("source_warehouse"), "wip_warehouse": payload.get("wip_warehouse"),
         "fg_warehouse": payload.get("fg_warehouse"), "cfg_kanban_controlled": 1,
         "cfg_kanban_cycle": cycle.name, "cfg_kanban_signal": command.source_signal,
-        "cfg_production_origin": "KANBAN",
+        "cfg_production_origin": "SALES ORDER" if cycle.get("sales_order") else "KANBAN",
+        "cfg_sales_order": cycle.get("sales_order"), "cfg_planned_batch": cycle.batch_no,
     }).insert(ignore_permissions=True)
     settings = frappe.get_single("CFG Kanban Settings")
     if settings.auto_submit_work_order:
@@ -86,4 +87,3 @@ def create_stock_entry(command, payload):
                           "cfg_kanban_cycle": command.kanban_cycle,
                           "cfg_kanban_signal": command.source_signal}).insert(ignore_permissions=True)
     return doc
-

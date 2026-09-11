@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from cfg_kanban.services.demand_math import calculate_recommendation
+from cfg_kanban.services.demand_math import calculate_mto_plan, calculate_recommendation
 
 
 class TestDemandRecommendation(TestCase):
@@ -17,3 +17,9 @@ class TestDemandRecommendation(TestCase):
 
     def test_sales_outstanding_is_not_double_counted(self):
         self.assertEqual(calculate_recommendation(100, 40, 20, 25)[:3], (40, 2, 50))
+
+    def test_mto_uses_lower_authorized_tolerance(self):
+        self.assertEqual(calculate_mto_plan(1000, 5, True, 3), (3, 1000, 1030, 1030))
+
+    def test_mto_disallows_extra_without_po_authorization(self):
+        self.assertEqual(calculate_mto_plan(1000, 5, False, 10), (0, 1000, 1000, 1000))

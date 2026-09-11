@@ -1,11 +1,11 @@
 import frappe
-from frappe.utils import flt, now_datetime
+from frappe.utils import add_days, cint, flt, now_datetime, today
 
 from cfg_kanban.integrations.erp_gateway import execute_command
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key, insert_once
 from cfg_kanban.services.triggers import create_work_order_command
-from cfg_kanban.services.demand_math import calculate_recommendation
+from cfg_kanban.services.demand_math import calculate_mto_plan, calculate_recommendation
 
 
 OPEN_CYCLE_STATES = ("New", "Signalled", "Released", "In Production", "Packing In Progress",
@@ -74,6 +74,8 @@ def _scope_specificity(master):
 
 def _evaluate_item(order, item, master):
     outstanding = max(0, flt(item.qty) - flt(item.delivered_qty))
+    if (master.production_policy or "Stock Replenishment") == "Customer Make-to-Order":
+        return _evaluate_mto_item(order, item, master, outstanding)
     projected = flt(frappe.db.get_value("Bin", {"item_code": item.item_code,
         "warehouse": master.destination_warehouse}, "projected_qty") or 0)
     open_qty = flt(frappe.db.sql("""
@@ -132,6 +134,36 @@ def _evaluate_item(order, item, master):
     return {"demand": demand.name, "status": demand.status, "created": created}
 
 
+def _evaluate_mto_item(order, item, master, outstanding):
+    key = canonical_key("sales-demand", order.name, item.name, master.name)
+    effective_pct, base_qty, maximum_qty, planned_qty = calculate_mto_plan(
+        outstanding, master.mto_extra_tolerance_pct,
+        cint(order.get("cfg_po_allows_extra_qty")), order.get("cfg_po_extra_tolerance_pct"),
+        cint(master.mto_plan_to_maximum))
+    status = "Waiting Approval" if outstanding > 0 else "No Action"
+    values = {
+        "demand_type": "Customer Make-to-Order", "production_policy": "Customer Make-to-Order",
+        "sales_order": order.name, "sales_order_item_row": item.name, "customer": order.customer,
+        "kanban_master": master.name, "item_code": item.item_code,
+        "destination_warehouse": master.destination_warehouse,
+        "threshold_source": "Customer PO / MTO", "target_stock_qty": 0,
+        "sales_order_qty": item.qty, "delivered_qty": item.delivered_qty,
+        "outstanding_qty": base_qty, "master_tolerance_pct": master.mto_extra_tolerance_pct,
+        "po_allows_extra_qty": cint(order.get("cfg_po_allows_extra_qty")),
+        "po_tolerance_pct": flt(order.get("cfg_po_extra_tolerance_pct")),
+        "effective_tolerance_pct": effective_pct, "maximum_authorized_qty": maximum_qty,
+        "net_shortage_qty": base_qty, "kanban_qty": 0, "recommended_card_count": 0,
+        "recommended_qty": planned_qty, "excess_acceptance_status": "Not Applicable",
+        "po_tolerance_reference": order.get("cfg_po_tolerance_reference"),
+        "status": status, "delivery_date": item.delivery_date, "evaluated_on": now_datetime(),
+        "notes": "Dedicated MTO cycle; existing stock and order consolidation are prohibited.",
+    }
+    demand, created = insert_once(frappe.get_doc({"doctype": "CFG Kanban Demand", **values}), key)
+    if not created and demand.status not in ("Released", "Cancelled"):
+        demand.db_set(values, update_modified=True)
+    return {"demand": demand.name, "status": demand.status, "created": created}
+
+
 def _get_target_stock(master):
     source = master.threshold_source or "ERPNext Warehouse Reorder Level"
     if source == "Kanban Override":
@@ -149,28 +181,23 @@ def approve_demand(demand_name):
     if demand.status == "Released":
         return {"demand": demand.name, "signal": demand.signal, "cycle": demand.cycle,
                 "duplicate": True}
-    if demand.status != "Waiting Approval" or demand.recommended_card_count <= 0:
+    is_mto = demand.production_policy == "Customer Make-to-Order"
+    if demand.status != "Waiting Approval" or demand.recommended_qty <= 0:
         frappe.throw(f"Demand cannot be approved while it is {demand.status}")
-    cards = frappe.get_all("CFG Kanban Card", filters={"kanban_master": demand.kanban_master,
-        "active": 1, "current_state": "Available", "active_cycle": ["is", "not set"],
-        "reserved_for_demand": ["is", "not set"]}, fields=["name", "kanban_qty"],
-        order_by="creation asc", limit_page_length=demand.recommended_card_count)
-    if len(cards) < demand.recommended_card_count:
-        demand.db_set({"status": "Blocked", "error_message":
-            f"Required {demand.recommended_card_count} cards; only {len(cards)} are available"})
-        _create_exception(demand, "Insufficient available Kanban cards for confirmed sales demand")
+    cards = [] if is_mto else _reserve_cards(demand)
+    if cards is None:
         return {"demand": demand.name, "blocked": True, "message": demand.error_message,
-                "available_cards": len(cards), "required_cards": demand.recommended_card_count}
-    for card in cards:
-        frappe.db.set_value("CFG Kanban Card", card.name, "reserved_for_demand", demand.name)
-        demand.append("allocations", {"kanban_card": card.name,
-            "allocated_qty": card.kanban_qty or demand.kanban_qty, "status": "Reserved"})
+                "required_cards": demand.recommended_card_count}
     master = frappe.get_doc("CFG Kanban Master", demand.kanban_master)
+    batch = _ensure_mto_batch(demand) if is_mto else None
     cycle = frappe.get_doc({"doctype": "CFG Kanban Cycle", "kanban_master": master.name,
         "item_code": master.item_code, "planned_qty": demand.recommended_qty,
         "stock_uom": master.stock_uom, "status": "Signalled", "priority": master.default_priority,
         "source_warehouse": master.source_warehouse,
         "destination_warehouse": master.destination_warehouse,
+        "production_policy": demand.production_policy,
+        "sales_order": demand.sales_order, "sales_order_item_row": demand.sales_order_item_row,
+        "batch_no": batch.name if batch else None,
         "sales_demand": demand.name}).insert(ignore_permissions=True)
     signal_key = canonical_key("sales-demand-signal", demand.name)
     signal, _ = insert_once(frappe.get_doc({"doctype": "CFG Kanban Signal",
@@ -182,6 +209,7 @@ def approve_demand(demand_name):
         "validated_on": now_datetime()}), signal_key)
     cycle.db_set("signal", signal.name)
     demand.signal, demand.cycle = signal.name, cycle.name
+    demand.planned_batch = batch.name if batch else None
     demand.allocated_card_count = len(cards)
     demand.status, demand.approved_on, demand.approved_by = "Released", now_datetime(), frappe.session.user
     demand.save(ignore_permissions=True)
@@ -191,7 +219,41 @@ def approve_demand(demand_name):
            reference_doctype=demand.doctype, reference_name=demand.name,
            notes=f"Sales Order {demand.sales_order}", system_generated=False)
     return {"demand": demand.name, "signal": signal.name, "cycle": cycle.name,
-            "work_order": result.name, "duplicate": False}
+            "work_order": result.name, "batch": batch.name if batch else None,
+            "duplicate": False}
+
+
+def _reserve_cards(demand):
+    cards = frappe.get_all("CFG Kanban Card", filters={"kanban_master": demand.kanban_master,
+        "active": 1, "current_state": "Available", "active_cycle": ["is", "not set"],
+        "reserved_for_demand": ["is", "not set"]}, fields=["name", "kanban_qty"],
+        order_by="creation asc", limit_page_length=demand.recommended_card_count)
+    if len(cards) < demand.recommended_card_count:
+        demand.db_set({"status": "Blocked", "error_message":
+            f"Required {demand.recommended_card_count} cards; only {len(cards)} are available"})
+        _create_exception(demand, "Insufficient available Kanban cards for confirmed sales demand")
+        return None
+    for card in cards:
+        frappe.db.set_value("CFG Kanban Card", card.name, "reserved_for_demand", demand.name)
+        demand.append("allocations", {"kanban_card": card.name,
+            "allocated_qty": card.kanban_qty or demand.kanban_qty, "status": "Reserved"})
+    return cards
+
+
+def _ensure_mto_batch(demand):
+    item = frappe.get_cached_doc("Item", demand.item_code)
+    if not item.has_batch_no:
+        frappe.throw(f"Item {demand.item_code} must have Has Batch No enabled for MTO production")
+    existing = frappe.db.get_value("Batch", {"cfg_sales_demand": demand.name}, "name")
+    if existing:
+        return frappe.get_doc("Batch", existing)
+    batch_id = f"MTO-{demand.sales_order}-{demand.sales_order_item_row[-8:]}".replace("/", "-")
+    values = {"doctype": "Batch", "batch_id": batch_id, "item": demand.item_code,
+        "manufacturing_date": today(), "cfg_sales_demand": demand.name,
+        "cfg_sales_order": demand.sales_order}
+    if cint(item.shelf_life_in_days):
+        values["expiry_date"] = add_days(today(), cint(item.shelf_life_in_days))
+    return frappe.get_doc(values).insert(ignore_permissions=True)
 
 
 def cancel_sales_order_demands(sales_order):
