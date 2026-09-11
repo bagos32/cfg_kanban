@@ -65,12 +65,14 @@ Add `kanban.localhost` to the hosts file if the local resolver does not handle i
 
 ## First configuration
 
-1. Open **CFG Kanban Settings**, select the company and warehouses, and begin with **Approval**
+1. Open the **CFG Kanban** workspace from the Desk sidebar. It groups configuration, live
+   production control, ERP commands, exceptions, audit history, and related ERPNext records.
+2. Open **CFG Kanban Settings**, select the company and warehouses, and begin with **Approval**
    automation while validating the pilot.
-2. Create a **CFG Kanban Master** for one production item/BOM. Add the ERP operations in sequence.
-3. Add dynamic operator fields on the master and associate each row with its operation.
-4. Create cards with unique card numbers and scan tokens.
-5. Call `/api/method/cfg_kanban.api.scan.scan` with `token`, `action=consume`, and a stable
+3. Create a **CFG Kanban Master** for one production item/BOM. Add the ERP operations in sequence.
+4. Add dynamic operator fields on the master and associate each row with its operation.
+5. Create cards with unique card numbers and scan tokens.
+6. Call `/api/method/cfg_kanban.api.scan.scan` with `token`, `action=consume`, and a stable
    `event_token` supplied by the scanner for retries.
 
 For the Cooking → Bottling → Cartoning pilot, configure Cooking as full-batch handoff, Bottling as
