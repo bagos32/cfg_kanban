@@ -1,0 +1,14 @@
+{
+ "doctype": "Page",
+ "module": "CFG Kanban",
+ "name": "cfg-kanban-user-manual",
+ "page_name": "cfg-kanban-user-manual",
+ "title": "CFG Kanban User Manual",
+ "icon": "book-open",
+ "standard": "Yes",
+ "roles": [
+  {"role": "Manufacturing User"},
+  {"role": "Manufacturing Manager"},
+  {"role": "System Manager"}
+ ]
+}

@@ -1,5 +1,7 @@
 # CFG Kanban
 
+For setup and day-to-day operation, see the [CFG Kanban User Manual](docs/USER_MANUAL.md).
+
 `cfg_kanban` is a Frappe/ERPNext v15 process-control app for production Kanban. Kanban decides
 **when and why** replenishment or a process handoff is required; ERPNext remains the system of
 record for Work Orders, Job Cards, Stock Entries, stock, batches, and accounting.

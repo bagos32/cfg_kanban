@@ -10,7 +10,8 @@
  "is_hidden": 0,
  "label": "CFG Kanban",
  "links": [
-  {"hidden":0,"is_query_report":0,"label":"Configuration","link_count":4,"onboard":0,"type":"Card Break"},
+  {"hidden":0,"is_query_report":0,"label":"Configuration","link_count":5,"onboard":0,"type":"Card Break"},
+  {"hidden":0,"is_query_report":0,"label":"User Manual","link_to":"cfg-kanban-user-manual","link_type":"Page","onboard":0,"type":"Link"},
   {"hidden":0,"is_query_report":0,"label":"Kanban Operator","link_to":"kanban-operator","link_type":"Page","onboard":0,"type":"Link"},
   {"hidden":0,"is_query_report":0,"label":"Kanban Settings","link_to":"CFG Kanban Settings","link_type":"DocType","onboard":0,"type":"Link"},
   {"hidden":0,"is_query_report":0,"label":"Kanban Masters","link_to":"CFG Kanban Master","link_type":"DocType","onboard":0,"type":"Link"},
@@ -41,6 +42,7 @@
  "roles": [],
  "sequence_id": 1,
  "shortcuts": [
+  {"color":"Cyan","label":"User Manual","link_to":"cfg-kanban-user-manual","type":"Page"},
   {"color":"Grey","doc_view":"Form","label":"Kanban Settings","link_to":"CFG Kanban Settings","type":"DocType"},
   {"color":"Blue","doc_view":"List","label":"Kanban Masters","link_to":"CFG Kanban Master","type":"DocType"},
   {"color":"Green","doc_view":"List","label":"Kanban Cards","link_to":"CFG Kanban Card","type":"DocType"},
