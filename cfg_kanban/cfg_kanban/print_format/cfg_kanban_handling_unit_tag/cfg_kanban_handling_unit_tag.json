@@ -1,0 +1,22 @@
+{
+ "align_labels_right": 0,
+ "custom_format": 1,
+ "disabled": 0,
+ "doc_type": "CFG Kanban Handling Unit",
+ "doctype": "Print Format",
+ "font": "Arial",
+ "html": "<div class=\"tag\">\n<div class=\"tag-head\"><span class=\"type\">{{ doc.handling_unit_type|upper }} · {{ doc.state|upper }}</span><span class=\"seq\">{{ doc.handling_unit_type|upper }} {{ doc.sequence_no }} OF {{ doc.total_units }}</span></div>\n<div class=\"tag-grid\"><div class=\"identity\"><div class=\"label\">HANDLING UNIT ID</div><div class=\"hu\">{{ doc.handling_unit_id }}</div><div class=\"item\">{{ doc.item_code }}</div><div class=\"desc\">{{ doc.short_description or '' }}</div><div class=\"qty\">{{ doc.qty }} {{ doc.stock_uom }}</div><div class=\"count\">CARTON / CONTAINER COUNT: <b>{{ doc.container_count or '-' }}</b> &nbsp; BATCH: <b>{{ doc.batch_no or '-' }}</b></div></div><div class=\"qr\"><img src=\"{{ get_qr_svg(doc.opaque_token, 150) }}\"><small>{{ doc.opaque_token }}</small></div></div>\n<div class=\"route\"><div><span>CURRENT OPERATION</span><b>{{ doc.current_operation or '-' }}</b></div><div><span>FROM</span><b>{{ doc.source_location }}</b></div><div class=\"arrow\">→</div><div><span>TO</span><b>{{ doc.destination_location }}</b></div></div>\n<div class=\"refs\"><span>CYCLE: <b>{{ doc.kanban_cycle }}</b></span><span>WORK ORDER: <b>{{ doc.work_order or '-' }}</b></span><span>REV: <b>{{ doc.print_revision }}</b></span><span>PRINT: <b>{{ doc.print_count or 0 }}</b></span></div>\n<div class=\"barcode\">{{ get_code128_svg(doc.handling_unit_id, 34)|safe }}</div><div class=\"printed\">Printed {{ doc.last_printed_on or frappe.utils.now_datetime() }} · {{ doc.last_printed_by or frappe.session.user }}</div><div class=\"void\">DISPOSABLE — VOID AFTER RECEIPT</div>\n</div>",
+ "margin_bottom": 0,
+ "margin_left": 0,
+ "margin_right": 0,
+ "margin_top": 0,
+ "module": "CFG Kanban",
+ "name": "CFG Kanban Handling Unit Tag",
+ "print_format_builder": 0,
+ "print_format_type": "Jinja",
+ "raw_printing": 0,
+ "show_section_headings": 0,
+ "standard": "Yes",
+ "css": "@page{size:250mm 45mm;margin:2mm}body{font-family:Arial,sans-serif;color:#000}.tag{width:246mm;height:41mm;border:1mm solid #000;box-sizing:border-box;padding:1.5mm;position:relative;overflow:hidden}.tag-head{display:flex;justify-content:space-between;border-bottom:1mm solid #000;font-size:12px;font-weight:900;padding-bottom:1mm}.type{background:#000;color:#fff;padding:1mm 4mm;letter-spacing:1px}.seq{padding:1mm 3mm;border:1px solid #000;background:repeating-linear-gradient(135deg,#fff,#fff 2mm,#ddd 2mm,#ddd 3mm)}.tag-grid{display:grid;grid-template-columns:1fr 30mm;gap:2mm}.identity{display:grid;grid-template-columns:38mm 48mm 1fr 34mm;grid-template-rows:8mm 7mm 7mm;align-items:center}.label{font-size:8px;font-weight:700}.hu{font-size:17px;font-weight:900}.item{font-size:16px;font-weight:900}.desc{font-size:10px}.qty{grid-column:4;grid-row:1/3;font-size:20px;font-weight:900;text-align:right}.count{grid-column:1/5;font-size:8px}.qr{text-align:center;font-size:4px;word-break:break-all}.qr img{width:23mm;height:23mm}.route{position:absolute;left:2mm;bottom:10mm;width:150mm;display:grid;grid-template-columns:38mm 45mm 8mm 55mm;align-items:center;border:1px solid #000;padding:1mm;text-align:center}.route span{font-size:6px;display:block}.route b{font-size:9px}.arrow{font-size:17px;font-weight:900}.refs{position:absolute;left:155mm;right:2mm;bottom:14mm;display:grid;grid-template-columns:1fr 1fr;font-size:6px}.barcode{position:absolute;left:155mm;width:62mm;bottom:2mm;height:12mm}.barcode svg{width:100%;height:100%}.printed{position:absolute;right:2mm;bottom:7mm;font-size:5px}.void{position:absolute;right:2mm;bottom:2mm;font-size:8px;font-weight:900;border:1px solid #000;padding:.5mm 2mm;background:repeating-linear-gradient(135deg,#fff,#fff 1mm,#ddd 1mm,#ddd 2mm)}",
+ "default_print_language": "en"
+}

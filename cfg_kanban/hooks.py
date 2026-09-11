@@ -11,6 +11,16 @@ doctype_js = {
     "CFG Kanban Signal": "public/js/cfg_kanban_signal.js",
     "CFG Kanban Process Execution": "public/js/cfg_kanban_process_execution.js",
     "CFG Kanban Cycle": "public/js/cfg_kanban_cycle.js",
+    "CFG Kanban Handling Unit": "public/js/cfg_kanban_handling_unit.js",
+}
+
+jenv = {
+    "methods": [
+        "cfg_kanban.services.printing.get_card_route",
+        "cfg_kanban.services.printing.get_card_print_context",
+        "cfg_kanban.services.printing.get_qr_svg",
+        "cfg_kanban.services.printing.get_code128_svg",
+    ]
 }
 
 fixtures = [

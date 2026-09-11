@@ -24,6 +24,10 @@ intentionally deferred.
 - A Desk **Kanban Operator** console for scanning/finding cards, triggering consumption,
   starting linked Job Cards, entering dynamic progress data, and viewing the cycle timeline.
 - Form actions on cards, signals, executions, and cycles, including supervisor signal approval.
+- Two reusable English Kanban Card print formats: A6 landscape double-sided Standard Card and
+  A6 landscape single-sided Operational Card.
+- Disposable 45 mm × 250 mm monochrome Handling Unit tags with QR and Code 128 identities,
+  one per pallet/container, backed by a separate handling-unit transaction and lifecycle.
 
 ## Control flow
 
@@ -81,6 +85,19 @@ Add `kanban.localhost` to the hosts file if the local resolver does not handle i
 Operators can use `/app/kanban-operator` instead of calling the API directly. Signal approval is
 restricted server-side to Manufacturing Manager or System Manager. The console deliberately uses
 the ERP command gateway for Job Card actions and Work Order creation.
+
+## Printing and handling units
+
+Use **Print Kanban → Print Standard Card** or **Print Operational Card** from a reusable Kanban
+Card. The Standard Card produces two A6 landscape pages; for economical A4 stock select four pages
+per sheet and duplex printing in the printer dialog, then verify front/back orientation on a test
+sheet. The Operational Card is a single A6 landscape page showing immediate movement only.
+
+Create one **CFG Kanban Handling Unit** per physical pallet, mesh, tote, or other handling unit.
+Select **Print Thermal Tag** to produce the monochrome 45 mm × 250 mm tag. Reprints require a
+reason and increment the print counter. Replacement actions issue a new opaque token and revision,
+link old and new records, and make the old identity unusable. A tag scan can only advance its own
+Issued → Attached → Dispatched → Received lifecycle (or Void); it never creates replenishment.
 
 For the Cooking → Bottling → Cartoning pilot, configure Cooking as full-batch handoff, Bottling as
 incremental digital-quantity handoff with the carton transfer multiple, and Cartoning as full-batch
