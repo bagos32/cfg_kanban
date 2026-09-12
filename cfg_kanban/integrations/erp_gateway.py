@@ -2,6 +2,7 @@ import json
 
 import frappe
 from frappe.utils import now_datetime
+from erpnext.manufacturing.doctype.work_order.work_order import get_item_details
 
 from cfg_kanban.services.state_machine import set_cycle_state, transition_card
 
@@ -44,15 +45,26 @@ def create_work_order(command, payload):
     existing = frappe.db.get_value("Work Order", {"cfg_kanban_cycle": cycle.name, "docstatus": ["<", 2]}, "name")
     if existing:
         return frappe.get_doc("Work Order", existing)
-    work_order = frappe.get_doc({
-        "doctype": "Work Order", "production_item": payload["production_item"],
-        "bom_no": payload.get("bom_no"), "qty": payload["qty"], "company": payload["company"],
+    work_order = frappe.new_doc("Work Order")
+    work_order.production_item = payload["production_item"]
+    work_order.company = payload["company"]
+    work_order.update(get_item_details(payload["production_item"]))
+    work_order.update({
+        "bom_no": payload.get("bom_no"), "qty": payload["qty"],
         "source_warehouse": payload.get("source_warehouse"), "wip_warehouse": payload.get("wip_warehouse"),
         "fg_warehouse": payload.get("fg_warehouse"), "cfg_kanban_controlled": 1,
         "cfg_kanban_cycle": cycle.name, "cfg_kanban_signal": command.source_signal,
         "cfg_production_origin": "SALES ORDER" if cycle.get("sales_order") else "KANBAN",
         "cfg_sales_order": cycle.get("sales_order"), "cfg_planned_batch": cycle.batch_no,
-    }).insert(ignore_permissions=True)
+    })
+    work_order.get_items_and_operations_from_bom()
+    if not work_order.required_items:
+        frappe.throw(f"BOM {work_order.bom_no} did not provide any required material rows")
+    master = frappe.get_doc("CFG Kanban Master", cycle.kanban_master)
+    if master.operation_profiles and not work_order.operations:
+        frappe.throw(f"BOM {work_order.bom_no} has no operations. Enable With Operations and "
+                     "configure the ERPNext BOM route before creating a Kanban Work Order.")
+    work_order.insert(ignore_permissions=True)
     settings = frappe.get_single("CFG Kanban Settings")
     if settings.auto_submit_work_order:
         work_order.submit()
@@ -65,6 +77,23 @@ def create_work_order(command, payload):
     if cycle.kanban_card:
         transition_card(cycle.kanban_card, "Production Released", event_type="Production Released", cycle=cycle.name)
     return work_order
+
+
+@frappe.whitelist()
+def reload_draft_work_order_bom(work_order_name):
+    """Repair a draft Kanban Work Order created before BOM population was added."""
+    work_order = frappe.get_doc("Work Order", work_order_name)
+    work_order.check_permission("write")
+    if not work_order.cfg_kanban_cycle:
+        frappe.throw("This Work Order is not linked to a CFG Kanban Cycle")
+    if work_order.docstatus != 0:
+        frappe.throw("BOM details can only be reloaded into a Draft Work Order")
+    work_order.get_items_and_operations_from_bom()
+    if not work_order.operations:
+        frappe.throw(f"BOM {work_order.bom_no} has no operations. Enable With Operations and add the route first.")
+    work_order.save()
+    return {"work_order": work_order.name, "operations": len(work_order.operations),
+            "required_items": len(work_order.required_items)}
 
 
 @handler("Start Job Card")
