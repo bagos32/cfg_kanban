@@ -9,12 +9,25 @@ def _cycle(doc):
     return getattr(doc, "cfg_kanban_cycle", None)
 
 
+def prepare_work_order(doc, method=None):
+    """Prevent a submitted Kanban Work Order that can never produce Job Cards."""
+    if not _cycle(doc) or doc.operations:
+        return
+    cycle = frappe.get_doc("CFG Kanban Cycle", doc.cfg_kanban_cycle)
+    master = frappe.get_doc("CFG Kanban Master", cycle.kanban_master)
+    frappe.throw(f"Kanban Work Order has no ERPNext operation rows. Enable With Operations and "
+                 f"configure operations on BOM {master.bom}; Kanban operation profiles control "
+                 "handoff behavior but do not replace the ERPNext BOM route.")
+
+
 def on_work_order_update(doc, method=None):
     if not _cycle(doc):
         return
     cycle = frappe.get_doc("CFG Kanban Cycle", doc.cfg_kanban_cycle)
     _sync_job_cards(doc, cycle)
-    if doc.status in ("In Process", "Started"):
+    if doc.docstatus == 1 and doc.status == "Not Started":
+        _mark_released(cycle, doc)
+    elif doc.status in ("In Process", "Started"):
         set_cycle_state(cycle, "In Production", event_type="Work Order Started",
                         reference_doctype=doc.doctype, reference_name=doc.name)
         if cycle.kanban_card:
@@ -22,6 +35,44 @@ def on_work_order_update(doc, method=None):
     elif doc.status == "Completed":
         set_cycle_state(cycle, "Production Complete", event_type="Work Order Completed",
                         reference_doctype=doc.doctype, reference_name=doc.name)
+
+
+def _mark_released(cycle, work_order):
+    if cycle.status in ("New", "Signalled"):
+        set_cycle_state(cycle, "Released", event_type="Work Order Submitted",
+            reference_doctype=work_order.doctype, reference_name=work_order.name)
+    if not cycle.kanban_card:
+        return
+    card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card)
+    next_states = {"Consumed": "Signal Created", "Signal Created": "Replenishment Requested",
+                   "Replenishment Requested": "Production Released"}
+    while card.current_state in next_states:
+        target = next_states[card.current_state]
+        transition_card(card, target, event_type="Work Order Submission Reconciliation",
+                        cycle=cycle.name)
+        card.reload()
+
+
+@frappe.whitelist()
+def reconcile_work_order(work_order_name):
+    work_order = frappe.get_doc("Work Order", work_order_name)
+    work_order.check_permission("read")
+    if not _cycle(work_order):
+        frappe.throw("This Work Order is not linked to a CFG Kanban Cycle")
+    cycle = frappe.get_doc("CFG Kanban Cycle", work_order.cfg_kanban_cycle)
+    if work_order.docstatus == 1:
+        _mark_released(cycle, work_order)
+    job_count = frappe.db.count("Job Card", {"work_order": work_order.name,
+                                              "docstatus": ["<", 2]})
+    if not job_count:
+        if not work_order.operations:
+            frappe.throw("No Job Cards exist because this submitted Work Order has no operation rows. "
+                         "Cancel and amend it after deploying this fix, or create a new Kanban cycle.")
+        frappe.throw("ERPNext has not created Job Cards for the Work Order operations. "
+                     "Use the Work Order Create Job Card action, then run Sync Kanban again.")
+    _sync_job_cards(work_order, cycle)
+    return {"work_order": work_order.name, "job_cards": job_count,
+            "cycle": cycle.name, "card": cycle.kanban_card}
 
 
 def on_work_order_cancel(doc, method=None):

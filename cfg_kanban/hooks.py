@@ -8,6 +8,7 @@ required_apps = ["erpnext"]
 
 doctype_js = {
     "CFG Kanban Master": "public/js/cfg_kanban_master.js",
+    "Work Order": "public/js/work_order.js",
     "Sales Order": "public/js/sales_order.js",
     "CFG Kanban Card": "public/js/cfg_kanban_card.js",
     "CFG Kanban Signal": "public/js/cfg_kanban_signal.js",
@@ -40,6 +41,7 @@ doc_events = {
         "on_cancel": "cfg_kanban.integrations.sales_order_feedback.on_cancel",
     },
     "Work Order": {
+        "before_submit": "cfg_kanban.integrations.erp_feedback.prepare_work_order",
         "on_update": "cfg_kanban.integrations.erp_feedback.on_work_order_update",
         "on_submit": "cfg_kanban.integrations.erp_feedback.on_work_order_update",
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_work_order_cancel",

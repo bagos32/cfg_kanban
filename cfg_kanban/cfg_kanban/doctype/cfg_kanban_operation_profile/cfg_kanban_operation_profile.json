@@ -1,10 +1,11 @@
 {
  "doctype":"DocType","name":"CFG Kanban Operation Profile","module":"CFG Kanban","istable":1,
- "field_order":["operation","sequence","workstation","mandatory","allow_parallel","dependency_operation","start_rule","minimum_qty","minimum_percentage","output_reporting_mode","allow_incremental_output","handoff_mode","transfer_multiple","require_destination_scan","destination_operation","completion_rule"],
+ "field_order":["operation","sequence","workstation","time_in_mins","mandatory","allow_parallel","dependency_operation","start_rule","minimum_qty","minimum_percentage","output_reporting_mode","allow_incremental_output","handoff_mode","transfer_multiple","require_destination_scan","destination_operation","completion_rule"],
  "fields":[
   {"fieldname":"operation","label":"Operation","fieldtype":"Link","options":"Operation","reqd":1,"in_list_view":1,"columns":3},
   {"fieldname":"sequence","label":"Sequence","fieldtype":"Int","reqd":1,"in_list_view":1,"columns":1},
   {"fieldname":"workstation","label":"Workstation","fieldtype":"Link","options":"Workstation","in_list_view":1,"columns":2},
+  {"fieldname":"time_in_mins","label":"Reference Operation Time (Minutes)","fieldtype":"Float","description":"Operational reference only; ERPNext scheduling time remains controlled by the BOM."},
   {"fieldname":"mandatory","label":"Mandatory","fieldtype":"Check","default":"1"},
   {"fieldname":"allow_parallel","label":"Allow Parallel","fieldtype":"Check","in_list_view":1,"columns":1},
   {"fieldname":"dependency_operation","label":"Dependency Operation","fieldtype":"Link","options":"Operation","depends_on":"eval:doc.start_rule!='No Dependency'"},
