@@ -7,6 +7,7 @@ app_license = "MIT"
 required_apps = ["erpnext"]
 
 doctype_js = {
+    "CFG Kanban Master": "public/js/cfg_kanban_master.js",
     "Sales Order": "public/js/sales_order.js",
     "CFG Kanban Card": "public/js/cfg_kanban_card.js",
     "CFG Kanban Signal": "public/js/cfg_kanban_signal.js",

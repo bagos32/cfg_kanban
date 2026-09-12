@@ -12,6 +12,7 @@ class CFGKanbanHandlingUnit(Document):
         self._copy_cycle_context()
 
     def validate(self):
+        self._copy_cycle_context()
         if self.qty <= 0:
             frappe.throw("Handling-unit quantity must be positive")
         if self.sequence_no <= 0 or self.total_units <= 0 or self.sequence_no > self.total_units:
@@ -30,3 +31,19 @@ class CFGKanbanHandlingUnit(Document):
         self.work_order = self.work_order or cycle.work_order
         if not self.short_description and self.item_code:
             self.short_description = frappe.db.get_value("Item", self.item_code, "item_name")
+        if self.current_operation:
+            master = cycle.kanban_master
+            profile = frappe.db.get_value("CFG Kanban Operation Profile", {
+                "parent": master, "parenttype": "CFG Kanban Master",
+                "operation": self.current_operation,
+            }, ["workstation", "destination_operation"], as_dict=True)
+            if not profile:
+                frappe.throw(f"Operation {self.current_operation} is not configured in cycle Master {master}")
+            self.source_location = self.source_location or profile.workstation
+            destination = None
+            if profile.destination_operation:
+                destination = frappe.db.get_value("CFG Kanban Operation Profile", {
+                    "parent": master, "parenttype": "CFG Kanban Master",
+                    "operation": profile.destination_operation,
+                }, "workstation")
+            self.destination_location = self.destination_location or destination or cycle.destination_warehouse

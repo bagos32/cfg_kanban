@@ -1,5 +1,39 @@
 frappe.ui.form.on("CFG Kanban Card", {
+	setup(frm) {
+		frm.set_query("operation", () => ({
+			query: "cfg_kanban.api.form_queries.master_operations",
+			filters: { kanban_master: frm.doc.kanban_master || "" },
+		}));
+	},
+	kanban_master(frm) {
+		frm.set_value("operation", null);
+		if (!frm.doc.kanban_master) return;
+		frappe.db.get_value("CFG Kanban Master", frm.doc.kanban_master,
+			["item_code", "stock_uom", "replenishment_qty", "source_warehouse", "destination_warehouse"])
+			.then(({ message }) => frm.set_value({
+				item_code: message.item_code,
+				stock_uom: message.stock_uom,
+				kanban_qty: frm.doc.kanban_qty || message.replenishment_qty,
+				source_warehouse: message.source_warehouse,
+				destination_warehouse: message.destination_warehouse,
+				current_warehouse: frm.doc.current_warehouse || message.destination_warehouse,
+			}));
+	},
+	operation(frm) {
+		if (!frm.doc.kanban_master || !frm.doc.operation) {
+			frm.set_value({ workstation: null, handoff_mode: null });
+			return;
+		}
+		frappe.call({ method: "cfg_kanban.api.form_queries.operation_profile_context", args: {
+			kanban_master: frm.doc.kanban_master, operation: frm.doc.operation,
+		} }).then(({ message }) => frm.set_value(message || {}));
+	},
+	card_type(frm) {
+		const required = ["Process Kanban", "Station Kanban"].includes(frm.doc.card_type);
+		frm.set_df_property("operation", "reqd", required);
+	},
 	refresh(frm) {
+		frm.trigger("card_type");
 		if (frm.is_new()) return;
 		frm.add_custom_button(__("Open Operator Console"), () => {
 			frappe.set_route("kanban-operator");

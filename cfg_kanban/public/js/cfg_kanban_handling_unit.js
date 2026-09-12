@@ -1,5 +1,27 @@
 frappe.ui.form.on("CFG Kanban Handling Unit", {
+	setup(frm) {
+		frm._cfg_cycle_operations = [];
+		frm.set_query("current_operation", () => ({ filters: {
+			name: ["in", frm._cfg_cycle_operations.length ? frm._cfg_cycle_operations : ["__none__"]],
+		} }));
+	},
+	async kanban_cycle(frm) {
+		if (!frm.doc.kanban_cycle) return;
+		const [{ message: cycle }, { message: operations }] = await Promise.all([
+			frappe.db.get_value("CFG Kanban Cycle", frm.doc.kanban_cycle,
+				["kanban_card", "item_code", "stock_uom", "batch_no", "work_order"]),
+			frappe.call({ method: "cfg_kanban.api.form_queries.cycle_operations",
+				args: { kanban_cycle: frm.doc.kanban_cycle } }),
+		]);
+		frm._cfg_cycle_operations = (operations || []).map((row) => row.operation);
+		await frm.set_value({
+			kanban_card: cycle.kanban_card, item_code: cycle.item_code, stock_uom: cycle.stock_uom,
+			batch_no: cycle.batch_no, work_order: cycle.work_order,
+			current_operation: frm.doc.current_operation || frm._cfg_cycle_operations[0] || null,
+		});
+	},
 	refresh(frm) {
+		if (frm.doc.kanban_cycle) frm.trigger("kanban_cycle");
 		if (frm.is_new()) return;
 		frm.add_custom_button(__("Print Thermal Tag"), () => audited_print(
 			frm, "CFG Kanban Handling Unit Tag"), __("Kanban Actions"));
