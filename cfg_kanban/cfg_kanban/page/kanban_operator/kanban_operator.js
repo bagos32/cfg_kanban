@@ -40,7 +40,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				${__("Scan a Kanban QR code or enter its card number to begin.")}</div>`);
 			return;
 		}
-		const { card, master, cycle, effective_work_order, executions, operation_summaries, work_orders, route_warnings } = state.context;
+		const { card, master, cycle, effective_work_order, selected_job_card, executions, operation_summaries, work_orders, route_warnings } = state.context;
 		const e = frappe.utils.escape_html;
 		const cycle_label = cycle ? `${document_link("cfg-kanban-cycle", cycle.name)}${status_line(cycle.status)}` : __("No active cycle");
 		const work_order_label = effective_work_order
@@ -78,6 +78,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				$root.append(`<div class="alert ${cycle.short_cycle ? "alert-warning" : "alert-info"}">
 					<strong>${__("Runtime allocation")}: ${e(cycle.effective_cycle_qty || cycle.planned_qty)} / ${e(cycle.nominal_card_qty || card.kanban_qty)} ${e(card.stock_uom || "")}</strong><br>
 					${__("Selected Job Card")}: ${document_link("job-card", cycle.selected_job_card)}
+					${selected_job_card ? status_line(selected_job_card.status, selected_job_card.docstatus) : ""}
+					${selected_job_card ? `<small>${__("ERP completed")}: ${e(selected_job_card.total_completed_qty || 0)} / ${e(selected_job_card.for_quantity || 0)}</small>` : ""}
 					${cycle.short_cycle_reason ? `<br>${__("Short-cycle reason")}: ${e(cycle.short_cycle_reason)}` : ""}</div>`);
 			}
 			$("<button class='btn btn-default mr-2'>" + __("View Timeline") + "</button>")
@@ -181,7 +183,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		executions.forEach((row) => {
 			const $row = $(`<div class="frappe-card p-3 mb-2">
 				<div class="row align-items-center">
-				<div class="col-md-3"><strong>${e(row.sequence)}.${e(row.lane_sequence || 1)} ${e(row.operation)}</strong><div class="text-muted">${e(row.workstation || "")}</div><small>${__("Job Card")}: ${document_link("job-card", row.job_card)}</small></div>
+				<div class="col-md-3"><strong>${e(row.sequence)}.${e(row.lane_sequence || 1)} ${e(row.operation)}</strong><div class="text-muted">${e(row.workstation || "")}</div>
+					<small>${__("Job Card")}: ${document_link("job-card", row.job_card)}</small>
+					${status_line(row.job_card_status, row.job_card_docstatus)}
+					<small>${__("ERP completed")}: ${e(row.job_card_completed_qty || 0)} / ${e(row.job_card_target_qty || 0)}</small>
+					${(row.good_qty || 0) > (row.job_card_completed_qty || 0) ? `<div class="text-warning"><small>${__("Kanban progress is awaiting ERP Job Card entry")}</small></div>` : ""}</div>
 				<div class="col-md-2"><span class="indicator-pill ${indicator(row.status)}">${e(row.status)}</span></div>
 				<div class="col-md-3">${__("Allocated")}: ${e(row.allocated_qty || row.target_qty || 0)}<br>${__("Good")}: ${e(row.good_qty || 0)}<br>${__("Released")}: ${e(row.released_qty || 0)}</div>
 				<div class="col-md-4 text-right cfg-execution-actions"></div>

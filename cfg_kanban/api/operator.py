@@ -45,6 +45,13 @@ def get_card_context(token):
                     "handoff_mode"],
             order_by="sequence asc",
         )
+        for execution in executions:
+            job = frappe.db.get_value("Job Card", execution.job_card,
+                ["status", "docstatus", "for_quantity", "total_completed_qty"], as_dict=True)
+            execution["job_card_status"] = job.status if job else "Missing"
+            execution["job_card_docstatus"] = job.docstatus if job else None
+            execution["job_card_target_qty"] = flt(job.for_quantity) if job else 0
+            execution["job_card_completed_qty"] = flt(job.total_completed_qty) if job else 0
         operation_summaries = frappe.get_all("CFG Kanban Operation Summary",
             filters={"kanban_cycle": cycle.name}, fields=["name", "operation", "sequence",
                 "status", "execution_mode", "target_qty", "allocated_qty", "input_available_qty",
@@ -67,6 +74,9 @@ def get_card_context(token):
                    "stock_uom": master.stock_uom},
         "cycle": cycle.as_dict() if cycle else None,
         "effective_work_order": effective_work_order,
+        "selected_job_card": (frappe.db.get_value("Job Card", cycle.selected_job_card,
+            ["name", "status", "docstatus", "for_quantity", "total_completed_qty"], as_dict=True)
+            if cycle and cycle.selected_job_card else None),
         "executions": executions,
         "work_orders": work_orders,
         "route_warnings": route_warnings,
