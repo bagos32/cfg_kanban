@@ -9,6 +9,24 @@ frappe.ui.form.on("CFG Kanban Cycle", {
 			frm.add_custom_button(__("Open Work Order"), () =>
 				frappe.set_route("Form", "Work Order", frm.doc.work_order), __("View"));
 		}
+		if (["Manufacturing Manager", "System Manager"].some((role) => frappe.user_roles.includes(role))) {
+			frm.add_custom_button(__("Resolve Effective Work Order"), () => {
+				frappe.prompt([
+					{ fieldname: "work_order", label: __("Effective Work Order"), fieldtype: "Link", options: "Work Order", reqd: 1,
+						get_query: () => ({ filters: { production_item: frm.doc.item_code, docstatus: 1 } }) },
+					{ fieldname: "reason", label: __("Reconciliation Reason"), fieldtype: "Small Text", reqd: 1 },
+				], async (values) => {
+					const response = await frappe.call({
+						method: "cfg_kanban.integrations.erp_feedback.select_effective_work_order",
+						args: { cycle_name: frm.doc.name, work_order_name: values.work_order, reason: values.reason },
+						freeze: true, freeze_message: __("Resolving effective Work Order..."),
+					});
+					frappe.show_alert({ message: __("Effective Work Order {0} selected with {1} Job Card(s)",
+						[response.message.work_order, response.message.job_cards]), indicator: "green" });
+					frm.reload_doc();
+				}, __("Resolve Work Order Ambiguity"), __("Confirm"));
+			}, __("Kanban Recovery"));
+		}
 		if (frm.doc.batch_no) {
 			frm.add_custom_button(__("Open Batch"), () =>
 				frappe.set_route("Form", "Batch", frm.doc.batch_no), __("View"));

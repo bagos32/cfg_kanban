@@ -149,8 +149,25 @@ Sales Order amendment and over-delivery controls.
 
 For the Cooking → Bottling → Cartoning pilot, configure Cooking as full-batch handoff, Bottling as
 incremental digital-quantity handoff with the carton transfer multiple, and Cartoning as full-batch
-handoff to finished goods. `allow_parallel` permits ERPNext Job Cards to be active concurrently;
-readiness and available quantity remain controlled per execution.
+handoff to finished goods.
+
+### Multiple workstations for one operation
+
+One Kanban Card still represents one replenishment loop, and one active Cycle controls one effective
+ERPNext Work Order. Each ERPNext Job Card is mirrored as a Process Execution lane. The new Operation
+Summary is the authoritative combined result for all lanes belonging to the same operation: allocated,
+processed, good, rejected, released, and completed quantities are recalculated from the Job Cards.
+
+Select the Execution Mode on each Master operation profile:
+
+- **Single Workstation** expects one Job Card and blocks the operation if ERPNext produces several.
+- **Parallel Workstations** makes all Job Card lanes ready together and combines their live results.
+- **Sequential Split** makes only the first lane ready, then releases the next lane when it completes.
+
+Lane allocation follows ERPNext's Job Card `for_quantity`; total allocation above the Cycle quantity
+is blocked as a configuration exception. Handoff readiness uses the combined Operation Summary and
+operation-to-operation WIP ledger, not an arbitrary individual lane. Printing multiple copies of a
+permanent Card does not create lanes or separate orders.
 
 ## Custom fields and fixtures
 

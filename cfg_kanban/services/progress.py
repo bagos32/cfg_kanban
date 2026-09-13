@@ -2,6 +2,7 @@ import frappe
 from frappe.utils import flt, now_datetime
 
 from cfg_kanban.services.events import record
+from cfg_kanban.services.operation_summary import recalculate, refresh_destination
 from cfg_kanban.services.wip import append_entry, releasable_increment
 
 
@@ -30,11 +31,32 @@ def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_
             total_good, execution.released_qty, execution.transfer_multiple)
         if release:
             append_entry(execution.kanban_cycle, "Released", release, source_execution=execution.name,
-                         destination_execution=execution.destination_execution,
+                         source_operation=execution.operation,
+                         destination_operation=execution.destination_operation,
                          source_progress=progress.name)
             execution.db_set("released_qty", flt(execution.released_qty) + release)
             progress.db_set("released_qty", release, update_modified=False)
+            refresh_destination(execution.kanban_cycle, execution.operation,
+                                execution.destination_operation)
+    recalculate(execution.kanban_cycle, execution.operation)
     record("Operation Progress", cycle=execution.kanban_cycle, execution=execution.name,
            qty=good_qty, reference_doctype=progress.doctype, reference_name=progress.name)
     return progress
 
+
+def complete_execution_handoff(execution_name):
+    execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
+    if not execution.destination_operation:
+        return
+    if execution.handoff_mode in ("Full Batch Handoff", "Automatic Handoff"):
+        release = max(0, flt(execution.good_qty) - flt(execution.released_qty))
+        if release:
+            append_entry(execution.kanban_cycle, "Released", release,
+                source_execution=execution.name,
+                source_operation=execution.operation,
+                destination_operation=execution.destination_operation,
+                notes=f"{execution.handoff_mode} on operation completion")
+            execution.db_set("released_qty", flt(execution.released_qty) + release)
+    recalculate(execution.kanban_cycle, execution.operation)
+    refresh_destination(execution.kanban_cycle, execution.operation,
+                        execution.destination_operation)

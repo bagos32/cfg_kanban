@@ -40,7 +40,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				${__("Scan a Kanban QR code or enter its card number to begin.")}</div>`);
 			return;
 		}
-		const { card, master, cycle, executions } = state.context;
+		const { card, master, cycle, executions, operation_summaries, work_orders, route_warnings } = state.context;
 		const e = frappe.utils.escape_html;
 		const cycle_label = cycle ? `<a href="/app/cfg-kanban-cycle/${e(cycle.name)}">${e(cycle.name)}</a>` : __("No active cycle");
 		$root.append(`<div class="frappe-card p-4 mb-4">
@@ -49,12 +49,19 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				<span class="indicator-pill ${indicator(card.current_state)}">${e(card.current_state)}</span>
 			</div><hr>
 			<div class="row">
-				<div class="col-sm-3"><small>${__("Master")}</small><div>${e(master.kanban_name)}</div></div>
-				<div class="col-sm-3"><small>${__("Quantity")}</small><div>${e(card.kanban_qty)}</div></div>
-				<div class="col-sm-3"><small>${__("Automation")}</small><div>${e(master.automation_level)}</div></div>
+				<div class="col-sm-2"><small>${__("Master")}</small><div>${e(master.kanban_name)}</div></div>
+				<div class="col-sm-2"><small>${__("Quantity")}</small><div>${e(card.kanban_qty)}</div></div>
+				<div class="col-sm-2"><small>${__("Automation")}</small><div>${e(master.automation_level)}</div></div>
 				<div class="col-sm-3"><small>${__("Cycle")}</small><div>${cycle_label}</div></div>
+				<div class="col-sm-3"><small>${__("Effective Work Order")}</small><div>${document_link("work-order", cycle && cycle.work_order)}</div></div>
 			</div><div class="cfg-card-actions mt-4"></div>
 		</div>`);
+		(route_warnings || []).forEach((warning) => $root.append(
+			`<div class="alert alert-warning">${e(warning)}</div>`));
+		if ((work_orders || []).length > 1) {
+			$root.append(`<div class="frappe-card p-3 mb-3"><strong>${__("Work Orders claiming this Cycle")}</strong><div>${work_orders.map((row) =>
+				`${document_link("work-order", row.name)} · ${e(row.status)}`).join("<br>")}</div></div>`);
+		}
 		const $actions = $root.find(".cfg-card-actions");
 		if (!cycle && card.current_state === "Available") {
 			$("<button class='btn btn-primary mr-2'>" + __("Consume / Trigger") + "</button>")
@@ -64,7 +71,21 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			$("<button class='btn btn-default mr-2'>" + __("View Timeline") + "</button>")
 				.appendTo($actions).on("click", () => show_timeline(cycle.name));
 		}
+		render_summaries(operation_summaries || []);
 		render_executions(executions || []);
+	}
+
+	function render_summaries(summaries) {
+		if (!summaries.length) return;
+		const e = frappe.utils.escape_html;
+		const $section = $(`<div><h4>${__("Operation Results")}</h4></div>`).appendTo($root);
+		summaries.forEach((row) => $section.append(`<div class="frappe-card p-3 mb-2">
+			<div class="row"><div class="col-md-3"><strong>${e(row.sequence)}. ${e(row.operation)}</strong><br><small>${e(row.execution_mode)}</small></div>
+			<div class="col-md-2"><span class="indicator-pill ${indicator(row.status)}">${e(row.status)}</span></div>
+			<div class="col-md-2">${__("Lanes")}: ${e(row.completed_execution_count || 0)} / ${e(row.execution_count || 0)}<br>${__("Allocated")}: ${e(row.allocated_qty || 0)}</div>
+			<div class="col-md-3">${__("Combined Good")}: ${e(row.good_qty || 0)} / ${e(row.target_qty || 0)}<br>${__("Reject")}: ${e(row.reject_qty || 0)}</div>
+			<div class="col-md-2">${__("Released")}: ${e(row.released_qty || 0)}<br>${__("Input")}: ${e(row.input_available_qty || 0)}</div></div>
+		</div>`));
 	}
 
 	async function consume_card() {
@@ -82,13 +103,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	function render_executions(executions) {
 		if (!executions.length) return;
 		const e = frappe.utils.escape_html;
-		const $section = $("<div><h4>" + __("Process Executions") + "</h4></div>").appendTo($root);
+		const $section = $("<div><h4>" + __("Job Card Execution Lanes") + "</h4></div>").appendTo($root);
 		executions.forEach((row) => {
 			const $row = $(`<div class="frappe-card p-3 mb-2">
 				<div class="row align-items-center">
-				<div class="col-md-3"><strong>${e(row.sequence)}. ${e(row.operation)}</strong><div class="text-muted">${e(row.workstation || "")}</div></div>
+				<div class="col-md-3"><strong>${e(row.sequence)}.${e(row.lane_sequence || 1)} ${e(row.operation)}</strong><div class="text-muted">${e(row.workstation || "")}</div><small>${__("Job Card")}: ${document_link("job-card", row.job_card)}</small></div>
 				<div class="col-md-2"><span class="indicator-pill ${indicator(row.status)}">${e(row.status)}</span></div>
-				<div class="col-md-3">${__("Good")}: ${e(row.good_qty || 0)} / ${e(row.target_qty || 0)}<br>${__("Released")}: ${e(row.released_qty || 0)}</div>
+				<div class="col-md-3">${__("Allocated")}: ${e(row.allocated_qty || row.target_qty || 0)}<br>${__("Good")}: ${e(row.good_qty || 0)}<br>${__("Released")}: ${e(row.released_qty || 0)}</div>
 				<div class="col-md-4 text-right cfg-execution-actions"></div>
 				</div></div>`).appendTo($section);
 			const $buttons = $row.find(".cfg-execution-actions");
@@ -96,6 +117,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			if (["Ready", "In Progress", "Paused"].includes(row.status)) add_action($buttons, __("Report Progress"), "btn-default", () => progress_dialog(row));
 			if (row.status === "In Progress") add_action($buttons, __("Complete"), "btn-default", () => job_action(row, "complete"));
 		});
+	}
+
+	function document_link(route, name) {
+		if (!name) return `<span class="text-muted">${__("Not assigned")}</span>`;
+		return `<a href="/app/${route}/${encodeURIComponent(name)}">${frappe.utils.escape_html(name)}</a>`;
 	}
 
 	function add_action($parent, label, cls, fn) {

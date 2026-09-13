@@ -18,20 +18,43 @@ def get_card_context(token):
     master = frappe.get_doc("CFG Kanban Master", card.kanban_master)
     cycle = frappe.get_doc("CFG Kanban Cycle", card.active_cycle) if card.active_cycle else None
     executions = []
+    work_orders = []
+    route_warnings = []
+    operation_summaries = []
     if cycle:
+        work_orders = frappe.get_all("Work Order", filters={"cfg_kanban_cycle": cycle.name,
+            "docstatus": ["<", 2]}, fields=["name", "status", "docstatus"], order_by="creation asc")
+        effective_jobs = frappe.get_all("Job Card", filters={"work_order": cycle.work_order,
+            "docstatus": ["<", 2]}, pluck="name") if cycle.work_order else []
         executions = frappe.get_all(
-            "CFG Kanban Process Execution",
-            filters={"kanban_cycle": cycle.name},
+            "CFG Kanban Process Execution", filters={"kanban_cycle": cycle.name,
+                "job_card": ["in", effective_jobs or ["__none__"]]},
             fields=["name", "operation", "sequence", "job_card", "workstation", "status",
-                    "target_qty", "good_qty", "reject_qty", "released_qty", "handoff_mode"],
+                    "lane_sequence", "execution_mode", "allocated_qty", "target_qty",
+                    "good_qty", "reject_qty", "released_qty", "handoff_mode"],
             order_by="sequence asc",
         )
+        operation_summaries = frappe.get_all("CFG Kanban Operation Summary",
+            filters={"kanban_cycle": cycle.name}, fields=["name", "operation", "sequence",
+                "status", "execution_mode", "target_qty", "allocated_qty", "input_available_qty",
+                "processed_qty", "good_qty", "reject_qty", "released_qty", "execution_count",
+                "completed_execution_count", "destination_operation"], order_by="sequence asc")
+        expected = {row.operation for row in master.operation_profiles}
+        represented = {row.operation for row in executions}
+        missing = expected - represented
+        if missing:
+            route_warnings.append("Missing effective Job Cards for: " + ", ".join(sorted(missing)))
+        if len(work_orders) > 1:
+            route_warnings.append("Multiple Work Orders still claim this Cycle; supervisor reconciliation is required")
     return {
         "card": card.as_dict(),
         "master": {"name": master.name, "kanban_name": master.kanban_name,
                    "item_code": master.item_code, "automation_level": master.automation_level},
         "cycle": cycle.as_dict() if cycle else None,
         "executions": executions,
+        "work_orders": work_orders,
+        "route_warnings": route_warnings,
+        "operation_summaries": operation_summaries,
     }
 
 

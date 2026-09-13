@@ -1,6 +1,7 @@
 import frappe
-from frappe.utils import now_datetime
+from frappe.utils import flt, now_datetime
 
+from cfg_kanban.services.operation_summary import recalculate, refresh_destination
 from cfg_kanban.services.progress import report
 from cfg_kanban.services.triggers import consume_card
 from cfg_kanban.services.events import record
@@ -21,13 +22,31 @@ def scan(token, action="consume", device_id=None, event_token=None, payload=None
         execution = frappe.get_doc("CFG Kanban Process Execution", data.get("execution"))
         if execution.handoff_mode != "Physical Card Handoff":
             frappe.throw("Execution is not configured for physical-card handoff")
-        qty = data.get("qty") or execution.good_qty
+        key = canonical_key("physical-handoff", execution.name, event_token or "")
+        if event_token:
+            existing = frappe.db.get_value("CFG Kanban Event", {"device_id": key}, "reference_name")
+            if existing:
+                return {"ledger_entry": existing, "cycle": execution.kanban_cycle,
+                        "duplicate": True}
+        remaining = max(0, flt(execution.good_qty) - flt(execution.released_qty))
+        qty = flt(data.get("qty") or remaining)
+        if qty <= 0 or qty > remaining:
+            frappe.throw(f"Physical handoff quantity must be between 0 and unreleased good quantity {remaining}")
         entry = append_entry(execution.kanban_cycle, "Released", qty,
-            source_execution=execution.name, destination_execution=execution.destination_execution,
+            source_execution=execution.name, source_operation=execution.operation,
+            destination_operation=execution.destination_operation,
             source_progress=None, notes=f"Physical card scan {card_name}")
+        execution.db_set("released_qty", flt(execution.released_qty) + flt(qty))
+        recalculate(execution.kanban_cycle, execution.operation)
+        refresh_destination(execution.kanban_cycle, execution.operation,
+                            execution.destination_operation)
         record("Physical Card Handoff", card=card_name, cycle=execution.kanban_cycle,
             execution=execution.name, qty=qty, device_id=device_id,
             reference_doctype=entry.doctype, reference_name=entry.name)
+        if event_token:
+            frappe.db.set_value("CFG Kanban Event", {"reference_doctype": entry.doctype,
+                "reference_name": entry.name, "event_type": "Physical Card Handoff"},
+                "device_id", key)
         return {"ledger_entry": entry.name, "cycle": execution.kanban_cycle, "qty": qty}
     frappe.throw("Unsupported scan action")
 

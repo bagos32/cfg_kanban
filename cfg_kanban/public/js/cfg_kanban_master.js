@@ -29,3 +29,10 @@ frappe.ui.form.on("CFG Kanban Master", {
 		}
 	},
 });
+
+frappe.ui.form.on("CFG Kanban Operation Profile", {
+	execution_mode(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		frappe.model.set_value(cdt, cdn, "allow_parallel", row.execution_mode === "Parallel Workstations" ? 1 : 0);
+	},
+});

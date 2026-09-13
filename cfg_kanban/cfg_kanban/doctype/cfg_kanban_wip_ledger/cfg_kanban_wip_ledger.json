@@ -1,1 +1,20 @@
-{"doctype":"DocType","name":"CFG Kanban WIP Ledger","module":"CFG Kanban","autoname":"KWL-.#####","field_order":["kanban_cycle","source_execution","destination_execution","item_code","transaction_type","qty","stock_uom","posting_datetime","source_progress","reference_event","notes"],"fields":[{"fieldname":"kanban_cycle","label":"Kanban Cycle","fieldtype":"Link","options":"CFG Kanban Cycle","reqd":1},{"fieldname":"source_execution","label":"Source Execution","fieldtype":"Link","options":"CFG Kanban Process Execution"},{"fieldname":"destination_execution","label":"Destination Execution","fieldtype":"Link","options":"CFG Kanban Process Execution"},{"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item"},{"fieldname":"transaction_type","label":"Transaction Type","fieldtype":"Select","options":"Produced\nReleased\nConsumed\nReturned\nRejected\nAdjusted","reqd":1},{"fieldname":"qty","label":"Qty","fieldtype":"Float","reqd":1},{"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM"},{"fieldname":"posting_datetime","label":"Posting Datetime","fieldtype":"Datetime","reqd":1},{"fieldname":"source_progress","label":"Source Progress","fieldtype":"Link","options":"CFG Kanban Operation Progress"},{"fieldname":"reference_event","label":"Reference Event","fieldtype":"Link","options":"CFG Kanban Event","read_only":1},{"fieldname":"notes","label":"Notes","fieldtype":"Small Text"}],"permissions":[{"role":"Manufacturing User","read":1},{"role":"Manufacturing Manager","read":1}]}
+{
+ "doctype":"DocType","name":"CFG Kanban WIP Ledger","module":"CFG Kanban","autoname":"KWL-.YYYY.-.#####","track_changes":1,
+ "field_order":["kanban_cycle","source_operation","destination_operation","source_execution","destination_execution","item_code","transaction_type","qty","stock_uom","posting_datetime","source_progress","reference_event","notes"],
+ "fields":[
+  {"fieldname":"kanban_cycle","label":"Kanban Cycle","fieldtype":"Link","options":"CFG Kanban Cycle","reqd":1},
+  {"fieldname":"source_operation","label":"Source Operation","fieldtype":"Link","options":"Operation","read_only":1},
+  {"fieldname":"destination_operation","label":"Destination Operation","fieldtype":"Link","options":"Operation","read_only":1},
+  {"fieldname":"source_execution","label":"Source Execution","fieldtype":"Link","options":"CFG Kanban Process Execution"},
+  {"fieldname":"destination_execution","label":"Legacy Destination Execution","fieldtype":"Link","options":"CFG Kanban Process Execution","hidden":1},
+  {"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item"},
+  {"fieldname":"transaction_type","label":"Transaction Type","fieldtype":"Select","options":"Produced\nReleased\nConsumed\nReturned\nRejected\nAdjusted","reqd":1},
+  {"fieldname":"qty","label":"Qty","fieldtype":"Float","reqd":1},
+  {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM"},
+  {"fieldname":"posting_datetime","label":"Posting Datetime","fieldtype":"Datetime","reqd":1},
+  {"fieldname":"source_progress","label":"Source Progress","fieldtype":"Link","options":"CFG Kanban Operation Progress"},
+  {"fieldname":"reference_event","label":"Reference Event","fieldtype":"Link","options":"CFG Kanban Event"},
+  {"fieldname":"notes","label":"Notes","fieldtype":"Small Text"}
+ ],
+ "permissions":[{"role":"Manufacturing User","read":1},{"role":"Manufacturing Manager","read":1},{"role":"System Manager","read":1}]
+}

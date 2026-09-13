@@ -1,1 +1,36 @@
-{"doctype":"DocType","name":"CFG Kanban Process Execution","module":"CFG Kanban","autoname":"KPE-.#####","track_changes":1,"field_order":["kanban_cycle","kanban_master","operation","sequence","job_card","workstation","status","target_qty","input_available_qty","processed_qty","good_qty","reject_qty","released_qty","operator","started_on","completed_on","allow_parallel","handoff_mode","transfer_multiple","destination_execution","operation_profile_revision","execution_values","blocked","exception"],"fields":[{"fieldname":"kanban_cycle","label":"Kanban Cycle","fieldtype":"Link","options":"CFG Kanban Cycle","reqd":1},{"fieldname":"kanban_master","label":"Kanban Master","fieldtype":"Link","options":"CFG Kanban Master","reqd":1},{"fieldname":"operation","label":"Operation","fieldtype":"Link","options":"Operation","reqd":1},{"fieldname":"sequence","label":"Sequence","fieldtype":"Int","reqd":1},{"fieldname":"job_card","label":"Job Card","fieldtype":"Link","options":"Job Card"},{"fieldname":"workstation","label":"Workstation","fieldtype":"Link","options":"Workstation"},{"fieldname":"status","label":"Status","fieldtype":"Select","options":"Not Ready\nReady\nIn Progress\nPaused\nWaiting Input\nCompleted\nBlocked\nCancelled","default":"Not Ready"},{"fieldname":"target_qty","label":"Target Qty","fieldtype":"Float"},{"fieldname":"input_available_qty","label":"Input Available Qty","fieldtype":"Float","read_only":1},{"fieldname":"processed_qty","label":"Processed Qty","fieldtype":"Float","read_only":1},{"fieldname":"good_qty","label":"Good Qty","fieldtype":"Float","read_only":1},{"fieldname":"reject_qty","label":"Reject Qty","fieldtype":"Float","read_only":1},{"fieldname":"released_qty","label":"Released Qty","fieldtype":"Float","read_only":1},{"fieldname":"operator","label":"Operator","fieldtype":"Link","options":"User"},{"fieldname":"started_on","label":"Started On","fieldtype":"Datetime"},{"fieldname":"completed_on","label":"Completed On","fieldtype":"Datetime"},{"fieldname":"allow_parallel","label":"Allow Parallel","fieldtype":"Check","read_only":1},{"fieldname":"handoff_mode","label":"Handoff Mode","fieldtype":"Select","options":"Physical Card Handoff\nDigital Quantity Handoff\nFull Batch Handoff\nAutomatic Handoff","read_only":1},{"fieldname":"transfer_multiple","label":"Transfer Multiple","fieldtype":"Float","read_only":1},{"fieldname":"destination_execution","label":"Destination Execution","fieldtype":"Link","options":"CFG Kanban Process Execution"},{"fieldname":"operation_profile_revision","label":"Operation Profile Revision","fieldtype":"Data","read_only":1},{"fieldname":"execution_values","label":"Execution Values","fieldtype":"Table","options":"CFG Kanban Execution Value"},{"fieldname":"blocked","label":"Blocked","fieldtype":"Check","read_only":1},{"fieldname":"exception","label":"Exception","fieldtype":"Link","options":"CFG Kanban Exception","read_only":1}],"permissions":[{"role":"Manufacturing User","read":1,"write":1,"create":1},{"role":"Manufacturing Manager","read":1,"write":1,"create":1}]}
+{
+ "doctype":"DocType","name":"CFG Kanban Process Execution","module":"CFG Kanban","autoname":"KPE-.#####","track_changes":1,
+ "field_order":["kanban_cycle","kanban_master","operation_summary","operation","sequence","lane_sequence","job_card","workstation","status","execution_mode","allocated_qty","target_qty","input_available_qty","processed_qty","good_qty","reject_qty","released_qty","operator","started_on","completed_on","allow_parallel","handoff_mode","transfer_multiple","destination_operation","destination_execution","operation_profile_revision","execution_values","blocked","exception"],
+ "fields":[
+  {"fieldname":"kanban_cycle","label":"Kanban Cycle","fieldtype":"Link","options":"CFG Kanban Cycle","reqd":1},
+  {"fieldname":"kanban_master","label":"Kanban Master","fieldtype":"Link","options":"CFG Kanban Master","reqd":1},
+  {"fieldname":"operation_summary","label":"Operation Summary","fieldtype":"Link","options":"CFG Kanban Operation Summary","read_only":1},
+  {"fieldname":"operation","label":"Operation","fieldtype":"Link","options":"Operation","reqd":1},
+  {"fieldname":"sequence","label":"Sequence","fieldtype":"Int","reqd":1},
+  {"fieldname":"lane_sequence","label":"Lane / Split Sequence","fieldtype":"Int","read_only":1},
+  {"fieldname":"job_card","label":"Job Card","fieldtype":"Link","options":"Job Card","unique":1},
+  {"fieldname":"workstation","label":"Workstation","fieldtype":"Link","options":"Workstation"},
+  {"fieldname":"status","label":"Status","fieldtype":"Select","options":"Not Ready\nReady\nIn Progress\nPaused\nWaiting Input\nCompleted\nBlocked\nCancelled","default":"Not Ready"},
+  {"fieldname":"execution_mode","label":"Execution Mode","fieldtype":"Select","options":"Single Workstation\nParallel Workstations\nSequential Split","read_only":1},
+  {"fieldname":"allocated_qty","label":"ERP Job Card Allocated Qty","fieldtype":"Float","read_only":1},
+  {"fieldname":"target_qty","label":"Execution Target Qty","fieldtype":"Float"},
+  {"fieldname":"input_available_qty","label":"Operation Input Available Qty","fieldtype":"Float","read_only":1},
+  {"fieldname":"processed_qty","label":"Processed Qty","fieldtype":"Float","read_only":1},
+  {"fieldname":"good_qty","label":"Good Qty","fieldtype":"Float","read_only":1},
+  {"fieldname":"reject_qty","label":"Reject Qty","fieldtype":"Float","read_only":1},
+  {"fieldname":"released_qty","label":"Released Qty","fieldtype":"Float","read_only":1},
+  {"fieldname":"operator","label":"Operator","fieldtype":"Link","options":"User"},
+  {"fieldname":"started_on","label":"Started On","fieldtype":"Datetime"},
+  {"fieldname":"completed_on","label":"Completed On","fieldtype":"Datetime"},
+  {"fieldname":"allow_parallel","label":"Allow Parallel","fieldtype":"Check","read_only":1},
+  {"fieldname":"handoff_mode","label":"Handoff Mode","fieldtype":"Select","options":"Physical Card Handoff\nDigital Quantity Handoff\nFull Batch Handoff\nAutomatic Handoff","read_only":1},
+  {"fieldname":"transfer_multiple","label":"Transfer Multiple","fieldtype":"Float","read_only":1},
+  {"fieldname":"destination_operation","label":"Destination Operation","fieldtype":"Link","options":"Operation","read_only":1},
+  {"fieldname":"destination_execution","label":"Legacy Destination Execution","fieldtype":"Link","options":"CFG Kanban Process Execution","read_only":1,"hidden":1},
+  {"fieldname":"operation_profile_revision","label":"Operation Profile Revision","fieldtype":"Data","read_only":1},
+  {"fieldname":"execution_values","label":"Execution Values","fieldtype":"Table","options":"CFG Kanban Execution Value"},
+  {"fieldname":"blocked","label":"Blocked","fieldtype":"Check","read_only":1},
+  {"fieldname":"exception","label":"Exception","fieldtype":"Link","options":"CFG Kanban Exception","read_only":1}
+ ],
+ "permissions":[{"role":"Manufacturing User","read":1,"write":1,"create":1},{"role":"Manufacturing Manager","read":1,"write":1,"create":1},{"role":"System Manager","read":1,"write":1,"create":1}]
+}

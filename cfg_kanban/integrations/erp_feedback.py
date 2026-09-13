@@ -2,6 +2,8 @@ import frappe
 from frappe.utils import flt
 
 from cfg_kanban.services.events import record
+from cfg_kanban.services.operation_summary import (ensure_summary, ready_executions,
+                                                    ready_next_sequential_lane, recalculate)
 from cfg_kanban.services.state_machine import set_cycle_state, transition_card
 
 
@@ -14,6 +16,9 @@ def prepare_work_order(doc, method=None):
     if not _cycle(doc) or doc.operations:
         return
     cycle = frappe.get_doc("CFG Kanban Cycle", doc.cfg_kanban_cycle)
+    if cycle.work_order and cycle.work_order != doc.name:
+        frappe.throw(f"Kanban Cycle {cycle.name} already uses Work Order {cycle.work_order}. "
+                     "One cycle cannot control two Work Orders.")
     master = frappe.get_doc("CFG Kanban Master", cycle.kanban_master)
     frappe.throw(f"Kanban Work Order has no ERPNext operation rows. Enable With Operations and "
                  f"configure operations on BOM {master.bom}; Kanban operation profiles control "
@@ -24,6 +29,8 @@ def on_work_order_update(doc, method=None):
     if not _cycle(doc):
         return
     cycle = frappe.get_doc("CFG Kanban Cycle", doc.cfg_kanban_cycle)
+    if cycle.work_order and cycle.work_order != doc.name:
+        return
     _sync_job_cards(doc, cycle)
     if doc.docstatus == 1 and doc.status == "Not Started":
         _mark_released(cycle, doc)
@@ -60,6 +67,9 @@ def reconcile_work_order(work_order_name):
     if not _cycle(work_order):
         frappe.throw("This Work Order is not linked to a CFG Kanban Cycle")
     cycle = frappe.get_doc("CFG Kanban Cycle", work_order.cfg_kanban_cycle)
+    if cycle.work_order and cycle.work_order != work_order.name:
+        frappe.throw(f"Cycle {cycle.name} identifies {cycle.work_order} as its effective Work Order. "
+                     "Use Resolve Effective Work Order on the Cycle before synchronizing this one.")
     if work_order.docstatus == 1:
         _mark_released(cycle, work_order)
     job_count = frappe.db.count("Job Card", {"work_order": work_order.name,
@@ -75,6 +85,68 @@ def reconcile_work_order(work_order_name):
             "cycle": cycle.name, "card": cycle.kanban_card}
 
 
+@frappe.whitelist()
+def select_effective_work_order(cycle_name, work_order_name, reason):
+    """Resolve legacy cycles that were accidentally linked to more than one Work Order."""
+    frappe.only_for(("Manufacturing Manager", "System Manager"))
+    if not (reason or "").strip():
+        frappe.throw("A reconciliation reason is required")
+    cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
+    cycle.check_permission("write")
+    selected = frappe.get_doc("Work Order", work_order_name)
+    if selected.production_item != cycle.item_code or selected.docstatus != 1:
+        frappe.throw("The effective Work Order must be submitted and match the Cycle item")
+    job_count = frappe.db.count("Job Card", {"work_order": selected.name, "docstatus": ["<", 2]})
+    if not job_count:
+        frappe.throw("Select the submitted Work Order that has valid Job Cards")
+    previous = cycle.work_order
+    if previous and previous != selected.name:
+        _detach_inactive_work_order(previous, cycle)
+    frappe.db.set_value("Work Order", selected.name, {
+        "cfg_kanban_controlled": 1, "cfg_kanban_cycle": cycle.name,
+        "cfg_kanban_signal": cycle.signal,
+    }, update_modified=False)
+    cycle.db_set("work_order", selected.name, update_modified=True)
+    if cycle.signal:
+        frappe.db.set_value("CFG Kanban Signal", cycle.signal, {
+            "erp_reference_doctype": "Work Order", "erp_reference_name": selected.name,
+        })
+    _sync_job_cards(selected, cycle)
+    _mark_released(cycle, selected)
+    record("Effective Work Order Selected", card=cycle.kanban_card, cycle=cycle.name,
+           reference_doctype="Work Order", reference_name=selected.name,
+           notes=f"Replaced {previous or 'no Work Order'}; {reason}", system_generated=False)
+    return {"cycle": cycle.name, "work_order": selected.name, "job_cards": job_count}
+
+
+def _detach_inactive_work_order(work_order_name, cycle):
+    stock_activity = frappe.db.exists("Stock Entry", {
+        "work_order": work_order_name, "docstatus": 1,
+    })
+    job_activity = frappe.db.exists("Job Card", {
+        "work_order": work_order_name, "status": ["in", ("Work In Progress", "Completed")],
+    })
+    if stock_activity or job_activity:
+        frappe.throw(f"Work Order {work_order_name} has production activity and cannot be detached. "
+                     "Resolve it as a production exception.")
+    job_cards = frappe.get_all("Job Card", filters={"work_order": work_order_name}, pluck="name")
+    if job_cards:
+        for job_card in job_cards:
+            executions = frappe.get_all("CFG Kanban Process Execution",
+                                        filters={"job_card": job_card}, pluck="name")
+            for execution in executions:
+                frappe.db.set_value("CFG Kanban Process Execution", execution,
+                                    "status", "Cancelled")
+            frappe.db.set_value("Job Card", job_card, {
+                "cfg_kanban_controlled": 0, "cfg_kanban_cycle": None,
+                "cfg_kanban_signal": None,
+            }, update_modified=False)
+    frappe.db.set_value("Work Order", work_order_name, {
+        "cfg_kanban_controlled": 0, "cfg_kanban_cycle": None,
+        "cfg_kanban_signal": None,
+    }, update_modified=False)
+
+
 def on_work_order_cancel(doc, method=None):
     _block(doc, "Work Order Cancelled")
 
@@ -84,9 +156,17 @@ def on_job_card_update(doc, method=None):
         return
     execution = frappe.db.get_value("CFG Kanban Process Execution", {"job_card": doc.name}, "name")
     if execution:
-        status = "Completed" if doc.status == "Completed" else "In Progress" if doc.status in ("Work In Progress", "Open") else None
+        status = "Completed" if doc.status == "Completed" else "In Progress" if doc.status == "Work In Progress" else None
         if status:
-            frappe.db.set_value("CFG Kanban Process Execution", execution, "status", status)
+            values = {"status": status}
+            if status == "Completed":
+                values.update({"good_qty": flt(doc.total_completed_qty), "processed_qty": flt(doc.total_completed_qty)})
+            frappe.db.set_value("CFG Kanban Process Execution", execution, values)
+            if status == "Completed":
+                from cfg_kanban.services.progress import complete_execution_handoff
+                complete_execution_handoff(execution)
+                ready_next_sequential_lane(frappe.get_doc("CFG Kanban Process Execution", execution))
+            recalculate(doc.cfg_kanban_cycle, doc.operation)
         record("Job Card Feedback", cycle=doc.cfg_kanban_cycle, execution=execution,
                reference_doctype=doc.doctype, reference_name=doc.name, new_state=status)
 
@@ -178,34 +258,127 @@ def _sync_job_cards(work_order, cycle):
     """Mirror ERPNext's Job Cards as parallel-capable Kanban executions."""
     master = frappe.get_doc("CFG Kanban Master", cycle.kanban_master)
     profiles = {row.operation: row for row in master.operation_profiles}
+    summaries = {row.operation: ensure_summary(cycle, master, row)
+                 for row in master.operation_profiles}
+    first_sequence = min((row.sequence for row in master.operation_profiles), default=0)
     cards = frappe.get_all("Job Card", filters={"work_order": work_order.name, "docstatus": ["<", 2]},
-                           fields=["name", "operation", "workstation", "status"])
+                           fields=["name", "operation", "workstation", "status",
+                                   "for_quantity", "total_completed_qty", "creation"],
+                           order_by="operation asc, creation asc")
     created = {}
+    lane_counts = {}
     for job in cards:
         frappe.db.set_value("Job Card", job.name, {
             "cfg_kanban_controlled": 1,
             "cfg_kanban_cycle": cycle.name,
             "cfg_kanban_signal": cycle.signal,
         }, update_modified=False)
-        existing = frappe.db.get_value("CFG Kanban Process Execution", {"job_card": job.name}, "name")
-        if existing:
-            created[job.operation] = existing
-            continue
         profile = profiles.get(job.operation)
         if not profile:
+            _record_unmatched_job_card(job, cycle)
+            continue
+        lane_counts[job.operation] = lane_counts.get(job.operation, 0) + 1
+        lane_sequence = lane_counts[job.operation]
+        summary = summaries[profile.operation]
+        mode = _profile_execution_mode(profile)
+        existing = frappe.db.get_value("CFG Kanban Process Execution", {"job_card": job.name}, "name")
+        if existing:
+            current = frappe.db.get_value("CFG Kanban Process Execution", existing, "status")
+            repaired = _execution_status(job.status, profile, first_sequence, current,
+                                         lane_sequence=lane_sequence)
+            if repaired != current:
+                frappe.db.set_value("CFG Kanban Process Execution", existing, "status", repaired)
+            frappe.db.set_value("CFG Kanban Process Execution", existing, {
+                "operation_summary": summary.name, "lane_sequence": lane_sequence,
+                "execution_mode": mode, "allocated_qty": job.for_quantity,
+                "target_qty": job.for_quantity, "destination_operation": profile.destination_operation,
+            })
+            created[job.operation] = existing
             continue
         execution = frappe.get_doc({
             "doctype": "CFG Kanban Process Execution", "kanban_cycle": cycle.name,
             "kanban_master": master.name, "operation": job.operation, "sequence": profile.sequence,
-            "job_card": job.name, "workstation": job.workstation, "status": "Ready" if (
-                profile.start_rule == "No Dependency" or profile.allow_parallel) else "Not Ready",
-            "target_qty": cycle.planned_qty, "allow_parallel": profile.allow_parallel,
+            "operation_summary": summary.name, "lane_sequence": lane_sequence,
+            "job_card": job.name, "workstation": job.workstation,
+            "status": _execution_status(job.status, profile, first_sequence, lane_sequence=lane_sequence),
+            "execution_mode": mode, "allocated_qty": job.for_quantity,
+            "target_qty": job.for_quantity, "allow_parallel": mode == "Parallel Workstations",
             "handoff_mode": profile.handoff_mode, "transfer_multiple": profile.transfer_multiple,
+            "destination_operation": profile.destination_operation,
             "operation_profile_revision": master.revision,
         }).insert(ignore_permissions=True)
         created[job.operation] = execution.name
+    for operation, count in lane_counts.items():
+        profile = profiles[operation]
+        mode = _profile_execution_mode(profile)
+        summary = recalculate(cycle.name, operation)
+        if summary:
+            _validate_operation_allocation(cycle, summary, mode, count)
+        if summary and profile.sequence == first_sequence:
+            ready_executions(summary, mode)
     for operation, execution_name in created.items():
         destination = profiles.get(operation).destination_operation if profiles.get(operation) else None
         if destination and created.get(destination):
             frappe.db.set_value("CFG Kanban Process Execution", execution_name,
                                 "destination_execution", created[destination])
+
+
+def _execution_status(job_status, profile, first_sequence, current=None, lane_sequence=1):
+    if job_status == "Completed":
+        return "Completed"
+    if job_status == "Work In Progress":
+        return "In Progress"
+    if current not in (None, "Not Ready", "Ready"):
+        return current
+    mode = _profile_execution_mode(profile)
+    operation_ready = profile.sequence == first_sequence or profile.start_rule == "No Dependency"
+    ready = operation_ready and (mode != "Sequential Split" or lane_sequence == 1)
+    return "Ready" if ready else "Not Ready"
+
+
+def _profile_execution_mode(profile):
+    if profile.allow_parallel and profile.execution_mode in (None, "", "Single Workstation"):
+        return "Parallel Workstations"
+    return profile.execution_mode or "Single Workstation"
+
+
+def _record_parallel_configuration_exception(cycle, operation, count, detail=None):
+    message = detail or (f"Operation {operation} has {count} Job Cards but its Kanban Execution Mode is "
+                         "Single Workstation")
+    if frappe.db.exists("CFG Kanban Exception", {"kanban_cycle": cycle.name,
+            "message": message, "status": "Open"}):
+        return
+    frappe.get_doc({"doctype": "CFG Kanban Exception", "exception_type": "Configuration",
+        "severity": "Error", "status": "Open", "kanban_cycle": cycle.name,
+        "message": message, "reference_doctype": "Work Order",
+        "reference_name": cycle.work_order, "raised_on": frappe.utils.now_datetime()
+    }).insert(ignore_permissions=True)
+
+
+def _validate_operation_allocation(cycle, summary, mode, count):
+    messages = []
+    if mode == "Single Workstation" and count > 1:
+        messages.append(f"Single Workstation mode has {count} Job Cards")
+    if flt(summary.allocated_qty) > flt(cycle.planned_qty) + 0.000001:
+        messages.append(f"allocated Job Card quantity {summary.allocated_qty} exceeds Cycle quantity {cycle.planned_qty}")
+    if not messages:
+        return
+    summary.db_set("status", "Blocked")
+    execution_names = frappe.get_all("CFG Kanban Process Execution", filters={
+        "operation_summary": summary.name, "status": ["in", ("Not Ready", "Ready")],
+    }, pluck="name")
+    for execution_name in execution_names:
+        frappe.db.set_value("CFG Kanban Process Execution", execution_name, "status", "Blocked")
+    _record_parallel_configuration_exception(cycle, summary.operation, count,
+        f"Operation {summary.operation} blocked: {'; '.join(messages)}")
+
+
+def _record_unmatched_job_card(job, cycle):
+    key = f"Job Card operation {job.operation} is not configured in Kanban Master {cycle.kanban_master}"
+    if frappe.db.exists("CFG Kanban Exception", {"kanban_cycle": cycle.name,
+            "reference_doctype": "Job Card", "reference_name": job.name, "status": "Open"}):
+        return
+    frappe.get_doc({"doctype": "CFG Kanban Exception", "exception_type": "Configuration",
+        "severity": "Error", "status": "Open", "kanban_cycle": cycle.name,
+        "message": key, "reference_doctype": "Job Card", "reference_name": job.name,
+        "raised_on": frappe.utils.now_datetime()}).insert(ignore_permissions=True)

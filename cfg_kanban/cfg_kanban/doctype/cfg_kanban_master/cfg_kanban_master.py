@@ -11,6 +11,7 @@ class CFGKanbanMaster(Document):
             frappe.throw("Operation profile sequences must be unique")
         operations = {row.operation for row in self.operation_profiles}
         for row in self.operation_profiles:
+            row.allow_parallel = row.execution_mode == "Parallel Workstations"
             if row.dependency_operation and row.dependency_operation not in operations:
                 frappe.throw(f"Dependency operation {row.dependency_operation} is not in this route")
             if row.destination_operation and row.destination_operation not in operations:
