@@ -40,7 +40,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				${__("Scan a Kanban QR code or enter its card number to begin.")}</div>`);
 			return;
 		}
-		const { card, master, cycle, effective_work_order, selected_job_card, executions, operation_summaries, work_orders, route_warnings } = state.context;
+		const { card, master, cycle, effective_work_order, work_order_attention, selected_job_card, executions, operation_summaries, work_orders, route_warnings } = state.context;
 		const e = frappe.utils.escape_html;
 		const cycle_label = cycle ? `${document_link("cfg-kanban-cycle", cycle.name)}${status_line(cycle.status)}` : __("No active cycle");
 		const work_order_label = effective_work_order
@@ -64,6 +64,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		</div>`);
 		(route_warnings || []).forEach((warning) => $root.append(
 			`<div class="alert alert-warning">${e(warning)}</div>`));
+		if (work_order_attention) {
+			$root.append(`<div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap">
+				<div><strong>${__("ERP Work Order attention required")}</strong><br>${e(work_order_attention.message)}</div>
+				<a class="btn btn-warning btn-sm mt-2" href="/app/work-order/${encodeURIComponent(work_order_attention.work_order)}">${__("Open Work Order")}</a>
+			</div>`);
+		}
 		if ((work_orders || []).length > 1) {
 			$root.append(`<div class="frappe-card p-3 mb-3"><strong>${__("Work Orders claiming this Cycle")}</strong><div>${work_orders.map((row) =>
 				`${document_link("work-order", row.name)} · ${e(row.status)}`).join("<br>")}</div></div>`);
@@ -196,8 +202,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			if (row.status === "Ready") add_action($buttons, __("Start"), "btn-primary", () => job_action(row, "start"));
 			if (["Ready", "In Progress", "Paused"].includes(row.status)) add_action($buttons, __("Report Progress"), "btn-default", () => progress_dialog(row));
 			if (row.status === "In Progress" && !row.runtime_allocation) add_action($buttons, __("Complete"), "btn-default", () => job_action(row, "complete"));
-			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && row.status !== "Completed") {
+			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && row.status !== "Completed" && row.can_close_runtime_cycle) {
 				add_action($buttons, __("Close Kanban Cycle"), "btn-success", () => close_runtime_cycle(row));
+			}
+			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && row.status !== "Completed" && !row.can_close_runtime_cycle) {
+				const $blocked = $("<button class='btn btn-sm btn-warning ml-1'>" + __("ERP Update Required") + "</button>").appendTo($buttons);
+				$blocked.on("click", () => frappe.msgprint({ title: __("Cannot Close Kanban Cycle"),
+					message: e(row.close_block_reason || __("ERP Work Order and Job Card are not ready.")), indicator: "orange" }));
 			}
 		});
 	}

@@ -27,6 +27,7 @@ def get_card_context(token):
     route_warnings = []
     operation_summaries = []
     effective_work_order = None
+    work_order_attention = None
     if cycle:
         work_orders = frappe.get_all("Work Order", filters={"cfg_kanban_cycle": cycle.name,
             "docstatus": ["<", 2]}, fields=["name", "status", "docstatus"], order_by="creation asc")
@@ -52,6 +53,22 @@ def get_card_context(token):
             execution["job_card_docstatus"] = job.docstatus if job else None
             execution["job_card_target_qty"] = flt(job.for_quantity) if job else 0
             execution["job_card_completed_qty"] = flt(job.total_completed_qty) if job else 0
+            readiness = _runtime_close_readiness(execution, effective_work_order, job)
+            execution["can_close_runtime_cycle"] = readiness["ready"]
+            execution["close_block_reason"] = readiness["reason"]
+        kanban_processed = sum(flt(row.processed_qty) for row in executions)
+        if (effective_work_order and effective_work_order.status == "Not Started" and
+                cycle.status in ("Released", "In Production", "Packing In Progress",
+                                 "Production Complete", "Waiting FG Receipt")):
+            work_order_attention = {
+                "severity": "warning", "work_order": effective_work_order.name,
+                "work_order_status": effective_work_order.status,
+                "cycle_status": cycle.status, "kanban_processed_qty": kanban_processed,
+                "message": (f"Kanban Cycle is {cycle.status}"
+                            + (f" with {kanban_processed} processed" if kanban_processed else "")
+                            + ", but the ERPNext Work Order is still Not Started. Check material "
+                              "transfer or ERP production prerequisites before continuing."),
+            }
         operation_summaries = frappe.get_all("CFG Kanban Operation Summary",
             filters={"kanban_cycle": cycle.name}, fields=["name", "operation", "sequence",
                 "status", "execution_mode", "target_qty", "allocated_qty", "input_available_qty",
@@ -74,6 +91,7 @@ def get_card_context(token):
                    "stock_uom": master.stock_uom},
         "cycle": cycle.as_dict() if cycle else None,
         "effective_work_order": effective_work_order,
+        "work_order_attention": work_order_attention,
         "selected_job_card": (frappe.db.get_value("Job Card", cycle.selected_job_card,
             ["name", "status", "docstatus", "for_quantity", "total_completed_qty"], as_dict=True)
             if cycle and cycle.selected_job_card else None),
@@ -104,6 +122,13 @@ def complete_runtime_cycle(execution_name, notes=None):
     allocation = frappe.get_doc("CFG Kanban Runtime Allocation", execution.runtime_allocation)
     cycle = frappe.get_doc("CFG Kanban Cycle", execution.kanban_cycle)
     card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card)
+    work_order = frappe.db.get_value("Work Order", cycle.work_order,
+        ["name", "status", "docstatus"], as_dict=True)
+    job_card = frappe.db.get_value("Job Card", execution.job_card,
+        ["name", "status", "docstatus", "for_quantity", "total_completed_qty"], as_dict=True)
+    readiness = _runtime_close_readiness(execution, work_order, job_card)
+    if not readiness["ready"]:
+        frappe.throw(readiness["reason"])
     execution.db_set({"status": "Completed", "completed_on": now_datetime()})
     allocation.db_set({"status": "Completed", "completed_on": now_datetime(),
                        "good_qty": execution.good_qty, "reject_qty": execution.reject_qty,
@@ -144,6 +169,31 @@ def complete_runtime_cycle(execution_name, notes=None):
             "cumulative_completed_qty": cumulative_completed,
             "job_card_target_qty": target_qty, "job_card_target_reached": target_reached,
             "job_card_kept_open": not target_reached}
+
+
+def _runtime_close_readiness(execution, work_order, job_card):
+    if not execution.get("runtime_allocation"):
+        return {"ready": True, "reason": None}
+    if not work_order or work_order.status not in ("In Process", "Started", "Completed"):
+        status = work_order.status if work_order else "Missing"
+        return {"ready": False, "reason": (f"Cannot close the Kanban Cycle while ERPNext Work Order "
+                f"is {status}. Start the Work Order and satisfy any material-transfer prerequisites first.")}
+    if not job_card or job_card.status not in ("Work In Progress", "Completed"):
+        status = job_card.status if job_card else "Missing"
+        return {"ready": False, "reason": (f"Cannot close the Kanban Cycle while ERPNext Job Card "
+                f"is {status}. Start the Job Card and record its production time log first.")}
+    prior_good = flt(frappe.db.sql("""
+        select coalesce(sum(good_qty), 0)
+        from `tabCFG Kanban Runtime Allocation`
+        where job_card=%s and status='Completed' and name != %s
+    """, (execution.job_card, execution.runtime_allocation))[0][0])
+    required_erp_qty = prior_good + flt(execution.good_qty)
+    erp_qty = flt(job_card.total_completed_qty)
+    if erp_qty + 0.000001 < required_erp_qty:
+        return {"ready": False, "reason": (f"Cannot close the Kanban Cycle: cumulative Kanban good "
+                f"quantity is {required_erp_qty}, but ERPNext Job Card completed quantity is only {erp_qty}. "
+                "Update the Job Card time log, save it, and reload the Operator panel.")}
+    return {"ready": True, "reason": None}
 
 
 @frappe.whitelist()
