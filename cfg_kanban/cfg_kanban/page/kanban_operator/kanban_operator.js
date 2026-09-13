@@ -121,26 +121,51 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			args: { card_name: card.name }, freeze: true,
 			freeze_message: __("Finding eligible production work..."),
 		});
-		const proposal = response.message;
-		const dialog = new frappe.ui.Dialog({
+		let proposal = response.message;
+		const candidate_options = proposal.candidates.map((candidate) => ({
+			label: candidate.label, value: candidate.job_card,
+		}));
+		let dialog;
+		const proposal_html = (value) => `<div class="mb-3">
+			<b>${__("Item")}</b>: ${frappe.utils.escape_html(value.item_code || card.item_code)}<br>
+			<b>${__("Work Order")}</b>: ${document_link("work-order", value.work_order)} · ${frappe.utils.escape_html(value.work_order_status)}<br>
+			<b>${__("Job Card")}</b>: ${document_link("job-card", value.job_card)} · ${frappe.utils.escape_html(value.job_card_status)}
+			${value.is_recommended ? `<span class="indicator-pill green ml-2">${__("Recommended")}</span>` : `<span class="indicator-pill orange ml-2">${__("Override")}</span>`}<br>
+			<b>${__("Operation / Workstation")}</b>: ${frappe.utils.escape_html(value.operation)} / ${frappe.utils.escape_html(value.workstation || "-")}<hr>
+			<b>${__("Nominal Card Qty")}</b>: ${value.nominal_qty}<br>
+			<b>${__("Remaining Job Card Demand")}</b>: ${value.remaining_job_card_qty}<br>
+			<b>${__("Available Input")}</b>: ${value.available_input_qty}<br>
+			<h4>${__("Effective Cycle Qty")}: ${value.effective_cycle_qty}</h4>
+			${value.short_cycle_reason ? `<div class="text-warning"><b>${__("Short cycle")}</b>: ${frappe.utils.escape_html(value.short_cycle_reason)}</div>` : ""}</div>`;
+		dialog = new frappe.ui.Dialog({
 			title: __("Confirm Runtime Allocation"),
 			fields: [
-				{ fieldtype: "HTML", options: `<div class="mb-3">
-					<b>${__("Work Order")}</b>: ${document_link("work-order", proposal.work_order)} · ${frappe.utils.escape_html(proposal.work_order_status)}<br>
-					<b>${__("Job Card")}</b>: ${document_link("job-card", proposal.job_card)} · ${frappe.utils.escape_html(proposal.job_card_status)}<br>
-					<b>${__("Operation / Workstation")}</b>: ${frappe.utils.escape_html(proposal.operation)} / ${frappe.utils.escape_html(proposal.workstation || "-")}<hr>
-					<b>${__("Nominal Card Qty")}</b>: ${proposal.nominal_qty}<br>
-					<b>${__("Remaining Job Card Demand")}</b>: ${proposal.remaining_job_card_qty}<br>
-					<b>${__("Available Input")}</b>: ${proposal.available_input_qty}<br>
-					<h4>${__("Effective Cycle Qty")}: ${proposal.effective_cycle_qty}</h4>
-					${proposal.short_cycle_reason ? `<div class="text-warning"><b>${__("Short cycle")}</b>: ${frappe.utils.escape_html(proposal.short_cycle_reason)}</div>` : ""}</div>` },
+				{ fieldname: "selected_job_card", label: __("Eligible Work Order / Job Card"), fieldtype: "Select",
+					options: candidate_options, default: proposal.recommended_job_card, reqd: 1,
+					description: __("The system recommendation is selected first. Only item-, operation-, company-, status-, input-, and workstation-eligible choices are listed."),
+					onchange: async () => {
+						if (!dialog) return;
+						const selected = dialog.get_value("selected_job_card");
+						if (!selected) return;
+						const changed = await frappe.call({ method: "cfg_kanban.api.operator.preview_runtime_selection",
+							args: { card_name: card.name, job_card: selected } });
+						proposal = changed.message;
+						dialog.fields_dict.proposal_html.$wrapper.html(proposal_html(proposal));
+						dialog.set_df_property("override_reason", "reqd", !proposal.is_recommended);
+						dialog.set_df_property("override_reason", "hidden", proposal.is_recommended);
+					},
+				},
+				{ fieldname: "proposal_html", fieldtype: "HTML", options: proposal_html(proposal) },
+				{ fieldname: "override_reason", label: __("Override Reason"), fieldtype: "Small Text", hidden: 1,
+					description: __("Required when the operator chooses a different eligible option from the system recommendation.") },
 				{ fieldname: "confirmation", label: __("Operator Confirmation / Notes"), fieldtype: "Small Text", reqd: 1,
 					description: proposal.short_cycle ? __("Confirm that the reduced quantity and reason are understood.") : __("Confirm the proposed Work Order, Job Card, and quantity.") },
 			],
 			primary_action_label: __("Confirm and Allocate"),
 			primary_action: async (values) => {
 				await frappe.call({ method: "cfg_kanban.api.operator.confirm_runtime_selection", args: {
-					card_name: card.name, job_card: proposal.job_card, confirmation: values.confirmation,
+					card_name: card.name, job_card: values.selected_job_card,
+					confirmation: values.confirmation, override_reason: values.override_reason,
 				}, freeze: true, freeze_message: __("Allocating production work...") });
 				dialog.hide();
 				await load_card(card.qr_code);

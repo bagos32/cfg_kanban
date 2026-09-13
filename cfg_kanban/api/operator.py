@@ -75,13 +75,13 @@ def get_card_context(token):
 
 
 @frappe.whitelist()
-def preview_runtime_selection(card_name):
-    return preview_runtime_card(card_name)
+def preview_runtime_selection(card_name, job_card=None):
+    return preview_runtime_card(card_name, job_card)
 
 
 @frappe.whitelist()
-def confirm_runtime_selection(card_name, job_card, confirmation):
-    return allocate_runtime_card(card_name, job_card, confirmation)
+def confirm_runtime_selection(card_name, job_card, confirmation, override_reason=None):
+    return allocate_runtime_card(card_name, job_card, confirmation, override_reason)
 
 
 @frappe.whitelist()

@@ -10,7 +10,7 @@ from cfg_kanban.services.state_machine import transition_card
 TERMINAL_ALLOCATION_STATUSES = ("Completed", "Cancelled")
 
 
-def preview(card_name):
+def preview(card_name, job_card_name=None):
     card = frappe.get_doc("CFG Kanban Card", card_name)
     _validate_runtime_card(card)
     master = frappe.get_doc("CFG Kanban Master", card.kanban_master)
@@ -18,32 +18,41 @@ def preview(card_name):
     candidates = _eligible_candidates(card, master, profile)
     if not candidates:
         frappe.throw("No eligible open Job Card has remaining demand and available input")
-    candidate = candidates[0]
+    recommended = candidates[0]
+    candidate = next((row for row in candidates if row.name == job_card_name), None) if job_card_name else recommended
+    if not candidate:
+        frappe.throw("The selected Job Card is no longer eligible for this Kanban Card")
     plan = calculate_cycle_allocation(card.kanban_qty, candidate.remaining_qty,
                                       candidate.available_input_qty)
     if plan.effective_qty <= 0:
         frappe.throw("The selected Job Card currently has no allocatable quantity")
-    return {
+    result = {
         "card": card.name, "card_number": card.card_number, "card_type": card.card_type,
+        "item_code": card.item_code,
         "nominal_qty": plan.nominal_qty, "work_order": candidate.work_order,
         "work_order_status": candidate.work_order_status, "job_card": candidate.name,
         "job_card_status": candidate.status, "operation": candidate.operation,
         "workstation": candidate.workstation, "remaining_job_card_qty": plan.remaining_demand_qty,
         "available_input_qty": plan.available_input_qty, "effective_cycle_qty": plan.effective_qty,
         "short_cycle": bool(plan.short_reason), "short_cycle_reason": plan.short_reason,
+        "recommended_job_card": recommended.name,
+        "is_recommended": candidate.name == recommended.name,
     }
+    if not job_card_name:
+        result["candidates"] = [_candidate_option(card, row) for row in candidates]
+    return result
 
 
-def allocate(card_name, job_card_name, confirmation):
+def allocate(card_name, job_card_name, confirmation, override_reason=None):
     if not (confirmation or "").strip():
         frappe.throw("Operator confirmation is required")
     card = frappe.get_doc("CFG Kanban Card", card_name)
     _validate_runtime_card(card)
     # Serialize allocation decisions for this Job Card and recalculate from live ERP quantities.
     frappe.db.sql("select name from `tabJob Card` where name=%s for update", job_card_name)
-    proposal = preview(card.name)
-    if proposal["job_card"] != job_card_name:
-        frappe.throw(f"Job Card availability changed. Review the new proposal {proposal['job_card']}.")
+    proposal = preview(card.name, job_card_name)
+    if not proposal["is_recommended"] and not (override_reason or "").strip():
+        frappe.throw("Override Reason is required when selecting a non-recommended Work Order or Job Card")
     master = frappe.get_doc("CFG Kanban Master", card.kanban_master)
     profile = _profile(master, card.operation)
     transition_card(card, "Consumed", event_type="Runtime Card Scanned",
@@ -72,7 +81,11 @@ def allocate(card_name, job_card_name, confirmation):
         "available_input_qty": proposal["available_input_qty"],
         "effective_qty": proposal["effective_cycle_qty"], "short_cycle": proposal["short_cycle"],
         "short_cycle_reason": proposal["short_cycle_reason"],
-        "operator_confirmation": confirmation, "status": "Allocated",
+        "operator_confirmation": confirmation,
+        "selection_method": "Automatic Recommendation" if proposal["is_recommended"] else "Operator Override",
+        "recommended_job_card": proposal["recommended_job_card"],
+        "override_reason": override_reason if not proposal["is_recommended"] else None,
+        "status": "Allocated",
         "allocated_on": now_datetime(),
     }).insert(ignore_permissions=True)
     cycle.db_set("runtime_allocation", allocation.name, update_modified=False)
@@ -99,9 +112,32 @@ def allocate(card_name, job_card_name, confirmation):
     record("Job Card Temporarily Allocated", card=card.name, cycle=cycle.name,
            execution=execution.name, qty=proposal["effective_cycle_qty"],
            reference_doctype="Job Card", reference_name=proposal["job_card"],
-           notes=proposal["short_cycle_reason"] or "Full nominal card quantity")
+           notes=(f"Operator override: {override_reason}" if not proposal["is_recommended"] else
+                  (proposal["short_cycle_reason"] or "Automatic recommendation accepted")))
+    if not proposal["is_recommended"]:
+        record("Runtime Selection Overridden", card=card.name, cycle=cycle.name,
+               execution=execution.name, reference_doctype="Job Card",
+               reference_name=proposal["job_card"],
+               notes=f"Recommended {proposal['recommended_job_card']}; selected {proposal['job_card']}. {override_reason}",
+               system_generated=False)
     return {**proposal, "cycle": cycle.name, "allocation": allocation.name,
             "execution": execution.name}
+
+
+def _candidate_option(card, candidate):
+    plan = calculate_cycle_allocation(card.kanban_qty, candidate.remaining_qty,
+                                      candidate.available_input_qty)
+    return {
+        "job_card": candidate.name, "work_order": candidate.work_order,
+        "work_order_status": candidate.work_order_status, "job_card_status": candidate.status,
+        "operation": candidate.operation, "workstation": candidate.workstation,
+        "remaining_job_card_qty": plan.remaining_demand_qty,
+        "available_input_qty": plan.available_input_qty,
+        "effective_cycle_qty": plan.effective_qty,
+        "short_cycle_reason": plan.short_reason,
+        "label": (f"{candidate.work_order} · {candidate.name} · {candidate.workstation or '-'} · "
+                  f"Qty {plan.effective_qty}"),
+    }
 
 
 def _validate_runtime_card(card):
@@ -132,7 +168,7 @@ def _eligible_candidates(card, master, profile):
           and wo.status not in ('Completed', 'Cancelled', 'Stopped')
           and jc.status not in ('Completed', 'Cancelled')
         order by wo.creation asc, jc.creation asc
-    """, (master.item_code, master.company, card.operation), as_dict=True)
+    """, (card.item_code, master.company, card.operation), as_dict=True)
     candidates = []
     for row in rows:
         if card.card_type == "Station Kanban" and card.workstation and row.workstation != card.workstation:

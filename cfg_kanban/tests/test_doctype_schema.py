@@ -69,5 +69,6 @@ class TestDocTypeSchema(TestCase):
         allocation_fields = {row["fieldname"] for row in json.loads(allocation_path.read_text())["fields"]}
         self.assertTrue({"kanban_cycle", "kanban_card", "work_order", "job_card",
                          "nominal_card_qty", "remaining_job_card_qty", "available_input_qty",
-                         "effective_qty", "short_cycle_reason", "operator_confirmation"}
+                         "effective_qty", "short_cycle_reason", "selection_method",
+                         "recommended_job_card", "override_reason", "operator_confirmation"}
                         .issubset(allocation_fields))
