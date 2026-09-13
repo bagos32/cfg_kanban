@@ -169,6 +169,23 @@ is blocked as a configuration exception. Handoff readiness uses the combined Ope
 operation-to-operation WIP ledger, not an arbitrary individual lane. Printing multiple copies of a
 permanent Card does not create lanes or separate orders.
 
+### Reusable Process and Station cards
+
+Process Kanban and Station Kanban cards are runtime selectors, not permanent Job Card assignments.
+Scanning an available card proposes one eligible submitted Work Order and open Job Card using the
+Master item/company, card operation, optional Station-card workstation, and the operation profile's
+Runtime Selection Priority. The operator must confirm the proposal before anything is allocated.
+
+The effective Cycle quantity is always the minimum of the card's permanent nominal quantity, the
+remaining Job Card demand after other active/completed runtime allocations, and available upstream
+input. A reduced final or input-limited Cycle is clearly labelled and its calculated reason is stored
+with the operator confirmation. The permanent Card quantity is never changed.
+
+Each confirmed selection creates a temporary Runtime Allocation linking Card, Cycle, Work Order, Job
+Card, workstation, nominal quantity, effective quantity, and final good/reject/notes. Closing that
+Cycle returns the reusable Card to Available while leaving an incompletely fulfilled ERPNext Job Card
+open for another Cycle. ERPNext Job Card completion remains the manufacturing system-of-record event.
+
 ## Custom fields and fixtures
 
 `after_install` creates app-owned, read-only traceability fields on Work Order, Job Card, and Stock

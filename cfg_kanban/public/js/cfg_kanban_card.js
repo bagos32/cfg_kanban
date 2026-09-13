@@ -26,11 +26,18 @@ frappe.ui.form.on("CFG Kanban Card", {
 		}
 		frappe.call({ method: "cfg_kanban.api.form_queries.operation_profile_context", args: {
 			kanban_master: frm.doc.kanban_master, operation: frm.doc.operation,
-		} }).then(({ message }) => frm.set_value(message || {}));
+		} }).then(({ message }) => {
+			const values = message || {};
+			if (frm.doc.card_type !== "Station Kanban") values.workstation = null;
+			frm.set_value(values);
+		});
 	},
 	card_type(frm) {
 		const required = ["Process Kanban", "Station Kanban"].includes(frm.doc.card_type);
 		frm.set_df_property("operation", "reqd", required);
+		if (frm.doc.card_type !== "Station Kanban" && frm.doc.workstation) {
+			frm.set_value("workstation", null);
+		}
 	},
 	refresh(frm) {
 		frm.trigger("card_type");
@@ -45,7 +52,8 @@ frappe.ui.form.on("CFG Kanban Card", {
 		if (frm.doc.active) {
 			frm.add_custom_button(__("Replace Card"), () => cfg_replace_card(frm), __("Print Kanban"));
 		}
-		if (frm.doc.current_state === "Available" && !frm.doc.active_cycle && frm.doc.active) {
+		if (frm.doc.current_state === "Available" && !frm.doc.active_cycle && frm.doc.active &&
+			!["Process Kanban", "Station Kanban"].includes(frm.doc.card_type)) {
 			frm.add_custom_button(__("Consume / Trigger"), async () => {
 				await frappe.call({ method: "cfg_kanban.api.scan.scan", args: {
 					token: frm.doc.qr_code, action: "consume", event_token: frappe.utils.get_random(16),

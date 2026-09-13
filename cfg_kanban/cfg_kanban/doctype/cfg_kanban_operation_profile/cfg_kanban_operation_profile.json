@@ -1,25 +1,26 @@
 {
  "doctype":"DocType","name":"CFG Kanban Operation Profile","module":"CFG Kanban","istable":1,
- "field_order":["operation","sequence","workstation","time_in_mins","mandatory","execution_mode","quantity_allocation","allow_parallel","dependency_operation","start_rule","minimum_qty","minimum_percentage","output_reporting_mode","allow_incremental_output","handoff_mode","transfer_multiple","require_destination_scan","destination_operation","completion_rule"],
+ "field_order":["operation","sequence","workstation","time_in_mins","mandatory","execution_mode","quantity_allocation","runtime_selection_rule","allow_parallel","dependency_operation","start_rule","minimum_qty","minimum_percentage","output_reporting_mode","allow_incremental_output","handoff_mode","transfer_multiple","require_destination_scan","destination_operation","completion_rule"],
  "fields":[
   {"fieldname":"operation","label":"Operation","fieldtype":"Link","options":"Operation","reqd":1,"in_list_view":1,"columns":3},
   {"fieldname":"sequence","label":"Sequence","fieldtype":"Int","reqd":1,"in_list_view":1,"columns":1},
   {"fieldname":"workstation","label":"Workstation","fieldtype":"Link","options":"Workstation","in_list_view":1,"columns":2},
   {"fieldname":"time_in_mins","label":"Reference Operation Time (Minutes)","fieldtype":"Float","description":"Operational reference only; ERPNext scheduling time remains controlled by the BOM."},
   {"fieldname":"mandatory","label":"Mandatory","fieldtype":"Check","default":"1"},
-  {"fieldname":"execution_mode","label":"Execution Mode","fieldtype":"Select","options":"Single Workstation\nParallel Workstations\nSequential Split","default":"Single Workstation","reqd":1,"in_list_view":1,"columns":2},
-  {"fieldname":"quantity_allocation","label":"Quantity Allocation","fieldtype":"Select","options":"ERP Job Card Quantity","default":"ERP Job Card Quantity","read_only":1},
+  {"fieldname":"execution_mode","label":"Execution Mode","fieldtype":"Select","options":"Single Workstation\nParallel Workstations\nSequential Split","default":"Single Workstation","reqd":1,"in_list_view":1,"columns":2,"description":"Single expects one Job Card. Parallel releases all workstation lanes together and combines their quantities. Sequential Split releases one Job Card lane at a time."},
+  {"fieldname":"quantity_allocation","label":"Quantity Allocation","fieldtype":"Select","options":"ERP Job Card Quantity","default":"ERP Job Card Quantity","read_only":1,"description":"Each execution lane uses the ERPNext Job Card For Quantity; all lanes are combined at operation level."},
+  {"fieldname":"runtime_selection_rule","label":"Runtime Selection Priority","fieldtype":"Select","options":"Oldest Work Order First\nSmallest Remaining First\nLargest Remaining First","default":"Oldest Work Order First","description":"When a reusable Process or Station card is scanned, rank eligible open Job Cards using this rule. Item, operation, company, status, and Station-card workstation eligibility are always enforced first."},
   {"fieldname":"allow_parallel","label":"Allow Parallel (Legacy)","fieldtype":"Check","hidden":1},
   {"fieldname":"dependency_operation","label":"Dependency Operation","fieldtype":"Link","options":"Operation","depends_on":"eval:doc.start_rule!='No Dependency'"},
-  {"fieldname":"start_rule","label":"Start Rule","fieldtype":"Select","options":"Previous Operation Complete\nMinimum Qty Available\nMinimum Percentage Available\nFull Batch Available\nNo Dependency","default":"Previous Operation Complete","in_list_view":1,"columns":2},
+  {"fieldname":"start_rule","label":"Start Rule","fieldtype":"Select","options":"Previous Operation Complete\nMinimum Qty Available\nMinimum Percentage Available\nFull Batch Available\nNo Dependency","default":"Previous Operation Complete","in_list_view":1,"columns":2,"description":"Controls when this operation becomes Ready. Use minimum quantity/percentage for overlapping production; No Dependency should only be used when the operation is genuinely independent."},
   {"fieldname":"minimum_qty","label":"Minimum Qty","fieldtype":"Float","depends_on":"eval:doc.start_rule=='Minimum Qty Available'","mandatory_depends_on":"eval:doc.start_rule=='Minimum Qty Available'"},
   {"fieldname":"minimum_percentage","label":"Minimum Percentage","fieldtype":"Percent","depends_on":"eval:doc.start_rule=='Minimum Percentage Available'","mandatory_depends_on":"eval:doc.start_rule=='Minimum Percentage Available'"},
-  {"fieldname":"output_reporting_mode","label":"Output Reporting Mode","fieldtype":"Select","options":"Completion Only\nIncremental","default":"Completion Only"},
+  {"fieldname":"output_reporting_mode","label":"Output Reporting Mode","fieldtype":"Select","options":"Completion Only\nIncremental","default":"Completion Only","description":"Completion Only reports final output from Job Card completion. Incremental permits operators to record good and rejected quantities during work."},
   {"fieldname":"allow_incremental_output","label":"Allow Incremental Output","fieldtype":"Check","depends_on":"eval:doc.output_reporting_mode=='Incremental'"},
-  {"fieldname":"handoff_mode","label":"Handoff Mode","fieldtype":"Select","options":"Physical Card Handoff\nDigital Quantity Handoff\nFull Batch Handoff\nAutomatic Handoff","default":"Full Batch Handoff","in_list_view":1,"columns":3},
+  {"fieldname":"handoff_mode","label":"Handoff Mode","fieldtype":"Select","options":"Physical Card Handoff\nDigital Quantity Handoff\nFull Batch Handoff\nAutomatic Handoff","default":"Full Batch Handoff","in_list_view":1,"columns":3,"description":"Physical requires a tag scan; Digital releases reported quantity in transfer multiples; Full Batch waits for completion; Automatic releases available output when completion is received."},
   {"fieldname":"transfer_multiple","label":"Transfer Multiple","fieldtype":"Float","depends_on":"eval:doc.handoff_mode=='Digital Quantity Handoff'"},
   {"fieldname":"require_destination_scan","label":"Require Destination Scan","fieldtype":"Check","depends_on":"eval:doc.handoff_mode=='Physical Card Handoff'"},
   {"fieldname":"destination_operation","label":"Destination Operation","fieldtype":"Link","options":"Operation"},
-  {"fieldname":"completion_rule","label":"Completion Rule","fieldtype":"Select","options":"Full Qty\nOperator Complete\nThreshold","default":"Full Qty"}
+  {"fieldname":"completion_rule","label":"Completion Rule","fieldtype":"Select","options":"Full Qty\nOperator Complete\nThreshold","default":"Full Qty","description":"Full Qty requires the allocated quantity; Operator Complete accepts an explicit completion action; Threshold completes when the configured production threshold is achieved."}
  ]
 }

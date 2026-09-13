@@ -13,6 +13,8 @@ def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_
     processed_qty = flt(processed_qty) if processed_qty is not None else good_qty + reject_qty
     if min(good_qty, reject_qty, processed_qty) < 0:
         frappe.throw("Progress quantities cannot be negative; use an explicit adjustment workflow")
+    if flt(execution.processed_qty) + processed_qty > flt(execution.target_qty) + 0.000001:
+        frappe.throw(f"Progress exceeds this Cycle allocation of {execution.target_qty}")
     progress = frappe.get_doc({
         "doctype": "CFG Kanban Operation Progress", "process_execution": execution.name,
         "kanban_cycle": execution.kanban_cycle, "posting_datetime": now_datetime(),

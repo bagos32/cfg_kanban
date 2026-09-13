@@ -40,20 +40,26 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				${__("Scan a Kanban QR code or enter its card number to begin.")}</div>`);
 			return;
 		}
-		const { card, master, cycle, executions, operation_summaries, work_orders, route_warnings } = state.context;
+		const { card, master, cycle, effective_work_order, executions, operation_summaries, work_orders, route_warnings } = state.context;
 		const e = frappe.utils.escape_html;
-		const cycle_label = cycle ? `<a href="/app/cfg-kanban-cycle/${e(cycle.name)}">${e(cycle.name)}</a>` : __("No active cycle");
+		const cycle_label = cycle ? `${document_link("cfg-kanban-cycle", cycle.name)}${status_line(cycle.status)}` : __("No active cycle");
+		const work_order_label = effective_work_order
+			? `${document_link("work-order", effective_work_order.name)}${status_line(effective_work_order.status, effective_work_order.docstatus)}`
+			: document_link("work-order", null);
 		$root.append(`<div class="frappe-card p-4 mb-4">
 			<div class="d-flex justify-content-between align-items-start flex-wrap">
-				<div><h3>${e(card.card_number)}</h3><div class="text-muted">${e(master.item_code || "")}</div></div>
-				<span class="indicator-pill ${indicator(card.current_state)}">${e(card.current_state)}</span>
+				<div><div class="d-flex align-items-center flex-wrap"><h3 class="mr-3 mb-1">${e(card.card_number)}</h3>
+					<span class="indicator-pill blue mb-1">${e(card.card_type || __("Unspecified Card Type"))}</span></div>
+					<div><strong>${e(card.item_code || master.item_code || "")}</strong> · ${e(card.kanban_qty || 0)} ${e(card.stock_uom || master.stock_uom || "")}</div>
+					<div class="text-muted">${e(master.control_type || "")} ${master.card_representation ? "· " + e(master.card_representation) : ""}${card.operation ? " · " + e(card.operation) : ""}</div></div>
+				<div class="text-right"><small>${__("Card Status")}</small><br><span class="indicator-pill ${indicator(card.current_state)}">${e(card.current_state)}</span></div>
 			</div><hr>
 			<div class="row">
 				<div class="col-sm-2"><small>${__("Master")}</small><div>${e(master.kanban_name)}</div></div>
 				<div class="col-sm-2"><small>${__("Quantity")}</small><div>${e(card.kanban_qty)}</div></div>
 				<div class="col-sm-2"><small>${__("Automation")}</small><div>${e(master.automation_level)}</div></div>
 				<div class="col-sm-3"><small>${__("Cycle")}</small><div>${cycle_label}</div></div>
-				<div class="col-sm-3"><small>${__("Effective Work Order")}</small><div>${document_link("work-order", cycle && cycle.work_order)}</div></div>
+				<div class="col-sm-3"><small>${__("Effective Work Order")}</small><div>${work_order_label}</div></div>
 			</div><div class="cfg-card-actions mt-4"></div>
 		</div>`);
 		(route_warnings || []).forEach((warning) => $root.append(
@@ -68,6 +74,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				.appendTo($actions).on("click", consume_card);
 		}
 		if (cycle) {
+			if (cycle.runtime_allocation) {
+				$root.append(`<div class="alert ${cycle.short_cycle ? "alert-warning" : "alert-info"}">
+					<strong>${__("Runtime allocation")}: ${e(cycle.effective_cycle_qty || cycle.planned_qty)} / ${e(cycle.nominal_card_qty || card.kanban_qty)} ${e(card.stock_uom || "")}</strong><br>
+					${__("Selected Job Card")}: ${document_link("job-card", cycle.selected_job_card)}
+					${cycle.short_cycle_reason ? `<br>${__("Short-cycle reason")}: ${e(cycle.short_cycle_reason)}` : ""}</div>`);
+			}
 			$("<button class='btn btn-default mr-2'>" + __("View Timeline") + "</button>")
 				.appendTo($actions).on("click", () => show_timeline(cycle.name));
 		}
@@ -90,6 +102,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	async function consume_card() {
 		const card = state.context.card;
+		if (["Process Kanban", "Station Kanban"].includes(card.card_type)) {
+			return propose_runtime_selection(card);
+		}
 		await frappe.call({
 			method: "cfg_kanban.api.scan.scan",
 			args: { token: card.qr_code, action: "consume", event_token: frappe.utils.get_random(16) },
@@ -98,6 +113,40 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		});
 		frappe.show_alert({ message: __("Kanban signal created"), indicator: "green" });
 		await load_card(card.qr_code);
+	}
+
+	async function propose_runtime_selection(card) {
+		const response = await frappe.call({
+			method: "cfg_kanban.api.operator.preview_runtime_selection",
+			args: { card_name: card.name }, freeze: true,
+			freeze_message: __("Finding eligible production work..."),
+		});
+		const proposal = response.message;
+		const dialog = new frappe.ui.Dialog({
+			title: __("Confirm Runtime Allocation"),
+			fields: [
+				{ fieldtype: "HTML", options: `<div class="mb-3">
+					<b>${__("Work Order")}</b>: ${document_link("work-order", proposal.work_order)} · ${frappe.utils.escape_html(proposal.work_order_status)}<br>
+					<b>${__("Job Card")}</b>: ${document_link("job-card", proposal.job_card)} · ${frappe.utils.escape_html(proposal.job_card_status)}<br>
+					<b>${__("Operation / Workstation")}</b>: ${frappe.utils.escape_html(proposal.operation)} / ${frappe.utils.escape_html(proposal.workstation || "-")}<hr>
+					<b>${__("Nominal Card Qty")}</b>: ${proposal.nominal_qty}<br>
+					<b>${__("Remaining Job Card Demand")}</b>: ${proposal.remaining_job_card_qty}<br>
+					<b>${__("Available Input")}</b>: ${proposal.available_input_qty}<br>
+					<h4>${__("Effective Cycle Qty")}: ${proposal.effective_cycle_qty}</h4>
+					${proposal.short_cycle_reason ? `<div class="text-warning"><b>${__("Short cycle")}</b>: ${frappe.utils.escape_html(proposal.short_cycle_reason)}</div>` : ""}</div>` },
+				{ fieldname: "confirmation", label: __("Operator Confirmation / Notes"), fieldtype: "Small Text", reqd: 1,
+					description: proposal.short_cycle ? __("Confirm that the reduced quantity and reason are understood.") : __("Confirm the proposed Work Order, Job Card, and quantity.") },
+			],
+			primary_action_label: __("Confirm and Allocate"),
+			primary_action: async (values) => {
+				await frappe.call({ method: "cfg_kanban.api.operator.confirm_runtime_selection", args: {
+					card_name: card.name, job_card: proposal.job_card, confirmation: values.confirmation,
+				}, freeze: true, freeze_message: __("Allocating production work...") });
+				dialog.hide();
+				await load_card(card.qr_code);
+			},
+		});
+		dialog.show();
 	}
 
 	function render_executions(executions) {
@@ -115,13 +164,37 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			const $buttons = $row.find(".cfg-execution-actions");
 			if (row.status === "Ready") add_action($buttons, __("Start"), "btn-primary", () => job_action(row, "start"));
 			if (["Ready", "In Progress", "Paused"].includes(row.status)) add_action($buttons, __("Report Progress"), "btn-default", () => progress_dialog(row));
-			if (row.status === "In Progress") add_action($buttons, __("Complete"), "btn-default", () => job_action(row, "complete"));
+			if (row.status === "In Progress" && !row.runtime_allocation) add_action($buttons, __("Complete"), "btn-default", () => job_action(row, "complete"));
+			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && row.status !== "Completed") {
+				add_action($buttons, __("Close Kanban Cycle"), "btn-success", () => close_runtime_cycle(row));
+			}
 		});
+	}
+
+	async function close_runtime_cycle(row) {
+		const values = await new Promise((resolve) => frappe.prompt([
+			{ fieldname: "notes", label: __("Completion Notes"), fieldtype: "Small Text" },
+		], resolve, __("Close Kanban Cycle"), __("Close Cycle and Release Card")));
+		const response = await frappe.call({ method: "cfg_kanban.api.operator.complete_runtime_cycle", args: {
+			execution_name: row.name, notes: values.notes,
+		}, freeze: true });
+		const result = response.message;
+		frappe.show_alert({ message: result.job_card_target_reached
+			? __("Cycle completed and Job Card target reached; confirm completion in ERPNext")
+			: __("Cycle completed; reusable card is available for the remaining Job Card demand"), indicator: "green" });
+		await load_card(state.context.card.qr_code);
 	}
 
 	function document_link(route, name) {
 		if (!name) return `<span class="text-muted">${__("Not assigned")}</span>`;
 		return `<a href="/app/${route}/${encodeURIComponent(name)}">${frappe.utils.escape_html(name)}</a>`;
+	}
+
+	function status_line(status, docstatus) {
+		if (!status) return "";
+		const e = frappe.utils.escape_html;
+		const draft_note = docstatus === 0 ? ` · ${__("Draft")}` : "";
+		return `<div class="mt-1"><span class="indicator-pill ${indicator(status)}">${e(status)}${draft_note}</span></div>`;
 	}
 
 	function add_action($parent, label, cls, fn) {

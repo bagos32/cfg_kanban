@@ -15,6 +15,8 @@ class CFGKanbanCard(Document):
             frappe.throw("Kanban quantity must be positive")
         if self.card_type in ("Process Kanban", "Station Kanban") and not self.operation:
             frappe.throw("Controlled Operation is required for Process and Station Kanban cards")
+        if self.card_type == "Station Kanban" and not self.workstation:
+            frappe.throw("Eligible Workstation is required for a Station Kanban card")
 
     def _copy_master_context(self):
         master = frappe.get_cached_doc("CFG Kanban Master", self.kanban_master)
@@ -32,6 +34,10 @@ class CFGKanbanCard(Document):
         profile = next((row for row in master.operation_profiles if row.operation == self.operation), None)
         if not profile:
             frappe.throw(f"Operation {self.operation} is not configured in Kanban Master {master.name}")
-        self.workstation = profile.workstation
-        self.current_station = self.current_station or profile.workstation
+        if self.card_type == "Station Kanban":
+            self.workstation = self.workstation or profile.workstation
+            self.current_station = self.current_station or self.workstation
+        else:
+            self.workstation = None
+            self.current_station = None
         self.handoff_mode = profile.handoff_mode

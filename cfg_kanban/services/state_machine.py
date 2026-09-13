@@ -6,7 +6,7 @@ from cfg_kanban.services.events import record
 
 CARD_TRANSITIONS = {
     "Available": {"Consumed", "Inactive", "Blocked"},
-    "Consumed": {"Signal Created", "Blocked"},
+    "Consumed": {"Signal Created", "Production Released", "Blocked"},
     "Signal Created": {"Replenishment Requested", "Blocked"},
     "Replenishment Requested": {"Production Released", "Blocked"},
     "Production Released": {"In Production", "Blocked"},
@@ -40,4 +40,3 @@ def set_cycle_state(cycle, status, *, event_type, reference_doctype=None, refere
     record(event_type, card=cycle.kanban_card, cycle=cycle.name, previous_state=previous,
            new_state=status, reference_doctype=reference_doctype, reference_name=reference_name)
     return cycle
-

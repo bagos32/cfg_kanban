@@ -2,6 +2,7 @@ import frappe
 from frappe.utils import flt, now_datetime
 
 from cfg_kanban.services.operation_summary import recalculate, refresh_destination
+from cfg_kanban.services.runtime_selector import preview as preview_runtime_card
 from cfg_kanban.services.progress import report
 from cfg_kanban.services.triggers import consume_card
 from cfg_kanban.services.events import record
@@ -16,6 +17,9 @@ def scan(token, action="consume", device_id=None, event_token=None, payload=None
         frappe.throw("Unknown or inactive Kanban card")
     frappe.db.set_value("CFG Kanban Card", card_name, "last_scan_time", now_datetime())
     if action == "consume":
+        card_type = frappe.db.get_value("CFG Kanban Card", card_name, "card_type")
+        if card_type in ("Process Kanban", "Station Kanban"):
+            return {"requires_confirmation": True, "proposal": preview_runtime_card(card_name)}
         return consume_card(card_name, device_id=device_id, event_token=event_token)
     if action == "physical_handoff":
         data = frappe.parse_json(payload) if isinstance(payload, str) else (payload or {})

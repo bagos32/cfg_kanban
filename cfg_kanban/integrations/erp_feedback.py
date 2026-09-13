@@ -154,7 +154,9 @@ def on_work_order_cancel(doc, method=None):
 def on_job_card_update(doc, method=None):
     if not _cycle(doc):
         return
-    execution = frappe.db.get_value("CFG Kanban Process Execution", {"job_card": doc.name}, "name")
+    execution = frappe.db.get_value("CFG Kanban Process Execution", {
+        "job_card": doc.name, "kanban_cycle": doc.cfg_kanban_cycle,
+    }, "name")
     if execution:
         status = "Completed" if doc.status == "Completed" else "In Progress" if doc.status == "Work In Progress" else None
         if status:
@@ -281,7 +283,9 @@ def _sync_job_cards(work_order, cycle):
         lane_sequence = lane_counts[job.operation]
         summary = summaries[profile.operation]
         mode = _profile_execution_mode(profile)
-        existing = frappe.db.get_value("CFG Kanban Process Execution", {"job_card": job.name}, "name")
+        existing = frappe.db.get_value("CFG Kanban Process Execution", {
+            "job_card": job.name, "kanban_cycle": cycle.name,
+        }, "name")
         if existing:
             current = frappe.db.get_value("CFG Kanban Process Execution", existing, "status")
             repaired = _execution_status(job.status, profile, first_sequence, current,

@@ -1,0 +1,27 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Runtime Allocation","module":"CFG Kanban",
+ "autoname":"KRA-.YYYY.-.#####","track_changes":1,
+ "field_order":["kanban_cycle","kanban_card","work_order","job_card","operation","workstation","nominal_card_qty","remaining_job_card_qty","available_input_qty","effective_qty","short_cycle","short_cycle_reason","operator_confirmation","status","allocated_on","completed_on","good_qty","reject_qty","notes"],
+ "fields":[
+  {"fieldname":"kanban_cycle","label":"Kanban Cycle","fieldtype":"Link","options":"CFG Kanban Cycle","reqd":1,"unique":1},
+  {"fieldname":"kanban_card","label":"Reusable Kanban Card","fieldtype":"Link","options":"CFG Kanban Card","reqd":1},
+  {"fieldname":"work_order","label":"Effective Work Order","fieldtype":"Link","options":"Work Order","reqd":1},
+  {"fieldname":"job_card","label":"Selected Job Card","fieldtype":"Link","options":"Job Card","reqd":1},
+  {"fieldname":"operation","label":"Operation","fieldtype":"Link","options":"Operation","reqd":1},
+  {"fieldname":"workstation","label":"Workstation","fieldtype":"Link","options":"Workstation"},
+  {"fieldname":"nominal_card_qty","label":"Nominal Card Qty","fieldtype":"Float","reqd":1,"read_only":1},
+  {"fieldname":"remaining_job_card_qty","label":"Remaining Job Card Demand","fieldtype":"Float","read_only":1},
+  {"fieldname":"available_input_qty","label":"Available Input","fieldtype":"Float","read_only":1},
+  {"fieldname":"effective_qty","label":"Effective Cycle Qty","fieldtype":"Float","reqd":1,"read_only":1},
+  {"fieldname":"short_cycle","label":"Short Cycle","fieldtype":"Check","read_only":1},
+  {"fieldname":"short_cycle_reason","label":"Short Cycle Reason","fieldtype":"Select","options":"Remaining Demand\nInsufficient Input\nRemaining Demand and Insufficient Input","read_only":1},
+  {"fieldname":"operator_confirmation","label":"Operator Confirmation","fieldtype":"Small Text","reqd":1},
+  {"fieldname":"status","label":"Status","fieldtype":"Select","options":"Allocated\nIn Progress\nCompleted\nCancelled","default":"Allocated","reqd":1,"read_only":1},
+  {"fieldname":"allocated_on","label":"Allocated On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"completed_on","label":"Completed On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"good_qty","label":"Good Qty","fieldtype":"Float","read_only":1},
+  {"fieldname":"reject_qty","label":"Reject Qty","fieldtype":"Float","read_only":1},
+  {"fieldname":"notes","label":"Notes","fieldtype":"Small Text","read_only":1}
+ ],
+ "permissions":[{"role":"Manufacturing User","read":1},{"role":"Manufacturing Manager","read":1},{"role":"System Manager","read":1}]
+}

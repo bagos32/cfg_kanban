@@ -31,11 +31,17 @@ class TestDocTypeSchema(TestCase):
 
     def test_card_exposes_operation_and_print_audit_context(self):
         path = ROOT / "cfg_kanban_card" / "cfg_kanban_card.json"
-        fields = {row["fieldname"] for row in json.loads(path.read_text())["fields"]}
+        schema = json.loads(path.read_text())
+        fields = {row["fieldname"] for row in schema["fields"]}
         required = {"operation", "workstation", "handoff_mode", "stock_uom",
                     "source_warehouse", "destination_warehouse",
                     "last_printed_on", "last_printed_by"}
         self.assertTrue(required.issubset(fields))
+
+        by_name = {row["fieldname"]: row for row in schema["fields"]}
+        for fieldname in ("card_type", "item_code", "current_state"):
+            self.assertEqual(by_name[fieldname].get("in_list_view"), 1)
+            self.assertEqual(by_name[fieldname].get("in_standard_filter"), 1)
 
     def test_parallel_execution_fields_are_present(self):
         execution_path = ROOT / "cfg_kanban_process_execution" / "cfg_kanban_process_execution.json"
@@ -52,3 +58,16 @@ class TestDocTypeSchema(TestCase):
                          "target_qty", "allocated_qty", "good_qty", "released_qty",
                          "execution_count", "completed_execution_count"}
                         .issubset(summary_fields))
+
+    def test_runtime_allocation_traceability_fields_are_present(self):
+        cycle_path = ROOT / "cfg_kanban_cycle" / "cfg_kanban_cycle.json"
+        cycle_fields = {row["fieldname"] for row in json.loads(cycle_path.read_text())["fields"]}
+        self.assertTrue({"nominal_card_qty", "effective_cycle_qty", "available_input_qty",
+                         "short_cycle_reason", "selected_job_card", "runtime_allocation"}
+                        .issubset(cycle_fields))
+        allocation_path = ROOT / "cfg_kanban_runtime_allocation" / "cfg_kanban_runtime_allocation.json"
+        allocation_fields = {row["fieldname"] for row in json.loads(allocation_path.read_text())["fields"]}
+        self.assertTrue({"kanban_cycle", "kanban_card", "work_order", "job_card",
+                         "nominal_card_qty", "remaining_job_card_qty", "available_input_qty",
+                         "effective_qty", "short_cycle_reason", "operator_confirmation"}
+                        .issubset(allocation_fields))

@@ -2,9 +2,14 @@ import frappe
 from frappe.utils import flt, now_datetime
 
 from cfg_kanban.integrations.erp_gateway import execute_command
+from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key, insert_once
 from cfg_kanban.services.progress import report
+from cfg_kanban.services.operation_summary import recalculate
 from cfg_kanban.services.triggers import create_work_order_command
+from cfg_kanban.services.runtime_selector import allocate as allocate_runtime_card
+from cfg_kanban.services.runtime_selector import preview as preview_runtime_card
+from cfg_kanban.services.state_machine import set_cycle_state, transition_card
 
 
 @frappe.whitelist()
@@ -21,17 +26,23 @@ def get_card_context(token):
     work_orders = []
     route_warnings = []
     operation_summaries = []
+    effective_work_order = None
     if cycle:
         work_orders = frappe.get_all("Work Order", filters={"cfg_kanban_cycle": cycle.name,
             "docstatus": ["<", 2]}, fields=["name", "status", "docstatus"], order_by="creation asc")
+        effective_work_order = next((row for row in work_orders if row.name == cycle.work_order), None)
+        if cycle.work_order and not effective_work_order:
+            effective_work_order = frappe.db.get_value("Work Order", cycle.work_order,
+                ["name", "status", "docstatus"], as_dict=True)
         effective_jobs = frappe.get_all("Job Card", filters={"work_order": cycle.work_order,
             "docstatus": ["<", 2]}, pluck="name") if cycle.work_order else []
         executions = frappe.get_all(
             "CFG Kanban Process Execution", filters={"kanban_cycle": cycle.name,
                 "job_card": ["in", effective_jobs or ["__none__"]]},
             fields=["name", "operation", "sequence", "job_card", "workstation", "status",
-                    "lane_sequence", "execution_mode", "allocated_qty", "target_qty",
-                    "good_qty", "reject_qty", "released_qty", "handoff_mode"],
+                    "lane_sequence", "execution_mode", "runtime_allocation", "allocated_qty",
+                    "target_qty", "processed_qty", "good_qty", "reject_qty", "released_qty",
+                    "handoff_mode"],
             order_by="sequence asc",
         )
         operation_summaries = frappe.get_all("CFG Kanban Operation Summary",
@@ -39,7 +50,8 @@ def get_card_context(token):
                 "status", "execution_mode", "target_qty", "allocated_qty", "input_available_qty",
                 "processed_qty", "good_qty", "reject_qty", "released_qty", "execution_count",
                 "completed_execution_count", "destination_operation"], order_by="sequence asc")
-        expected = {row.operation for row in master.operation_profiles}
+        expected = ({card.operation} if cycle.runtime_allocation else
+                    {row.operation for row in master.operation_profiles})
         represented = {row.operation for row in executions}
         missing = expected - represented
         if missing:
@@ -49,13 +61,79 @@ def get_card_context(token):
     return {
         "card": card.as_dict(),
         "master": {"name": master.name, "kanban_name": master.kanban_name,
-                   "item_code": master.item_code, "automation_level": master.automation_level},
+                   "item_code": master.item_code, "automation_level": master.automation_level,
+                   "control_type": master.control_type,
+                   "card_representation": master.card_representation,
+                   "stock_uom": master.stock_uom},
         "cycle": cycle.as_dict() if cycle else None,
+        "effective_work_order": effective_work_order,
         "executions": executions,
         "work_orders": work_orders,
         "route_warnings": route_warnings,
         "operation_summaries": operation_summaries,
     }
+
+
+@frappe.whitelist()
+def preview_runtime_selection(card_name):
+    return preview_runtime_card(card_name)
+
+
+@frappe.whitelist()
+def confirm_runtime_selection(card_name, job_card, confirmation):
+    return allocate_runtime_card(card_name, job_card, confirmation)
+
+
+@frappe.whitelist()
+def complete_runtime_cycle(execution_name, notes=None):
+    execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
+    if not execution.runtime_allocation:
+        frappe.throw("This is not a runtime-selected execution")
+    if flt(execution.processed_qty) + 0.000001 < flt(execution.target_qty):
+        frappe.throw(f"Report the full allocated quantity {execution.target_qty} before closing the Cycle")
+    allocation = frappe.get_doc("CFG Kanban Runtime Allocation", execution.runtime_allocation)
+    cycle = frappe.get_doc("CFG Kanban Cycle", execution.kanban_cycle)
+    card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card)
+    execution.db_set({"status": "Completed", "completed_on": now_datetime()})
+    allocation.db_set({"status": "Completed", "completed_on": now_datetime(),
+                       "good_qty": execution.good_qty, "reject_qty": execution.reject_qty,
+                       "notes": notes}, update_modified=True)
+    cycle.db_set({"completed_on": now_datetime(), "actual_good_qty": execution.good_qty,
+                  "reject_qty": execution.reject_qty})
+    set_cycle_state(cycle, "Completed", event_type="Runtime Cycle Completed",
+                    reference_doctype="Job Card", reference_name=execution.job_card)
+    recalculate(cycle.name, execution.operation)
+    if card.current_state == "Production Released":
+        transition_card(card, "In Production", event_type="Runtime Cycle Closing", cycle=cycle.name)
+        card.reload()
+    transition_card(card, "Produced", event_type="Runtime Cycle Completed", cycle=cycle.name,
+                    notes=notes)
+    card.reload()
+    transition_card(card, "Available", event_type="Reusable Card Released", cycle=cycle.name)
+    card.db_set("active_cycle", None, update_modified=False)
+    record("Runtime Allocation Completed", card=card.name, cycle=cycle.name,
+           execution=execution.name, qty=execution.good_qty, reference_doctype="Job Card",
+           reference_name=execution.job_card, notes=notes)
+    target_qty = flt(frappe.db.get_value("Job Card", execution.job_card, "for_quantity"))
+    erp_completed = flt(frappe.db.get_value("Job Card", execution.job_card,
+                                            "total_completed_qty"))
+    kanban_completed = flt(frappe.db.sql("""
+        select coalesce(sum(good_qty), 0)
+        from `tabCFG Kanban Runtime Allocation`
+        where job_card=%s and status='Completed'
+    """, execution.job_card)[0][0])
+    cumulative_completed = max(erp_completed, kanban_completed)
+    target_reached = cumulative_completed + 0.000001 >= target_qty
+    if target_reached:
+        record("Job Card Kanban Target Reached", card=card.name, cycle=cycle.name,
+               execution=execution.name, qty=cumulative_completed,
+               reference_doctype="Job Card", reference_name=execution.job_card,
+               notes="Confirm and complete the Job Card in ERPNext; Kanban does not bypass ERP validation")
+    return {"cycle": cycle.name, "card": card.name, "job_card": execution.job_card,
+            "good_qty": execution.good_qty, "reject_qty": execution.reject_qty,
+            "cumulative_completed_qty": cumulative_completed,
+            "job_card_target_qty": target_qty, "job_card_target_reached": target_reached,
+            "job_card_kept_open": not target_reached}
 
 
 @frappe.whitelist()
@@ -124,6 +202,11 @@ def run_job_card_action(execution_name, action, event_token=None):
         "requested_on": now_datetime(), "created_by_system": 1,
     }), key)
     result = execute_command(command.name)
+    if action == "start":
+        execution.db_set({"status": "In Progress", "started_on": now_datetime()})
+        if execution.runtime_allocation:
+            frappe.db.set_value("CFG Kanban Runtime Allocation", execution.runtime_allocation,
+                                "status", "In Progress")
     return {"command": command.name, "job_card": result.name, "duplicate": not created}
 
 
