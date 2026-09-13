@@ -10,6 +10,24 @@ frappe.ui.form.on("CFG Kanban Cycle", {
 				frappe.set_route("Form", "Work Order", frm.doc.work_order), __("View"));
 		}
 		if (["Manufacturing Manager", "System Manager"].some((role) => frappe.user_roles.includes(role))) {
+			if (frm.doc.kanban_card && !frm.doc.runtime_allocation &&
+				!["Completed", "Cancelled"].includes(frm.doc.status)) {
+				frm.add_custom_button(__("Release Legacy Runtime Card"), () => {
+					frappe.prompt([
+						{ fieldname: "reason", label: __("Recovery Reason"), fieldtype: "Small Text", reqd: 1,
+							description: __("Allowed only when no production, progress, stock, or WIP activity exists.") },
+					], async (values) => {
+						const response = await frappe.call({
+							method: "cfg_kanban.integrations.erp_feedback.release_legacy_runtime_card",
+							args: { cycle_name: frm.doc.name, reason: values.reason },
+							freeze: true, freeze_message: __("Checking activity and releasing reusable Card..."),
+						});
+						frappe.msgprint(__("Cycle {0} was cancelled and Card {1} is Available. Work Order {2} was preserved.",
+							[response.message.cycle, response.message.card, response.message.work_order || "-"]));
+						frm.reload_doc();
+					}, __("Release Incorrect Legacy Mapping"), __("Release Card"));
+				}, __("Kanban Recovery"));
+			}
 			frm.add_custom_button(__("Resolve Effective Work Order"), () => {
 				frappe.prompt([
 					{ fieldname: "work_order", label: __("Effective Work Order"), fieldtype: "Link", options: "Work Order", reqd: 1,

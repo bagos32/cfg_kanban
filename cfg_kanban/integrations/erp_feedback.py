@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import flt
+from frappe.utils import flt, now_datetime
 
 from cfg_kanban.services.events import record
 from cfg_kanban.services.operation_summary import (ensure_summary, ready_executions,
@@ -67,6 +67,10 @@ def reconcile_work_order(work_order_name):
     if not _cycle(work_order):
         frappe.throw("This Work Order is not linked to a CFG Kanban Cycle")
     cycle = frappe.get_doc("CFG Kanban Cycle", work_order.cfg_kanban_cycle)
+    if _runtime_card(cycle) and not cycle.runtime_allocation:
+        frappe.throw("Process and Station cards must select a Job Card through the Operator runtime "
+                     "allocation flow. Do not synchronize the complete Work Order to this Cycle. "
+                     "Use Release Legacy Runtime Card on the Cycle if it was previously reconciled.")
     if cycle.work_order and cycle.work_order != work_order.name:
         frappe.throw(f"Cycle {cycle.name} identifies {cycle.work_order} as its effective Work Order. "
                      "Use Resolve Effective Work Order on the Cycle before synchronizing this one.")
@@ -93,6 +97,9 @@ def select_effective_work_order(cycle_name, work_order_name, reason):
         frappe.throw("A reconciliation reason is required")
     cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
     cycle.check_permission("write")
+    if _runtime_card(cycle):
+        frappe.throw("Process and Station cards select Job Cards through the Operator runtime "
+                     "allocation flow. Release the legacy Cycle first instead of resolving its Work Order.")
     selected = frappe.get_doc("Work Order", work_order_name)
     if selected.production_item != cycle.item_code or selected.docstatus != 1:
         frappe.throw("The effective Work Order must be submitted and match the Cycle item")
@@ -258,6 +265,9 @@ def _block(doc, reason):
 
 def _sync_job_cards(work_order, cycle):
     """Mirror ERPNext's Job Cards as parallel-capable Kanban executions."""
+    if _runtime_card(cycle):
+        # Runtime selector creates only the confirmed Job Card execution. Never mirror the whole WO.
+        return
     master = frappe.get_doc("CFG Kanban Master", cycle.kanban_master)
     profiles = {row.operation: row for row in master.operation_profiles}
     summaries = {row.operation: ensure_summary(cycle, master, row)
@@ -386,3 +396,85 @@ def _record_unmatched_job_card(job, cycle):
         "severity": "Error", "status": "Open", "kanban_cycle": cycle.name,
         "message": key, "reference_doctype": "Job Card", "reference_name": job.name,
         "raised_on": frappe.utils.now_datetime()}).insert(ignore_permissions=True)
+
+
+def _runtime_card(cycle):
+    if not cycle.kanban_card:
+        return False
+    card_type = frappe.db.get_value("CFG Kanban Card", cycle.kanban_card, "card_type")
+    return card_type in ("Process Kanban", "Station Kanban")
+
+
+@frappe.whitelist()
+def release_legacy_runtime_card(cycle_name, reason):
+    """Cancel an activity-free legacy mapping and return its reusable card to Available."""
+    frappe.only_for(("Manufacturing Manager", "System Manager"))
+    if not (reason or "").strip():
+        frappe.throw("A recovery reason is required")
+    cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
+    cycle.check_permission("write")
+    if not _runtime_card(cycle):
+        frappe.throw("This recovery action is only for Process and Station Kanban cards")
+    if cycle.runtime_allocation:
+        frappe.throw("This Cycle already uses the runtime-allocation model")
+    card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card)
+    if card.active_cycle != cycle.name:
+        frappe.throw(f"Card {card.name} does not identify this as its active Cycle")
+
+    executions = frappe.get_all("CFG Kanban Process Execution",
+        filters={"kanban_cycle": cycle.name},
+        fields=["name", "job_card", "status", "processed_qty", "good_qty",
+                "reject_qty", "released_qty"])
+    active_job_cards = []
+    for row in executions:
+        job_status = frappe.db.get_value("Job Card", row.job_card, "status") if row.job_card else None
+        if job_status in ("Work In Progress", "Completed"):
+            active_job_cards.append(f"{row.job_card} ({job_status})")
+        if (row.status in ("In Progress", "Completed") or flt(row.processed_qty) or
+                flt(row.good_qty) or flt(row.reject_qty) or flt(row.released_qty)):
+            frappe.throw(f"Execution {row.name} contains production activity. Raise a production "
+                         "exception instead of releasing this Card automatically.")
+    if active_job_cards:
+        frappe.throw("ERPNext production activity exists on: " + ", ".join(active_job_cards))
+    if frappe.db.exists("CFG Kanban Operation Progress", {"kanban_cycle": cycle.name}):
+        frappe.throw("Operation Progress exists for this Cycle; automatic recovery is not allowed")
+    if frappe.db.exists("Stock Entry", {"cfg_kanban_cycle": cycle.name, "docstatus": 1}):
+        frappe.throw("Submitted Stock Entry exists for this Cycle; automatic recovery is not allowed")
+    if frappe.db.exists("CFG Kanban WIP Ledger", {"kanban_cycle": cycle.name}):
+        frappe.throw("WIP movement exists for this Cycle; automatic recovery is not allowed")
+
+    for row in executions:
+        frappe.db.set_value("CFG Kanban Process Execution", row.name,
+                            {"status": "Cancelled", "blocked": 0})
+    summaries = frappe.get_all("CFG Kanban Operation Summary",
+                               filters={"kanban_cycle": cycle.name}, pluck="name")
+    for summary in summaries:
+        frappe.db.set_value("CFG Kanban Operation Summary", summary, "status", "Cancelled")
+
+    if cycle.work_order:
+        frappe.db.set_value("Work Order", cycle.work_order, {
+            "cfg_kanban_cycle": None, "cfg_kanban_signal": None,
+        }, update_modified=False)
+        jobs = frappe.get_all("Job Card", filters={"work_order": cycle.work_order}, pluck="name")
+        for job in jobs:
+            if frappe.db.get_value("Job Card", job, "cfg_kanban_cycle") == cycle.name:
+                frappe.db.set_value("Job Card", job, {
+                    "cfg_kanban_cycle": None, "cfg_kanban_signal": None,
+                }, update_modified=False)
+
+    previous_cycle_state = cycle.status
+    previous_card_state = card.current_state
+    cycle.db_set({"status": "Cancelled", "completed_on": now_datetime(),
+                  "blocked": 0, "remarks": ((cycle.remarks or "") +
+                  f"\nLegacy runtime reconciliation released: {reason}").strip()})
+    card.db_set({"current_state": "Available", "active_cycle": None,
+                 "blocked": 0, "blocked_reason": None}, update_modified=True)
+    record("Legacy Runtime Cycle Cancelled", card=card.name, cycle=cycle.name,
+           previous_state=previous_cycle_state, new_state="Cancelled", notes=reason,
+           system_generated=False)
+    event = record("Reusable Card Released by Recovery", card=card.name, cycle=cycle.name,
+                   previous_state=previous_card_state, new_state="Available", notes=reason,
+                   system_generated=False)
+    card.db_set("last_event", event.name, update_modified=False)
+    return {"cycle": cycle.name, "card": card.name, "work_order": cycle.work_order,
+            "cancelled_executions": len(executions), "card_state": "Available"}
