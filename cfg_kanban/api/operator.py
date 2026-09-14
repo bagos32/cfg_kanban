@@ -235,7 +235,11 @@ def cancel_signal(signal_name, reason):
     signal = frappe.get_doc("CFG Kanban Signal", signal_name)
     signal.check_permission("write")
     if signal.status == "Cancelled":
-        return {"signal": signal.name, "duplicate": True}
+        cycle = frappe.get_doc("CFG Kanban Cycle", signal.kanban_cycle)
+        active_cycle = (frappe.db.get_value("CFG Kanban Card", signal.kanban_card,
+                                            "active_cycle") if signal.kanban_card else None)
+        if cycle.status == "Cancelled" and active_cycle != cycle.name:
+            return {"signal": signal.name, "duplicate": True}
     key = canonical_key("cancel-signal", signal.name)
     command, created = insert_once(frappe.get_doc({
         "doctype": "CFG ERP Command", "command_type": "Cancel Signal and Rollback",
@@ -244,7 +248,13 @@ def cancel_signal(signal_name, reason):
         "request_payload": frappe.as_json({"signal": signal.name, "reason": reason}),
         "requested_on": now_datetime(), "created_by_system": 1,
     }), key)
-    result = execute_command(command.name)
+    if not created and command.status == "Completed":
+        # Repair an inconsistent result produced by an older rollback implementation.
+        result = cancel_and_rollback(signal.name, reason)
+    else:
+        result = execute_command(command.name)
+    frappe.db.set_value("CFG Kanban Signal", result.name, "command", command.name,
+                        update_modified=False)
     return {"signal": result.name, "command": command.name, "duplicate": not created}
 
 

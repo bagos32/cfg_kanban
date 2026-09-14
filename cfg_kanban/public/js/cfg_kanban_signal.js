@@ -26,7 +26,7 @@ frappe.ui.form.on("CFG Kanban Signal", {
 							freeze: true, freeze_message: __("Checking and rolling back...") });
 						dialog.hide();
 						frappe.show_alert({ message: __("Signal cancelled and safe records rolled back"), indicator: "green" });
-						frm.reload_doc();
+						await frm.reload_doc();
 					},
 				});
 				dialog.show();

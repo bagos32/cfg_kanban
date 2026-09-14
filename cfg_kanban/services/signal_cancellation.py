@@ -9,13 +9,13 @@ def cancel_and_rollback(signal_name, reason):
     if not (reason or "").strip():
         frappe.throw("Cancellation reason is required")
     signal = frappe.get_doc("CFG Kanban Signal", signal_name)
-    if signal.status == "Cancelled":
-        return signal
     if signal.get("sales_demand"):
-        frappe.throw("This Signal belongs to a Sales Order demand. Cancel it through the Sales Demand workflow.")
+        frappe.throw(
+            "This Signal belongs to a Sales Order demand. Cancel it through the Sales Demand workflow."
+        )
 
     cycle = frappe.get_doc("CFG Kanban Cycle", signal.kanban_cycle)
-    if cycle.status in ("Completed", "Cancelled"):
+    if cycle.status == "Completed":
         frappe.throw(f"Cycle {cycle.name} is already {cycle.status}")
     work_order_name = cycle.work_order or (
         signal.erp_reference_name if signal.erp_reference_doctype == "Work Order" else None
@@ -43,6 +43,9 @@ def cancel_and_rollback(signal_name, reason):
         "status": "Cancelled", "cancelled_on": now_datetime(),
         "cancelled_by": frappe.session.user, "cancellation_reason": reason.strip(),
     }, update_modified=True)
+    signal.reload()
+    if signal.status != "Cancelled":
+        frappe.throw(f"Signal rollback verification failed; {signal.name} is still {signal.status}")
     if card:
         card.db_set({
             "current_state": "Available", "active_cycle": None,
@@ -73,7 +76,9 @@ def _assert_no_production_activity(cycle, work_order_name=None):
     if work_order_name and frappe.db.exists("Work Order", work_order_name):
         work_order = frappe.get_doc("Work Order", work_order_name)
         if flt(work_order.produced_qty) or flt(work_order.material_transferred_for_manufacturing):
-            frappe.throw("This Signal cannot be rolled back because the Work Order has production or material movement")
+            frappe.throw(
+                "This Signal cannot be rolled back because the Work Order has production or material movement"
+            )
         job_cards = frappe.get_all("Job Card", filters={"work_order": work_order.name}, pluck="name")
         if job_cards:
             if frappe.db.exists("Job Card", {"name": ["in", job_cards], "docstatus": 1}):
