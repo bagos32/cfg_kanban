@@ -50,11 +50,17 @@ def get_card_context(token):
         )
         for execution in executions:
             job = frappe.db.get_value("Job Card", execution.job_card,
-                ["status", "docstatus", "for_quantity", "total_completed_qty"], as_dict=True)
+                ["name", "status", "docstatus", "for_quantity", "total_completed_qty"], as_dict=True)
             execution["job_card_status"] = job.status if job else "Missing"
             execution["job_card_docstatus"] = job.docstatus if job else None
             execution["job_card_target_qty"] = flt(job.for_quantity) if job else 0
             execution["job_card_completed_qty"] = flt(job.total_completed_qty) if job else 0
+            execution["job_card_target_reached"] = bool(
+                job and flt(job.total_completed_qty) + 0.000001 >= flt(job.for_quantity)
+            )
+            execution["job_card_needs_submit"] = bool(
+                execution["job_card_target_reached"] and job.docstatus == 0
+            ) if job else False
             readiness = _runtime_close_readiness(execution, effective_work_order, job)
             execution["can_close_runtime_cycle"] = readiness["ready"]
             execution["close_block_reason"] = readiness["reason"]
@@ -176,11 +182,12 @@ def complete_runtime_cycle(execution_name, notes=None):
         record("Job Card Kanban Target Reached", card=card.name, cycle=cycle.name,
                execution=execution.name, qty=cumulative_completed,
                reference_doctype="Job Card", reference_name=execution.job_card,
-               notes="Confirm and complete the Job Card in ERPNext; Kanban does not bypass ERP validation")
+               notes="ERPNext Job Card is completed and the cumulative Kanban target is reached")
     return {"cycle": cycle.name, "card": card.name, "job_card": execution.job_card,
             "good_qty": execution.good_qty, "reject_qty": execution.reject_qty,
             "cumulative_completed_qty": cumulative_completed,
             "job_card_target_qty": target_qty, "job_card_target_reached": target_reached,
+            "job_card_submitted": bool(job_card and job_card.docstatus == 1),
             "job_card_kept_open": not target_reached}
 
 
@@ -200,6 +207,12 @@ def _runtime_close_readiness(execution, work_order, job_card):
         status = job_card.status if job_card else "Missing"
         return {"ready": False, "reason": (f"Cannot close the Kanban Cycle while ERPNext Job Card "
                 f"is {status}. Start the Job Card and record its production time log first.")}
+    if (flt(job_card.total_completed_qty) + 0.000001 >= flt(job_card.for_quantity) and
+            job_card.docstatus == 0):
+        return {"ready": False, "reason": (
+            f"Cannot close the final Kanban Cycle while ERPNext Job Card {job_card.name} is still Draft. "
+            "Use Complete Job Card first, or enable Auto-submit Job Card at Target in Kanban Settings."
+        )}
     prior_good = flt(frappe.db.sql("""
         select coalesce(sum(good_qty), 0)
         from `tabCFG Kanban Runtime Allocation`

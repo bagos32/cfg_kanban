@@ -183,7 +183,7 @@ def update_job_card(command, payload):
 def complete_job_card(command, payload):
     job_card = frappe.get_doc("Job Card", payload["job_card"])
     if job_card.docstatus == 0:
-        if flt(job_card.total_completed_qty) + flt(job_card.process_loss_qty) + 0.000001 < flt(job_card.for_quantity):
+        if flt(job_card.total_completed_qty) + 0.000001 < flt(job_card.for_quantity):
             frappe.throw(f"Job Card {job_card.name} cannot be completed: ERP completed quantity "
                          f"is {job_card.total_completed_qty} of {job_card.for_quantity}")
         job_card.submit()

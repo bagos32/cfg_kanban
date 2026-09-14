@@ -204,10 +204,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			if (row.status === "Ready") add_action($buttons, __("Start"), "btn-primary", () => job_action(row, "start"));
 			if (["Ready", "In Progress", "Paused"].includes(row.status)) add_action($buttons, __("Report Progress"), "btn-default", () => progress_dialog(row));
 			if (row.status === "In Progress" && !row.runtime_allocation) add_action($buttons, __("Complete"), "btn-default", () => job_action(row, "complete"));
-			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && row.status !== "Completed" && row.can_close_runtime_cycle) {
+			if (row.runtime_allocation && row.job_card_needs_submit) {
+				add_action($buttons, __("Complete Job Card"), "btn-primary", () => job_action(row, "complete"));
+			}
+			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && row.can_close_runtime_cycle) {
 				add_action($buttons, __("Close Kanban Cycle"), "btn-success", () => close_runtime_cycle(row));
 			}
-			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && row.status !== "Completed" && !row.can_close_runtime_cycle) {
+			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && !row.can_close_runtime_cycle) {
 				const $blocked = $("<button class='btn btn-sm btn-warning ml-1'>" + __("ERP Update Required") + "</button>").appendTo($buttons);
 				$blocked.on("click", () => frappe.msgprint({ title: __("Cannot Close Kanban Cycle"),
 					message: e(row.close_block_reason || __("ERP Work Order and Job Card are not ready.")), indicator: "orange" }));
@@ -224,7 +227,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}, freeze: true });
 		const result = response.message;
 		frappe.show_alert({ message: result.job_card_target_reached
-			? __("Cycle completed and Job Card target reached; confirm completion in ERPNext")
+			? __("Cycle completed and ERPNext Job Card submitted")
 			: __("Cycle completed; reusable card is available for the remaining Job Card demand"), indicator: "green" });
 		await load_card(state.context.card.qr_code);
 	}
