@@ -3,6 +3,7 @@ from frappe.utils import flt, now_datetime
 
 from cfg_kanban.services.cycle_allocation import calculate_cycle_allocation
 from cfg_kanban.services.events import record
+from cfg_kanban.services.idempotency import canonical_key, insert_once
 from cfg_kanban.services.operation_summary import ensure_summary, recalculate
 from cfg_kanban.services.state_machine import transition_card
 
@@ -114,6 +115,26 @@ def allocate(card_name, job_card_name, confirmation, override_reason=None):
            reference_doctype="Job Card", reference_name=proposal["job_card"],
            notes=(f"Operator override: {override_reason}" if not proposal["is_recommended"] else
                   (proposal["short_cycle_reason"] or "Automatic recommendation accepted")))
+    settings = frappe.get_single("CFG Kanban Settings")
+    if settings.auto_start_job_card and proposal["job_card_status"] != "Work In Progress":
+        from cfg_kanban.integrations.erp_gateway import execute_command
+
+        key = canonical_key("job-card-action", proposal["job_card"], "Start Job Card", allocation.name)
+        command, _created = insert_once(frappe.get_doc({
+            "doctype": "CFG ERP Command", "command_type": "Start Job Card",
+            "kanban_cycle": cycle.name, "process_execution": execution.name,
+            "status": "Pending", "target_doctype": "Job Card",
+            "request_payload": frappe.as_json({
+                "job_card": proposal["job_card"], "kanban_cycle": cycle.name,
+                "process_execution": execution.name, "runtime_allocation": allocation.name,
+                "operator_user": frappe.session.user,
+                "employee": frappe.db.get_value("Employee", {"user_id": frappe.session.user,
+                                                                "status": "Active"}, "name"),
+            }),
+            "requested_on": now_datetime(), "created_by_system": 1,
+        }), key)
+        execute_command(command.name)
+        execution.reload()
     if not proposal["is_recommended"]:
         record("Runtime Selection Overridden", card=card.name, cycle=cycle.name,
                execution=execution.name, reference_doctype="Job Card",

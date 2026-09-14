@@ -72,3 +72,9 @@ class TestDocTypeSchema(TestCase):
                          "effective_qty", "short_cycle_reason", "selection_method",
                          "recommended_job_card", "override_reason", "operator_confirmation"}
                         .issubset(allocation_fields))
+
+    def test_job_card_automation_settings_are_explicit(self):
+        settings_path = ROOT / "cfg_kanban_settings" / "cfg_kanban_settings.json"
+        settings = json.loads(settings_path.read_text())
+        fields = {row["fieldname"] for row in settings["fields"]}
+        self.assertTrue({"auto_start_job_card", "auto_submit_job_card"}.issubset(fields))

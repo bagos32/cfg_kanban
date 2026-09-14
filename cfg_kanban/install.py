@@ -42,6 +42,11 @@ def _custom_fields():
             {"fieldname": "cfg_sales_order", "label": "Sales Order", "fieldtype": "Link", "options": "Sales Order", "read_only": 1, "insert_after": "cfg_sales_demand", "module": "CFG Kanban"},
         ],
         "Job Card": common,
+        "Job Card Time Log": [
+            {"fieldname": "cfg_kanban_progress", "label": "Kanban Progress",
+             "fieldtype": "Link", "options": "CFG Kanban Operation Progress",
+             "read_only": 1, "unique": 1, "insert_after": "completed_qty", "module": "CFG Kanban"},
+        ],
         "Stock Entry": common,
         "CFG Kanban Master": [
             {"fieldname": "cfg_sales_demand_section", "label": "Sales Demand Trigger", "fieldtype": "Section Break", "insert_after": "remarks", "module": "CFG Kanban"},

@@ -255,10 +255,46 @@ def submit_progress(execution_name, good_qty, reject_qty=0, processed_qty=None,
             return {"name": existing, "duplicate": True}
     progress = report(execution_name, good_qty, reject_qty, processed_qty,
                       values=values, notes=notes)
+    execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
+    erp_command = None
+    if execution.job_card and flt(good_qty):
+        payload = _job_card_progress_payload(execution, progress, event_token)
+        key = canonical_key("job-card-progress", execution.job_card, progress.name)
+        command, _created = insert_once(frappe.get_doc({
+            "doctype": "CFG ERP Command", "command_type": "Update Job Card",
+            "kanban_cycle": execution.kanban_cycle, "process_execution": execution.name,
+            "status": "Pending", "target_doctype": "Job Card",
+            "request_payload": frappe.as_json(payload),
+            "requested_on": now_datetime(), "created_by_system": 1,
+        }), key)
+        execute_command(command.name)
+        erp_command = command.name
     if event_token:
         frappe.db.set_value("CFG Kanban Event", {"reference_doctype": progress.doctype,
             "reference_name": progress.name, "event_type": "Operation Progress"}, "device_id", key)
-    return {"name": progress.name, "duplicate": False}
+    return {"name": progress.name, "erp_command": erp_command, "duplicate": False}
+
+
+def _job_card_progress_payload(execution, progress, event_token=None):
+    employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user,
+                                                  "status": "Active"}, "name")
+    return {
+        "job_card": execution.job_card,
+        "work_order": frappe.db.get_value("Job Card", execution.job_card, "work_order"),
+        "kanban_cycle": execution.kanban_cycle,
+        "process_execution": execution.name,
+        "runtime_allocation": execution.runtime_allocation,
+        "operation_progress": progress.name,
+        "incremental_good_qty": flt(progress.good_qty),
+        "reject_qty": flt(progress.reject_qty),
+        "processed_qty": flt(progress.processed_qty),
+        "operator_user": frappe.session.user,
+        "employee": employee,
+        "from_time": execution.started_on,
+        "to_time": progress.posting_datetime,
+        "notes": progress.notes,
+        "event_token": event_token,
+    }
 
 
 @frappe.whitelist()
@@ -275,7 +311,14 @@ def run_job_card_action(execution_name, action, event_token=None):
         "doctype": "CFG ERP Command", "command_type": command_type,
         "kanban_cycle": execution.kanban_cycle, "process_execution": execution.name,
         "status": "Pending", "target_doctype": "Job Card",
-        "request_payload": frappe.as_json({"job_card": execution.job_card}),
+        "request_payload": frappe.as_json({
+            "job_card": execution.job_card, "kanban_cycle": execution.kanban_cycle,
+            "process_execution": execution.name, "runtime_allocation": execution.runtime_allocation,
+            "operator_user": frappe.session.user,
+            "employee": frappe.db.get_value("Employee", {"user_id": frappe.session.user,
+                                                            "status": "Active"}, "name"),
+            "event_token": event_token,
+        }),
         "requested_on": now_datetime(), "created_by_system": 1,
     }), key)
     result = execute_command(command.name)

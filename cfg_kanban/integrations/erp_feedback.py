@@ -165,10 +165,13 @@ def on_job_card_update(doc, method=None):
         "job_card": doc.name, "kanban_cycle": doc.cfg_kanban_cycle,
     }, "name")
     if execution:
+        execution_doc = frappe.get_doc("CFG Kanban Process Execution", execution)
         status = "Completed" if doc.status == "Completed" else "In Progress" if doc.status == "Work In Progress" else None
         if status:
             values = {"status": status}
-            if status == "Completed":
+            # A runtime execution is one card-sized allocation, while the Job Card
+            # quantity is cumulative across multiple reusable-card cycles.
+            if status == "Completed" and not execution_doc.runtime_allocation:
                 values.update({"good_qty": flt(doc.total_completed_qty), "processed_qty": flt(doc.total_completed_qty)})
             frappe.db.set_value("CFG Kanban Process Execution", execution, values)
             if status == "Completed":

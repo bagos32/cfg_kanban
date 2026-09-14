@@ -1,7 +1,7 @@
 import json
 
 import frappe
-from frappe.utils import now_datetime
+from frappe.utils import add_to_date, flt, get_datetime, now_datetime
 from erpnext.manufacturing.doctype.work_order.work_order import get_item_details
 
 from cfg_kanban.services.state_machine import set_cycle_state, transition_card
@@ -30,9 +30,12 @@ def execute_command(command_name):
                     "attempt_count": (command.attempt_count or 0) + 1})
     try:
         result = fn(command, json.loads(command.request_payload or "{}"))
+        detail = getattr(result, "_cfg_command_result", None) or {
+            "doctype": result.doctype, "name": result.name
+        }
         command.db_set({"status": "Completed", "completed_on": now_datetime(),
                         "target_document": result.name,
-                        "result_payload": frappe.as_json({"doctype": result.doctype, "name": result.name})})
+                        "result_payload": frappe.as_json(detail)})
         return result
     except Exception:
         command.db_set({"status": "Failed", "last_error": frappe.get_traceback()})
@@ -99,15 +102,106 @@ def reload_draft_work_order_bom(work_order_name):
 @handler("Start Job Card")
 def start_job_card(command, payload):
     job_card = frappe.get_doc("Job Card", payload["job_card"])
-    job_card.run_method("start_job")
+    if job_card.docstatus != 0:
+        frappe.throw(f"Job Card {job_card.name} is not an editable Draft")
+    if not any(not row.to_time for row in job_card.time_logs):
+        started = now_datetime()
+        job_card.append("time_logs", {
+            "from_time": started, "employee": payload.get("employee")
+        })
+        job_card.save(ignore_permissions=True)
+    job_card.reload()
+    if job_card.status != "Work In Progress":
+        frappe.throw(f"ERPNext did not start Job Card {job_card.name}; current status is {job_card.status}")
+    job_card._cfg_command_result = _job_card_result(job_card, action="started")
+    return job_card
+
+
+@handler("Update Job Card")
+def update_job_card(command, payload):
+    required = ("job_card", "operation_progress", "incremental_good_qty")
+    missing = [field for field in required if payload.get(field) in (None, "")]
+    if missing:
+        frappe.throw("Job Card progress payload is missing: " + ", ".join(missing))
+    job_card = frappe.get_doc("Job Card", payload["job_card"])
+    if job_card.docstatus != 0:
+        frappe.throw(f"Job Card {job_card.name} is not an editable Draft")
+
+    progress_ref = payload["operation_progress"]
+    # The app-owned child-row link makes a retry independently detectable even when
+    # the original CFG command is manually re-created by a supervisor.
+    existing = next((row for row in job_card.time_logs
+                     if row.get("cfg_kanban_progress") == progress_ref), None)
+    before_qty = flt(job_card.total_completed_qty)
+    delta = flt(payload["incremental_good_qty"])
+    if not existing:
+        end_time = get_datetime(payload.get("to_time") or now_datetime())
+        start_time = get_datetime(payload.get("from_time") or add_to_date(end_time, minutes=-1))
+        closed_rows = [row for row in job_card.time_logs if row.to_time]
+        if closed_rows:
+            start_time = max(start_time, max(get_datetime(row.to_time) for row in closed_rows))
+        if start_time >= end_time:
+            start_time = add_to_date(end_time, minutes=-1)
+        open_row = next((row for row in reversed(job_card.time_logs) if not row.to_time), None)
+        if open_row:
+            open_row.to_time = end_time
+            open_row.completed_qty = delta
+            open_row.employee = open_row.employee or payload.get("employee")
+            open_row.cfg_kanban_progress = progress_ref
+        else:
+            job_card.append("time_logs", {
+                "from_time": start_time, "to_time": end_time,
+                "completed_qty": delta, "employee": payload.get("employee"),
+                "cfg_kanban_progress": progress_ref,
+            })
+        job_card.save(ignore_permissions=True)
+    job_card.reload()
+    after_qty = flt(job_card.total_completed_qty)
+    expected_qty = before_qty if existing else before_qty + delta
+    if after_qty + 0.000001 < expected_qty:
+        frappe.throw(f"ERPNext Job Card {job_card.name} quantity verification failed: "
+                     f"expected at least {expected_qty}, found {after_qty}")
+    auto_submitted = False
+    settings = frappe.get_single("CFG Kanban Settings")
+    if (settings.get("auto_submit_job_card") and job_card.docstatus == 0 and
+            after_qty + 0.000001 >= flt(job_card.for_quantity)):
+        job_card.submit()
+        job_card.reload()
+        auto_submitted = True
+        if job_card.status != "Completed":
+            frappe.throw(f"ERPNext submitted Job Card {job_card.name}, but its status is {job_card.status}")
+    job_card._cfg_command_result = _job_card_result(
+        job_card, action="progress_updated", before_qty=before_qty,
+        applied_qty=0 if existing else delta, operation_progress=progress_ref,
+        duplicate=bool(existing), reject_qty=flt(payload.get("reject_qty")),
+        auto_submitted=auto_submitted,
+    )
     return job_card
 
 
 @handler("Complete Job Card")
 def complete_job_card(command, payload):
     job_card = frappe.get_doc("Job Card", payload["job_card"])
-    job_card.run_method("complete_job")
+    if job_card.docstatus == 0:
+        if flt(job_card.total_completed_qty) + flt(job_card.process_loss_qty) + 0.000001 < flt(job_card.for_quantity):
+            frappe.throw(f"Job Card {job_card.name} cannot be completed: ERP completed quantity "
+                         f"is {job_card.total_completed_qty} of {job_card.for_quantity}")
+        job_card.submit()
+    job_card.reload()
+    if job_card.status != "Completed":
+        frappe.throw(f"ERPNext did not complete Job Card {job_card.name}; current status is {job_card.status}")
+    job_card._cfg_command_result = _job_card_result(job_card, action="completed")
     return job_card
+
+
+def _job_card_result(job_card, action, **details):
+    return {
+        "doctype": job_card.doctype, "name": job_card.name, "action": action,
+        "status": job_card.status, "docstatus": job_card.docstatus,
+        "for_quantity": flt(job_card.for_quantity),
+        "total_completed_qty": flt(job_card.total_completed_qty),
+        "time_log_rows": len(job_card.time_logs), **details,
+    }
 
 
 @handler("Create Stock Entry")
