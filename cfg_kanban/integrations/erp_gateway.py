@@ -204,6 +204,13 @@ def _job_card_result(job_card, action, **details):
     }
 
 
+@handler("Cancel Signal and Rollback")
+def cancel_signal_and_rollback(command, payload):
+    from cfg_kanban.services.signal_cancellation import cancel_and_rollback
+
+    return cancel_and_rollback(payload["signal"], payload.get("reason"))
+
+
 @handler("Create Stock Entry")
 def create_stock_entry(command, payload):
     doc = frappe.get_doc({"doctype": "Stock Entry", **payload, "cfg_kanban_controlled": 1,

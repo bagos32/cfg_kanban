@@ -9,6 +9,7 @@ from cfg_kanban.services.operation_summary import recalculate
 from cfg_kanban.services.triggers import create_work_order_command
 from cfg_kanban.services.runtime_selector import allocate as allocate_runtime_card
 from cfg_kanban.services.runtime_selector import preview as preview_runtime_card
+from cfg_kanban.services.signal_cancellation import cancel_and_rollback
 from cfg_kanban.services.state_machine import set_cycle_state, transition_card
 
 
@@ -226,6 +227,25 @@ def approve_signal(signal_name):
     result = execute_command(command.name)
     return {"signal": signal.name, "command": command.name,
             "erp_document": result.name, "duplicate": False}
+
+
+@frappe.whitelist()
+def cancel_signal(signal_name, reason):
+    frappe.only_for(("Manufacturing Manager", "System Manager"))
+    signal = frappe.get_doc("CFG Kanban Signal", signal_name)
+    signal.check_permission("write")
+    if signal.status == "Cancelled":
+        return {"signal": signal.name, "duplicate": True}
+    key = canonical_key("cancel-signal", signal.name)
+    command, created = insert_once(frappe.get_doc({
+        "doctype": "CFG ERP Command", "command_type": "Cancel Signal and Rollback",
+        "source_signal": signal.name, "kanban_cycle": signal.kanban_cycle,
+        "status": "Pending", "target_doctype": "CFG Kanban Signal",
+        "request_payload": frappe.as_json({"signal": signal.name, "reason": reason}),
+        "requested_on": now_datetime(), "created_by_system": 1,
+    }), key)
+    result = execute_command(command.name)
+    return {"signal": result.name, "command": command.name, "duplicate": not created}
 
 
 @frappe.whitelist()

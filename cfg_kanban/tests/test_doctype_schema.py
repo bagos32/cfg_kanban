@@ -78,3 +78,13 @@ class TestDocTypeSchema(TestCase):
         settings = json.loads(settings_path.read_text())
         fields = {row["fieldname"] for row in settings["fields"]}
         self.assertTrue({"auto_start_job_card", "auto_submit_job_card"}.issubset(fields))
+
+    def test_signal_list_and_cancellation_fields_are_present(self):
+        path = ROOT / "cfg_kanban_signal" / "cfg_kanban_signal.json"
+        schema = json.loads(path.read_text())
+        by_name = {row["fieldname"]: row for row in schema["fields"]}
+        for fieldname in ("status", "item_code", "requested_qty", "requested_on"):
+            self.assertEqual(by_name[fieldname].get("in_list_view"), 1)
+        for fieldname in ("status", "item_code", "requested_on", "signal_type", "priority"):
+            self.assertEqual(by_name[fieldname].get("in_standard_filter"), 1)
+        self.assertTrue({"cancellation_reason", "cancelled_on", "cancelled_by"}.issubset(by_name))
