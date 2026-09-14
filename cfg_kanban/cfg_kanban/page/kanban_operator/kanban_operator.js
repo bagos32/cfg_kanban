@@ -65,9 +65,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		(route_warnings || []).forEach((warning) => $root.append(
 			`<div class="alert alert-warning">${e(warning)}</div>`));
 		if (work_order_attention) {
-			$root.append(`<div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap">
+			const attention_class = work_order_attention.severity === "info" ? "alert-info" : "alert-warning";
+			const button_class = work_order_attention.severity === "info" ? "btn-info" : "btn-warning";
+			$root.append(`<div class="alert ${attention_class} d-flex justify-content-between align-items-center flex-wrap">
 				<div><strong>${__("ERP Work Order attention required")}</strong><br>${e(work_order_attention.message)}</div>
-				<a class="btn btn-warning btn-sm mt-2" href="/app/work-order/${encodeURIComponent(work_order_attention.work_order)}">${__("Open Work Order")}</a>
+				<a class="btn ${button_class} btn-sm mt-2" href="/app/work-order/${encodeURIComponent(work_order_attention.work_order)}">${__("Open Work Order")}</a>
 			</div>`);
 		}
 		if ((work_orders || []).length > 1) {

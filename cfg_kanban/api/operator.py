@@ -31,10 +31,11 @@ def get_card_context(token):
     if cycle:
         work_orders = frappe.get_all("Work Order", filters={"cfg_kanban_cycle": cycle.name,
             "docstatus": ["<", 2]}, fields=["name", "status", "docstatus"], order_by="creation asc")
-        effective_work_order = next((row for row in work_orders if row.name == cycle.work_order), None)
-        if cycle.work_order and not effective_work_order:
+        effective_work_order = None
+        if cycle.work_order:
             effective_work_order = frappe.db.get_value("Work Order", cycle.work_order,
-                ["name", "status", "docstatus"], as_dict=True)
+                ["name", "status", "docstatus", "skip_transfer", "transfer_material_against"],
+                as_dict=True)
         effective_jobs = frappe.get_all("Job Card", filters={"work_order": cycle.work_order,
             "docstatus": ["<", 2]}, pluck="name") if cycle.work_order else []
         executions = frappe.get_all(
@@ -60,14 +61,24 @@ def get_card_context(token):
         if (effective_work_order and effective_work_order.status == "Not Started" and
                 cycle.status in ("Released", "In Production", "Packing In Progress",
                                  "Production Complete", "Waiting FG Receipt")):
+            job_in_progress = any(
+                row.job_card_status in ("Work In Progress", "Completed")
+                for row in executions
+            )
+            skip_transfer_active = bool(effective_work_order.skip_transfer and job_in_progress)
             work_order_attention = {
-                "severity": "warning", "work_order": effective_work_order.name,
+                "severity": "info" if skip_transfer_active else "warning",
+                "work_order": effective_work_order.name,
                 "work_order_status": effective_work_order.status,
                 "cycle_status": cycle.status, "kanban_processed_qty": kanban_processed,
-                "message": (f"Kanban Cycle is {cycle.status}"
-                            + (f" with {kanban_processed} processed" if kanban_processed else "")
-                            + ", but the ERPNext Work Order is still Not Started. Check material "
-                              "transfer or ERP production prerequisites before continuing."),
+                "message": (("Work Order uses Skip Transfer and its Job Card is already in progress. "
+                             "The Work Order header may remain Not Started until ERPNext posts more "
+                             "production activity; Job Card quantity synchronization remains mandatory.")
+                            if skip_transfer_active else
+                            (f"Kanban Cycle is {cycle.status}"
+                             + (f" with {kanban_processed} processed" if kanban_processed else "")
+                             + ", but the ERPNext Work Order is still Not Started. Check material "
+                               "transfer or ERP production prerequisites before continuing.")),
             }
         operation_summaries = frappe.get_all("CFG Kanban Operation Summary",
             filters={"kanban_cycle": cycle.name}, fields=["name", "operation", "sequence",
@@ -123,7 +134,8 @@ def complete_runtime_cycle(execution_name, notes=None):
     cycle = frappe.get_doc("CFG Kanban Cycle", execution.kanban_cycle)
     card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card)
     work_order = frappe.db.get_value("Work Order", cycle.work_order,
-        ["name", "status", "docstatus"], as_dict=True)
+        ["name", "status", "docstatus", "skip_transfer", "transfer_material_against"],
+        as_dict=True)
     job_card = frappe.db.get_value("Job Card", execution.job_card,
         ["name", "status", "docstatus", "for_quantity", "total_completed_qty"], as_dict=True)
     readiness = _runtime_close_readiness(execution, work_order, job_card)
@@ -174,7 +186,12 @@ def complete_runtime_cycle(execution_name, notes=None):
 def _runtime_close_readiness(execution, work_order, job_card):
     if not execution.get("runtime_allocation"):
         return {"ready": True, "reason": None}
-    if not work_order or work_order.status not in ("In Process", "Started", "Completed"):
+    job_in_progress = bool(job_card and job_card.status in ("Work In Progress", "Completed"))
+    work_order_started = bool(work_order and (
+        work_order.status in ("In Process", "Started", "Completed") or
+        (work_order.status == "Not Started" and work_order.skip_transfer and job_in_progress)
+    ))
+    if not work_order_started:
         status = work_order.status if work_order else "Missing"
         return {"ready": False, "reason": (f"Cannot close the Kanban Cycle while ERPNext Work Order "
                 f"is {status}. Start the Work Order and satisfy any material-transfer prerequisites first.")}
