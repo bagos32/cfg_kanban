@@ -43,3 +43,16 @@ class TestOperatorAuthenticationContract(TestCase):
         self.assertIn("window.history.replaceState", console)
         self.assertIn("Print Card", profile)
         self.assertIn("Download QR", profile)
+
+    def test_development_proxy_is_explicitly_enabled_and_administrator_only(self):
+        auth = (ROOT / "services" / "operator_auth.py").read_text()
+        api = (ROOT / "api" / "operator.py").read_text()
+        settings = (ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_settings" /
+                    "cfg_kanban_settings.json").read_text()
+        session = (ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_operator_session" /
+                   "cfg_kanban_operator_session.json").read_text()
+        self.assertIn('frappe.session.user != "Administrator"', auth)
+        self.assertIn('"enable_administrator_operator_bypass"', auth)
+        self.assertIn("def login_development_proxy", api)
+        self.assertIn('"default": "0"', settings)
+        self.assertIn('"development_proxy"', session)

@@ -1,11 +1,12 @@
 import frappe
-from frappe.utils import flt, get_url, now_datetime
+from frappe.utils import cint, flt, get_url, now_datetime
 
 from cfg_kanban.integrations.erp_gateway import execute_command
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key, insert_once
 from cfg_kanban.services.operator_auth import (close_session, credential_hash, get_session,
-                                               new_credential, open_session, require_operator)
+                                               new_credential, open_development_proxy_session,
+                                               open_session, require_operator)
 from cfg_kanban.services.progress import report
 from cfg_kanban.services.printing import get_qr_svg
 from cfg_kanban.services.operation_summary import recalculate
@@ -29,6 +30,11 @@ def operator_session_status(operator_session_token):
 @frappe.whitelist()
 def logout_operator(operator_session_token):
     return close_session(operator_session_token)
+
+
+@frappe.whitelist()
+def login_development_proxy(employee, station=None):
+    return open_development_proxy_session(employee, station=station)
 
 
 @frappe.whitelist()
@@ -62,6 +68,11 @@ def get_console_access():
         "terminal_user": frappe.session.user,
         "can_manage_operators": bool({"Manufacturing Manager", "System Manager"} & roles),
         "is_terminal_user": bool({"Kanban Terminal", "Manufacturing Manager", "System Manager"} & roles),
+        "can_use_development_proxy": bool(
+            frappe.session.user == "Administrator" and
+            cint(frappe.db.get_single_value("CFG Kanban Settings",
+                                            "enable_administrator_operator_bypass"))
+        ),
     }
 
 

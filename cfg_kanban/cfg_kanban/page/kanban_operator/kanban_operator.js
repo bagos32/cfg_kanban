@@ -124,6 +124,35 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		dialog.get_field("token").set_focus();
 	}
 
+	function show_development_proxy_login() {
+		if (!(state.access && state.access.can_use_development_proxy)) return;
+		const dialog = new frappe.ui.Dialog({
+			title: __("Development Proxy Operator"),
+			fields: [
+				{ fieldname: "warning", fieldtype: "HTML", options:
+					`<div class="alert alert-warning">${__("Development bypass: actions will be attributed to the selected Employee and Administrator. Do not enable this in production.")}</div>` },
+				{ fieldname: "employee", label: __("Operate as Employee"), fieldtype: "Link",
+					options: "Employee", reqd: 1, get_query: () => ({ filters: { status: "Active" } }) },
+				{ fieldname: "station", label: __("Terminal / Station"), fieldtype: "Data",
+					default: localStorage.getItem("cfg_kanban_station") || "" },
+			],
+			primary_action_label: __("Start Development Proxy Session"),
+			primary_action: async (values) => {
+				const response = await frappe.call({
+					method: "cfg_kanban.api.operator.login_development_proxy",
+					args: values,
+					freeze: true,
+					freeze_message: __("Starting development proxy session..."),
+				});
+				activate_operator(response.message);
+				localStorage.setItem("cfg_kanban_station", values.station || "");
+				dialog.hide();
+				render();
+			},
+		});
+		dialog.show();
+	}
+
 	function operator_token_from_scan(decoded_text) {
 		const value = String(decoded_text || "").trim();
 		if (!value) return "";
@@ -203,20 +232,28 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (!state.operator) {
 			const setup = state.access && state.access.can_manage_operators
 				? `<p><a class="btn btn-default" href="/app/cfg-kanban-operator-profile">${__("Manage Operator Profiles")}</a></p>` : "";
+			const development_proxy = state.access && state.access.can_use_development_proxy
+				? `<p><button class="btn btn-warning cfg-development-proxy">${__("Use Development Employee Proxy")}</button></p>` : "";
 			$root.html(`<div class="frappe-card text-center p-5"><h4>${__("Operator identification required")}</h4>
 				<p class="text-muted">${__("Scan your personal operator QR. The terminal remains signed in to ERPNext.")}</p>
 				<button class="btn btn-primary cfg-operator-camera">${__("Scan Operator QR with Camera")}</button>
 				<button class="btn btn-default cfg-operator-login">${__("Enter Credential / PIN")}</button>
-				${setup}<small class="text-muted">${__("ERP terminal user")}: ${frappe.utils.escape_html((state.access && state.access.terminal_user) || "")}</small></div>`);
+				${development_proxy}${setup}<small class="text-muted">${__("ERP terminal user")}: ${frappe.utils.escape_html((state.access && state.access.terminal_user) || "")}</small></div>`);
 			$root.find(".cfg-operator-camera").on("click", scan_operator_qr);
 			$root.find(".cfg-operator-login").on("click", () => show_operator_login(false));
+			$root.find(".cfg-development-proxy").on("click", show_development_proxy_login);
 			return;
 		}
 		const e = frappe.utils.escape_html;
 		$root.append(`<div class="alert alert-info d-flex justify-content-between align-items-center">
 			<div><strong>${__("Active operator")}: ${e(state.operator.employee_name)}</strong>
-			<span class="ml-2">${e(state.operator.employee)} · ${e(state.operator.kanban_role || "")}</span></div>
+			<span class="ml-2">${e(state.operator.employee)} · ${e(state.operator.kanban_role || "")}</span>
+			${state.operator.development_proxy ? `<span class="indicator-pill orange ml-2">${__("Administrator Proxy")}</span>` : ""}</div>
 			<div>${e(state.operator.station || "")}</div></div>`);
+		if (state.access && state.access.can_use_development_proxy) {
+			$("<button class='btn btn-warning btn-sm mb-3'>" + __("Change Development Proxy Employee") + "</button>")
+				.appendTo($root).on("click", show_development_proxy_login);
+		}
 		if (!state.context) {
 			$root.append(`<div class="empty-state text-muted text-center p-5">
 				${__("Scan a Kanban QR code or enter its card number to begin.")}</div>`);

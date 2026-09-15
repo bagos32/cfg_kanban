@@ -64,6 +64,41 @@ def open_session(qr_token, pin=None, station=None):
     return {"session_token": raw_token, "operator": public_operator(profile, session)}
 
 
+def open_development_proxy_session(employee, station=None):
+    if frappe.session.user != "Administrator":
+        frappe.throw("Only Administrator can use the development operator bypass")
+    if not cint(frappe.db.get_single_value(
+            "CFG Kanban Settings", "enable_administrator_operator_bypass")):
+        frappe.throw("Administrator operator bypass is disabled in CFG Kanban Settings")
+    employee_details = frappe.db.get_value(
+        "Employee", employee, ["name", "employee_name", "status"], as_dict=True
+    )
+    if not employee_details:
+        frappe.throw("Employee was not found")
+    if employee_details.status and employee_details.status != "Active":
+        frappe.throw("This employee is not active")
+
+    terminal_user = frappe.session.user
+    _close_active_sessions(terminal_user, station, "Development Proxy Switched")
+    raw_token = new_credential()
+    current = now_datetime()
+    session = frappe.get_doc({
+        "doctype": "CFG Kanban Operator Session",
+        "employee": employee_details.name,
+        "terminal_user": terminal_user,
+        "station": station,
+        "session_token_hash": credential_hash(raw_token),
+        "started_on": current,
+        "last_activity_on": current,
+        "expires_on": add_to_date(current, minutes=_timeout_minutes()),
+        "active": 1,
+        "development_proxy": 1,
+        "proxy_authorized_by": terminal_user,
+    }).insert(ignore_permissions=True)
+    profile = _development_proxy_profile(employee_details.name)
+    return {"session_token": raw_token, "operator": public_operator(profile, session)}
+
+
 def require_operator(session_token, action=None, execution=None, operation=None, workstation=None):
     _require_terminal_user()
     if not session_token:
@@ -81,10 +116,18 @@ def require_operator(session_token, action=None, execution=None, operation=None,
     if session.expires_on and get_datetime(session.expires_on) <= current:
         _close_session(session, "Inactive Timeout")
         frappe.throw("Operator session expired due to inactivity; scan your QR again")
-    profile = frappe.get_doc("CFG Kanban Operator Profile", session.operator_profile)
-    if not profile.active:
-        _close_session(session, "Profile Deactivated")
-        frappe.throw("This Kanban operator profile is inactive")
+    if session.development_proxy:
+        if (frappe.session.user != "Administrator" or
+                not cint(frappe.db.get_single_value(
+                    "CFG Kanban Settings", "enable_administrator_operator_bypass"))):
+            _close_session(session, "Development Bypass Disabled")
+            frappe.throw("Administrator operator bypass is no longer available")
+        profile = _development_proxy_profile(session.employee)
+    else:
+        profile = frappe.get_doc("CFG Kanban Operator Profile", session.operator_profile)
+        if not profile.active:
+            _close_session(session, "Profile Deactivated")
+            frappe.throw("This Kanban operator profile is inactive")
     if execution:
         execution = execution if getattr(execution, "doctype", None) else frappe.get_doc(
             "CFG Kanban Process Execution", execution
@@ -137,8 +180,18 @@ def public_operator(profile, session):
         "station": session.station,
         "started_on": session.started_on,
         "expires_on": session.expires_on,
+        "development_proxy": bool(cint(session.development_proxy)),
         "permissions": {action: bool(cint(profile.get(flag))) for action, flag in ACTION_FLAGS.items()},
     }
+
+
+def _development_proxy_profile(employee):
+    values = {"name": "Administrator Development Proxy", "employee": employee,
+              "active": 1, "kanban_role": "Development Proxy",
+              "allowed_operations": [], "allowed_workstations": []}
+    for flag in set(ACTION_FLAGS.values()):
+        values[flag] = 1
+    return frappe._dict(values)
 
 
 def _timeout_minutes():

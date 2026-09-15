@@ -26,6 +26,7 @@
   "enable_wip_ledger",
   "enable_dynamic_forms",
   "operator_session_timeout_minutes",
+  "enable_administrator_operator_bypass",
   "command_retry_limit",
   "exception_email_role"
  ],
@@ -107,6 +108,13 @@
    "fieldtype": "Int",
    "default": "15",
    "reqd": 1
+  },
+  {
+   "fieldname": "enable_administrator_operator_bypass",
+   "label": "Enable Administrator Operator Bypass (Development Only)",
+   "fieldtype": "Check",
+   "default": "0",
+   "description": "Allows only the Administrator account to act as a selected Employee in the Operator Console. Disable before production use."
   },
   {
    "fieldname": "command_retry_limit",

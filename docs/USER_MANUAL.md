@@ -721,6 +721,14 @@ Kanban progress, events, and ERP commands retain both identities: the Employee w
 work and the ERPNext User used by the terminal. Job Card start/complete actions write the Employee
 into ERPNext's standard Job Card time logs.
 
+For repeated development testing, a System Manager may enable **Enable Administrator Operator
+Bypass (Development Only)** in **CFG Kanban Settings**. This option is disabled by default and is
+available only while signed in as the literal **Administrator** account. The Operator page then
+allows Administrator to select any active Employee and start a development proxy session without
+scanning an operator QR. The selected Employee and Administrator are both retained in the audit
+trail, and the proxy is clearly marked in the Operator page. Disable this setting before production
+use; disabling it also invalidates an active proxy session at its next server-authorized action.
+
 ## 20. Current limitations and planned manual updates
 
 The following are not complete in the current build:
@@ -730,7 +738,7 @@ The following are not complete in the current build:
 - Delivery Note enforcement of the Sales Order's dedicated MTO Batch.
 - Controlled assistant for Sales Order quantity amendment/accepted excess.
 - Underproduction and incomplete-batch supervisor disposition.
-- Camera scanning, PWA installation, offline scan queue, and device management.
+- PWA installation, offline scan queue, and device management.
 - Full Start/Complete dynamic-field capture and arbitrary Job Card field mapping.
 - Automated email alerts and complete command retry orchestration.
 - Supplier Kanban and Sales Order fulfillment allocation beyond the implemented demand controls.
@@ -742,5 +750,6 @@ history whenever a user-visible workflow changes.
 
 | Version | Date | Change |
 |---|---|---|
+| 0.3 | 15 September 2026 | Added mobile camera scanning and the Administrator-only development Employee proxy |
 | 0.2 | 15 September 2026 | Added Employee-based shared-terminal operator authentication, authorization, and audit attribution |
 | 0.1 | 11 September 2026 | Initial manual covering the current stock, Sales Order, MTO, printing, scanning, execution, WIP, and audit functions |
