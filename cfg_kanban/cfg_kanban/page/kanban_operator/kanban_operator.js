@@ -21,6 +21,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		render();
 	});
 
+	const $card_camera = $(`<div class="cfg-kanban-card-camera mt-3 mb-3">
+		<button class="btn btn-primary btn-lg btn-block">
+			${__("Scan Kanban Card with Camera")}
+		</button>
+		<small class="text-muted d-block text-center mt-2">
+			${__("Or paste/type the card number in the field above and select Find Card.")}
+		</small>
+	</div>`).appendTo(page.main).hide();
+	$card_camera.find("button").on("click", scan_kanban_qr);
 	const $root = $("<div class='cfg-kanban-operator mt-4'></div>").appendTo(page.main);
 	page.add_inner_button(__("Switch Operator"), () => show_operator_login(true));
 	page.add_inner_button(__("End Operator Session"), end_operator_session);
@@ -190,6 +199,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	function render() {
 		$root.empty();
+		$card_camera.toggle(Boolean(state.operator));
 		if (!state.operator) {
 			const setup = state.access && state.access.can_manage_operators
 				? `<p><a class="btn btn-default" href="/app/cfg-kanban-operator-profile">${__("Manage Operator Profiles")}</a></p>` : "";
