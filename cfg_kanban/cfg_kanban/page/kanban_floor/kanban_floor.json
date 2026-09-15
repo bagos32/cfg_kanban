@@ -1,0 +1,12 @@
+{
+ "doctype": "Page",
+ "name": "kanban-floor",
+ "module": "CFG Kanban",
+ "title": "Kanban Floor",
+ "standard": "Yes",
+ "roles": [
+  {"role": "Manufacturing User"},
+  {"role": "Manufacturing Manager"},
+  {"role": "System Manager"}
+ ]
+}

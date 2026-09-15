@@ -1,0 +1,30 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Dashboard Profile","module":"CFG Kanban",
+ "autoname":"field:profile_name","title_field":"profile_name","track_changes":1,
+ "field_order":["profile_name","active","view_type","access_mode","company","production_line","warehouse","customer","item_group","workstations","queue_depth","refresh_interval_seconds","column_count","show_statistics","show_completed","show_alerts","default_shift","description"],
+ "fields":[
+  {"fieldname":"profile_name","label":"Profile Name","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"view_type","label":"View Type","fieldtype":"Select","options":"Management Overview\nPlant Queue\nSupervisor Sequence Control\nStation Display\nWarehouse Response\nLogistics and Delivery\nSales Progress","default":"Station Display","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"access_mode","label":"Access Mode","fieldtype":"Select","options":"Read Only\nOperator\nSupervisor","default":"Read Only","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"company","label":"Company","fieldtype":"Link","options":"Company","in_standard_filter":1},
+  {"fieldname":"production_line","label":"Production Line","fieldtype":"Data","in_standard_filter":1},
+  {"fieldname":"warehouse","label":"Warehouse","fieldtype":"Link","options":"Warehouse","in_standard_filter":1},
+  {"fieldname":"customer","label":"Customer","fieldtype":"Link","options":"Customer","in_standard_filter":1},
+  {"fieldname":"item_group","label":"Item Group / Brand","fieldtype":"Link","options":"Item Group","in_standard_filter":1},
+  {"fieldname":"workstations","label":"Selected Workstations","fieldtype":"Table","options":"CFG Kanban Dashboard Workstation"},
+  {"fieldname":"queue_depth","label":"Queue Depth per Workstation","fieldtype":"Int","default":"5","reqd":1},
+  {"fieldname":"refresh_interval_seconds","label":"Refresh Interval (seconds)","fieldtype":"Int","default":"30","reqd":1},
+  {"fieldname":"column_count","label":"Screen Columns","fieldtype":"Select","options":"1\n2\n3\n4","default":"3","reqd":1},
+  {"fieldname":"show_statistics","label":"Show Statistics","fieldtype":"Check","default":"1"},
+  {"fieldname":"show_completed","label":"Show Recently Completed","fieldtype":"Check"},
+  {"fieldname":"show_alerts","label":"Show Alerts","fieldtype":"Check","default":"1"},
+  {"fieldname":"default_shift","label":"Default Shift","fieldtype":"Link","options":"Shift Type"},
+  {"fieldname":"description","label":"Description / Screen Location","fieldtype":"Small Text"}
+ ],
+ "permissions":[
+  {"role":"Manufacturing User","read":1},
+  {"role":"Manufacturing Manager","read":1,"write":1,"create":1,"delete":1},
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1}
+ ]
+}

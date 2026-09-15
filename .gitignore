@@ -5,7 +5,6 @@ __pycache__/
 .DS_Store
 node_modules/
 *.egg-info/
-/AGENTS.md
 /sources/
 /tmp/
 /output/

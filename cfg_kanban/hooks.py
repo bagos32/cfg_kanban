@@ -8,6 +8,7 @@ required_apps = ["erpnext"]
 
 doctype_js = {
     "CFG Kanban Master": "public/js/cfg_kanban_master.js",
+    "CFG Kanban Dashboard Profile": "public/js/cfg_kanban_dashboard_profile.js",
     "Work Order": "public/js/work_order.js",
     "Sales Order": "public/js/sales_order.js",
     "CFG Kanban Card": "public/js/cfg_kanban_card.js",

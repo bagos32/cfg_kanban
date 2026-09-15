@@ -88,3 +88,12 @@ class TestDocTypeSchema(TestCase):
         for fieldname in ("status", "item_code", "requested_on", "signal_type", "priority"):
             self.assertEqual(by_name[fieldname].get("in_standard_filter"), 1)
         self.assertTrue({"cancellation_reason", "cancelled_on", "cancelled_by"}.issubset(by_name))
+
+    def test_dashboard_profile_supports_saved_multi_workstation_screens(self):
+        profile_path = ROOT / "cfg_kanban_dashboard_profile" / "cfg_kanban_dashboard_profile.json"
+        profile = json.loads(profile_path.read_text())
+        fields = {row["fieldname"]: row for row in profile["fields"]}
+        self.assertEqual(fields["workstations"]["options"], "CFG Kanban Dashboard Workstation")
+        self.assertTrue({"view_type", "access_mode", "queue_depth", "refresh_interval_seconds",
+                         "column_count", "company", "warehouse", "customer", "item_group"}
+                        .issubset(fields))
