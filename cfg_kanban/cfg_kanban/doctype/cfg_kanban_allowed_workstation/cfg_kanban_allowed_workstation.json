@@ -1,0 +1,1 @@
+{"doctype":"DocType","name":"CFG Kanban Allowed Workstation","module":"CFG Kanban","istable":1,"field_order":["workstation"],"fields":[{"fieldname":"workstation","label":"Workstation","fieldtype":"Link","options":"Workstation","reqd":1}]}

@@ -102,6 +102,8 @@ def reload_draft_work_order_bom(work_order_name):
 @handler("Start Job Card")
 def start_job_card(command, payload):
     job_card = frappe.get_doc("Job Card", payload["job_card"])
+    if command.get("operator_session") and not payload.get("employee"):
+        frappe.throw("An Employee is required for a Kanban operator Job Card action")
     if job_card.docstatus != 0:
         frappe.throw(f"Job Card {job_card.name} is not an editable Draft")
     if not any(not row.to_time for row in job_card.time_logs):

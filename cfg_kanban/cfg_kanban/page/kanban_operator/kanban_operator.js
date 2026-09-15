@@ -5,7 +5,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		single_column: true,
 	});
 
-	const state = { context: null };
+	const session_key = "cfg_kanban_operator_session";
+	const state = { context: null, operator: null, session_token: localStorage.getItem(session_key) };
 	const scan = page.add_field({
 		label: __("Scan or enter card number"),
 		fieldtype: "Data",
@@ -20,12 +21,63 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	});
 
 	const $root = $("<div class='cfg-kanban-operator mt-4'></div>").appendTo(page.main);
+	page.add_inner_button(__("Switch Operator"), () => show_operator_login(true));
+
+	async function restore_operator() {
+		if (!state.session_token) return render();
+		try {
+			const response = await frappe.call({
+				method: "cfg_kanban.api.operator.operator_session_status",
+				args: { operator_session_token: state.session_token },
+			});
+			state.operator = response.message;
+			render();
+		} catch (error) {
+			clear_operator();
+			show_operator_login(false);
+		}
+	}
+
+	function clear_operator() {
+		localStorage.removeItem(session_key);
+		state.session_token = null;
+		state.operator = null;
+		state.context = null;
+	}
+
+	function show_operator_login(switching) {
+		const dialog = new frappe.ui.Dialog({
+			title: switching ? __("Switch Operator") : __("Operator Login"),
+			fields: [
+				{ fieldname: "token", label: __("Scan Operator QR"), fieldtype: "Data", reqd: 1 },
+				{ fieldname: "pin", label: __("PIN (if required)"), fieldtype: "Password" },
+				{ fieldname: "station", label: __("Terminal / Station"), fieldtype: "Data",
+					default: localStorage.getItem("cfg_kanban_station") || "" },
+			],
+			primary_action_label: __("Continue"),
+			primary_action: async (values) => {
+				const response = await frappe.call({ method: "cfg_kanban.api.operator.login_operator",
+					args: values, freeze: true, freeze_message: __("Identifying operator...") });
+				clear_operator();
+				state.session_token = response.message.session_token;
+				state.operator = response.message.operator;
+				localStorage.setItem(session_key, state.session_token);
+				localStorage.setItem("cfg_kanban_station", values.station || "");
+				dialog.hide();
+				render();
+				scan.set_focus();
+			},
+		});
+		dialog.show();
+		dialog.get_field("token").set_focus();
+	}
 
 	async function load_card(token) {
 		if (!token) return;
+		if (!state.operator) return show_operator_login(false);
 		const response = await frappe.call({
 			method: "cfg_kanban.api.operator.get_card_context",
-			args: { token },
+			args: { token, operator_session_token: state.session_token },
 			freeze: true,
 			freeze_message: __("Loading Kanban card..."),
 		});
@@ -35,13 +87,24 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	function render() {
 		$root.empty();
+		if (!state.operator) {
+			$root.html(`<div class="frappe-card text-center p-5"><h4>${__("Operator identification required")}</h4>
+				<p class="text-muted">${__("Scan your personal operator QR. The terminal remains signed in to ERPNext.")}</p>
+				<button class="btn btn-primary cfg-operator-login">${__("Scan Operator QR")}</button></div>`);
+			$root.find(".cfg-operator-login").on("click", () => show_operator_login(false));
+			return;
+		}
+		const e = frappe.utils.escape_html;
+		$root.append(`<div class="alert alert-info d-flex justify-content-between align-items-center">
+			<div><strong>${__("Active operator")}: ${e(state.operator.employee_name)}</strong>
+			<span class="ml-2">${e(state.operator.employee)} · ${e(state.operator.kanban_role || "")}</span></div>
+			<div>${e(state.operator.station || "")}</div></div>`);
 		if (!state.context) {
-			$root.html(`<div class="empty-state text-muted text-center p-5">
+			$root.append(`<div class="empty-state text-muted text-center p-5">
 				${__("Scan a Kanban QR code or enter its card number to begin.")}</div>`);
 			return;
 		}
 		const { card, master, cycle, effective_work_order, work_order_attention, selected_job_card, executions, operation_summaries, work_orders, route_warnings } = state.context;
-		const e = frappe.utils.escape_html;
 		const cycle_label = cycle ? `${document_link("cfg-kanban-cycle", cycle.name)}${status_line(cycle.status)}` : __("No active cycle");
 		const work_order_label = effective_work_order
 			? `${document_link("work-order", effective_work_order.name)}${status_line(effective_work_order.status, effective_work_order.docstatus)}`
@@ -77,7 +140,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				`${document_link("work-order", row.name)} · ${e(row.status)}`).join("<br>")}</div></div>`);
 		}
 		const $actions = $root.find(".cfg-card-actions");
-		if (!cycle && card.current_state === "Available") {
+		if (!cycle && card.current_state === "Available" && state.operator.permissions.consume) {
 			$("<button class='btn btn-primary mr-2'>" + __("Consume / Trigger") + "</button>")
 				.appendTo($actions).on("click", consume_card);
 		}
@@ -117,7 +180,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}
 		await frappe.call({
 			method: "cfg_kanban.api.scan.scan",
-			args: { token: card.qr_code, action: "consume", event_token: frappe.utils.get_random(16) },
+			args: { token: card.qr_code, action: "consume", event_token: frappe.utils.get_random(16),
+				operator_session_token: state.session_token },
 			freeze: true,
 			freeze_message: __("Creating Kanban signal..."),
 		});
@@ -128,7 +192,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	async function propose_runtime_selection(card) {
 		const response = await frappe.call({
 			method: "cfg_kanban.api.operator.preview_runtime_selection",
-			args: { card_name: card.name }, freeze: true,
+			args: { card_name: card.name, operator_session_token: state.session_token }, freeze: true,
 			freeze_message: __("Finding eligible production work..."),
 		});
 		let proposal = response.message;
@@ -158,7 +222,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 						const selected = dialog.get_value("selected_job_card");
 						if (!selected) return;
 						const changed = await frappe.call({ method: "cfg_kanban.api.operator.preview_runtime_selection",
-							args: { card_name: card.name, job_card: selected } });
+							args: { card_name: card.name, job_card: selected,
+								operator_session_token: state.session_token } });
 						proposal = changed.message;
 						dialog.fields_dict.proposal_html.$wrapper.html(proposal_html(proposal));
 						dialog.set_df_property("override_reason", "reqd", !proposal.is_recommended);
@@ -176,6 +241,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				await frappe.call({ method: "cfg_kanban.api.operator.confirm_runtime_selection", args: {
 					card_name: card.name, job_card: values.selected_job_card,
 					confirmation: values.confirmation, override_reason: values.override_reason,
+					operator_session_token: state.session_token,
 				}, freeze: true, freeze_message: __("Allocating production work...") });
 				dialog.hide();
 				await load_card(card.qr_code);
@@ -201,13 +267,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				<div class="col-md-4 text-right cfg-execution-actions"></div>
 				</div></div>`).appendTo($section);
 			const $buttons = $row.find(".cfg-execution-actions");
-			if (row.status === "Ready") add_action($buttons, __("Start"), "btn-primary", () => job_action(row, "start"));
-			if (["Ready", "In Progress", "Paused"].includes(row.status)) add_action($buttons, __("Report Progress"), "btn-default", () => progress_dialog(row));
-			if (row.status === "In Progress" && !row.runtime_allocation) add_action($buttons, __("Complete"), "btn-default", () => job_action(row, "complete"));
-			if (row.runtime_allocation && row.job_card_needs_submit) {
+			if (row.status === "Ready" && state.operator.permissions.start) add_action($buttons, __("Start"), "btn-primary", () => job_action(row, "start"));
+			if (["Ready", "In Progress", "Paused"].includes(row.status) && state.operator.permissions.report_progress) add_action($buttons, __("Report Progress"), "btn-default", () => progress_dialog(row));
+			if (row.status === "In Progress" && !row.runtime_allocation && state.operator.permissions.complete) add_action($buttons, __("Complete"), "btn-default", () => job_action(row, "complete"));
+			if (row.runtime_allocation && row.job_card_needs_submit && state.operator.permissions.complete) {
 				add_action($buttons, __("Complete Job Card"), "btn-primary", () => job_action(row, "complete"));
 			}
-			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && row.can_close_runtime_cycle) {
+			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && row.can_close_runtime_cycle && state.operator.permissions.complete) {
 				add_action($buttons, __("Close Kanban Cycle"), "btn-success", () => close_runtime_cycle(row));
 			}
 			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && !row.can_close_runtime_cycle) {
@@ -224,6 +290,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		], resolve, __("Close Kanban Cycle"), __("Close Cycle and Release Card")));
 		const response = await frappe.call({ method: "cfg_kanban.api.operator.complete_runtime_cycle", args: {
 			execution_name: row.name, notes: values.notes,
+			operator_session_token: state.session_token,
 		}, freeze: true });
 		const result = response.message;
 		frappe.show_alert({ message: result.job_card_target_reached
@@ -250,18 +317,21 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	async function job_action(row, action) {
 		await frappe.call({ method: "cfg_kanban.api.operator.run_job_card_action",
-			args: { execution_name: row.name, action, event_token: frappe.utils.get_random(16) }, freeze: true });
+			args: { execution_name: row.name, action, event_token: frappe.utils.get_random(16),
+				operator_session_token: state.session_token }, freeze: true });
 		frappe.show_alert({ message: __("Job Card updated"), indicator: "green" });
 		await load_card(state.context.card.qr_code);
 	}
 
 	async function progress_dialog(row) {
 		const response = await frappe.call({ method: "cfg_kanban.api.operator.get_execution_form",
-			args: { execution_name: row.name, capture_on: "Progress" } });
+			args: { execution_name: row.name, capture_on: "Progress",
+				operator_session_token: state.session_token } });
 		const definitions = response.message.fields || [];
 		const fields = [
 			{ fieldname: "good_qty", label: __("Good Qty"), fieldtype: "Float", reqd: 1 },
-			{ fieldname: "reject_qty", label: __("Reject Qty"), fieldtype: "Float", default: 0 },
+			{ fieldname: "reject_qty", label: __("Reject Qty"), fieldtype: "Float", default: 0,
+				read_only: !state.operator.permissions.report_reject },
 			{ fieldname: "notes", label: __("Notes"), fieldtype: "Small Text" },
 			{ fieldtype: "Section Break", label: __("Operation Checks") },
 			...definitions.map(dialog_field),
@@ -277,6 +347,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				await frappe.call({ method: "cfg_kanban.api.operator.submit_progress", args: {
 					execution_name: row.name, good_qty: values.good_qty, reject_qty: values.reject_qty,
 					notes: values.notes, values: dynamic_values, event_token: frappe.utils.get_random(16),
+					operator_session_token: state.session_token,
 				}, freeze: true });
 				dialog.hide();
 				frappe.show_alert({ message: __("Progress recorded"), indicator: "green" });
@@ -296,7 +367,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	}
 
 	async function show_timeline(cycle_name) {
-		const response = await frappe.call({ method: "cfg_kanban.api.operator.get_cycle_timeline", args: { cycle_name } });
+		const response = await frappe.call({ method: "cfg_kanban.api.operator.get_cycle_timeline",
+			args: { cycle_name, operator_session_token: state.session_token } });
 		const e = frappe.utils.escape_html;
 		const rows = response.message.events.map((event) => `<div class="mb-3">
 			<strong>${e(event.event_type)}</strong> <span class="text-muted">${e(event.event_datetime)}</span>
@@ -314,5 +386,5 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		return "orange";
 	}
 
-	render();
+	restore_operator();
 };

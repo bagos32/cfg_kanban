@@ -14,15 +14,14 @@ def get_existing(doctype: str, key: str):
     return frappe.get_doc(doctype, name) if name else None
 
 
-def insert_once(doc, key: str):
+def insert_once(doc, key: str, *, ignore_permissions=False):
     """Database unique fields are the final guard when concurrent workers race."""
     existing = get_existing(doc.doctype, key)
     if existing:
         return existing, False
     doc.idempotency_key = key
     try:
-        doc.insert()
+        doc.insert(ignore_permissions=ignore_permissions)
         return doc, True
     except frappe.UniqueValidationError:
         return get_existing(doc.doctype, key), False
-

@@ -7,7 +7,8 @@ from cfg_kanban.services.wip import append_entry, releasable_increment
 
 
 def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_qty=None,
-           values=None, notes=None, source="Operator"):
+           values=None, notes=None, source="Operator", operator=None,
+           operator_session=None, terminal_user=None):
     execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
     good_qty, reject_qty = flt(good_qty), flt(reject_qty)
     processed_qty = flt(processed_qty) if processed_qty is not None else good_qty + reject_qty
@@ -18,16 +19,19 @@ def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_
     progress = frappe.get_doc({
         "doctype": "CFG Kanban Operation Progress", "process_execution": execution.name,
         "kanban_cycle": execution.kanban_cycle, "posting_datetime": now_datetime(),
-        "operator": frappe.session.user, "good_qty": good_qty, "reject_qty": reject_qty,
+        "operator": operator, "operator_session": operator_session,
+        "terminal_user": terminal_user or frappe.session.user,
+        "good_qty": good_qty, "reject_qty": reject_qty,
         "processed_qty": processed_qty, "source": source, "linked_job_card": execution.job_card,
         "notes": notes,
     })
     for value in values or []:
         progress.append("execution_values", value)
-    progress.insert()
+    progress.insert(ignore_permissions=bool(operator_session))
     total_good = flt(execution.good_qty) + good_qty
     execution.db_set({"good_qty": total_good, "reject_qty": flt(execution.reject_qty) + reject_qty,
-                      "processed_qty": flt(execution.processed_qty) + processed_qty}, update_modified=True)
+                      "processed_qty": flt(execution.processed_qty) + processed_qty,
+                      "operator": operator or execution.operator}, update_modified=True)
     if execution.handoff_mode == "Digital Quantity Handoff":
         release = flt(released_qty) if released_qty is not None else releasable_increment(
             total_good, execution.released_qty, execution.transfer_multiple)
@@ -42,7 +46,8 @@ def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_
                                 execution.destination_operation)
     recalculate(execution.kanban_cycle, execution.operation)
     record("Operation Progress", cycle=execution.kanban_cycle, execution=execution.name,
-           qty=good_qty, reference_doctype=progress.doctype, reference_name=progress.name)
+           qty=good_qty, reference_doctype=progress.doctype, reference_name=progress.name,
+           operator=operator, operator_session=operator_session, terminal_user=terminal_user)
     return progress
 
 

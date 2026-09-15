@@ -1,8 +1,8 @@
 # CFG Kanban User Manual
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Manual version:** 0.1  
-**Updated:** 11 September 2026  
+**Manual version:** 0.2
+**Updated:** 15 September 2026
 **Scope:** Functions implemented in the current development build
 
 ## 1. Purpose of this manual
@@ -701,7 +701,27 @@ Then perform one controlled test before using the new behavior with production d
 - [ ] Events, ERP Commands, and Exceptions reviewed.
 - [ ] Known incomplete cycle-closure behavior understood by pilot users.
 
-## 19. Current limitations and planned manual updates
+## 19. Shared-terminal operator access
+
+The Kanban Operator page uses two separate identities:
+
+- The shared terminal stays signed in to ERPNext with a restricted user that has the **Kanban Terminal** role.
+- Each operator scans a personal Kanban QR. The operator is an ERPNext **Employee** and does not need an ERPNext User account.
+
+An administrator creates one **CFG Kanban Operator Profile** for each Employee, selects the
+operator permissions and optional workstation/operation restrictions, and uses **Credentials →
+Issue New QR Credential**. The credential is shown once for QR-label generation; only its hash is
+stored. Issuing another credential immediately invalidates the previous QR.
+
+The active operator is always displayed at the top of the Operator page. **Switch Operator** ends
+the previous operator's active session on that terminal/station. Sessions also expire after the
+inactivity period configured in **CFG Kanban Settings** (15 minutes by default).
+
+Kanban progress, events, and ERP commands retain both identities: the Employee who performed the
+work and the ERPNext User used by the terminal. Job Card start/complete actions write the Employee
+into ERPNext's standard Job Card time logs.
+
+## 20. Current limitations and planned manual updates
 
 The following are not complete in the current build:
 
@@ -718,8 +738,9 @@ The following are not complete in the current build:
 This file is the maintained manual source. Update its version, date, affected sections, and revision
 history whenever a user-visible workflow changes.
 
-## 20. Revision history
+## 21. Revision history
 
 | Version | Date | Change |
 |---|---|---|
+| 0.2 | 15 September 2026 | Added Employee-based shared-terminal operator authentication, authorization, and audit attribution |
 | 0.1 | 11 September 2026 | Initial manual covering the current stock, Sales Order, MTO, printing, scanning, execution, WIP, and audit functions |

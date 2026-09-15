@@ -133,3 +133,35 @@ class TestDocTypeSchema(TestCase):
                        if row["fieldname"] == "command_type")["options"].splitlines()
         self.assertIn("Pause Job Card", options)
         self.assertIn("Resume Job Card", options)
+
+    def test_operator_identity_and_audit_fields_use_employee(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        profile = schemas["CFG Kanban Operator Profile"]
+        fields = {row["fieldname"]: row for row in profile["fields"]}
+        self.assertEqual(fields["employee"]["options"], "Employee")
+        self.assertTrue(fields["employee"]["unique"])
+        self.assertTrue({"qr_token_hash", "pin_required", "pin", "kanban_role",
+                         "can_start", "can_complete", "can_report_reject",
+                         "can_partial_complete", "can_override", "can_reopen",
+                         "allowed_workstations", "allowed_operations"}.issubset(fields))
+
+        progress = {row["fieldname"]: row for row in
+                    schemas["CFG Kanban Operation Progress"]["fields"]}
+        self.assertEqual(progress["operator"]["options"], "Employee")
+        self.assertEqual(progress["terminal_user"]["options"], "User")
+        self.assertEqual(progress["operator_session"]["options"],
+                         "CFG Kanban Operator Session")
+
+        event = {row["fieldname"]: row for row in schemas["CFG Kanban Event"]["fields"]}
+        self.assertEqual(event["operator"]["options"], "Employee")
+        self.assertEqual(event["user"]["options"], "User")
+
+    def test_operator_session_is_separate_from_erp_login(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        fields = {row["fieldname"]: row for row in
+                  schemas["CFG Kanban Operator Session"]["fields"]}
+        self.assertEqual(fields["employee"]["options"], "Employee")
+        self.assertEqual(fields["terminal_user"]["options"], "User")
+        self.assertTrue(fields["session_token_hash"]["hidden"])
+        self.assertTrue({"last_activity_on", "expires_on", "ended_on", "active",
+                         "end_reason"}.issubset(fields))

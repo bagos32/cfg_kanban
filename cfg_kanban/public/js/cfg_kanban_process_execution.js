@@ -4,8 +4,14 @@ frappe.ui.form.on("CFG Kanban Process Execution", {
 		frm.add_custom_button(__("Open Operator Console"), () => frappe.set_route("kanban-operator"));
 		if (frm.doc.job_card && frm.doc.status === "Ready") {
 			frm.add_custom_button(__("Start Job Card"), async () => {
+				const operator_session_token = localStorage.getItem("cfg_kanban_operator_session");
+				if (!operator_session_token) {
+					frappe.msgprint(__("Open the Operator Console and scan an operator QR first."));
+					return;
+				}
 				await frappe.call({ method: "cfg_kanban.api.operator.run_job_card_action", args: {
 					execution_name: frm.doc.name, action: "start", event_token: frappe.utils.get_random(16),
+					operator_session_token,
 				}, freeze: true });
 				frm.reload_doc();
 			}, __("Kanban Actions"));

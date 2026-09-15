@@ -20,7 +20,7 @@
   {"fieldname":"good_qty","label":"Good Qty","fieldtype":"Float","read_only":1,"in_list_view":1},
   {"fieldname":"reject_qty","label":"Reject Qty","fieldtype":"Float","read_only":1},
   {"fieldname":"released_qty","label":"Released Qty","fieldtype":"Float","read_only":1},
-  {"fieldname":"operator","label":"Operator","fieldtype":"Link","options":"User"},
+  {"fieldname":"operator","label":"Operator Employee","fieldtype":"Link","options":"Employee"},
   {"fieldname":"started_on","label":"Started On","fieldtype":"Datetime"},
   {"fieldname":"completed_on","label":"Completed On","fieldtype":"Datetime"},
   {"fieldname":"allow_parallel","label":"Allow Parallel","fieldtype":"Check","read_only":1},

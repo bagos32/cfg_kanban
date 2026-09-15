@@ -10,7 +10,11 @@
  "name": "kanban-operator",
  "owner": "Administrator",
  "page_name": "kanban-operator",
- "roles": [],
+ "roles": [
+  {"role": "Kanban Terminal"},
+  {"role": "Manufacturing Manager"},
+  {"role": "System Manager"}
+ ],
  "script": null,
  "standard": "Yes",
  "style": null,

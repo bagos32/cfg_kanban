@@ -7,7 +7,7 @@ from cfg_kanban.services.idempotency import canonical_key, insert_once
 from cfg_kanban.services.state_machine import transition_card
 
 
-def consume_card(card_name, *, device_id=None, event_token=None):
+def consume_card(card_name, *, device_id=None, event_token=None, trusted_operator=False):
     """Create exactly one replenishment chain for a card's active-cycle window."""
     card = frappe.get_doc("CFG Kanban Card", card_name)
     if not card.active or card.blocked:
@@ -28,7 +28,7 @@ def consume_card(card_name, *, device_id=None, event_token=None):
         "item_code": master.item_code, "planned_qty": card.kanban_qty or master.replenishment_qty,
         "stock_uom": master.stock_uom, "status": "New", "priority": master.default_priority,
         "source_warehouse": master.source_warehouse, "destination_warehouse": master.destination_warehouse,
-    }).insert()
+    }).insert(ignore_permissions=trusted_operator)
     card.db_set("active_cycle", cycle.name)
     signal, created = insert_once(frappe.get_doc({
         "doctype": "CFG Kanban Signal", "signal_type": "Production Replenishment",
@@ -37,7 +37,7 @@ def consume_card(card_name, *, device_id=None, event_token=None):
         "status": "Validated" if master.automation_level == "Automatic" else "Waiting Approval",
         "priority": master.default_priority, "automation_level": master.automation_level,
         "requested_on": now_datetime(), "validated_on": now_datetime(),
-    }), event_key)
+    }), event_key, ignore_permissions=trusted_operator)
     cycle.db_set({"signal": signal.name, "status": "Signalled"})
     transition_card(card, "Signal Created", event_type="Signal Created", cycle=cycle.name)
     if created and master.automation_level == "Automatic":

@@ -17,6 +17,7 @@ doctype_js = {
     "CFG Kanban Cycle": "public/js/cfg_kanban_cycle.js",
     "CFG Kanban Handling Unit": "public/js/cfg_kanban_handling_unit.js",
     "CFG Kanban Demand": "public/js/cfg_kanban_demand.js",
+    "CFG Kanban Operator Profile": "public/js/cfg_kanban_operator_profile.js",
 }
 
 jinja = {
