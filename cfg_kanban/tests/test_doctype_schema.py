@@ -113,3 +113,23 @@ class TestDocTypeSchema(TestCase):
         self.assertTrue({"queue_entry", "process_execution", "workstation", "action",
                          "old_position", "new_position", "reason", "changed_by", "changed_on"}
                         .issubset(audit_fields))
+
+    def test_controlled_interruption_fields_and_erp_commands_are_present(self):
+        profile_path = ROOT / "cfg_kanban_operation_profile" / "cfg_kanban_operation_profile.json"
+        profile_fields = {row["fieldname"] for row in json.loads(profile_path.read_text())["fields"]}
+        self.assertTrue({"interruption_policy", "setup_family", "cleaning_class"}
+                        .issubset(profile_fields))
+
+        queue_path = ROOT / "cfg_kanban_dispatch_queue" / "cfg_kanban_dispatch_queue.json"
+        queue_fields = {row["fieldname"] for row in json.loads(queue_path.read_text())["fields"]}
+        self.assertTrue({"paused_for_queue_entry", "pause_reason", "wip_disposition",
+                         "machine_condition", "expected_resume_on", "erp_timer_was_active",
+                         "paused_by", "paused_on"}
+                        .issubset(queue_fields))
+
+        command_path = ROOT / "cfg_erp_command" / "cfg_erp_command.json"
+        command = json.loads(command_path.read_text())
+        options = next(row for row in command["fields"]
+                       if row["fieldname"] == "command_type")["options"].splitlines()
+        self.assertIn("Pause Job Card", options)
+        self.assertIn("Resume Job Card", options)

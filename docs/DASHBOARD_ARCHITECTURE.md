@@ -43,3 +43,9 @@ Each workstation receives a persistent `CFG Kanban Dispatch Queue` projection, w
 System recommendation establishes the initial order from readiness, cycle priority, and creation time. A user with Manufacturing Manager or System Manager role can use a Dashboard Profile in Supervisor mode to drag queued work, move it earlier or later, or mark it urgent. Active or paused work cannot be displaced by a sequence override.
 
 Every supervisor action requires a reason and creates an append-only `CFG Kanban Sequence Change` record plus a Kanban Event. Row locking serializes changes made by two supervisors at the same workstation. Existing Process Executions are reconciled into the queue when a dashboard first loads; future execution changes synchronize through document events.
+
+### Controlled interruption
+
+An Operation Profile defaults to `Interruption Prohibited`. A supervisor may use **Pause and Give Way** only after selecting a Ready replacement on the same workstation and recording the WIP disposition, machine condition, reason, and optional expected resume time. `Compatible Items Only` additionally requires identical Setup Family and Cleaning Class values on the interrupted and replacement operation profiles.
+
+Kanban records the execution as Paused in a separate dashboard section while retaining the Job Card, cumulative output, batch identity, runtime allocation, and remaining quantity. Normally no ERP timer is changed because Kanban progress is posted as completed Job Card time-log entries. If an ERP Job Card timer is genuinely open, the pause closes that row and records the timer mode; resume then opens a new row. **Resume Paused Work** is blocked while another execution remains In Progress on the workstation.

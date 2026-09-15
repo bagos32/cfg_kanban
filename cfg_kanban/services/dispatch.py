@@ -2,6 +2,7 @@ import frappe
 from frappe.utils import flt, now_datetime
 
 from cfg_kanban.services.events import record
+from cfg_kanban.services.idempotency import canonical_key, insert_once
 
 
 QUEUE_DOCTYPE = "CFG Kanban Dispatch Queue"
@@ -90,6 +91,14 @@ def overlay_dispatch(executions):
             "sequence_source": entry.sequence_source,
             "expedite": int(entry.expedite or 0),
             "effective_priority": entry.supervisor_priority or entry.system_priority or "Normal",
+            "paused_for_queue_entry": entry.paused_for_queue_entry,
+            "pause_reason": entry.pause_reason,
+            "wip_disposition": entry.wip_disposition,
+            "machine_condition": entry.machine_condition,
+            "expected_resume_on": entry.expected_resume_on,
+            "erp_timer_was_active": int(entry.erp_timer_was_active or 0),
+            "paused_by": entry.paused_by,
+            "paused_on": entry.paused_on,
         })
     return sorted(executions, key=_dispatch_sort_key)
 
@@ -164,6 +173,126 @@ def set_expedite(profile_name, queue_entry, expedite, reason):
     return {"queue_entry": entry.name, "expedite": enable}
 
 
+@frappe.whitelist()
+def pause_and_give_way(profile_name, execution_name, replacement_queue_entry, reason,
+                       wip_disposition, machine_condition, expected_resume_on=None,
+                       event_token=None):
+    reason = _required_reason(reason)
+    execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
+    if _completed_interrupt_retry(execution, "Pause and Give Way", event_token, "Paused"):
+        return {"execution": execution.name, "status": "Paused", "duplicate": True}
+    profile = _require_supervisor_profile(profile_name, execution.workstation)
+    if execution.status != "In Progress":
+        frappe.throw("Only the currently In Progress execution can be paused")
+    if not execution.job_card:
+        frappe.throw("The current execution has no ERPNext Job Card to pause")
+    replacement = frappe.get_doc(QUEUE_DOCTYPE, replacement_queue_entry)
+    if replacement.workstation != execution.workstation:
+        frappe.throw("The urgent replacement must use the same workstation")
+    if replacement.dispatch_status != "Ready":
+        frappe.throw("The urgent replacement must be Ready before current work can give way")
+    if replacement.process_execution == execution.name:
+        frappe.throw("Select a different execution as the urgent replacement")
+    policy = _validate_interruption_compatibility(execution, replacement)
+    if not wip_disposition or not machine_condition:
+        frappe.throw("WIP disposition and machine condition are required")
+    if wip_disposition == "Must Be Consumed Before Interruption":
+        frappe.throw("This WIP must be consumed before interruption, so the execution cannot be paused")
+    if policy == "Compatible Items Only" and machine_condition != "Ready for Compatible Product":
+        frappe.throw("Compatible Items Only requires the machine to be Ready for Compatible Product")
+
+    _lock_workstation(execution.workstation)
+    execution.reload()
+    replacement.reload()
+    if execution.status != "In Progress" or replacement.dispatch_status != "Ready":
+        frappe.throw("The workstation state changed. Refresh the dashboard and try again.")
+    paused_on = now_datetime()
+    erp_timer_was_active = _has_open_job_card_timer(execution.job_card)
+    if erp_timer_was_active:
+        _run_interrupt_command(execution, "Pause Job Card", event_token, {
+            "paused_on": paused_on, "reason": reason,
+        })
+    execution.db_set("status", "Paused", update_modified=True)
+    queue = ensure_queue_entry(execution)
+    queue.db_set({
+        "dispatch_status": "Paused", "readiness": "Paused",
+        "paused_for_queue_entry": replacement.name, "pause_reason": reason,
+        "wip_disposition": wip_disposition, "machine_condition": machine_condition,
+        "expected_resume_on": expected_resume_on, "paused_by": frappe.session.user,
+        "paused_on": paused_on, "erp_timer_was_active": int(erp_timer_was_active),
+        "last_changed_by": frappe.session.user,
+        "last_changed_on": paused_on,
+    }, update_modified=True)
+    audit = _audit(queue, "Pause and Give Way", queue.queue_position, queue.queue_position,
+                   queue.supervisor_priority or queue.system_priority,
+                   queue.supervisor_priority or queue.system_priority, reason,
+                   replacement_queue_entry=replacement.name, wip_disposition=wip_disposition,
+                   machine_condition=machine_condition, expected_resume_on=expected_resume_on)
+    frappe.db.set_value(QUEUE_DOCTYPE, queue.name, "last_sequence_change", audit.name,
+                        update_modified=False)
+    set_expedite(profile.name, replacement.name, 1, reason)
+    event_key = _interrupt_event_key(execution, "Pause and Give Way", event_token)
+    record("Work Paused to Give Way", cycle=execution.kanban_cycle, execution=execution.name,
+           reference_doctype=QUEUE_DOCTYPE, reference_name=replacement.name,
+           notes=(f"WIP: {wip_disposition}; Machine: {machine_condition}; "
+                  f"ERP timer active: {'yes' if erp_timer_was_active else 'no'}; "
+                  f"Expected resume: {expected_resume_on or 'not set'}; Reason: {reason}"),
+           device_id=event_key)
+    return {"execution": execution.name, "status": "Paused",
+            "replacement_queue_entry": replacement.name}
+
+
+@frappe.whitelist()
+def resume_paused_work(profile_name, execution_name, reason, event_token=None):
+    reason = _required_reason(reason)
+    execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
+    if _completed_interrupt_retry(execution, "Resume Paused Work", event_token, "In Progress"):
+        return {"execution": execution.name, "status": "In Progress", "duplicate": True}
+    profile = _require_supervisor_profile(profile_name, execution.workstation)
+    if execution.status != "Paused":
+        frappe.throw("Only a paused execution can be resumed")
+    if not execution.job_card:
+        frappe.throw("The paused execution has no ERPNext Job Card to resume")
+    _lock_workstation(execution.workstation)
+    execution.reload()
+    if execution.status != "Paused":
+        frappe.throw("The paused execution state changed. Refresh and try again.")
+    competing = frappe.db.get_value("CFG Kanban Process Execution", {
+        "workstation": execution.workstation, "status": "In Progress", "name": ["!=", execution.name],
+    }, "name")
+    if competing:
+        frappe.throw(f"Finish or pause current execution {competing} before resuming this work")
+    queue = ensure_queue_entry(execution)
+    erp_timer_was_active = bool(queue.erp_timer_was_active)
+    if erp_timer_was_active:
+        _run_interrupt_command(execution, "Resume Job Card", event_token, {
+            "resumed_on": now_datetime(), "reason": reason,
+        })
+    execution.db_set("status", "In Progress", update_modified=True)
+    audit = _audit(queue, "Resume Paused Work", queue.queue_position, queue.queue_position,
+                   queue.supervisor_priority or queue.system_priority,
+                   queue.supervisor_priority or queue.system_priority, reason,
+                   replacement_queue_entry=queue.paused_for_queue_entry,
+                   wip_disposition=queue.wip_disposition,
+                   machine_condition=queue.machine_condition,
+                   expected_resume_on=queue.expected_resume_on)
+    queue.db_set({
+        "dispatch_status": "In Progress", "readiness": "In Progress",
+        "paused_for_queue_entry": None, "pause_reason": None,
+        "wip_disposition": None, "machine_condition": None,
+        "expected_resume_on": None, "paused_by": None, "paused_on": None,
+        "erp_timer_was_active": 0,
+        "last_sequence_change": audit.name, "last_changed_by": frappe.session.user,
+        "last_changed_on": now_datetime(),
+    }, update_modified=True)
+    event_key = _interrupt_event_key(execution, "Resume Paused Work", event_token)
+    record("Paused Work Resumed", cycle=execution.kanban_cycle, execution=execution.name,
+           reference_doctype="Job Card", reference_name=execution.job_card,
+           notes=(f"ERP timer restored: {'yes' if erp_timer_was_active else 'not applicable'}; "
+                  f"Reason: {reason}"), device_id=event_key)
+    return {"execution": execution.name, "status": "In Progress", "profile": profile.name}
+
+
 def _apply_positions(names, by_name, explicitly_reordered, action, reason):
     changed = []
     for index, name in enumerate(names, 1):
@@ -189,7 +318,7 @@ def _apply_positions(names, by_name, explicitly_reordered, action, reason):
     return changed
 
 
-def _audit(entry, action, old_position, new_position, old_priority, new_priority, reason):
+def _audit(entry, action, old_position, new_position, old_priority, new_priority, reason, **details):
     return frappe.get_doc({
         "doctype": AUDIT_DOCTYPE,
         "queue_entry": entry.name,
@@ -204,7 +333,70 @@ def _audit(entry, action, old_position, new_position, old_priority, new_priority
         "reason": reason,
         "changed_by": frappe.session.user,
         "changed_on": now_datetime(),
+        **details,
     }).insert(ignore_permissions=True)
+
+
+def _run_interrupt_command(execution, command_type, event_token, extra_payload):
+    employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user,
+                                                   "status": "Active"}, "name")
+    key = canonical_key("dispatch-interruption", execution.job_card, command_type,
+                        event_token or execution.modified)
+    command, _created = insert_once(frappe.get_doc({
+        "doctype": "CFG ERP Command", "command_type": command_type,
+        "kanban_cycle": execution.kanban_cycle, "process_execution": execution.name,
+        "status": "Pending", "target_doctype": "Job Card",
+        "request_payload": frappe.as_json({
+            "job_card": execution.job_card, "process_execution": execution.name,
+            "kanban_cycle": execution.kanban_cycle, "employee": employee,
+            "operator_user": frappe.session.user, **extra_payload,
+        }),
+        "requested_on": now_datetime(), "created_by_system": 1,
+    }), key)
+    from cfg_kanban.integrations.erp_gateway import execute_command
+    return execute_command(command.name)
+
+
+def _completed_interrupt_retry(execution, action, event_token, expected_status):
+    if not event_token or execution.status != expected_status:
+        return False
+    return bool(frappe.db.get_value("CFG Kanban Event", {
+        "device_id": _interrupt_event_key(execution, action, event_token),
+    }, "name"))
+
+
+def _interrupt_event_key(execution, action, event_token):
+    return canonical_key("dispatch-interruption-event", execution.name, action,
+                         event_token) if event_token else None
+
+
+def _has_open_job_card_timer(job_card):
+    return bool(frappe.db.sql(
+        "select name from `tabJob Card Time Log` where parent=%s and to_time is null limit 1",
+        job_card,
+    ))
+
+
+def _validate_interruption_compatibility(execution, replacement):
+    current = _operation_interruption_profile(execution.kanban_master, execution.operation)
+    if not current or current.interruption_policy in (None, "", "Interruption Prohibited"):
+        frappe.throw("This Kanban operation prohibits interruption. Update its Operation Profile policy first.")
+    if current.interruption_policy != "Compatible Items Only":
+        return current.interruption_policy
+    target = _operation_interruption_profile(replacement.kanban_master, replacement.operation)
+    if (not target or target.interruption_policy != "Compatible Items Only" or
+            not current.setup_family or not current.cleaning_class):
+        frappe.throw("Both operations require Setup Family and Cleaning Class before compatibility can be verified")
+    if (current.setup_family != target.setup_family or
+            current.cleaning_class != target.cleaning_class):
+        frappe.throw("The urgent item is not in the same Setup Family and Cleaning Class")
+    return current.interruption_policy
+
+
+def _operation_interruption_profile(master, operation):
+    return frappe.db.get_value("CFG Kanban Operation Profile", {
+        "parent": master, "parenttype": "CFG Kanban Master", "operation": operation,
+    }, ["interruption_policy", "setup_family", "cleaning_class"], as_dict=True)
 
 
 def _record_dispatch_event(event_type, workstation, reason, changed, profile_name):
@@ -238,7 +430,7 @@ def _required_reason(reason):
 def _lock_workstation(workstation):
     frappe.db.sql(
         "select name from `tabCFG Kanban Dispatch Queue` where workstation=%s "
-        "and dispatch_status in ('Not Ready','Ready','Waiting Input','Blocked') for update",
+        "and dispatch_status not in ('Completed','Cancelled') for update",
         workstation,
     )
 

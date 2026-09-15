@@ -117,6 +117,49 @@ def start_job_card(command, payload):
     return job_card
 
 
+@handler("Pause Job Card")
+def pause_job_card(command, payload):
+    """Close only the active time log; ERPNext retains cumulative Job Card output."""
+    job_card = frappe.get_doc("Job Card", payload["job_card"])
+    if job_card.docstatus != 0:
+        frappe.throw(f"Job Card {job_card.name} is not an editable Draft")
+    if job_card.status != "Work In Progress":
+        frappe.throw(f"Job Card {job_card.name} must be Work In Progress before it can be paused")
+    open_row = next((row for row in reversed(job_card.time_logs) if not row.to_time), None)
+    closed_time_log = None
+    if open_row:
+        open_row.to_time = get_datetime(payload.get("paused_on") or now_datetime())
+        closed_time_log = open_row.name
+        job_card.save(ignore_permissions=True)
+    job_card.reload()
+    job_card._cfg_command_result = _job_card_result(
+        job_card, action="paused", closed_time_log=closed_time_log,
+        kanban_pause=True,
+    )
+    return job_card
+
+
+@handler("Resume Job Card")
+def resume_job_card(command, payload):
+    """Open a fresh time log on the same Job Card after a Kanban-controlled pause."""
+    job_card = frappe.get_doc("Job Card", payload["job_card"])
+    if job_card.docstatus != 0:
+        frappe.throw(f"Job Card {job_card.name} is not an editable Draft")
+    if job_card.status not in ("Open", "Work In Progress"):
+        frappe.throw(f"Job Card {job_card.name} cannot resume while its status is {job_card.status}")
+    if not any(not row.to_time for row in job_card.time_logs):
+        job_card.append("time_logs", {
+            "from_time": get_datetime(payload.get("resumed_on") or now_datetime()),
+            "employee": payload.get("employee"),
+        })
+        job_card.save(ignore_permissions=True)
+    job_card.reload()
+    if job_card.status != "Work In Progress":
+        frappe.throw(f"ERPNext did not resume Job Card {job_card.name}; current status is {job_card.status}")
+    job_card._cfg_command_result = _job_card_result(job_card, action="resumed", kanban_pause=True)
+    return job_card
+
+
 @handler("Update Job Card")
 def update_job_card(command, payload):
     required = ("job_card", "operation_progress", "incremental_good_qty")

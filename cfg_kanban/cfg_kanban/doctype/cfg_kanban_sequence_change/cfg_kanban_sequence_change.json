@@ -1,16 +1,20 @@
 {
  "doctype":"DocType","name":"CFG Kanban Sequence Change","module":"CFG Kanban","autoname":"SEQ-.#####","title_field":"queue_entry","track_changes":0,
- "field_order":["queue_entry","process_execution","kanban_cycle","workstation","action","old_position","new_position","old_priority","new_priority","reason","changed_by","changed_on"],
+ "field_order":["queue_entry","process_execution","kanban_cycle","workstation","action","replacement_queue_entry","old_position","new_position","old_priority","new_priority","wip_disposition","machine_condition","expected_resume_on","reason","changed_by","changed_on"],
  "fields":[
   {"fieldname":"queue_entry","label":"Dispatch Queue Entry","fieldtype":"Link","options":"CFG Kanban Dispatch Queue","reqd":1,"read_only":1,"in_list_view":1},
   {"fieldname":"process_execution","label":"Process Execution","fieldtype":"Link","options":"CFG Kanban Process Execution","reqd":1,"read_only":1,"in_standard_filter":1},
   {"fieldname":"kanban_cycle","label":"Kanban Cycle","fieldtype":"Link","options":"CFG Kanban Cycle","read_only":1,"in_standard_filter":1},
   {"fieldname":"workstation","label":"Workstation","fieldtype":"Link","options":"Workstation","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
-  {"fieldname":"action","label":"Action","fieldtype":"Select","options":"Reorder\nExpedite\nRemove Expedite","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"action","label":"Action","fieldtype":"Select","options":"Reorder\nExpedite\nRemove Expedite\nPause and Give Way\nResume Paused Work","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"replacement_queue_entry","label":"Urgent Replacement","fieldtype":"Link","options":"CFG Kanban Dispatch Queue","read_only":1},
   {"fieldname":"old_position","label":"Old Position","fieldtype":"Float","read_only":1},
   {"fieldname":"new_position","label":"New Position","fieldtype":"Float","read_only":1},
   {"fieldname":"old_priority","label":"Old Priority","fieldtype":"Data","read_only":1},
   {"fieldname":"new_priority","label":"New Priority","fieldtype":"Data","read_only":1},
+  {"fieldname":"wip_disposition","label":"WIP Disposition","fieldtype":"Data","read_only":1},
+  {"fieldname":"machine_condition","label":"Machine Condition","fieldtype":"Data","read_only":1},
+  {"fieldname":"expected_resume_on","label":"Expected Resume On","fieldtype":"Datetime","read_only":1},
   {"fieldname":"reason","label":"Supervisor Reason","fieldtype":"Small Text","reqd":1,"read_only":1,"in_list_view":1},
   {"fieldname":"changed_by","label":"Changed By","fieldtype":"Link","options":"User","reqd":1,"read_only":1,"in_list_view":1},
   {"fieldname":"changed_on","label":"Changed On","fieldtype":"Datetime","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1}

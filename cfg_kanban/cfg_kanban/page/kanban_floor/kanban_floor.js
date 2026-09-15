@@ -78,6 +78,7 @@ frappe.pages["kanban-floor"].on_page_load = function (wrapper) {
 	function render_station($grid, station) {
 		const e = frappe.utils.escape_html;
 		const current = station.current || [];
+		const paused = station.paused || [];
 		const queue = station.queue || [];
 		const $station = $(`<section class="cfg-station frappe-card"><header><div><h3>${e(station.workstation)}</h3>
 			<span class="indicator-pill ${indicator(station.state)}">${e(station.state)}</span></div>
@@ -85,6 +86,10 @@ frappe.pages["kanban-floor"].on_page_load = function (wrapper) {
 		const $body = $("<div class='cfg-station-body'></div>").appendTo($station);
 		if (current.length) current.forEach((row) => $body.append(execution_card(row, true)));
 		else $body.append(`<div class="cfg-idle">${__("No active work")}</div>`);
+		if (paused.length) {
+			$body.append(`<div class="cfg-queue-title cfg-paused-title">${__("Paused Work")}</div>`);
+			paused.forEach((row) => $body.append(execution_card(row, true)));
+		}
 		$body.append(`<div class="cfg-queue-title">${__("Upcoming Queue")}</div>`);
 		if (queue.length) queue.forEach((row, index) => $body.append(execution_card(row, false, index + 1)));
 		else $body.append(`<div class="text-muted p-3">${__("Queue empty")}</div>`);
@@ -94,20 +99,23 @@ frappe.pages["kanban-floor"].on_page_load = function (wrapper) {
 		const e = frappe.utils.escape_html;
 		const supervisor = Boolean(state.data?.profile?.can_control_dispatch);
 		const controllable = supervisor && ["Not Ready", "Ready", "Waiting Input", "Blocked"].includes(row.status) && row.dispatch_queue;
-		const controls = controllable ? `<div class="cfg-dispatch-controls">
+		let controls = controllable ? `<div class="cfg-dispatch-controls">
 			<button class="btn btn-xs btn-default cfg-move-up" title="${__("Move earlier")}">↑</button>
 			<button class="btn btn-xs btn-default cfg-move-down" title="${__("Move later")}">↓</button>
 			<button class="btn btn-xs ${row.expedite ? "btn-warning" : "btn-default"} cfg-expedite">${row.expedite ? __("Remove urgent") : __("Urgent")}</button>
 		</div>` : "";
+		if (supervisor && row.status === "In Progress") controls = `<div class="cfg-dispatch-controls"><button class="btn btn-xs btn-warning cfg-pause-give-way">${__("Pause and Give Way")}</button></div>`;
+		if (supervisor && row.status === "Paused") controls = `<div class="cfg-dispatch-controls"><button class="btn btn-xs btn-primary cfg-resume-work">${__("Resume Paused Work")}</button></div>`;
 		return `<div class="cfg-job ${active ? "active" : "queued"} ${row.expedite || row.effective_priority === "Urgent" ? "urgent" : ""}"
-			${controllable ? `draggable="true" data-queue-entry="${e(row.dispatch_queue)}" data-workstation="${e(row.workstation)}" data-expedite="${row.expedite ? 1 : 0}"` : ""}>
+			data-execution="${e(row.name)}" data-workstation="${e(row.workstation)}" data-queue-entry="${e(row.dispatch_queue || "")}" data-expedite="${row.expedite ? 1 : 0}" ${controllable ? `draggable="true"` : ""}>
 			<div class="cfg-job-title">${position ? `<b>${position}</b>` : ""}<span><strong>${e(row.item_code || "-")}</strong>
 			<small>${e(row.item_name || "")}</small></span><span class="indicator-pill ${indicator(row.status)}">${e(row.status)}</span></div>
 			<div class="cfg-progress"><i style="width:${e(row.progress_percent || 0)}%"></i></div>
 			<div class="cfg-job-data"><span>${e(row.operation || "-")}</span><span>${e(row.good_qty || 0)} / ${e(row.target_qty || 0)}</span></div>
 			<div class="cfg-job-data"><span>${e(row.work_order || "No Work Order")}</span><span>${e(row.job_card || "No Job Card")}</span></div>
 			<div class="cfg-job-foot"><span class="priority-${(row.effective_priority || row.priority || "normal").toLowerCase()}">${e(row.effective_priority || row.priority || "Normal")}</span>
-			<span>${e(row.sequence_source || "")}</span><span>${e(row.readiness || "")}</span></div>${controls}</div>`;
+			<span>${e(row.sequence_source || "")}</span><span>${e(row.readiness || "")}</span></div>
+			${row.status === "Paused" ? `<div class="cfg-pause-detail"><strong>${__("Reason")}</strong>: ${e(row.pause_reason || "-")}<br><strong>${__("WIP")}</strong>: ${e(row.wip_disposition || "-")}<br><strong>${__("Machine")}</strong>: ${e(row.machine_condition || "-")}<br><strong>${__("ERP timer")}</strong>: ${row.erp_timer_was_active ? __("Was active and has been stopped") : __("Not used; Kanban time-log posting continues")}<br><strong>${__("Expected resume")}</strong>: ${e(row.expected_resume_on || "Not set")}</div>` : ""}${controls}</div>`;
 	}
 
 	function request_reason(title, action) {
@@ -161,7 +169,54 @@ frappe.pages["kanban-floor"].on_page_load = function (wrapper) {
 			}, freeze: true, freeze_message: __("Updating dispatch priority...") });
 			await load_dashboard();
 		});
+	}).on("click", ".cfg-pause-give-way", function () {
+		show_pause_dialog($(this).closest(".cfg-job"));
+	}).on("click", ".cfg-resume-work", function () {
+		const execution = $(this).closest(".cfg-job").attr("data-execution");
+		request_reason(__("Resume Paused Work"), async (reason) => {
+			await frappe.call({ method: "cfg_kanban.services.dispatch.resume_paused_work", args: {
+				profile_name: state.profile, execution_name: execution, reason,
+				event_token: frappe.utils.get_random(16),
+			}, freeze: true, freeze_message: __("Resuming paused work...") });
+			await load_dashboard();
+		});
 	});
+
+	function show_pause_dialog($job) {
+		const workstation = $job.attr("data-workstation");
+		const station = (state.data?.stations || []).find((row) => row.workstation === workstation);
+		const candidates = (station?.queue || []).filter((row) => row.status === "Ready" && row.dispatch_queue);
+		if (!candidates.length) {
+			frappe.msgprint({ title: __("No Ready Replacement"), message: __("Mark the urgent replacement Ready before pausing current work."), indicator: "orange" });
+			return;
+		}
+		const dialog = new frappe.ui.Dialog({
+			title: __("Pause and Give Way"),
+			fields: [
+				{ fieldname: "replacement", label: __("Urgent Replacement"), fieldtype: "Select", reqd: 1,
+					options: candidates.map((row) => ({ label: `${row.item_code} · ${row.work_order || row.kanban_cycle} · ${row.operation}`, value: row.dispatch_queue })) },
+				{ fieldname: "reason", label: __("Supervisor Reason"), fieldtype: "Small Text", reqd: 1 },
+				{ fieldname: "wip_disposition", label: __("WIP Disposition"), fieldtype: "Select", reqd: 1,
+					options: "Remains Safely at Workstation\nReturned to WIP Warehouse\nTransferred to Holding Location\nQuality Hold\nMust Be Consumed Before Interruption",
+					description: __("This records the supervisor decision. Any physical ERPNext stock transfer must still be posted through its validated Stock Entry.") },
+				{ fieldname: "machine_condition", label: __("Machine Condition"), fieldtype: "Select", reqd: 1,
+					options: "Ready for Compatible Product\nCleaning Required\nFull Changeover Required\nMaintenance Check Required" },
+				{ fieldname: "expected_resume_on", label: __("Expected Resume On"), fieldtype: "Datetime" },
+			],
+			primary_action_label: __("Pause and Promote Urgent Work"),
+			primary_action: async (values) => {
+				await frappe.call({ method: "cfg_kanban.services.dispatch.pause_and_give_way", args: {
+					profile_name: state.profile, execution_name: $job.attr("data-execution"),
+					replacement_queue_entry: values.replacement, reason: values.reason,
+					wip_disposition: values.wip_disposition, machine_condition: values.machine_condition,
+					expected_resume_on: values.expected_resume_on, event_token: frappe.utils.get_random(16),
+				}, freeze: true, freeze_message: __("Pausing current work and promoting the urgent order...") });
+				dialog.hide();
+				await load_dashboard();
+			},
+		});
+		dialog.show();
+	}
 
 	function indicator(status) {
 		if (["Running", "In Progress"].includes(status)) return "blue";

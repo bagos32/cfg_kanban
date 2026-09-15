@@ -1,6 +1,6 @@
 {
  "doctype":"DocType","name":"CFG Kanban Dispatch Queue","module":"CFG Kanban","autoname":"DQ-.#####","title_field":"process_execution","track_changes":1,
- "field_order":["process_execution","kanban_cycle","kanban_master","item_code","target_qty","work_order","job_card","operation","workstation","dispatch_status","readiness","queue_position","system_priority","supervisor_priority","expedite","sequence_source","planned_start","planned_finish","last_sequence_change","last_changed_by","last_changed_on","notes"],
+ "field_order":["process_execution","kanban_cycle","kanban_master","item_code","target_qty","work_order","job_card","operation","workstation","dispatch_status","readiness","queue_position","system_priority","supervisor_priority","expedite","sequence_source","planned_start","planned_finish","paused_for_queue_entry","pause_reason","wip_disposition","machine_condition","expected_resume_on","erp_timer_was_active","paused_by","paused_on","last_sequence_change","last_changed_by","last_changed_on","notes"],
  "fields":[
   {"fieldname":"process_execution","label":"Process Execution","fieldtype":"Link","options":"CFG Kanban Process Execution","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"kanban_cycle","label":"Kanban Cycle","fieldtype":"Link","options":"CFG Kanban Cycle","read_only":1,"in_list_view":1,"in_standard_filter":1},
@@ -20,6 +20,14 @@
   {"fieldname":"sequence_source","label":"Sequence Source","fieldtype":"Select","options":"System Recommendation\nSupervisor Override","read_only":1,"in_standard_filter":1},
   {"fieldname":"planned_start","label":"Planned Start","fieldtype":"Datetime","read_only":1},
   {"fieldname":"planned_finish","label":"Planned Finish","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"paused_for_queue_entry","label":"Paused For Dispatch Entry","fieldtype":"Link","options":"CFG Kanban Dispatch Queue","read_only":1},
+  {"fieldname":"pause_reason","label":"Pause Reason","fieldtype":"Small Text","read_only":1},
+  {"fieldname":"wip_disposition","label":"WIP Disposition","fieldtype":"Select","options":"Remains Safely at Workstation\nReturned to WIP Warehouse\nTransferred to Holding Location\nQuality Hold\nMust Be Consumed Before Interruption","read_only":1},
+  {"fieldname":"machine_condition","label":"Machine Condition","fieldtype":"Select","options":"Ready for Compatible Product\nCleaning Required\nFull Changeover Required\nMaintenance Check Required","read_only":1},
+  {"fieldname":"expected_resume_on","label":"Expected Resume On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"erp_timer_was_active","label":"ERP Job Card Timer Was Active","fieldtype":"Check","read_only":1},
+  {"fieldname":"paused_by","label":"Paused By","fieldtype":"Link","options":"User","read_only":1},
+  {"fieldname":"paused_on","label":"Paused On","fieldtype":"Datetime","read_only":1},
   {"fieldname":"last_sequence_change","label":"Last Sequence Change","fieldtype":"Link","options":"CFG Kanban Sequence Change","read_only":1},
   {"fieldname":"last_changed_by","label":"Last Changed By","fieldtype":"Link","options":"User","read_only":1},
   {"fieldname":"last_changed_on","label":"Last Changed On","fieldtype":"Datetime","read_only":1},

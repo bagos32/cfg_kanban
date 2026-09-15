@@ -52,17 +52,18 @@ def get_dashboard(profile_name):
     stations = []
     for selected_row in selected:
         rows = by_workstation.get(selected_row.workstation, [])
-        current = [row for row in rows if row.status in ("In Progress", "Paused")]
+        current = [row for row in rows if row.status == "In Progress"]
+        paused = [row for row in rows if row.status == "Paused"]
         all_queue = [row for row in rows if row.status not in ("In Progress", "Paused")]
         queue = all_queue if can_control_dispatch else all_queue[:depth]
         stations.append({
             "workstation": selected_row.workstation,
             "display_order": selected_row.display_order,
             "current": current,
+            "paused": paused,
             "queue": queue,
             "total_queued": len(all_queue),
-            "state": "Running" if any(row.status == "In Progress" for row in current)
-                     else "Paused" if current else "Idle",
+            "state": "Running" if current else "Paused" if paused else "Idle",
         })
 
     return {
