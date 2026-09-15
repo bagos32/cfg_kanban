@@ -32,6 +32,14 @@ ERPNext remains the system of record for manufacturing and stock documents. CFG 
 
 ## Delivery phases
 
-Phase 1 establishes Dashboard Profiles, shared filtering, live refresh, Plant Queue, saved multi-workstation displays, Management Overview, Warehouse Response, and sequence audit foundations.
+Phase 1 establishes Dashboard Profiles, shared filtering, live refresh, Plant Queue, saved multi-workstation displays, and persistent supervisor dispatch control with sequence audit.
 
-Phase 2 adds full supervisor drag-and-drop dispatch, Sales and Logistics views, deeper KPIs, announcements, and team-oriented performance indicators.
+Phase 2 adds Sales and Logistics views, deeper KPIs, announcements, and team-oriented performance indicators.
+
+## Dispatch Queue and Supervisor Sequence Control
+
+Each workstation receives a persistent `CFG Kanban Dispatch Queue` projection, with one unique row per Process Execution. The queue controls operational dispatch order only. It never rewrites the BOM operation order, Work Order route, or ERPNext Job Card sequence.
+
+System recommendation establishes the initial order from readiness, cycle priority, and creation time. A user with Manufacturing Manager or System Manager role can use a Dashboard Profile in Supervisor mode to drag queued work, move it earlier or later, or mark it urgent. Active or paused work cannot be displaced by a sequence override.
+
+Every supervisor action requires a reason and creates an append-only `CFG Kanban Sequence Change` record plus a Kanban Event. Row locking serializes changes made by two supervisors at the same workstation. Existing Process Executions are reconciled into the queue when a dashboard first loads; future execution changes synchronize through document events.

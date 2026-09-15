@@ -1,6 +1,8 @@
 import frappe
 from frappe.utils import flt
 
+from cfg_kanban.services.dispatch import overlay_dispatch
+
 
 ACTIVE_EXECUTION_STATUSES = ("Not Ready", "Ready", "In Progress", "Paused", "Waiting Input", "Blocked")
 PRIORITY_ORDER = {"Urgent": 0, "High": 1, "Normal": 2, "Low": 3}
@@ -38,7 +40,10 @@ def get_dashboard(profile_name):
         if not workstation_names:
             frappe.throw("This Dashboard Profile has no enabled workstation")
 
-    executions = _execution_rows(profile, workstation_names)
+    executions = overlay_dispatch(_execution_rows(profile, workstation_names))
+    can_control_dispatch = profile.access_mode == "Supervisor" and bool(
+        set(frappe.get_roles()).intersection({"Manufacturing Manager", "System Manager"})
+    )
     by_workstation = {name: [] for name in workstation_names}
     for row in executions:
         by_workstation.setdefault(row.workstation or "Unassigned", []).append(row)
@@ -48,12 +53,14 @@ def get_dashboard(profile_name):
     for selected_row in selected:
         rows = by_workstation.get(selected_row.workstation, [])
         current = [row for row in rows if row.status in ("In Progress", "Paused")]
-        queue = [row for row in rows if row.status not in ("In Progress", "Paused")][:depth]
+        all_queue = [row for row in rows if row.status not in ("In Progress", "Paused")]
+        queue = all_queue if can_control_dispatch else all_queue[:depth]
         stations.append({
             "workstation": selected_row.workstation,
             "display_order": selected_row.display_order,
             "current": current,
             "queue": queue,
+            "total_queued": len(all_queue),
             "state": "Running" if any(row.status == "In Progress" for row in current)
                      else "Paused" if current else "Idle",
         })
@@ -66,10 +73,11 @@ def get_dashboard(profile_name):
             "column_count": profile.column_count, "show_statistics": profile.show_statistics,
             "show_completed": profile.show_completed, "show_alerts": profile.show_alerts,
             "description": profile.description,
+            "can_control_dispatch": can_control_dispatch,
         },
         "statistics": _statistics(executions),
         "stations": stations,
-        "sequence_source": "Priority and creation time; supervisor dispatch sequencing is the next phase",
+        "sequence_source": "Persistent dispatch queue; supervisor overrides are audited and do not change the BOM route",
     }
 
 
@@ -174,7 +182,7 @@ def _statistics(rows):
         "waiting": sum(row.status in ("Not Ready", "Waiting Input") for row in rows),
         "paused": sum(row.status == "Paused" for row in rows),
         "blocked": sum(row.status == "Blocked" or row.blocked for row in rows),
-        "urgent": sum(row.priority == "Urgent" for row in rows),
+        "urgent": sum(row.get("effective_priority", row.priority) == "Urgent" for row in rows),
         "target_qty": sum(flt(row.target_qty) for row in rows),
         "good_qty": sum(flt(row.good_qty) for row in rows),
         "reject_qty": sum(flt(row.reject_qty) for row in rows),

@@ -97,3 +97,19 @@ class TestDocTypeSchema(TestCase):
         self.assertTrue({"view_type", "access_mode", "queue_depth", "refresh_interval_seconds",
                          "column_count", "company", "warehouse", "customer", "item_group"}
                         .issubset(fields))
+
+    def test_dispatch_queue_and_sequence_audit_are_persistent(self):
+        queue_path = ROOT / "cfg_kanban_dispatch_queue" / "cfg_kanban_dispatch_queue.json"
+        queue = json.loads(queue_path.read_text())
+        queue_fields = {row["fieldname"]: row for row in queue["fields"]}
+        self.assertEqual(queue_fields["process_execution"].get("unique"), 1)
+        self.assertTrue({"item_code", "target_qty", "workstation", "dispatch_status", "queue_position", "system_priority",
+                         "supervisor_priority", "expedite", "sequence_source",
+                         "last_sequence_change"}.issubset(queue_fields))
+
+        audit_path = ROOT / "cfg_kanban_sequence_change" / "cfg_kanban_sequence_change.json"
+        audit = json.loads(audit_path.read_text())
+        audit_fields = {row["fieldname"] for row in audit["fields"]}
+        self.assertTrue({"queue_entry", "process_execution", "workstation", "action",
+                         "old_position", "new_position", "reason", "changed_by", "changed_on"}
+                        .issubset(audit_fields))

@@ -36,6 +36,9 @@ fixtures = [
 ]
 
 doc_events = {
+    "CFG Kanban Process Execution": {
+        "on_update": "cfg_kanban.services.dispatch.on_execution_update",
+    },
     "Sales Order": {
         "on_submit": "cfg_kanban.integrations.sales_order_feedback.on_submit",
         "on_update_after_submit": "cfg_kanban.integrations.sales_order_feedback.on_update_after_submit",
