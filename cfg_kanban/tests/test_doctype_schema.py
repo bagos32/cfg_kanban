@@ -4,12 +4,18 @@ from unittest import TestCase
 
 
 ROOT = Path(__file__).resolve().parents[1] / "cfg_kanban" / "doctype"
+APP_ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestDocTypeSchema(TestCase):
     def _schemas(self):
         for path in ROOT.glob("*/*.json"):
             yield path, json.loads(path.read_text())
+
+    def test_patch_file_declares_both_frappe_migration_phases(self):
+        patches = (APP_ROOT / "patches.txt").read_text()
+        self.assertIn("[pre_model_sync]", patches)
+        self.assertIn("[post_model_sync]", patches)
 
     def test_every_field_is_present_once_in_field_order(self):
         for path, schema in self._schemas():
