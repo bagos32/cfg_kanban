@@ -24,6 +24,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	const $root = $("<div class='cfg-kanban-operator mt-4'></div>").appendTo(page.main);
 	page.add_inner_button(__("Switch Operator"), () => show_operator_login(true));
 	page.add_inner_button(__("End Operator Session"), end_operator_session);
+	page.add_inner_button(__("Scan Operator QR"), scan_operator_qr);
+	page.add_inner_button(__("Scan Kanban QR"), scan_kanban_qr);
 
 	async function load_console() {
 		const response = await frappe.call({ method: "cfg_kanban.api.operator.get_console_access" });
@@ -113,6 +115,66 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		dialog.get_field("token").set_focus();
 	}
 
+	function operator_token_from_scan(decoded_text) {
+		const value = String(decoded_text || "").trim();
+		if (!value) return "";
+		try {
+			const url = new URL(value, window.location.origin);
+			return new URLSearchParams(url.hash.replace(/^#/, "")).get("operator") || value;
+		} catch (error) {
+			return value;
+		}
+	}
+
+	async function login_scanned_operator(token) {
+		try {
+			const station = localStorage.getItem("cfg_kanban_station") || "";
+			const response = await frappe.call({
+				method: "cfg_kanban.api.operator.login_operator",
+				args: { token, station },
+				freeze: true,
+				freeze_message: __("Identifying operator..."),
+			});
+			activate_operator(response.message);
+			render();
+			scan.set_focus();
+		} catch (error) {
+			show_operator_login(Boolean(state.operator), token);
+		}
+	}
+
+	function open_camera_scanner(on_scan) {
+		if (!window.isSecureContext && !["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+			frappe.msgprint(__("Camera scanning requires HTTPS. Open the secure ERP site and try again."));
+			return false;
+		}
+		if (!(frappe.ui && frappe.ui.Scanner)) {
+			frappe.msgprint(__("Camera scanning is unavailable in this browser. Enter the code manually."));
+			return false;
+		}
+		new frappe.ui.Scanner({
+			dialog: true,
+			multiple: false,
+			on_scan(data) {
+				const value = String((data && data.decodedText) || "").trim();
+				if (value) on_scan(value);
+			},
+		});
+		return true;
+	}
+
+	function scan_operator_qr() {
+		open_camera_scanner((value) => {
+			const token = operator_token_from_scan(value);
+			if (token) login_scanned_operator(token);
+		});
+	}
+
+	function scan_kanban_qr() {
+		if (!state.operator) return scan_operator_qr();
+		open_camera_scanner((token) => load_card(token));
+	}
+
 	async function load_card(token) {
 		if (!token) return;
 		if (!state.operator) return show_operator_login(false);
@@ -133,8 +195,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				? `<p><a class="btn btn-default" href="/app/cfg-kanban-operator-profile">${__("Manage Operator Profiles")}</a></p>` : "";
 			$root.html(`<div class="frappe-card text-center p-5"><h4>${__("Operator identification required")}</h4>
 				<p class="text-muted">${__("Scan your personal operator QR. The terminal remains signed in to ERPNext.")}</p>
-				<button class="btn btn-primary cfg-operator-login">${__("Scan Operator QR")}</button>
+				<button class="btn btn-primary cfg-operator-camera">${__("Scan Operator QR with Camera")}</button>
+				<button class="btn btn-default cfg-operator-login">${__("Enter Credential / PIN")}</button>
 				${setup}<small class="text-muted">${__("ERP terminal user")}: ${frappe.utils.escape_html((state.access && state.access.terminal_user) || "")}</small></div>`);
+			$root.find(".cfg-operator-camera").on("click", scan_operator_qr);
 			$root.find(".cfg-operator-login").on("click", () => show_operator_login(false));
 			return;
 		}
