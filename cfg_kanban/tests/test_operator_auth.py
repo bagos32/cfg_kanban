@@ -30,3 +30,16 @@ class TestOperatorAuthenticationContract(TestCase):
         source = (ROOT / "integrations" / "erp_gateway.py").read_text()
         self.assertIn('"employee": payload.get("employee")', source)
         self.assertIn("An Employee is required for a Kanban operator Job Card action", source)
+
+    def test_console_supports_logout_printable_qr_and_fragment_deep_link(self):
+        api = (ROOT / "api" / "operator.py").read_text()
+        console = (ROOT / "cfg_kanban" / "page" / "kanban_operator" /
+                   "kanban_operator.js").read_text()
+        profile = (ROOT / "public" / "js" / "cfg_kanban_operator_profile.js").read_text()
+        self.assertIn('"qr_svg": get_qr_svg(login_url, 220)', api)
+        self.assertIn("def get_console_access", api)
+        self.assertIn("End Operator Session", console)
+        self.assertIn('params.get("operator")', console)
+        self.assertIn("window.history.replaceState", console)
+        self.assertIn("Print Card", profile)
+        self.assertIn("Download QR", profile)

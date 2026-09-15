@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import flt, now_datetime
+from frappe.utils import flt, get_url, now_datetime
 
 from cfg_kanban.integrations.erp_gateway import execute_command
 from cfg_kanban.services.events import record
@@ -7,6 +7,7 @@ from cfg_kanban.services.idempotency import canonical_key, insert_once
 from cfg_kanban.services.operator_auth import (close_session, credential_hash, get_session,
                                                new_credential, open_session, require_operator)
 from cfg_kanban.services.progress import report
+from cfg_kanban.services.printing import get_qr_svg
 from cfg_kanban.services.operation_summary import recalculate
 from cfg_kanban.services.triggers import create_work_order_command
 from cfg_kanban.services.runtime_selector import allocate as allocate_runtime_card
@@ -37,7 +38,31 @@ def issue_operator_credential(profile_name):
     profile.check_permission("write")
     token = new_credential()
     profile.db_set("qr_token_hash", credential_hash(token), update_modified=True)
-    return {"operator_profile": profile.name, "employee": profile.employee, "qr_token": token}
+    login_url = get_url(f"/app/kanban-operator#operator={token}")
+    employee = frappe.db.get_value("Employee", profile.employee,
+                                   ["employee_name", "department", "designation"], as_dict=True)
+    return {
+        "operator_profile": profile.name, "employee": profile.employee,
+        "employee_name": employee.employee_name if employee else profile.employee,
+        "department": employee.department if employee else None,
+        "designation": employee.designation if employee else None,
+        "kanban_role": profile.kanban_role,
+        "allowed_operations": [row.operation for row in profile.allowed_operations],
+        "allowed_workstations": [row.workstation for row in profile.allowed_workstations],
+        "qr_token": token, "login_url": login_url, "qr_svg": get_qr_svg(login_url, 220),
+    }
+
+
+@frappe.whitelist()
+def get_console_access():
+    if frappe.session.user in (None, "", "Guest"):
+        frappe.throw("ERP login is required")
+    roles = set(frappe.get_roles(frappe.session.user))
+    return {
+        "terminal_user": frappe.session.user,
+        "can_manage_operators": bool({"Manufacturing Manager", "System Manager"} & roles),
+        "is_terminal_user": bool({"Kanban Terminal", "Manufacturing Manager", "System Manager"} & roles),
+    }
 
 
 @frappe.whitelist()

@@ -6,7 +6,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	});
 
 	const session_key = "cfg_kanban_operator_session";
-	const state = { context: null, operator: null, session_token: localStorage.getItem(session_key) };
+	const state = { context: null, operator: null, access: null,
+		session_token: localStorage.getItem(session_key) };
 	const scan = page.add_field({
 		label: __("Scan or enter card number"),
 		fieldtype: "Data",
@@ -22,6 +23,31 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	const $root = $("<div class='cfg-kanban-operator mt-4'></div>").appendTo(page.main);
 	page.add_inner_button(__("Switch Operator"), () => show_operator_login(true));
+	page.add_inner_button(__("End Operator Session"), end_operator_session);
+
+	async function load_console() {
+		const response = await frappe.call({ method: "cfg_kanban.api.operator.get_console_access" });
+		state.access = response.message;
+		if (await consume_deep_link()) return;
+		await restore_operator();
+	}
+
+	async function consume_deep_link() {
+		const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+		const token = params.get("operator");
+		if (!token) return false;
+		window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+		try {
+			const response = await frappe.call({ method: "cfg_kanban.api.operator.login_operator", args: {
+				token, station: localStorage.getItem("cfg_kanban_station") || "",
+			}, freeze: true, freeze_message: __("Identifying operator...") });
+			activate_operator(response.message);
+			render();
+		} catch (error) {
+			show_operator_login(false, token);
+		}
+		return true;
+	}
 
 	async function restore_operator() {
 		if (!state.session_token) return render();
@@ -45,11 +71,29 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		state.context = null;
 	}
 
-	function show_operator_login(switching) {
+	function activate_operator(message) {
+		clear_operator();
+		state.session_token = message.session_token;
+		state.operator = message.operator;
+		localStorage.setItem(session_key, state.session_token);
+	}
+
+	async function end_operator_session() {
+		if (state.session_token) {
+			await frappe.call({ method: "cfg_kanban.api.operator.logout_operator",
+				args: { operator_session_token: state.session_token }, freeze: true });
+		}
+		clear_operator();
+		render();
+		frappe.show_alert({ message: __("Operator session ended; ERP terminal remains signed in"), indicator: "green" });
+	}
+
+	function show_operator_login(switching, scanned_token) {
 		const dialog = new frappe.ui.Dialog({
 			title: switching ? __("Switch Operator") : __("Operator Login"),
 			fields: [
-				{ fieldname: "token", label: __("Scan Operator QR"), fieldtype: "Data", reqd: 1 },
+				{ fieldname: "token", label: __("Scan Operator QR"), fieldtype: "Data", reqd: 1,
+					default: scanned_token || "", read_only: Boolean(scanned_token) },
 				{ fieldname: "pin", label: __("PIN (if required)"), fieldtype: "Password" },
 				{ fieldname: "station", label: __("Terminal / Station"), fieldtype: "Data",
 					default: localStorage.getItem("cfg_kanban_station") || "" },
@@ -58,10 +102,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			primary_action: async (values) => {
 				const response = await frappe.call({ method: "cfg_kanban.api.operator.login_operator",
 					args: values, freeze: true, freeze_message: __("Identifying operator...") });
-				clear_operator();
-				state.session_token = response.message.session_token;
-				state.operator = response.message.operator;
-				localStorage.setItem(session_key, state.session_token);
+				activate_operator(response.message);
 				localStorage.setItem("cfg_kanban_station", values.station || "");
 				dialog.hide();
 				render();
@@ -88,9 +129,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	function render() {
 		$root.empty();
 		if (!state.operator) {
+			const setup = state.access && state.access.can_manage_operators
+				? `<p><a class="btn btn-default" href="/app/cfg-kanban-operator-profile">${__("Manage Operator Profiles")}</a></p>` : "";
 			$root.html(`<div class="frappe-card text-center p-5"><h4>${__("Operator identification required")}</h4>
 				<p class="text-muted">${__("Scan your personal operator QR. The terminal remains signed in to ERPNext.")}</p>
-				<button class="btn btn-primary cfg-operator-login">${__("Scan Operator QR")}</button></div>`);
+				<button class="btn btn-primary cfg-operator-login">${__("Scan Operator QR")}</button>
+				${setup}<small class="text-muted">${__("ERP terminal user")}: ${frappe.utils.escape_html((state.access && state.access.terminal_user) || "")}</small></div>`);
 			$root.find(".cfg-operator-login").on("click", () => show_operator_login(false));
 			return;
 		}
@@ -386,5 +430,5 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		return "orange";
 	}
 
-	restore_operator();
+	load_console();
 };

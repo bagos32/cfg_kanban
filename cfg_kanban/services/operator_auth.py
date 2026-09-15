@@ -113,9 +113,18 @@ def get_session(session_token):
 
 
 def close_session(session_token, reason="Operator Logout"):
-    profile, session = require_operator(session_token)
-    _close_session(session, reason)
-    return {"employee": profile.employee, "closed": True}
+    _require_terminal_user()
+    session_name = frappe.db.get_value(
+        "CFG Kanban Operator Session", {"session_token_hash": credential_hash(session_token)}, "name"
+    )
+    if not session_name:
+        return {"employee": None, "closed": True}
+    session = frappe.get_doc("CFG Kanban Operator Session", session_name)
+    if session.terminal_user != frappe.session.user:
+        frappe.throw("Operator session belongs to a different terminal login")
+    if session.active:
+        _close_session(session, reason)
+    return {"employee": session.employee, "closed": True}
 
 
 def public_operator(profile, session):
