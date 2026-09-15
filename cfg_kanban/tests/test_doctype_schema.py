@@ -17,6 +17,17 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("[pre_model_sync]", patches)
         self.assertIn("[post_model_sync]", patches)
 
+    def test_workspace_exposes_operator_setup_and_console(self):
+        workspace_path = (APP_ROOT / "cfg_kanban" / "workspace" / "cfg_kanban" /
+                          "cfg_kanban.json")
+        workspace = json.loads(workspace_path.read_text())
+        links = {row.get("label"): row.get("link_to") for row in workspace["links"]}
+        shortcuts = {row.get("label"): row.get("link_to") for row in workspace["shortcuts"]}
+        self.assertEqual(links["Operator Profiles"], "CFG Kanban Operator Profile")
+        self.assertEqual(links["Operator Sessions"], "CFG Kanban Operator Session")
+        self.assertEqual(shortcuts["Operator Console"], "kanban-operator")
+        self.assertEqual(shortcuts["Operator Profiles"], "CFG Kanban Operator Profile")
+
     def test_every_field_is_present_once_in_field_order(self):
         for path, schema in self._schemas():
             fields = [row["fieldname"] for row in schema.get("fields", [])]
