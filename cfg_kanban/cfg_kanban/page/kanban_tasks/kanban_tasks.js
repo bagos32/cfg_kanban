@@ -133,7 +133,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				<div class="col-md-3 text-right actions"></div></div></div>`).appendTo($root);
 			const $actions = $row.find(".actions");
 			if (["Planned", "Due", "Assigned", "Overdue"].includes(task.status)) button($actions, __("Start"), "btn-primary", () => task_dialog(task, "Start"));
-			if (["Due", "Assigned", "In Progress", "Overdue"].includes(task.status)) button($actions, __("Complete"), "btn-success", () => task_dialog(task, "Complete"));
+			if (["Due", "Assigned", "In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, task.status === "Correction Required" ? __("Correct and Resubmit") : __("Complete"), "btn-success", () => task_dialog(task, "Complete"));
 			if (task.status === "Awaiting Verification") button($actions, __("Verify"), "btn-warning", () => task_dialog(task, "Verify"));
 		});
 	}
@@ -144,10 +144,20 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		const details = response.message.task;
 		const definitions = response.message.fields || [];
 		const checklist = (details.checklist || "").split("\n").map((row) => row.trim()).filter(Boolean);
+		const existing_checklist = details.checklist_evidence || [];
+		const existing_values = details.execution_values || [];
 		const fields = [
-			{ fieldtype: "HTML", options: frappe.utils.escape_html(details.instructions || "") },
-			...checklist.map((item, index) => ({ fieldname: `check_${index}`, label: item, fieldtype: "Check", reqd: action === "Complete" })),
+			{ fieldtype: "Section Break", label: __("Task Information") },
+			{ fieldtype: "HTML", options: task_identity(details) },
+			{ fieldtype: "Section Break", label: __("Work Instructions") },
+			{ fieldtype: "HTML", options: `<div class="frappe-card p-3">${safe_rich_text(details.instructions || __("No work instructions were provided."))}</div>` },
+			...(action === "Verify" ? verification_evidence(details, existing_checklist, existing_values) : []),
+			...(action === "Complete" && checklist.length ? [{ fieldtype: "Section Break", label: __("Completion Checklist") }] : []),
+			...checklist.map((item, index) => ({ fieldname: `check_${index}`, label: item, fieldtype: "Check",
+				reqd: action === "Complete", hidden: action !== "Complete" })),
+			...(definitions.length ? [{ fieldtype: "Section Break", label: action === "Verify" ? __("Verification Measurements") : action === "Start" ? __("Start Checks") : __("Measurements and Evidence") }] : []),
 			...definitions.map(dialog_field),
+			{ fieldtype: "Section Break", label: action === "Verify" ? __("Verification Decision") : __("Notes") },
 			{ fieldname: "notes", label: __("Notes"), fieldtype: "Small Text" },
 		];
 		const method = { Start: "start", Complete: "complete", Verify: "verify" }[action];
@@ -160,7 +170,55 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				await frappe.call({ method: `cfg_kanban.api.task.${method}`, args, freeze: true });
 				dialog.hide(); await load();
 			} });
+		if (action === "Verify") {
+			dialog.set_secondary_action_label(__("Reject for Correction"));
+			dialog.set_secondary_action(async () => {
+				const values = dialog.get_values();
+				if (!values || !(values.notes || "").trim()) {
+					frappe.msgprint(__("Verification remarks are required when rejecting a task.")); return;
+				}
+				await frappe.call({ method: "cfg_kanban.api.task.reject", args: {
+					task_name: task.name, operator_session_token: state.token, notes: values.notes,
+				}, freeze: true });
+				dialog.hide(); await load();
+			});
+		}
 		dialog.show();
+	}
+
+	function task_identity(details) {
+		const e = frappe.utils.escape_html;
+		const rows = [
+			[__("Task"), `${e(details.name)} · ${e(details.task_name)}`],
+			[__("Category"), e(details.task_category || "-")],
+			[__("Location / Workstation"), e(details.location || details.workstation || "-")],
+			[__("Asset"), e(details.asset || "-")],
+		];
+		return `<div class="row">${rows.map(([label, value]) => `<div class="col-sm-6 mb-2"><small class="text-muted">${label}</small><br><strong>${value}</strong></div>`).join("")}</div>`;
+	}
+
+	function verification_evidence(details, checklist, values) {
+		const e = frappe.utils.escape_html;
+		const checklist_html = checklist.length ? checklist.map((row) =>
+			`<li><strong>${e(row.result || "-")}</strong> — ${e(row.item || "")}${row.remarks ? `<br><small>${e(row.remarks)}</small>` : ""}</li>`).join("") : `<li>${__("No checklist evidence")}</li>`;
+		const values_html = values.length ? values.map((row) =>
+			`<li>${e(row.label || row.field_key)}: <strong>${e(row.value || "-")} ${e(row.unit || "")}</strong> <small>(${e(row.capture_on || "-")})</small></li>`).join("") : `<li>${__("No measurement evidence")}</li>`;
+		return [
+			{ fieldtype: "Section Break", label: __("Submitted Completion Evidence") },
+			{ fieldtype: "HTML", options: `<div class="frappe-card p-3"><strong>${__("Checklist Results")}</strong><ul class="mt-2">${checklist_html}</ul><strong>${__("Measurements")}</strong><ul class="mt-2">${values_html}</ul><strong>${__("Completion Notes")}</strong><p>${e(details.completion_notes || "-")}</p><small>${__("Completed by")}: ${e(details.completed_by || "-")} · ${e(details.completed_on || "-")}</small></div>` },
+		];
+	}
+
+	function safe_rich_text(html) {
+		const template = document.createElement("template");
+		template.innerHTML = String(html || "");
+		template.content.querySelectorAll("script, style, iframe, object, embed").forEach((node) => node.remove());
+		template.content.querySelectorAll("*").forEach((node) => {
+			[...node.attributes].forEach((attribute) => {
+				if (attribute.name.toLowerCase().startsWith("on") || /javascript:/i.test(attribute.value)) node.removeAttribute(attribute.name);
+			});
+		});
+		return template.innerHTML;
 	}
 
 	function dialog_field(definition) {

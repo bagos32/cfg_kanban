@@ -2,3 +2,4 @@
 
 [post_model_sync]
 cfg_kanban.patches.v1_1.migrate_operator_identity_to_employee
+cfg_kanban.patches.v1_2.set_task_verification_status

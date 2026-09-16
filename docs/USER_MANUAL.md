@@ -106,8 +106,9 @@ Standalone housekeeping, maintenance, inspection, safety, and emergency work is 
 /app/kanban-tasks
 ```
 
-The operator must first identify themselves in Kanban Operator. Both consoles reuse the same
-Employee-based operator session; the shared ERP terminal login is not changed.
+The operator can identify themselves directly in either console by QR credential or credential/PIN.
+Both consoles reuse the same Employee-based operator session; the shared ERP terminal login is not
+changed.
 
 ## 6. Initial system settings
 
@@ -252,6 +253,17 @@ request action/API.
 
 Operators use **Kanban Service Tasks** to start, complete, and—when separately authorized—verify the
 work. These tasks never create or update an ERPNext Work Order, Job Card, or Stock Entry.
+
+Work instructions, completion checklist, measurements, and notes are presented as separate sections.
+When **Require Supervisor Verification** is enabled, completion moves the Task to **Awaiting
+Verification**. A different authorized employee must approve it. Rejection requires remarks and
+moves it to **Correction Required** for correction and resubmission.
+
+Completed evidence is available from **Kanban Maintenance Register** and **Kanban Maintenance
+Evidence**. The register provides one row per service record; the evidence report provides one row
+per checklist result or dynamic value so variable forms remain exportable. Use **CFG Verified
+Maintenance Record** when printing a Task for certification evidence and its completion/verification
+stamp.
 - Numeric minimum and maximum values are validated by the server.
 - Mandatory fields must be supplied in the operator progress dialog.
 - `Map to Job Card` and `Job Card Field` describe intended mapping, but generic automatic mapping to

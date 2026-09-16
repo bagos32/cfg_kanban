@@ -26,6 +26,8 @@
   {"hidden":0,"is_query_report":0,"label":"Process Tasks","link_to":"CFG Kanban Process Task","link_type":"DocType","onboard":0,"type":"Link"},
   {"hidden":0,"is_query_report":0,"label":"Service Tasks","link_to":"CFG Kanban Task","link_type":"DocType","onboard":0,"type":"Link"},
   {"hidden":0,"is_query_report":0,"label":"Task Schedules","link_to":"CFG Kanban Task Schedule","link_type":"DocType","onboard":0,"type":"Link"},
+  {"hidden":0,"is_query_report":1,"label":"Maintenance Register","link_to":"Kanban Maintenance Register","link_type":"Report","onboard":0,"type":"Link"},
+  {"hidden":0,"is_query_report":1,"label":"Maintenance Evidence","link_to":"Kanban Maintenance Evidence","link_type":"Report","onboard":0,"type":"Link"},
   {"hidden":0,"is_query_report":0,"label":"Dispatch Queue","link_to":"CFG Kanban Dispatch Queue","link_type":"DocType","onboard":0,"type":"Link"},
   {"hidden":0,"is_query_report":0,"label":"Sequence Change Audit","link_to":"CFG Kanban Sequence Change","link_type":"DocType","onboard":0,"type":"Link"},
   {"hidden":0,"is_query_report":0,"label":"Operation Results","link_to":"CFG Kanban Operation Summary","link_type":"DocType","onboard":0,"type":"Link"},

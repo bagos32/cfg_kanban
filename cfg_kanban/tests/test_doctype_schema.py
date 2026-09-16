@@ -232,9 +232,23 @@ class TestDocTypeSchema(TestCase):
         task = {row["fieldname"]: row for row in schemas["CFG Kanban Task"]["fields"]}
         self.assertTrue({"task_schedule", "trigger_type", "generation_key", "status",
                          "requested_on", "due_on", "assigned_employee", "checklist_results",
-                         "execution_values", "verified_by", "exception"}.issubset(task))
+                         "checklist_evidence", "execution_values", "verified_by",
+                         "verification_status", "verification_notes", "exception"}.issubset(task))
+        self.assertEqual(task["checklist_evidence"]["options"],
+                         "CFG Kanban Checklist Result")
+        self.assertIn("Correction Required", task["status"]["options"].splitlines())
         self.assertTrue(task["work_order"].get("hidden"))
         self.assertTrue(task["job_card"].get("hidden"))
+
+        evidence = {row["fieldname"]: row for row in
+                    schemas["CFG Kanban Checklist Result"]["fields"]}
+        self.assertTrue({"item_key", "item", "result", "captured_by", "captured_on"}
+                        .issubset(evidence))
+
+        execution_value = {row["fieldname"]: row for row in
+                           schemas["CFG Kanban Execution Value"]["fields"]}
+        self.assertTrue({"capture_on", "captured_by", "captured_on"}
+                        .issubset(execution_value))
 
     def test_card_identity_supports_asset_location_and_task_behaviours(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

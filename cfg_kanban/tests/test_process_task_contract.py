@@ -61,3 +61,24 @@ class TestProcessTaskContract(TestCase):
         self.assertIn("Scan Operator QR", console)
         self.assertIn("Create Task", console)
         self.assertIn("No open service tasks", console)
+
+    def test_standalone_compliance_record_supports_rejection_reports_and_printing(self):
+        service = (ROOT / "services" / "standalone_tasks.py").read_text()
+        api = (ROOT / "api" / "task.py").read_text()
+        console = (ROOT / "cfg_kanban" / "page" / "kanban_tasks" /
+                   "kanban_tasks.js").read_text()
+        self.assertIn("def reject_task", service)
+        self.assertIn("Correction Required", service)
+        self.assertIn("def reject(", api)
+        self.assertIn("Submitted Completion Evidence", console)
+        self.assertIn("Reject for Correction", console)
+        self.assertIn("safe_rich_text", console)
+        self.assertTrue((ROOT / "cfg_kanban" / "report" /
+                         "kanban_maintenance_register" /
+                         "kanban_maintenance_register.py").exists())
+        self.assertTrue((ROOT / "cfg_kanban" / "report" /
+                         "kanban_maintenance_evidence" /
+                         "kanban_maintenance_evidence.py").exists())
+        self.assertTrue((ROOT / "cfg_kanban" / "print_format" /
+                         "cfg_verified_maintenance_record" /
+                         "cfg_verified_maintenance_record.json").exists())

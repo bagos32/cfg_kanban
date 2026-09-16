@@ -51,6 +51,7 @@ def create_from_schedule(schedule_name, scheduled_for=None, request_source=None,
         "location": schedule.location,
         "checklist": schedule.checklist,
         "verification_required": schedule.require_supervisor_verification,
+        "verification_status": "Pending" if schedule.require_supervisor_verification else "Not Required",
         "instructions": schedule.instructions,
     }).insert(ignore_permissions=True)
     schedule_values = {"last_generated_on": requested_on}
@@ -89,7 +90,7 @@ def start_task(task_name, session_token, values=None):
         return task
     if task.status not in ("Planned", "Due", "Assigned", "Overdue"):
         frappe.throw(f"Task cannot start while it is {task.status}")
-    _apply_values(task, "Start", values)
+    _apply_values(task, "Start", values, profile.employee)
     task.status = "In Progress"
     task.assigned_employee = task.assigned_employee or profile.employee
     task.started_by = profile.employee
@@ -105,14 +106,18 @@ def complete_task(task_name, session_token, values=None, checklist_results=None,
     _validate_assignment(task, profile)
     if task.status == "Completed":
         return task
-    if task.status not in ("Due", "Assigned", "In Progress", "Overdue"):
+    if task.status not in ("Due", "Assigned", "In Progress", "Overdue", "Correction Required"):
         frappe.throw(f"Task cannot complete while it is {task.status}")
-    _apply_values(task, "Complete", values)
-    _apply_checklist(task, checklist_results)
+    _apply_values(task, "Complete", values, profile.employee)
+    _apply_checklist(task, checklist_results, profile.employee)
     task.completed_by = profile.employee
     task.completed_on = now_datetime()
     task.completion_notes = notes
     task.status = "Awaiting Verification" if task.verification_required else "Completed"
+    task.verification_status = "Pending" if task.verification_required else "Not Required"
+    task.verified_by = None
+    task.verified_on = None
+    task.verification_notes = None
     task.save(ignore_permissions=True)
     _task_event("Standalone Task Completed" if task.status == "Completed"
                 else "Standalone Task Awaiting Verification", task, profile, session)
@@ -128,13 +133,34 @@ def verify_task(task_name, session_token, values=None, notes=None):
         frappe.throw(f"Task cannot be verified while it is {task.status}")
     if task.completed_by == profile.employee:
         frappe.throw("Task verification must be performed by a different operator")
-    _apply_values(task, "Verify", values)
+    _apply_values(task, "Verify", values, profile.employee)
     task.status = "Completed"
+    task.verification_status = "Approved"
     task.verified_by = profile.employee
     task.verified_on = now_datetime()
-    task.completion_notes = notes or task.completion_notes
+    task.verification_notes = notes
     task.save(ignore_permissions=True)
     _task_event("Standalone Task Verified", task, profile, session)
+    return task
+
+
+def reject_task(task_name, session_token, notes):
+    task = frappe.get_doc("CFG Kanban Task", task_name)
+    profile, session = require_operator(session_token, "task_verify", workstation=task.workstation)
+    if task.status != "Awaiting Verification":
+        frappe.throw(f"Task cannot be rejected while it is {task.status}")
+    if task.completed_by == profile.employee:
+        frappe.throw("Task verification must be performed by a different operator")
+    if not (notes or "").strip():
+        frappe.throw("Verification remarks are required when a task is rejected")
+    task.status = "Correction Required"
+    task.verification_status = "Rejected"
+    task.verified_by = profile.employee
+    task.verified_on = now_datetime()
+    task.verification_notes = notes
+    task.save(ignore_permissions=True)
+    _task_event("Standalone Task Verification Rejected", task, profile, session,
+                notes=notes)
     return task
 
 
@@ -150,19 +176,21 @@ def update_overdue_tasks():
     return names
 
 
-def _apply_values(task, capture_on, supplied):
+def _apply_values(task, capture_on, supplied, employee):
     rows = standalone_definitions(task.task_schedule, capture_on) if task.task_schedule else []
     supplied = frappe.parse_json(supplied) if isinstance(supplied, str) else (supplied or [])
     validate_values(rows, supplied)
     existing = {row.field_key: row for row in task.execution_values}
     for value in normalized_values(rows, supplied):
+        value.update({"capture_on": capture_on, "captured_by": employee,
+                      "captured_on": now_datetime()})
         if value["field_key"] in existing:
             existing[value["field_key"]].update(value)
         else:
             task.append("execution_values", value)
 
 
-def _apply_checklist(task, supplied):
+def _apply_checklist(task, supplied, employee):
     expected = [line.strip() for line in (task.checklist or "").splitlines() if line.strip()]
     supplied = frappe.parse_json(supplied) if isinstance(supplied, str) else (supplied or [])
     completed = {row.get("item") for row in supplied if cint(row.get("completed"))}
@@ -170,6 +198,13 @@ def _apply_checklist(task, supplied):
     if missing:
         frappe.throw("Complete all checklist items: " + ", ".join(missing))
     task.checklist_results = frappe.as_json(supplied)
+    task.set("checklist_evidence", [])
+    captured_on = now_datetime()
+    for index, item in enumerate(expected, start=1):
+        task.append("checklist_evidence", {
+            "item_key": f"item_{index}", "item": item, "result": "Pass",
+            "captured_by": employee, "captured_on": captured_on,
+        })
 
 
 def _next_due(schedule, base):
@@ -186,10 +221,11 @@ def _next_due(schedule, base):
     return add_to_date(base, **kwargs)
 
 
-def _task_event(event_type, task, profile, session):
+def _task_event(event_type, task, profile, session, notes=None):
     record(event_type, reference_doctype=task.doctype, reference_name=task.name,
            standalone_task=task.name, operator=profile.employee,
-           operator_session=session.name, terminal_user=session.terminal_user)
+           operator_session=session.name, terminal_user=session.terminal_user,
+           notes=notes)
 
 
 def _validate_assignment(task, profile):

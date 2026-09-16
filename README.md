@@ -21,6 +21,8 @@ Supplier Kanban remains intentionally deferred.
   gates without creating fake ERPNext Job Cards.
 - Standalone scheduled or requested Service Tasks for housekeeping, maintenance, inspections,
   safety, environmental, vehicle, and emergency work.
+- Structured checklist and dynamic-field maintenance evidence, independent approval/rejection,
+  compliance reports, and a printable verified maintenance record.
 - Shared Employee-based operator authorization and dynamic-form validation across production
   executions, production tasks, and standalone service tasks.
 - Asset, Location, and Task card identities that expose service work without triggering production.

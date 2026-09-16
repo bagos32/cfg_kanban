@@ -2,7 +2,7 @@ import frappe
 
 from cfg_kanban.services.operator_auth import require_operator
 from cfg_kanban.services.standalone_tasks import (complete_task, create_manual, start_task,
-                                                  task_form, verify_task)
+                                                  reject_task, task_form, verify_task)
 
 
 @frappe.whitelist()
@@ -84,3 +84,8 @@ def complete(task_name, operator_session_token, values=None, checklist_results=N
 @frappe.whitelist()
 def verify(task_name, operator_session_token, values=None, notes=None):
     return verify_task(task_name, operator_session_token, values, notes).as_dict()
+
+
+@frappe.whitelist()
+def reject(task_name, operator_session_token, notes):
+    return reject_task(task_name, operator_session_token, notes).as_dict()
