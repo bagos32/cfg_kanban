@@ -88,11 +88,14 @@ For stock-based Sales Order proposals, add a warehouse row under **Item → Reor
 
 From ERPNext Desk, open **CFG Kanban** in the sidebar. The workspace is organized into:
 
-- **Start Here:** Settings, Masters, and Cards.
-- **Production Control:** Cycles, Process Executions, and Exceptions.
-- **Signals and ERP Control:** Signals, ERP Commands, and Events.
-- **Related Records:** progress, WIP, handling units, Sales Orders, Work Orders, Job Cards, and
-  Stock Entries.
+- **Daily Operator Work:** separate Production Operator and Service Task panels.
+- **Production Supervisor:** production floor, dispatch sequence, cycles, signals, demand, and
+  production exceptions.
+- **Service & Maintenance Supervisor:** service tasks, schedules, maintenance register, and
+  compliance evidence.
+- **System Setup:** Masters, Cards, operator profiles, dashboard profiles, and global settings.
+- **Detailed Records & Audit:** production execution, WIP, ERP documents, operator sessions, and
+  event history.
 
 The operator interface is available at:
 
@@ -109,6 +112,27 @@ Standalone housekeeping, maintenance, inspection, safety, and emergency work is 
 The operator can identify themselves directly in either console by QR credential or credential/PIN.
 Both consoles reuse the same Employee-based operator session; the shared ERP terminal login is not
 changed.
+
+### Operation work, production Process Tasks, and maintenance Tasks
+
+These are different records and must not be used interchangeably.
+
+| Work type | Use it for | Configured from | Operator interface | Official result |
+|---|---|---|---|---|
+| **Production Operation / Job Card** | Work that transforms material or reports manufactured quantity, such as cooking, filling, packing, or cartoning | ERPNext BOM Operation plus the Kanban Master's Operation Profile | **Production Operator Panel** | ERPNext Job Card, operation quantity, Work Order status, and Kanban progress/WIP records |
+| **Production Process Task** | A non-quantity prerequisite or control that belongs to a production Cycle, such as pre-operation sanitation, line clearance, quality release, or post-cleaning | Process Task Profile inside the relevant **CFG Kanban Master** | Production Operator Panel for the active Cycle | CFG Kanban Process Task linked to the Cycle; it can block a configured production gate |
+| **Standalone Service/Maintenance Task** | Independent housekeeping, preventive maintenance, inspection, safety, environmental, vehicle, or emergency work | **CFG Kanban Task Schedule**; no Kanban Master is required | **Service Task Panel** | CFG Kanban Task, structured checklist/measurement evidence, verification stamp, and maintenance reports |
+
+Use this decision rule:
+
+1. If the work produces or confirms production quantity, use an **ERPNext Operation/Job Card**.
+2. If it does not produce quantity but must control a particular production Cycle, use a
+   **production Process Task**.
+3. If it exists independently of production, use a **standalone Service/Maintenance Task**.
+
+Do not create an ERPNext Job Card for cleaning or inspection merely to obtain a task record. Do not
+use a standalone maintenance Task to release production; a production Process Task must be linked to
+the Kanban Master and Cycle for that control.
 
 ## 6. Initial system settings
 
@@ -243,7 +267,7 @@ hours. The system reuses only a still-valid completion matching the configured M
 asset/workstation. A supervisor can invalidate valid completions when an operational event makes the
 earlier result unsafe to reuse.
 
-## Standalone Task / Service Kanban
+### Optional — Configure standalone Service/Maintenance work
 
 Create a **CFG Kanban Task Schedule** for independent housekeeping, maintenance, inspection, vehicle,
 safety, environmental, or emergency work. Add checklist and dynamic fields using
@@ -264,12 +288,17 @@ Evidence**. The register provides one row per service record; the evidence repor
 per checklist result or dynamic value so variable forms remain exportable. Use **CFG Verified
 Maintenance Record** when printing a Task for certification evidence and its completion/verification
 stamp.
+
+Dynamic fields are displayed according to their configured capture stage:
+
+- **Start:** pre-work condition or initial reading.
+- **Complete:** work result, final reading, and completion evidence.
+- **Verify:** an independent verifier's measurement or confirmation.
+
 - Numeric minimum and maximum values are validated by the server.
 - Mandatory fields must be supplied in the operator progress dialog.
 - `Map to Job Card` and `Job Card Field` describe intended mapping, but generic automatic mapping to
   arbitrary Job Card fields is not yet complete.
-- Current Operator Desk implementation displays definitions captured on **Progress**. Start and
-  Complete capture screens are not yet implemented.
 
 Save the Master. Duplicate operation sequence numbers are rejected.
 
@@ -758,6 +787,21 @@ An administrator creates one **CFG Kanban Operator Profile** for each Employee, 
 operator permissions and optional workstation/operation restrictions, and uses **Credentials →
 Issue New QR Credential**. The credential is shown once for QR-label generation; only its hash is
 stored. Issuing another credential immediately invalidates the previous QR.
+
+The credential dialog provides these outputs:
+
+- **Print CR80 Horizontal Card (85.60 × 53.98 mm):** the landscape operator card with Employee
+  photo, employee number, designation, department, Kanban role, and QR credential.
+- **Print CR80 Vertical Card (53.98 × 85.60 mm):** the portrait version of the same secure operator
+  credential for vertical badge holders.
+- **Print Large QR Sheet:** a larger A4 presentation of the same card for enrollment or testing.
+- **Download QR:** saves the QR image without the identity-card layout.
+
+Maintain the operator photograph in the linked ERPNext **Employee → Image** field before issuing the
+credential. If no Employee image exists, the card prints an initials placeholder. In the browser
+print dialog use **Actual Size / 100%**, disable headers and footers, and select the correct CR80 card
+media or card-printer driver. Because the raw credential is never stored, print or download it while
+the issuance dialog is open; issuing it again creates a new QR and invalidates the old card.
 
 The active operator is always displayed at the top of the Operator page. **Switch Operator** ends
 the previous operator's active session on that terminal/station. Sessions also expire after the

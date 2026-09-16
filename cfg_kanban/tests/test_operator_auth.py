@@ -37,11 +37,16 @@ class TestOperatorAuthenticationContract(TestCase):
                    "kanban_operator.js").read_text()
         profile = (ROOT / "public" / "js" / "cfg_kanban_operator_profile.js").read_text()
         self.assertIn('"qr_svg": get_qr_svg(login_url, 220)', api)
+        self.assertIn('"employee_image": employee.image', api)
         self.assertIn("def get_console_access", api)
         self.assertIn("End Operator Session", console)
         self.assertIn('params.get("operator")', console)
         self.assertIn("window.history.replaceState", console)
-        self.assertIn("Print Card", profile)
+        self.assertIn("Print CR80 Horizontal Card", profile)
+        self.assertIn("Print CR80 Vertical Card", profile)
+        self.assertIn("@page{size:85.60mm 53.98mm;margin:0}", profile)
+        self.assertIn("@page{size:53.98mm 85.60mm;margin:0}", profile)
+        self.assertIn("Print Large QR Sheet", profile)
         self.assertIn("Download QR", profile)
 
     def test_development_proxy_is_explicitly_enabled_and_administrator_only(self):

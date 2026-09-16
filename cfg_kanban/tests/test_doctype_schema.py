@@ -25,7 +25,10 @@ class TestDocTypeSchema(TestCase):
         shortcuts = {row.get("label"): row.get("link_to") for row in workspace["shortcuts"]}
         self.assertEqual(links["Operator Profiles"], "CFG Kanban Operator Profile")
         self.assertEqual(links["Operator Sessions"], "CFG Kanban Operator Session")
-        self.assertEqual(shortcuts["Operator Console"], "kanban-operator")
+        self.assertEqual(shortcuts["Production Operator Panel"], "kanban-operator")
+        self.assertEqual(shortcuts["Service Task Panel"], "kanban-tasks")
+        self.assertEqual(shortcuts["Maintenance Register"],
+                         "Kanban Maintenance Register")
         self.assertEqual(shortcuts["Operator Profiles"], "CFG Kanban Operator Profile")
 
     def test_every_field_is_present_once_in_field_order(self):

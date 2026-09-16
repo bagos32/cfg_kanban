@@ -48,13 +48,16 @@ def issue_operator_credential(profile_name):
     token = new_credential()
     profile.db_set("qr_token_hash", credential_hash(token), update_modified=True)
     login_url = get_url(f"/app/kanban-operator#operator={token}")
-    employee = frappe.db.get_value("Employee", profile.employee,
-                                   ["employee_name", "department", "designation"], as_dict=True)
+    employee = frappe.db.get_value(
+        "Employee", profile.employee,
+        ["employee_name", "department", "designation", "image"], as_dict=True,
+    )
     return {
         "operator_profile": profile.name, "employee": profile.employee,
         "employee_name": employee.employee_name if employee else profile.employee,
         "department": employee.department if employee else None,
         "designation": employee.designation if employee else None,
+        "employee_image": employee.image if employee else None,
         "kanban_role": profile.kanban_role,
         "allowed_operations": [row.operation for row in profile.allowed_operations],
         "allowed_workstations": [row.workstation for row in profile.allowed_workstations],
