@@ -176,7 +176,9 @@ def on_job_card_update(doc, method=None):
             frappe.db.set_value("CFG Kanban Process Execution", execution, values)
             if status == "Completed":
                 from cfg_kanban.services.progress import complete_execution_handoff
+                from cfg_kanban.services.process_tasks import evaluate_gate
                 complete_execution_handoff(execution)
+                evaluate_gate(doc.cfg_kanban_cycle, "After Operation Complete", doc.operation)
                 ready_next_sequential_lane(frappe.get_doc("CFG Kanban Process Execution", execution))
             recalculate(doc.cfg_kanban_cycle, doc.operation)
         record("Job Card Feedback", cycle=doc.cfg_kanban_cycle, execution=execution,
@@ -202,6 +204,8 @@ def validate_stock_entry(doc, method=None):
     if not _cycle(doc) or doc.stock_entry_type != "Manufacture":
         return
     cycle = frappe.get_doc("CFG Kanban Cycle", doc.cfg_kanban_cycle)
+    from cfg_kanban.services.process_tasks import assert_gate_open
+    assert_gate_open(cycle.name, "Before FG Release")
     if cycle.get("production_policy") != "Customer Make-to-Order":
         return
     demand = frappe.get_doc("CFG Kanban Demand", cycle.sales_demand)

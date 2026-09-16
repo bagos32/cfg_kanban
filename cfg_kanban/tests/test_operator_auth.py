@@ -56,3 +56,11 @@ class TestOperatorAuthenticationContract(TestCase):
         self.assertIn("def login_development_proxy", api)
         self.assertIn('"default": "0"', settings)
         self.assertIn('"development_proxy"', session)
+
+    def test_process_task_actions_reuse_operator_authorization(self):
+        auth = (ROOT / "services" / "operator_auth.py").read_text()
+        api = (ROOT / "api" / "process_task.py").read_text()
+        self.assertIn('"task_start": "can_start"', auth)
+        self.assertIn('"task_complete": "can_complete"', auth)
+        self.assertIn('"task_verify": "can_verify_tasks"', auth)
+        self.assertIn("require_operator", api)

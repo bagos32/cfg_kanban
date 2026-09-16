@@ -21,6 +21,8 @@ def scan(token, action="consume", device_id=None, event_token=None, payload=None
     frappe.db.set_value("CFG Kanban Card", card_name, "last_scan_time", now_datetime())
     if action == "consume":
         card_type = frappe.db.get_value("CFG Kanban Card", card_name, "card_type")
+        if card_type in ("Asset Card", "Location Card", "Task Card"):
+            frappe.throw("Service identity cards do not trigger production. Open Kanban Service Tasks.")
         if card_type in ("Process Kanban", "Station Kanban"):
             return {"requires_confirmation": True, "proposal": preview_runtime_card(card_name)}
         result = consume_card(card_name, device_id=device_id, event_token=event_token,

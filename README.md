@@ -1,6 +1,8 @@
 # CFG Kanban
 
 For setup and day-to-day operation, see the [CFG Kanban User Manual](docs/USER_MANUAL.md).
+The consolidated model is documented in
+[Enhanced V1 Core Architecture](docs/ENHANCED_CORE_ARCHITECTURE.md).
 
 `cfg_kanban` is a Frappe/ERPNext v15 process-control app for production Kanban. Kanban decides
 **when and why** replenishment or a process handoff is required; ERPNext remains the system of
@@ -15,6 +17,13 @@ Supplier Kanban remains intentionally deferred.
 - Per-operation profiles with dependency/start rules, parallel operation support, full-batch,
   physical-card, automatic, and digital-quantity handoffs.
 - Dynamic operator field definitions stored on the master and snapshotted as execution values.
+- Production-linked Process Tasks for preparation, sanitation, quality, clearance, and verification
+  gates without creating fake ERPNext Job Cards.
+- Standalone scheduled or requested Service Tasks for housekeeping, maintenance, inspections,
+  safety, environmental, vehicle, and emergency work.
+- Shared Employee-based operator authorization and dynamic-form validation across production
+  executions, production tasks, and standalone service tasks.
+- Asset, Location, and Task card identities that expose service work without triggering production.
 - Process executions linked to ERPNext Job Cards, immutable progress entries, and an auditable WIP
   quantity ledger.
 - Event, signal, ERP command, and exception records.

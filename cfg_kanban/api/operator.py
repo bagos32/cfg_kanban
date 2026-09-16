@@ -15,6 +15,9 @@ from cfg_kanban.services.runtime_selector import allocate as allocate_runtime_ca
 from cfg_kanban.services.runtime_selector import preview as preview_runtime_card
 from cfg_kanban.services.signal_cancellation import cancel_and_rollback
 from cfg_kanban.services.state_machine import set_cycle_state, transition_card
+from cfg_kanban.services.process_tasks import (assert_gate_open, ensure_tasks,
+                                               refresh_task_readiness)
+from cfg_kanban.services.dynamic_forms import definitions, validate_values
 
 
 @frappe.whitelist()
@@ -85,6 +88,27 @@ def get_card_context(token, operator_session_token=None):
     if not card_name:
         frappe.throw("Kanban card was not found")
     card = frappe.get_doc("CFG Kanban Card", card_name)
+    if card.card_type in ("Asset Card", "Location Card", "Task Card"):
+        task_filters = {"status": ["not in", ("Completed", "Cancelled")]}
+        if card.card_type == "Asset Card":
+            task_filters["asset"] = card.asset
+        elif card.card_type == "Location Card":
+            task_filters["location"] = card.location_reference
+        else:
+            task_filters["task_schedule"] = card.task_schedule
+        service_tasks = frappe.get_all(
+            "CFG Kanban Task", filters=task_filters,
+            fields=["name", "task_name", "status", "priority", "due_on",
+                    "assigned_employee", "workstation", "asset", "location"],
+            order_by="due_on asc, creation asc", limit_page_length=50,
+        )
+        return {
+            "card": card.as_dict(), "master": {}, "cycle": None,
+            "effective_work_order": None, "work_order_attention": None,
+            "selected_job_card": None, "executions": [], "work_orders": [],
+            "route_warnings": [], "operation_summaries": [], "process_tasks": [],
+            "service_tasks": service_tasks, "service_identity_card": True,
+        }
     master = frappe.get_doc("CFG Kanban Master", card.kanban_master)
     cycle = frappe.get_doc("CFG Kanban Cycle", card.active_cycle) if card.active_cycle else None
     executions = []
@@ -93,7 +117,17 @@ def get_card_context(token, operator_session_token=None):
     operation_summaries = []
     effective_work_order = None
     work_order_attention = None
+    process_tasks = []
     if cycle:
+        ensure_tasks(cycle.name)
+        refresh_task_readiness(cycle.name)
+        process_tasks = frappe.get_all(
+            "CFG Kanban Process Task", filters={"kanban_cycle": cycle.name},
+            fields=["name", "task_name", "sequence", "task_type", "trigger_point",
+                    "linked_operation", "status", "blocking", "workstation",
+                    "verification_required", "valid_until", "reused_from_task"],
+            order_by="sequence asc, creation asc",
+        )
         work_orders = frappe.get_all("Work Order", filters={"cfg_kanban_cycle": cycle.name,
             "docstatus": ["<", 2]}, fields=["name", "status", "docstatus"], order_by="creation asc")
         effective_work_order = None
@@ -181,6 +215,9 @@ def get_card_context(token, operator_session_token=None):
         "work_orders": work_orders,
         "route_warnings": route_warnings,
         "operation_summaries": operation_summaries,
+        "process_tasks": process_tasks,
+        "service_tasks": [],
+        "service_identity_card": False,
     }
 
 
@@ -206,6 +243,7 @@ def confirm_runtime_selection(card_name, job_card, confirmation, override_reason
 def complete_runtime_cycle(execution_name, notes=None, operator_session_token=None):
     execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
     profile, session = require_operator(operator_session_token, "complete", execution=execution)
+    assert_gate_open(execution.kanban_cycle, "Before Cycle Close")
     if not execution.runtime_allocation:
         frappe.throw("This is not a runtime-selected execution")
     if flt(execution.processed_qty) + 0.000001 < flt(execution.target_qty):
@@ -309,6 +347,7 @@ def approve_signal(signal_name):
         return {"signal": signal.name, "command": signal.command, "duplicate": True}
     if signal.status not in ("Waiting Approval", "Validated", "Failed"):
         frappe.throw(f"Signal cannot be approved while it is {signal.status}")
+    assert_gate_open(signal.kanban_cycle, "Before Cycle Start")
     signal.db_set({"status": "Validated", "validated_on": now_datetime()})
     command = create_work_order_command(signal.name)
     result = execute_command(command.name)
@@ -349,14 +388,7 @@ def cancel_signal(signal_name, reason):
 def get_execution_form(execution_name, capture_on="Progress", operator_session_token=None):
     execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
     require_operator(operator_session_token, "report_progress", execution=execution)
-    rows = frappe.get_all(
-        "CFG Kanban Field Definition",
-        filters={"parent": execution.kanban_master, "parenttype": "CFG Kanban Master",
-                 "operation": execution.operation, "capture_on": capture_on},
-        fields=["field_key", "label", "field_type", "mandatory", "options", "default_value",
-                "precision", "min_value", "max_value", "unit", "read_only", "validation_message"],
-        order_by="display_order asc, idx asc",
-    )
+    rows = definitions(execution.kanban_master, capture_on, operation=execution.operation)
     return {"execution": execution.as_dict(), "fields": rows}
 
 
@@ -428,6 +460,15 @@ def run_job_card_action(execution_name, action, event_token=None, operator_sessi
     profile, session = require_operator(operator_session_token, action, execution=execution)
     if not execution.job_card:
         frappe.throw("This execution is not linked to an ERPNext Job Card")
+    if action == "start":
+        assert_gate_open(execution.kanban_cycle, "Before Operation Start", execution.operation)
+        master = frappe.get_doc("CFG Kanban Master", execution.kanban_master)
+        operation_profile = next(
+            (row for row in master.operation_profiles if row.operation == execution.operation), None
+        )
+        if operation_profile and operation_profile.dependency_operation:
+            assert_gate_open(execution.kanban_cycle, "After Operation Complete",
+                             operation_profile.dependency_operation)
     command_type = {"start": "Start Job Card", "complete": "Complete Job Card"}.get(action)
     if not command_type:
         frappe.throw("Unsupported Job Card action")
@@ -468,6 +509,7 @@ def get_cycle_timeline(cycle_name, operator_session_token=None):
     events = frappe.get_all(
         "CFG Kanban Event", filters={"kanban_cycle": cycle.name},
         fields=["name", "event_datetime", "event_type", "user", "operator", "process_execution",
+                "process_task",
                 "previous_state", "new_state", "qty", "reference_doctype", "reference_name", "notes"],
         order_by="event_datetime desc, creation desc", limit_page_length=200,
     )
@@ -476,27 +518,5 @@ def get_cycle_timeline(cycle_name, operator_session_token=None):
 
 def _validate_dynamic_values(execution_name, values):
     execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
-    definitions = frappe.get_all(
-        "CFG Kanban Field Definition",
-        filters={"parent": execution.kanban_master, "parenttype": "CFG Kanban Master",
-                 "operation": execution.operation, "capture_on": "Progress"},
-        fields=["field_key", "label", "field_type", "mandatory", "options",
-                "min_value", "max_value", "validation_message"],
-    )
-    supplied = {row.get("field_key"): row.get("value") for row in values}
-    for definition in definitions:
-        value = supplied.get(definition.field_key)
-        message = definition.validation_message or f"Invalid value for {definition.label}"
-        if definition.mandatory and value in (None, ""):
-            frappe.throw(f"{definition.label} is required")
-        if value in (None, ""):
-            continue
-        if definition.field_type in ("Int", "Float"):
-            numeric = flt(value)
-            if definition.min_value is not None and numeric < flt(definition.min_value):
-                frappe.throw(message)
-            if definition.max_value is not None and numeric > flt(definition.max_value):
-                frappe.throw(message)
-        if definition.field_type == "Select" and definition.options:
-            if str(value) not in definition.options.splitlines():
-                frappe.throw(message)
+    rows = definitions(execution.kanban_master, "Progress", operation=execution.operation)
+    validate_values(rows, values)

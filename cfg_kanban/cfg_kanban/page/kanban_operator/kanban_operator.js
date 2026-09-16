@@ -259,7 +259,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				${__("Scan a Kanban QR code or enter its card number to begin.")}</div>`);
 			return;
 		}
-		const { card, master, cycle, effective_work_order, work_order_attention, selected_job_card, executions, operation_summaries, work_orders, route_warnings } = state.context;
+		const { card, master, cycle, effective_work_order, work_order_attention, selected_job_card, executions, operation_summaries, process_tasks, service_tasks, service_identity_card, work_orders, route_warnings } = state.context;
 		const cycle_label = cycle ? `${document_link("cfg-kanban-cycle", cycle.name)}${status_line(cycle.status)}` : __("No active cycle");
 		const work_order_label = effective_work_order
 			? `${document_link("work-order", effective_work_order.name)}${status_line(effective_work_order.status, effective_work_order.docstatus)}`
@@ -268,12 +268,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<div class="d-flex justify-content-between align-items-start flex-wrap">
 				<div><div class="d-flex align-items-center flex-wrap"><h3 class="mr-3 mb-1">${e(card.card_number)}</h3>
 					<span class="indicator-pill blue mb-1">${e(card.card_type || __("Unspecified Card Type"))}</span></div>
-					<div><strong>${e(card.item_code || master.item_code || "")}</strong> · ${e(card.kanban_qty || 0)} ${e(card.stock_uom || master.stock_uom || "")}</div>
-					<div class="text-muted">${e(master.control_type || "")} ${master.card_representation ? "· " + e(master.card_representation) : ""}${card.operation ? " · " + e(card.operation) : ""}</div></div>
+					<div><strong>${e(card.item_code || master.item_code || card.asset || card.location_reference || card.task_schedule || "")}</strong>${card.kanban_qty ? ` · ${e(card.kanban_qty)} ${e(card.stock_uom || master.stock_uom || "")}` : ""}</div>
+					<div class="text-muted">${e(master.control_type || card.card_behavior || "")} ${master.card_representation ? "· " + e(master.card_representation) : ""}${card.operation ? " · " + e(card.operation) : ""}</div></div>
 				<div class="text-right"><small>${__("Card Status")}</small><br><span class="indicator-pill ${indicator(card.current_state)}">${e(card.current_state)}</span></div>
 			</div><hr>
 			<div class="row">
-				<div class="col-sm-2"><small>${__("Master")}</small><div>${e(master.kanban_name)}</div></div>
+				<div class="col-sm-2"><small>${__("Master")}</small><div>${e(master.kanban_name || __("Service identity"))}</div></div>
 				<div class="col-sm-2"><small>${__("Quantity")}</small><div>${e(card.kanban_qty)}</div></div>
 				<div class="col-sm-2"><small>${__("Automation")}</small><div>${e(master.automation_level)}</div></div>
 				<div class="col-sm-3"><small>${__("Cycle")}</small><div>${cycle_label}</div></div>
@@ -295,6 +295,20 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				`${document_link("work-order", row.name)} · ${e(row.status)}`).join("<br>")}</div></div>`);
 		}
 		const $actions = $root.find(".cfg-card-actions");
+		if (service_identity_card) {
+			$actions.append(`<a class="btn btn-primary mr-2" href="/app/kanban-tasks">${__("Open Service Tasks")}</a>`);
+			if (card.card_type === "Task Card" && state.operator.permissions.task_start) {
+				add_action($actions, __("Request Task"), "btn-warning", async () => {
+					await frappe.call({ method: "cfg_kanban.api.task.request_task", args: {
+						schedule_name: card.task_schedule, request_source: `Task Card ${card.card_number}`,
+						event_token: frappe.utils.get_random(16), operator_session_token: state.session_token,
+					}, freeze: true });
+					await load_card(card.qr_code);
+				});
+			}
+			render_service_tasks(service_tasks || []);
+			return;
+		}
 		if (!cycle && card.current_state === "Available" && state.operator.permissions.consume) {
 			$("<button class='btn btn-primary mr-2'>" + __("Consume / Trigger") + "</button>")
 				.appendTo($actions).on("click", consume_card);
@@ -311,8 +325,80 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			$("<button class='btn btn-default mr-2'>" + __("View Timeline") + "</button>")
 				.appendTo($actions).on("click", () => show_timeline(cycle.name));
 		}
+		render_process_tasks(process_tasks || []);
 		render_summaries(operation_summaries || []);
 		render_executions(executions || []);
+	}
+
+	function render_service_tasks(tasks) {
+		const e = frappe.utils.escape_html;
+		const $section = $(`<div><h4>${__("Open Service Tasks for this Card")}</h4></div>`).appendTo($root);
+		if (!tasks.length) return $section.append(`<div class="text-muted p-3">${__("No open tasks match this identity.")}</div>`);
+		tasks.forEach((task) => $section.append(`<div class="frappe-card p-3 mb-2"><strong>${e(task.task_name)}</strong>
+			<span class="indicator-pill ${indicator(task.status)} ml-2">${e(task.status)}</span><br>
+			<small>${__("Priority")}: ${e(task.priority)} · ${__("Due")}: ${e(task.due_on || "-")}</small></div>`));
+	}
+
+	function render_process_tasks(tasks) {
+		if (!tasks.length) return;
+		const e = frappe.utils.escape_html;
+		const $section = $(`<div><h4>${__("Production Process Tasks")}</h4></div>`).appendTo($root);
+		tasks.forEach((task) => {
+			const reuse = task.reused_from_task
+				? `<div class="text-success"><small>${__("Valid completion reused from")}: ${e(task.reused_from_task)}</small></div>` : "";
+			const $row = $(`<div class="frappe-card p-3 mb-2"><div class="row align-items-center">
+				<div class="col-md-4"><strong>${e(task.sequence)}. ${e(task.task_name)}</strong><br>
+					<small>${e(task.task_type || "")} · ${e(task.trigger_point || "")}</small>
+					${task.linked_operation ? `<div class="text-muted">${__("Operation")}: ${e(task.linked_operation)}</div>` : ""}${reuse}</div>
+				<div class="col-md-2"><span class="indicator-pill ${indicator(task.status)}">${e(task.status)}</span></div>
+				<div class="col-md-3">${task.workstation ? `${__("Workstation")}: ${e(task.workstation)}` : ""}
+					${task.valid_until ? `<br><small>${__("Valid until")}: ${e(task.valid_until)}</small>` : ""}</div>
+				<div class="col-md-3 text-right cfg-task-actions"></div>
+			</div></div>`).appendTo($section);
+			const $buttons = $row.find(".cfg-task-actions");
+			if (task.status === "Ready" && state.operator.permissions.task_start) {
+				add_action($buttons, __("Start Task"), "btn-primary", () => process_task_dialog(task, "Start"));
+			}
+			if (["Ready", "In Progress"].includes(task.status) && state.operator.permissions.task_complete) {
+				add_action($buttons, __("Complete Task"), "btn-success", () => process_task_dialog(task, "Complete"));
+			}
+			if (task.status === "Awaiting Verification" && state.operator.permissions.task_verify) {
+				add_action($buttons, __("Verify Task"), "btn-warning", () => process_task_dialog(task, "Verify"));
+			}
+		});
+	}
+
+	async function process_task_dialog(task, action) {
+		const response = await frappe.call({ method: "cfg_kanban.api.process_task.get_task_form", args: {
+			task_name: task.name, capture_on: action, operator_session_token: state.session_token,
+		} });
+		const details = response.message.task;
+		const definitions = response.message.fields || [];
+		const checklist = (details.checklist || "").split("\n").map((item) => item.trim()).filter(Boolean);
+		const fields = [
+			{ fieldtype: "HTML", options: `<p><strong>${frappe.utils.escape_html(details.task_name)}</strong><br>${frappe.utils.escape_html(details.trigger_point || "")}</p>` },
+			...checklist.map((item, index) => ({ fieldname: `check_${index}`, label: item, fieldtype: "Check",
+				reqd: action === "Complete" })),
+			...definitions.map(dialog_field),
+			{ fieldname: "notes", label: __("Notes"), fieldtype: "Small Text" },
+		];
+		const method = { Start: "start", Complete: "complete", Verify: "verify" }[action];
+		const dialog = new frappe.ui.Dialog({ title: __(`${action} Process Task`), fields,
+			primary_action_label: __(action), primary_action: async (values) => {
+				const dynamic_values = definitions.map((definition) => ({ field_key: definition.field_key,
+					label: definition.label, field_type: definition.field_type,
+					value: values[`dynamic_${definition.field_key}`], unit: definition.unit }));
+				const checklist_results = checklist.map((item, index) => ({ item, completed: values[`check_${index}`] ? 1 : 0 }));
+				const args = {
+					task_name: task.name, operator_session_token: state.session_token,
+					values: dynamic_values, notes: values.notes,
+				};
+				if (action === "Complete") args.checklist_results = checklist_results;
+				await frappe.call({ method: `cfg_kanban.api.process_task.${method}`, args, freeze: true });
+				dialog.hide();
+				await load_card(state.context.card.qr_code);
+			} });
+		dialog.show();
 	}
 
 	function render_summaries(summaries) {

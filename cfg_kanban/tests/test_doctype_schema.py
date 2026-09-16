@@ -182,3 +182,72 @@ class TestDocTypeSchema(TestCase):
         self.assertTrue(fields["session_token_hash"]["hidden"])
         self.assertTrue({"last_activity_on", "expires_on", "ended_on", "active",
                          "end_reason"}.issubset(fields))
+
+    def test_process_task_profiles_are_part_of_master_configuration(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        master = {row["fieldname"]: row for row in schemas["CFG Kanban Master"]["fields"]}
+        self.assertEqual(master["process_task_profiles"]["options"],
+                         "CFG Kanban Process Task Profile")
+        profile = {row["fieldname"]: row for row in
+                   schemas["CFG Kanban Process Task Profile"]["fields"]}
+        self.assertTrue({"task_key", "task_name", "task_type", "linked_operation",
+                         "trigger_point", "mandatory", "blocking", "workstation", "asset",
+                         "require_supervisor_verification", "validity_duration_hours",
+                         "reuse_while_valid", "completion_rule"}.issubset(profile))
+
+    def test_process_task_runtime_is_auditable_and_filterable(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        task = {row["fieldname"]: row for row in
+                schemas["CFG Kanban Process Task"]["fields"]}
+        self.assertTrue({"kanban_cycle", "kanban_master", "task_key", "status",
+                         "linked_process_execution", "assigned_employee", "started_by",
+                         "completed_by", "execution_values", "verification_required",
+                         "verified_by", "valid_until", "reused_from_task", "exception"}
+                        .issubset(task))
+        for fieldname in ("kanban_cycle", "task_name", "trigger_point", "status"):
+            self.assertEqual(task[fieldname].get("in_list_view"), 1)
+        event = {row["fieldname"]: row for row in schemas["CFG Kanban Event"]["fields"]}
+        self.assertEqual(event["process_task"]["options"], "CFG Kanban Process Task")
+
+    def test_dynamic_fields_support_operation_and_process_task_scopes(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        fields = {row["fieldname"]: row for row in
+                  schemas["CFG Kanban Field Definition"]["fields"]}
+        self.assertIn("Process Task", fields["definition_scope"]["options"].splitlines())
+        self.assertIn("Verify", fields["capture_on"]["options"].splitlines())
+        self.assertIn("process_task_key", fields)
+        operator = {row["fieldname"] for row in
+                    schemas["CFG Kanban Operator Profile"]["fields"]}
+        self.assertIn("can_verify_tasks", operator)
+
+    def test_standalone_task_domain_is_separate_from_production(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        schedule = {row["fieldname"]: row for row in
+                    schemas["CFG Kanban Task Schedule"]["fields"]}
+        self.assertTrue({"trigger_type", "interval_value", "next_due_on", "workstation",
+                         "asset", "location", "task_field_definitions",
+                         "require_supervisor_verification"}.issubset(schedule))
+        self.assertEqual(schedule["task_field_definitions"]["options"],
+                         "CFG Kanban Field Definition")
+        task = {row["fieldname"]: row for row in schemas["CFG Kanban Task"]["fields"]}
+        self.assertTrue({"task_schedule", "trigger_type", "generation_key", "status",
+                         "requested_on", "due_on", "assigned_employee", "checklist_results",
+                         "execution_values", "verified_by", "exception"}.issubset(task))
+        self.assertTrue(task["work_order"].get("hidden"))
+        self.assertTrue(task["job_card"].get("hidden"))
+
+    def test_card_identity_supports_asset_location_and_task_behaviours(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        card = {row["fieldname"]: row for row in schemas["CFG Kanban Card"]["fields"]}
+        options = card["card_type"]["options"].splitlines()
+        self.assertTrue({"Asset Card", "Location Card", "Task Card"}.issubset(options))
+        self.assertTrue({"card_behavior", "asset", "location_reference", "task_schedule"}
+                        .issubset(card))
+        self.assertFalse(card["kanban_master"].get("reqd", 0))
+
+    def test_events_and_exceptions_link_both_task_domains(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        for doctype in ("CFG Kanban Event", "CFG Kanban Exception"):
+            fields = {row["fieldname"]: row for row in schemas[doctype]["fields"]}
+            self.assertEqual(fields["process_task"]["options"], "CFG Kanban Process Task")
+            self.assertEqual(fields["standalone_task"]["options"], "CFG Kanban Task")

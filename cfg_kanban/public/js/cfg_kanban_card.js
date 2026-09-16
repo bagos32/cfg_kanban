@@ -33,7 +33,10 @@ frappe.ui.form.on("CFG Kanban Card", {
 		});
 	},
 	card_type(frm) {
+		const production = ["Physical Unit Card", "Physical Batch Card", "Process Kanban", "Station Kanban"].includes(frm.doc.card_type);
 		const required = ["Process Kanban", "Station Kanban"].includes(frm.doc.card_type);
+		frm.set_df_property("kanban_master", "reqd", production);
+		frm.set_df_property("kanban_qty", "reqd", production);
 		frm.set_df_property("operation", "reqd", required);
 		if (frm.doc.card_type !== "Station Kanban" && frm.doc.workstation) {
 			frm.set_value("workstation", null);
@@ -45,18 +48,22 @@ frappe.ui.form.on("CFG Kanban Card", {
 		frm.add_custom_button(__("Open Operator Console"), () => {
 			frappe.set_route("kanban-operator");
 		});
-		frm.add_custom_button(__("Print Standard Card"), () => cfg_card_print(frm,
-			"CFG Kanban Standard Card"), __("Print Kanban"));
-		frm.add_custom_button(__("Print Operational Card"), () => cfg_card_print(frm,
-			"CFG Kanban Operational Card"), __("Print Kanban"));
+		const production = ["Physical Unit Card", "Physical Batch Card", "Process Kanban", "Station Kanban"].includes(frm.doc.card_type);
+		if (production) {
+			frm.add_custom_button(__("Print Standard Card"), () => cfg_card_print(frm,
+				"CFG Kanban Standard Card"), __("Print Kanban"));
+			frm.add_custom_button(__("Print Operational Card"), () => cfg_card_print(frm,
+				"CFG Kanban Operational Card"), __("Print Kanban"));
+		}
 		if (frm.doc.active) {
 			frm.add_custom_button(__("Replace Card"), () => cfg_replace_card(frm), __("Print Kanban"));
 		}
 		if (frm.doc.current_state === "Available" && !frm.doc.active_cycle && frm.doc.active &&
-			!["Process Kanban", "Station Kanban"].includes(frm.doc.card_type)) {
+			["Physical Unit Card", "Physical Batch Card"].includes(frm.doc.card_type)) {
 			frm.add_custom_button(__("Consume / Trigger"), async () => {
 				await frappe.call({ method: "cfg_kanban.api.scan.scan", args: {
 					token: frm.doc.qr_code, action: "consume", event_token: frappe.utils.get_random(16),
+					operator_session_token: localStorage.getItem("cfg_kanban_operator_session"),
 				}, freeze: true });
 				frappe.show_alert({ message: __("Kanban signal created"), indicator: "green" });
 				frm.reload_doc();

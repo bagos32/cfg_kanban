@@ -22,13 +22,34 @@ class CFGKanbanMaster(Document):
                 frappe.throw(f"Minimum Percentage must be between 0 and 100 for operation {row.operation}")
             if row.handoff_mode == "Digital Quantity Handoff" and (row.transfer_multiple or 0) <= 0:
                 frappe.throw(f"Transfer Multiple must be positive for operation {row.operation}")
+        task_keys = [row.task_key for row in self.process_task_profiles]
+        if len(task_keys) != len(set(task_keys)):
+            frappe.throw("Process Task Profile keys must be unique")
+        task_sequences = [row.sequence for row in self.process_task_profiles]
+        if len(task_sequences) != len(set(task_sequences)):
+            frappe.throw("Process Task Profile sequences must be unique")
+        for row in self.process_task_profiles:
+            if row.linked_operation and row.linked_operation not in operations:
+                frappe.throw(f"Process Task {row.task_name} references an operation outside this route")
+            if row.trigger_point in ("Before Operation Start", "After Operation Complete",
+                                     "Before WIP Release") and not row.linked_operation:
+                frappe.throw(f"Linked Operation is required for Process Task {row.task_name}")
+            if row.reuse_while_valid and (row.validity_duration_hours or 0) <= 0:
+                frappe.throw(f"Validity Duration must be positive for Process Task {row.task_name}")
         keys = [row.field_key for row in self.operator_field_definitions]
         if len(keys) != len(set(keys)):
             frappe.throw("Dynamic operator Field Keys must be unique")
         unknown_fields = [row.operation for row in self.operator_field_definitions
-                          if row.operation not in operations]
+                          if (row.definition_scope or "Operation") == "Operation"
+                          and row.operation not in operations]
         if unknown_fields:
             frappe.throw(f"Dynamic operator fields reference operations outside this route: {', '.join(unknown_fields)}")
+        unknown_tasks = [row.process_task_key for row in self.operator_field_definitions
+                         if row.definition_scope == "Process Task"
+                         and row.process_task_key not in task_keys]
+        if unknown_tasks:
+            frappe.throw("Dynamic operator fields reference unknown Process Tasks: "
+                         + ", ".join(unknown_tasks))
         self._validate_sales_demand_configuration()
 
     def _validate_sales_demand_configuration(self):

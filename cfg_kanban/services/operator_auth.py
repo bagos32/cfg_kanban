@@ -15,6 +15,9 @@ ACTION_FLAGS = {
     "physical_handoff": "can_complete",
     "override": "can_override",
     "reopen": "can_reopen",
+    "task_start": "can_start",
+    "task_complete": "can_complete",
+    "task_verify": "can_verify_tasks",
 }
 
 

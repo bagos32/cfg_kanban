@@ -1,0 +1,23 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Process Task Profile","module":"CFG Kanban","istable":1,
+ "field_order":["task_key","task_name","sequence","task_category","task_type","linked_operation","trigger_point","mandatory","blocking","responsible_role","workstation","asset","checklist","require_supervisor_verification","validity_duration_hours","reuse_while_valid","completion_rule"],
+ "fields":[
+  {"fieldname":"task_key","label":"Task Key","fieldtype":"Data","reqd":1,"in_list_view":1,"columns":2,"description":"Stable key used by dynamic fields and runtime idempotency."},
+  {"fieldname":"task_name","label":"Task Name","fieldtype":"Data","reqd":1,"in_list_view":1,"columns":3},
+  {"fieldname":"sequence","label":"Sequence","fieldtype":"Int","reqd":1,"in_list_view":1,"columns":1},
+  {"fieldname":"task_category","label":"Category","fieldtype":"Select","options":"Preparation\nSanitation\nQuality\nSafety\nLine Clearance\nTooling\nCleaning\nVerification\nOther","default":"Preparation"},
+  {"fieldname":"task_type","label":"Task Type","fieldtype":"Select","options":"Prerequisite\nIntermediate\nPost Process","default":"Prerequisite","reqd":1,"in_list_view":1,"columns":2},
+  {"fieldname":"linked_operation","label":"Linked Operation","fieldtype":"Link","options":"Operation","depends_on":"eval:['Before Operation Start','After Operation Complete','Before WIP Release'].includes(doc.trigger_point)"},
+  {"fieldname":"trigger_point","label":"Trigger Point","fieldtype":"Select","options":"Before Cycle Start\nBefore Operation Start\nAfter Operation Complete\nBefore WIP Release\nBefore FG Release\nBefore Cycle Close","reqd":1,"in_list_view":1,"columns":2},
+  {"fieldname":"mandatory","label":"Mandatory","fieldtype":"Check","default":"1"},
+  {"fieldname":"blocking","label":"Blocking","fieldtype":"Check","default":"1","description":"Keep the related production gate closed until this task is satisfied."},
+  {"fieldname":"responsible_role","label":"Responsible Role","fieldtype":"Link","options":"Role"},
+  {"fieldname":"workstation","label":"Workstation","fieldtype":"Link","options":"Workstation"},
+  {"fieldname":"asset","label":"Asset","fieldtype":"Link","options":"Asset"},
+  {"fieldname":"checklist","label":"Checklist","fieldtype":"Small Text","description":"One checklist item per line."},
+  {"fieldname":"require_supervisor_verification","label":"Require Supervisor Verification","fieldtype":"Check"},
+  {"fieldname":"validity_duration_hours","label":"Validity Duration (Hours)","fieldtype":"Float"},
+  {"fieldname":"reuse_while_valid","label":"Reuse While Valid","fieldtype":"Check"},
+  {"fieldname":"completion_rule","label":"Completion Rule","fieldtype":"Select","options":"Operator Confirmation\nAll Checklist Items\nDynamic Form Valid\nSupervisor Verified","default":"Operator Confirmation","reqd":1}
+ ]
+}

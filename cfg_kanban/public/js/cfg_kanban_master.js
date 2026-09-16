@@ -7,6 +7,10 @@ frappe.ui.form.on("CFG Kanban Master", {
 			query: "cfg_kanban.api.form_queries.master_operations",
 			filters: { kanban_master: frm.doc.name || "" },
 		}));
+		frm.set_query("linked_operation", "process_task_profiles", () => ({
+			query: "cfg_kanban.api.form_queries.master_operations",
+			filters: { kanban_master: frm.doc.name || "" },
+		}));
 	},
 	item_code(frm) {
 		if (!frm.doc.item_code) return;
@@ -34,5 +38,13 @@ frappe.ui.form.on("CFG Kanban Operation Profile", {
 	execution_mode(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
 		frappe.model.set_value(cdt, cdn, "allow_parallel", row.execution_mode === "Parallel Workstations" ? 1 : 0);
+	},
+});
+
+frappe.ui.form.on("CFG Kanban Field Definition", {
+	definition_scope(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (row.definition_scope === "Operation") frappe.model.set_value(cdt, cdn, "process_task_key", null);
+		if (row.definition_scope === "Process Task") frappe.model.set_value(cdt, cdn, "operation", null);
 	},
 });

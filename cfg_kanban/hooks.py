@@ -18,6 +18,7 @@ doctype_js = {
     "CFG Kanban Handling Unit": "public/js/cfg_kanban_handling_unit.js",
     "CFG Kanban Demand": "public/js/cfg_kanban_demand.js",
     "CFG Kanban Operator Profile": "public/js/cfg_kanban_operator_profile.js",
+    "CFG Kanban Task Schedule": "public/js/cfg_kanban_task_schedule.js",
 }
 
 jinja = {
@@ -37,6 +38,9 @@ fixtures = [
 ]
 
 doc_events = {
+    "CFG Kanban Cycle": {
+        "after_insert": "cfg_kanban.services.process_tasks.on_cycle_created",
+    },
     "CFG Kanban Process Execution": {
         "on_update": "cfg_kanban.services.dispatch.on_execution_update",
     },
@@ -61,6 +65,13 @@ doc_events = {
         "on_submit": "cfg_kanban.integrations.erp_feedback.on_stock_entry_submit",
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_stock_entry_cancel",
     },
+}
+
+scheduler_events = {
+    "hourly": [
+        "cfg_kanban.services.standalone_tasks.generate_due_tasks",
+        "cfg_kanban.services.standalone_tasks.update_overdue_tasks",
+    ]
 }
 
 after_install = "cfg_kanban.install.after_install"

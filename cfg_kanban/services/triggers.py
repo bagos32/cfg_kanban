@@ -5,6 +5,7 @@ from cfg_kanban.integrations.erp_gateway import execute_command
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key, insert_once
 from cfg_kanban.services.state_machine import transition_card
+from cfg_kanban.services.process_tasks import ensure_tasks, evaluate_gate
 
 
 def consume_card(card_name, *, device_id=None, event_token=None, trusted_operator=False):
@@ -30,17 +31,20 @@ def consume_card(card_name, *, device_id=None, event_token=None, trusted_operato
         "source_warehouse": master.source_warehouse, "destination_warehouse": master.destination_warehouse,
     }).insert(ignore_permissions=trusted_operator)
     card.db_set("active_cycle", cycle.name)
+    ensure_tasks(cycle.name)
+    cycle_start_gate = evaluate_gate(cycle.name, "Before Cycle Start")
+    automatic_release = master.automation_level == "Automatic" and cycle_start_gate["open"]
     signal, created = insert_once(frappe.get_doc({
         "doctype": "CFG Kanban Signal", "signal_type": "Production Replenishment",
         "kanban_master": master.name, "kanban_card": card.name, "kanban_cycle": cycle.name,
         "item_code": master.item_code, "requested_qty": cycle.planned_qty, "stock_uom": master.stock_uom,
-        "status": "Validated" if master.automation_level == "Automatic" else "Waiting Approval",
+        "status": "Validated" if automatic_release else "Waiting Approval",
         "priority": master.default_priority, "automation_level": master.automation_level,
         "requested_on": now_datetime(), "validated_on": now_datetime(),
     }), event_key, ignore_permissions=trusted_operator)
     cycle.db_set({"signal": signal.name, "status": "Signalled"})
     transition_card(card, "Signal Created", event_type="Signal Created", cycle=cycle.name)
-    if created and master.automation_level == "Automatic":
+    if created and automatic_release:
         command = create_work_order_command(signal.name)
         execute_command(command.name)
     return {"duplicate": not created, "cycle": cycle.name, "signal": signal.name}
