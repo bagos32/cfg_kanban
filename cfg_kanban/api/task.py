@@ -27,6 +27,31 @@ def get_open_tasks(operator_session_token=None):
 
 
 @frappe.whitelist()
+def get_request_schedules(operator_session_token=None):
+    profile, _session = require_operator(operator_session_token, "task_start")
+    if profile.kanban_role not in ("Senior Operator", "Supervisor", "Development Proxy"):
+        frappe.throw("Only a Senior Operator or Supervisor can create an unplanned Service Task")
+    return frappe.get_all(
+        "CFG Kanban Task Schedule", filters={"active": 1},
+        fields=["name", "schedule_name", "task_name", "task_category", "trigger_type",
+                "priority", "workstation", "asset", "location"],
+        order_by="task_name asc, schedule_name asc", limit_page_length=200,
+    )
+
+
+@frappe.whitelist()
+def supervisor_request_task(schedule_name, request_source, priority=None, event_token=None,
+                            operator_session_token=None):
+    schedule = frappe.get_doc("CFG Kanban Task Schedule", schedule_name)
+    profile, _session = require_operator(
+        operator_session_token, "task_start", workstation=schedule.workstation
+    )
+    if profile.kanban_role not in ("Senior Operator", "Supervisor", "Development Proxy"):
+        frappe.throw("Only a Senior Operator or Supervisor can create an unplanned Service Task")
+    return create_manual(schedule_name, request_source, priority, event_token).as_dict()
+
+
+@frappe.whitelist()
 def request_task(schedule_name, request_source, priority=None, event_token=None,
                  operator_session_token=None):
     schedule = frappe.get_doc("CFG Kanban Task Schedule", schedule_name)

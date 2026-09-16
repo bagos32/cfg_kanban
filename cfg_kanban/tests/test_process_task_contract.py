@@ -50,3 +50,14 @@ class TestProcessTaskContract(TestCase):
         self.assertIn("standalone_definitions", forms)
         self.assertIn("generate_due_tasks", hooks)
         self.assertIn("update_overdue_tasks", hooks)
+
+    def test_service_task_console_can_identify_operator_and_create_from_schedule(self):
+        api = (ROOT / "api" / "task.py").read_text()
+        console = (ROOT / "cfg_kanban" / "page" / "kanban_tasks" /
+                   "kanban_tasks.js").read_text()
+        self.assertIn("def get_request_schedules", api)
+        self.assertIn("def supervisor_request_task", api)
+        self.assertIn("Identify Operator", console)
+        self.assertIn("Scan Operator QR", console)
+        self.assertIn("Create Task", console)
+        self.assertIn("No open service tasks", console)
