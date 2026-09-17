@@ -125,6 +125,35 @@
 	font-size: 15px;
 }
 
+.cfg-media-picker {
+	cursor: pointer;
+}
+
+.cfg-media-picker.disabled {
+	pointer-events: none;
+	opacity: 0.6;
+}
+
+.cfg-media-list {
+	display: grid;
+	gap: 8px;
+}
+
+.cfg-media-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	width: 100%;
+	min-height: 52px;
+	text-align: left;
+}
+
+.cfg-media-row span:first-child,
+.cfg-media-row small {
+	display: block;
+}
+
 @media (max-width: 767px) {
 	.cfg-service-mobile-actions {
 		grid-template-columns: 1fr 1fr;
@@ -191,5 +220,11 @@
 	.cfg-service-task-dialog .modal-footer .btn {
 		min-height: 52px;
 		font-size: 17px;
+	}
+
+	.cfg-media-picker,
+	.cfg-media-row {
+		width: 100%;
+		min-height: 54px;
 	}
 }

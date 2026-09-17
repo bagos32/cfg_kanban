@@ -1,6 +1,7 @@
 import frappe
 
 from cfg_kanban.services.operator_auth import require_operator
+from cfg_kanban.services.media import list_reference_media
 from cfg_kanban.services.standalone_tasks import (complete_task, create_manual, start_task,
                                                   reject_task, task_form, verify_task)
 
@@ -67,7 +68,10 @@ def get_task_form(task_name, capture_on="Complete", operator_session_token=None)
     task = frappe.get_doc("CFG Kanban Task", task_name)
     action = {"Start": "task_start", "Verify": "task_verify"}.get(capture_on, "task_complete")
     require_operator(operator_session_token, action, workstation=task.workstation)
-    return task_form(task_name, capture_on)
+    result = task_form(task_name, capture_on)
+    result["media"] = list_reference_media("CFG Kanban Task", task.name,
+                                           permission_checked=True)
+    return result
 
 
 @frappe.whitelist()

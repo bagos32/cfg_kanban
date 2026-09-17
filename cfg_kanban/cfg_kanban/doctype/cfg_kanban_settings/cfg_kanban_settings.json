@@ -6,7 +6,7 @@
  "track_changes": 1,
  "permissions": [
   {
-   "role": "System Manager",
+   "role": "CFG Kanban System Maintenance",
    "read": 1,
    "write": 1,
    "create": 1
@@ -28,7 +28,25 @@
   "operator_session_timeout_minutes",
   "enable_administrator_operator_bypass",
   "command_retry_limit",
-  "exception_email_role"
+  "exception_email_role",
+  "private_media_section",
+  "enable_private_media",
+  "media_configuration_status",
+  "media_environment",
+  "media_s3_region",
+  "media_s3_bucket",
+  "media_identity_column",
+  "media_app_id",
+  "media_app_prefix",
+  "media_policy_section",
+  "media_max_size_bytes",
+  "media_allowed_mime_types",
+  "media_default_retention_class",
+  "media_kms_key_arn",
+  "media_url_column",
+  "media_upload_url_ttl_seconds",
+  "media_view_url_ttl_seconds",
+  "media_security_note"
  ],
  "fields": [
   {
@@ -127,6 +145,140 @@
    "label": "Exception Email Role",
    "fieldtype": "Link",
    "options": "Role"
+  },
+  {
+   "fieldname": "private_media_section",
+   "label": "Private Media Storage",
+   "fieldtype": "Section Break",
+   "description": "Restricted configuration for private photo, video, and document evidence. Changes are recorded in the document timeline."
+  },
+  {
+   "fieldname": "enable_private_media",
+   "label": "Enable Private Media Storage",
+   "fieldtype": "Check",
+   "default": "0",
+   "description": "Enable only after the private S3 bucket, IAM role, encryption, CORS, versioning, and lifecycle controls have been approved."
+  },
+  {
+   "fieldname": "media_configuration_status",
+   "label": "Configuration Status",
+   "fieldtype": "Select",
+   "options": "Disabled\nConfigured",
+   "default": "Disabled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "media_environment",
+   "label": "Environment",
+   "fieldtype": "Select",
+   "options": "development\ntest\nstaging\nproduction",
+   "default": "development",
+   "depends_on": "enable_private_media",
+   "mandatory_depends_on": "enable_private_media",
+   "description": "Hard environment boundary used at the beginning of every S3 object key."
+  },
+  {
+   "fieldname": "media_s3_region",
+   "label": "AWS Region",
+   "fieldtype": "Data",
+   "depends_on": "enable_private_media",
+   "mandatory_depends_on": "enable_private_media",
+   "description": "For example: ap-southeast-1."
+  },
+  {
+   "fieldname": "media_s3_bucket",
+   "label": "Private S3 Bucket",
+   "fieldtype": "Data",
+   "depends_on": "enable_private_media",
+   "mandatory_depends_on": "enable_private_media",
+   "description": "Bucket name only. The bucket must remain private with Block Public Access enabled."
+  },
+  {
+   "fieldname": "media_identity_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "media_app_id",
+   "label": "Media App ID",
+   "fieldtype": "Data",
+   "default": "cfg_kanban",
+   "read_only": 1
+  },
+  {
+   "fieldname": "media_app_prefix",
+   "label": "Registered Object Prefix",
+   "fieldtype": "Data",
+   "default": "cfg-kanban",
+   "read_only": 1
+  },
+  {
+   "fieldname": "media_policy_section",
+   "label": "Upload and Retention Policy",
+   "fieldtype": "Section Break",
+   "depends_on": "enable_private_media"
+  },
+  {
+   "fieldname": "media_max_size_bytes",
+   "label": "Maximum Upload Size (Bytes)",
+   "fieldtype": "Int",
+   "default": "26214400",
+   "depends_on": "enable_private_media",
+   "mandatory_depends_on": "enable_private_media",
+   "description": "Maximum authorised size for one file. Default is 25 MB."
+  },
+  {
+   "fieldname": "media_allowed_mime_types",
+   "label": "Allowed MIME Types",
+   "fieldtype": "Small Text",
+   "default": "image/jpeg\nimage/png\nimage/webp\nvideo/mp4\napplication/pdf",
+   "depends_on": "enable_private_media",
+   "mandatory_depends_on": "enable_private_media",
+   "description": "Enter one approved MIME type per line. File extensions are also validated."
+  },
+  {
+   "fieldname": "media_default_retention_class",
+   "label": "Default Retention Class",
+   "fieldtype": "Data",
+   "default": "operational-evidence",
+   "depends_on": "enable_private_media",
+   "mandatory_depends_on": "enable_private_media",
+   "description": "Registered policy name only; actual retention is enforced by the approved storage lifecycle."
+  },
+  {
+   "fieldname": "media_kms_key_arn",
+   "label": "KMS Key ARN",
+   "fieldtype": "Data",
+   "depends_on": "enable_private_media",
+   "description": "Optional approved customer-managed encryption key ARN. This is an identifier, not a secret key."
+  },
+  {
+   "fieldname": "media_url_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "media_upload_url_ttl_seconds",
+   "label": "Upload Authorization Lifetime (Seconds)",
+   "fieldtype": "Int",
+   "default": "300",
+   "depends_on": "enable_private_media",
+   "mandatory_depends_on": "enable_private_media",
+   "description": "Allowed range: 60 to 900 seconds."
+  },
+  {
+   "fieldname": "media_view_url_ttl_seconds",
+   "label": "Private View Link Lifetime (Seconds)",
+   "fieldtype": "Int",
+   "default": "300",
+   "depends_on": "enable_private_media",
+   "mandatory_depends_on": "enable_private_media",
+   "description": "Allowed range: 60 to 900 seconds. View links are generated on demand and never stored."
+  },
+  {
+   "fieldname": "media_security_note",
+   "label": "Credential Security",
+   "fieldtype": "HTML",
+   "options": "<div class='alert alert-warning'><strong>AWS credentials are intentionally not stored here.</strong><br>The server must receive temporary AWS permission through an EC2 instance role or equivalent workload identity. Never paste access keys into ERPNext.</div>",
+   "depends_on": "enable_private_media"
   }
  ]
 }

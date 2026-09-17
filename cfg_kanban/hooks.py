@@ -21,6 +21,7 @@ doctype_js = {
     "CFG Kanban Demand": "public/js/cfg_kanban_demand.js",
     "CFG Kanban Operator Profile": "public/js/cfg_kanban_operator_profile.js",
     "CFG Kanban Task Schedule": "public/js/cfg_kanban_task_schedule.js",
+    "CFG Kanban Media": "public/js/cfg_kanban_media.js",
 }
 
 jinja = {
@@ -29,6 +30,7 @@ jinja = {
         "cfg_kanban.services.printing.get_card_print_context",
         "cfg_kanban.services.printing.get_qr_svg",
         "cfg_kanban.services.printing.get_code128_svg",
+        "cfg_kanban.services.media.get_print_media",
     ]
 }
 

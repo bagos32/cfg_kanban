@@ -29,6 +29,7 @@ class TestDocTypeSchema(TestCase):
         self.assertEqual(shortcuts["Service Task Panel"], "kanban-tasks")
         self.assertEqual(shortcuts["Maintenance Register"],
                          "Kanban Maintenance Register")
+        self.assertEqual(shortcuts["Private Media Evidence"], "CFG Kanban Media")
         self.assertEqual(shortcuts["Operator Profiles"], "CFG Kanban Operator Profile")
 
     def test_every_field_is_present_once_in_field_order(self):

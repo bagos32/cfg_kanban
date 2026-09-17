@@ -182,12 +182,16 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		const checklist = (details.checklist || "").split("\n").map((row) => row.trim()).filter(Boolean);
 		const existing_checklist = details.checklist_evidence || [];
 		const existing_values = details.execution_values || [];
+		const existing_media = response.message.media || [];
 		const fields = [
 			{ fieldtype: "Section Break", label: __("Task Information") },
 			{ fieldtype: "HTML", options: task_identity(details) },
 			{ fieldtype: "Section Break", label: __("Work Instructions") },
 			{ fieldtype: "HTML", options: `<div class="frappe-card p-3">${safe_rich_text(details.instructions || __("No work instructions were provided."))}</div>` },
 			...(action === "Verify" ? verification_evidence(details, existing_checklist, existing_values) : []),
+			{ fieldtype: "Section Break", label: __("Photo, Video and Document Evidence") },
+			{ fieldname: "media_evidence", fieldtype: "HTML",
+				options: media_evidence_html(existing_media, action !== "Verify") },
 			...(action === "Complete" && checklist.length ? [{ fieldtype: "Section Break", label: __("Completion Checklist") }] : []),
 			...checklist.map((item, index) => ({ fieldname: `check_${index}`, label: item, fieldtype: "Check",
 				reqd: action === "Complete", hidden: action !== "Complete" })),
@@ -221,6 +225,91 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		}
 		dialog.$wrapper.addClass("cfg-service-task-dialog");
 		dialog.show();
+		bind_media_evidence(dialog, task, action, existing_media);
+	}
+
+	function media_evidence_html(rows, can_upload) {
+		return `<div class="cfg-task-media-evidence">
+			${can_upload ? `<label class="btn btn-primary btn-lg cfg-media-picker">
+				${__("Take Photo / Add Evidence")}<input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf" capture="environment" multiple hidden>
+			</label><div class="text-muted mt-2"><small>${__("Files upload directly to the configured private company media store.")}</small></div>` : ""}
+			<div class="cfg-media-upload-status mt-2"></div>
+			<div class="cfg-media-list mt-3">${media_rows_html(rows)}</div>
+		</div>`;
+	}
+
+	function media_rows_html(rows) {
+		const e = frappe.utils.escape_html;
+		if (!rows.length) return `<div class="text-muted">${__("No media evidence attached yet.")}</div>`;
+		return rows.map((row) => `<button type="button" class="btn btn-default cfg-media-row" data-media-id="${e(row.media_id)}">
+			<span><strong>${e(row.original_filename)}</strong><small>${e(row.content_type)} · ${format_bytes(row.size_bytes)}</small></span>
+			<span class="indicator-pill green">${e(row.status)}</span>
+		</button>`).join("");
+	}
+
+	function bind_media_evidence(dialog, task, action, initial_rows) {
+		const $field = dialog.get_field("media_evidence").$wrapper;
+		let rows = initial_rows || [];
+		const refresh_rows = () => {
+			$field.find(".cfg-media-list").html(media_rows_html(rows));
+			$field.find(".cfg-media-row").off("click").on("click", async function () {
+				const response = await frappe.call({ method: "cfg_kanban.api.media.create_task_view_url", args: {
+					task_name: task.name, media_id: $(this).data("media-id"),
+					operator_session_token: state.token,
+				} });
+				window.open(response.message.url, "_blank", "noopener");
+			});
+		};
+		refresh_rows();
+		if (action === "Verify") return;
+		$field.find("input[type=file]").on("change", async function () {
+			const files = Array.from(this.files || []);
+			if (!files.length) return;
+			const $status = $field.find(".cfg-media-upload-status");
+			const $picker = $field.find(".cfg-media-picker").addClass("disabled");
+			try {
+				for (let index = 0; index < files.length; index += 1) {
+					const file = files[index];
+					$status.html(`<div class="alert alert-info">${__("Uploading {0} of {1}: {2}", [index + 1, files.length, frappe.utils.escape_html(file.name)])}</div>`);
+					const authorization = await frappe.call({ method: "cfg_kanban.api.media.create_task_upload_url", args: {
+						task_name: task.name, original_filename: file.name, content_type: file.type,
+						size_bytes: file.size, idempotency_key: frappe.utils.get_random(32),
+						operator_session_token: state.token,
+					} });
+					if (authorization.message.already_available) continue;
+					const upload = authorization.message;
+					const form = new FormData();
+					Object.entries(upload.fields || {}).forEach(([key, value]) => form.append(key, value));
+					form.append("file", file);
+					const result = await fetch(upload.url, { method: upload.method, body: form });
+					if (!result.ok) throw new Error(__("Private media upload failed with HTTP {0}", [result.status]));
+					await frappe.call({ method: "cfg_kanban.api.media.confirm_task_upload", args: {
+						task_name: task.name, media_id: upload.media_id,
+						confirmation_token: upload.confirmation_token,
+						operator_session_token: state.token,
+					} });
+				}
+				const response = await frappe.call({ method: "cfg_kanban.api.media.list_task_media", args: {
+					task_name: task.name, operator_session_token: state.token,
+				} });
+				rows = response.message || [];
+				refresh_rows();
+				$status.html(`<div class="alert alert-success">${__("Media evidence uploaded and verified")}</div>`);
+			} catch (error) {
+				$status.html(`<div class="alert alert-danger">${__("Media upload was not completed. Check configuration or network access and retry.")}</div>`);
+				console.error("CFG Kanban media upload failed", error);
+			} finally {
+				$picker.removeClass("disabled");
+				this.value = "";
+			}
+		});
+	}
+
+	function format_bytes(value) {
+		const bytes = Number(value || 0);
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 	}
 
 	function task_identity(details) {

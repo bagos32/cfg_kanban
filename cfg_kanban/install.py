@@ -3,9 +3,10 @@ import frappe
 
 def after_install():
     """Apply app-owned ERPNext traceability fields after schema installation."""
-    if not frappe.db.exists("Role", "Kanban Terminal"):
-        frappe.get_doc({"doctype": "Role", "role_name": "Kanban Terminal",
-                        "desk_access": 1}).insert(ignore_permissions=True)
+    for role_name in ("Kanban Terminal", "CFG Kanban System Maintenance"):
+        if not frappe.db.exists("Role", role_name):
+            frappe.get_doc({"doctype": "Role", "role_name": role_name,
+                            "desk_access": 1}).insert(ignore_permissions=True)
     from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
     fields_by_doctype = _custom_fields()

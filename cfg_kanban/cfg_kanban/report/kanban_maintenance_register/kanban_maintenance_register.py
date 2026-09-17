@@ -17,6 +17,7 @@ def execute(filters=None):
         {"label": _("Completed On"), "fieldname": "completed_on", "fieldtype": "Datetime", "width": 155},
         {"label": _("Verified By"), "fieldname": "verified_by", "fieldtype": "Link", "options": "Employee", "width": 150},
         {"label": _("Verified On"), "fieldname": "verified_on", "fieldtype": "Datetime", "width": 155},
+        {"label": _("Media Evidence"), "fieldname": "media_count", "fieldtype": "Int", "width": 115},
         {"label": _("Timeliness"), "fieldname": "timeliness", "width": 100},
     ]
     conditions = ["status in ('Awaiting Verification', 'Correction Required', 'Completed')"]
@@ -37,6 +38,10 @@ def execute(filters=None):
         select name, task_name, task_category, asset, location, status,
                verification_status, due_on, completed_by, completed_on,
                verified_by, verified_on,
+               (select count(*) from `tabCFG Kanban Media` m
+                 where m.reference_doctype='CFG Kanban Task'
+                   and m.reference_name=`tabCFG Kanban Task`.name
+                   and m.status='available') as media_count,
                case when completed_on <= due_on then 'On Time' else 'Late' end as timeliness
           from `tabCFG Kanban Task`
          where {' and '.join(conditions)}

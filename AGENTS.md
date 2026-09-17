@@ -37,3 +37,4 @@
 - A Kanban Kaizen proposal must never directly overwrite an approved TrackQMS SOP. It must pass through TrackQMS change control and return as a newly approved revision.
 - Running and historical Cycles retain the exact standard/SOP revision snapshot used when they were released.
 - Follow `docs/PLATFORM_INTEGRATION_BOUNDARY.md` for shared identifiers, publication rules, failure isolation, and connector responsibilities.
+- Follow `docs/SHARED_MEDIA_STORAGE.md` and the approved cross-app media architecture for every photo, video, document, and derivative. S3 is the binary system of record; never persist presigned URLs or create a mandatory cross-app media dependency.

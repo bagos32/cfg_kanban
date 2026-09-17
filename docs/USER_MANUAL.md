@@ -298,6 +298,26 @@ per checklist result or dynamic value so variable forms remain exportable. Use *
 Maintenance Record** when printing a Task for certification evidence and its completion/verification
 stamp.
 
+### Private photo, video, and document evidence
+
+When private media storage is configured, the Start and Complete Service Task dialogs show **Take
+Photo / Add Evidence**. A phone may open its rear camera; users may also select JPEG, PNG, WebP,
+MP4, or PDF evidence. The binary uploads directly to the configured private S3 bucket. The task
+dialog shows the media only after the server verifies the object and marks its metadata available.
+
+Supervisors see the same evidence during verification. **Maintenance Register** includes the number
+of available media records, and **Maintenance Evidence** includes Media rows linked to **CFG Kanban
+Media**. Opening a media record requests a new short-lived private view URL; URLs are never stored.
+Archiving removes evidence from normal task/report views without physically deleting retained S3
+objects.
+
+Media storage is configured in **CFG Kanban Settings → Private Media Storage** by Administrator or
+a user assigned **CFG Kanban System Maintenance**. AWS access keys are never entered in ERPNext;
+the server uses its approved IAM workload role. If media is disabled or
+incomplete, checklist and measurement evidence continue to work, but media upload reports a
+configuration error. See
+`docs/SHARED_MEDIA_STORAGE.md` for the required non-secret configuration names and ownership rules.
+
 Dynamic fields are displayed according to their configured capture stage:
 
 - **Start:** pre-work condition or initial reading.

@@ -8,7 +8,7 @@ authors = [{name = "CFG", email = "engineering@example.com"}]
 description = "Kanban process-control layer for ERPNext manufacturing"
 requires-python = ">=3.10"
 dynamic = ["version"]
-dependencies = []
+dependencies = ["boto3>=1.28,<2"]
 
 [tool.ruff]
 line-length = 110
@@ -16,4 +16,3 @@ target-version = "py310"
 
 [tool.pytest.ini_options]
 testpaths = ["cfg_kanban/tests"]
-
