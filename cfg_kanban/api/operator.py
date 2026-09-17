@@ -83,6 +83,28 @@ def get_console_access():
 
 
 @frappe.whitelist()
+def get_scanner_command_sheet():
+    """Return fixed, non-secret command labels for the floor scanner station."""
+    allowed_roles = {"Kanban Terminal", "Manufacturing User", "Manufacturing Manager", "System Manager"}
+    if not allowed_roles.intersection(frappe.get_roles(frappe.session.user)):
+        frappe.throw("You are not permitted to print Kanban scanner controls", frappe.PermissionError)
+    commands = (
+        ("Switch Operator", "CFG:CMD:SWITCH_OPERATOR", "F2"),
+        ("Next Card / Clear", "CFG:CMD:NEXT_CARD", "F3"),
+        ("Camera Scan", "CFG:CMD:CAMERA_CARD", "F4"),
+        ("End Operator Session", "CFG:CMD:END_SESSION", "F8"),
+        ("Good +1", "CFG:QTY:GOOD:+1", ""),
+        ("Good +5", "CFG:QTY:GOOD:+5", ""),
+        ("Good +10", "CFG:QTY:GOOD:+10", ""),
+        ("Reject +1", "CFG:QTY:REJECT:+1", ""),
+        ("Confirm / Submit", "CFG:CMD:CONFIRM", ""),
+        ("Cancel", "CFG:CMD:CANCEL", ""),
+    )
+    return [{"label": label, "payload": payload, "key": key,
+             "qr_svg": get_qr_svg(payload, 180)} for label, payload, key in commands]
+
+
+@frappe.whitelist()
 def get_card_context(token, operator_session_token=None):
     require_operator(operator_session_token)
     card_name = frappe.db.get_value(

@@ -6,6 +6,8 @@ app_email = "engineering@example.com"
 app_license = "MIT"
 required_apps = ["erpnext"]
 
+app_include_css = "/assets/cfg_kanban/css/kanban_operator.css"
+
 doctype_js = {
     "CFG Kanban Master": "public/js/cfg_kanban_master.js",
     "CFG Kanban Dashboard Profile": "public/js/cfg_kanban_dashboard_profile.js",

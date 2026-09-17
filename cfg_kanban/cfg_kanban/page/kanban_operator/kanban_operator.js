@@ -7,19 +7,16 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	const session_key = "cfg_kanban_operator_session";
 	const state = { context: null, operator: null, access: null,
-		session_token: localStorage.getItem(session_key) };
+		session_token: localStorage.getItem(session_key), awaiting_operator_scan: false,
+		active_progress_dialog: null, scanner_message: __("Scanner ready") };
 	const scan = page.add_field({
-		label: __("Scan or enter card number"),
+		label: __("Fixed scanner input — scan any card"),
 		fieldtype: "Data",
 		fieldname: "scan_token",
-		change: () => load_card(scan.get_value()),
+		change: () => process_scan(scan.get_value()),
 	});
-	page.set_primary_action(__("Find Card"), () => load_card(scan.get_value()), "search");
-	page.add_inner_button(__("Clear"), () => {
-		scan.set_value("");
-		state.context = null;
-		render();
-	});
+	page.set_primary_action(__("Find Card"), () => process_scan(scan.get_value()), "search");
+	page.add_inner_button(__("Clear / Next Card (F3)"), clear_for_next_card);
 
 	const $card_camera = $(`<div class="cfg-kanban-card-camera mt-3 mb-3">
 		<button class="btn btn-primary btn-lg btn-block">
@@ -31,10 +28,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	</div>`).appendTo(page.main).hide();
 	$card_camera.find("button").on("click", scan_kanban_qr);
 	const $root = $("<div class='cfg-kanban-operator mt-4'></div>").appendTo(page.main);
-	page.add_inner_button(__("Switch Operator"), () => show_operator_login(true));
-	page.add_inner_button(__("End Operator Session"), end_operator_session);
+	page.add_inner_button(__("Switch Operator (F2)"), prepare_operator_switch);
+	page.add_inner_button(__("End Operator Session (F8)"), confirm_end_operator_session);
 	page.add_inner_button(__("Scan Operator QR"), scan_operator_qr);
-	page.add_inner_button(__("Scan Kanban QR"), scan_kanban_qr);
+	page.add_inner_button(__("Camera Scan (F4)"), scan_kanban_qr);
+	page.add_inner_button(__("Scanner Help (F1)"), show_scanner_help);
+
+	const $scanner_status = $(`<div class="cfg-scanner-status mt-3" aria-live="polite"></div>`)
+		.appendTo(page.main);
+	install_scanner_shortcuts();
 
 	async function load_console() {
 		const response = await frappe.call({ method: "cfg_kanban.api.operator.get_console_access" });
@@ -80,6 +82,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		state.session_token = null;
 		state.operator = null;
 		state.context = null;
+		state.awaiting_operator_scan = false;
 	}
 
 	function activate_operator(message) {
@@ -97,6 +100,30 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		clear_operator();
 		render();
 		frappe.show_alert({ message: __("Operator session ended; ERP terminal remains signed in"), indicator: "green" });
+		focus_scanner();
+	}
+
+	function confirm_end_operator_session() {
+		frappe.confirm(
+			__("End the active operator session on this terminal?"),
+			end_operator_session,
+			focus_scanner
+		);
+	}
+
+	function prepare_operator_switch() {
+		state.awaiting_operator_scan = true;
+		set_scanner_message(__("Scan the NEXT OPERATOR credential now"), "orange");
+		focus_scanner();
+	}
+
+	function clear_for_next_card() {
+		scan.set_value("");
+		state.context = null;
+		state.awaiting_operator_scan = false;
+		set_scanner_message(__("Ready for next Kanban card"), "green");
+		render();
+		focus_scanner();
 	}
 
 	function show_operator_login(switching, scanned_token) {
@@ -210,24 +237,220 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	function scan_kanban_qr() {
 		if (!state.operator) return scan_operator_qr();
-		open_camera_scanner((token) => load_card(token));
+		open_camera_scanner((token) => process_scan(token));
+	}
+
+	async function process_scan(raw_value) {
+		const value = String(raw_value || "").trim();
+		if (!value) return;
+		scan.set_value("");
+		if (await dispatch_scanner_command(value)) return;
+		if (!state.operator || state.awaiting_operator_scan) {
+			state.awaiting_operator_scan = false;
+			return login_scanned_operator(operator_token_from_scan(value));
+		}
+		return load_card(value);
+	}
+
+	async function dispatch_scanner_command(raw_value) {
+		const value = raw_value.toUpperCase();
+		const command = value.startsWith("CFG:CMD:") ? value.slice(8) : "";
+		if (!command && !value.startsWith("CFG:QTY:")) return false;
+
+		if (value.startsWith("CFG:QTY:")) {
+			apply_scanned_quantity(value);
+			return true;
+		}
+
+		const commands = {
+			HELP: show_scanner_help,
+			CLEAR: clear_for_next_card,
+			NEXT_CARD: clear_for_next_card,
+			SWITCH_OPERATOR: prepare_operator_switch,
+			END_SESSION: confirm_end_operator_session,
+			CAMERA: scan_kanban_qr,
+			CAMERA_CARD: scan_kanban_qr,
+			CONFIRM: submit_active_progress,
+			CANCEL: cancel_active_dialog,
+		};
+		if (!commands[command]) {
+			set_scanner_message(__("Unknown scanner command: {0}", [command]), "red");
+			focus_scanner();
+			return true;
+		}
+		commands[command]();
+		return true;
+	}
+
+	function install_scanner_shortcuts() {
+		$(document).off("keydown.cfg_kanban_operator");
+		$(document).on("keydown.cfg_kanban_operator", (event) => {
+			if (!$(wrapper).is(":visible")) return;
+			const handlers = {
+				F1: show_scanner_help,
+				F2: prepare_operator_switch,
+				F3: clear_for_next_card,
+				F4: scan_kanban_qr,
+				F8: confirm_end_operator_session,
+			};
+			if (!handlers[event.key]) return;
+			event.preventDefault();
+			handlers[event.key]();
+		});
+		const $input = scan.$input;
+		$input.attr({ autocomplete: "off", inputmode: "none" });
+		$input.off("keydown.cfg_scanner").on("keydown.cfg_scanner", (event) => {
+			if (event.key !== "Enter" && event.key !== "Tab") return;
+			event.preventDefault();
+			process_scan($input.val());
+		});
+		$(wrapper).off("click.cfg_scanner_focus").on("click.cfg_scanner_focus", (event) => {
+			if (!$(event.target).is("input, textarea, select, button, a, .modal *")) focus_scanner();
+		});
+	}
+
+	function focus_scanner() {
+		if ($(".modal:visible").length || document.hidden) return;
+		window.setTimeout(() => {
+			scan.set_value("");
+			scan.set_focus();
+		}, 80);
+	}
+
+	function set_scanner_message(message, color) {
+		state.scanner_message = message;
+		const indicator_color = color || "green";
+		$scanner_status.html(`<div class="cfg-scanner-ready ${indicator_color}">
+			<span class="indicator-pill ${indicator_color}">${frappe.utils.escape_html(message)}</span>
+			<small>${__("No field selection or deletion is required. Scanner suffix should be Enter.")}</small>
+		</div>`);
+	}
+
+	function show_scanner_help() {
+		const dialog = new frappe.ui.Dialog({ title: __("Hands-free Scanner Controls"), size: "large" });
+		dialog.$body.html(`<div class="cfg-scanner-help">
+			<p>${__("Keep this page open in full-screen or kiosk mode. Scan cards directly; the previous number is cleared automatically.")}</p>
+			<table class="table table-bordered"><thead><tr><th>${__("Function key")}</th><th>${__("Barcode / QR payload")}</th><th>${__("Action")}</th></tr></thead><tbody>
+			<tr><td>F1</td><td><code>CFG:CMD:HELP</code></td><td>${__("Show this guide")}</td></tr>
+			<tr><td>F2</td><td><code>CFG:CMD:SWITCH_OPERATOR</code></td><td>${__("Next scan identifies the new operator")}</td></tr>
+			<tr><td>F3</td><td><code>CFG:CMD:NEXT_CARD</code></td><td>${__("Clear the display and accept the next card")}</td></tr>
+			<tr><td>F4</td><td><code>CFG:CMD:CAMERA_CARD</code></td><td>${__("Open camera scanner")}</td></tr>
+			<tr><td>F8</td><td><code>CFG:CMD:END_SESSION</code></td><td>${__("End operator session after confirmation")}</td></tr>
+			</tbody></table>
+			<p><strong>${__("Progress dialog commands")}</strong>: <code>CFG:QTY:GOOD:+1</code>, <code>CFG:QTY:REJECT:+1</code>, <code>CFG:CMD:CONFIRM</code>, <code>CFG:CMD:CANCEL</code>.</p>
+			<div class="alert alert-warning">${__("A web page cannot receive scanner keys while the browser address bar is selected. Use full-screen/kiosk mode and configure the scanner to append Enter.")}</div>
+		</div>`);
+		dialog.onhide = focus_scanner;
+		dialog.show();
+		const $print = $(`<button class="btn btn-default btn-sm mr-2">${__("Print Command Labels")}</button>`);
+		$print.on("click", print_scanner_command_sheet);
+		dialog.$wrapper.find(".modal-footer").prepend($print);
+	}
+
+	async function print_scanner_command_sheet() {
+		const popup = window.open("", "_blank", "width=1000,height=800");
+		if (!popup) {
+			frappe.msgprint(__("Allow pop-ups for this site to print scanner command labels."));
+			return;
+		}
+		popup.document.write(`<p style="font-family:Arial;padding:20px">${__("Preparing command labels...")}</p>`);
+		try {
+			const response = await frappe.call({ method: "cfg_kanban.api.operator.get_scanner_command_sheet" });
+			const labels = (response.message || []).map((row) => `<div class="command-label">
+				<div class="command-title">${frappe.utils.escape_html(row.label)}</div>
+				${row.key ? `<div class="command-key">${frappe.utils.escape_html(row.key)}</div>` : ""}
+				<img src="${row.qr_svg}" alt="${frappe.utils.escape_html(row.label)}">
+				<div class="command-payload">${frappe.utils.escape_html(row.payload)}</div>
+			</div>`).join("");
+			popup.document.open();
+			popup.document.write(`<html><head><meta charset="utf-8"><title>${__("Kanban Scanner Command Labels")}</title>
+				<style>@page{size:A4 portrait;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;color:#111}.heading{text-align:center;margin-bottom:5mm}.sheet{display:grid;grid-template-columns:repeat(2,1fr);gap:4mm}.command-label{height:49mm;border:1.2mm solid #111;border-radius:2mm;padding:3mm;display:grid;grid-template-columns:1fr 30mm;grid-template-rows:auto 1fr auto;gap:1mm;break-inside:avoid}.command-title{font-size:5mm;font-weight:800}.command-key{grid-column:1;font-size:8mm;font-weight:900;align-self:center}.command-label img{grid-column:2;grid-row:1/4;width:29mm;height:29mm;align-self:center}.command-payload{grid-column:1;font-family:monospace;font-size:2.8mm;font-weight:700;align-self:end;word-break:break-all}.note{text-align:center;font-size:3mm;margin-top:4mm}@media print{.no-print{display:none}}</style>
+				</head><body><div class="heading"><h2>CFG KANBAN — SCANNER CONTROLS</h2></div><div class="sheet">${labels}</div>
+				<div class="note">${__("Configure the fixed scanner to append Enter. Use full-screen or kiosk mode.")}</div>
+				<script>window.onload=()=>window.print();<\/script></body></html>`);
+			popup.document.close();
+		} catch (error) {
+			popup.close();
+			throw error;
+		}
+	}
+
+	function apply_scanned_quantity(value) {
+		const active = state.active_progress_dialog;
+		if (!active || !active.dialog || !active.dialog.$wrapper.is(":visible")) {
+			set_scanner_message(__("Quantity command ignored: open Report Progress first"), "orange");
+			focus_scanner();
+			return;
+		}
+		const match = /^CFG:QTY:(GOOD|REJECT):([+-]?\d+(?:\.\d+)?)$/i.exec(value);
+		if (!match) {
+			frappe.show_alert({ message: __("Invalid quantity scan"), indicator: "red" });
+			return focus_progress_scanner();
+		}
+		const fieldname = match[1].toUpperCase() === "GOOD" ? "good_qty" : "reject_qty";
+		const field = active.dialog.get_field(fieldname);
+		if (!field || field.df.read_only) {
+			frappe.show_alert({ message: __("You are not authorized to change this quantity"), indicator: "red" });
+			return focus_progress_scanner();
+		}
+		const instruction = match[2];
+		const current = Number(active.dialog.get_value(fieldname) || 0);
+		const next = instruction.startsWith("+") || instruction.startsWith("-")
+			? current + Number(instruction)
+			: Number(instruction);
+		active.dialog.set_value(fieldname, Math.max(0, next));
+		frappe.show_alert({ message: __("{0} quantity: {1}", [match[1], Math.max(0, next)]), indicator: "green" });
+		focus_progress_scanner();
+	}
+
+	function submit_active_progress() {
+		const active = state.active_progress_dialog;
+		if (!active || !active.dialog || !active.dialog.$wrapper.is(":visible")) {
+			set_scanner_message(__("Nothing is ready to submit"), "orange");
+			return focus_scanner();
+		}
+		active.dialog.get_primary_btn().trigger("click");
+	}
+
+	function cancel_active_dialog() {
+		const active = state.active_progress_dialog;
+		if (active && active.dialog && active.dialog.$wrapper.is(":visible")) active.dialog.hide();
+		else focus_scanner();
+	}
+
+	function focus_progress_scanner() {
+		const active = state.active_progress_dialog;
+		if (!active || !active.dialog) return;
+		window.setTimeout(() => {
+			active.dialog.set_value("scanner_command", "");
+			active.dialog.get_field("scanner_command").set_focus();
+		}, 50);
 	}
 
 	async function load_card(token) {
 		if (!token) return;
 		if (!state.operator) return show_operator_login(false);
-		const response = await frappe.call({
-			method: "cfg_kanban.api.operator.get_card_context",
-			args: { token, operator_session_token: state.session_token },
-			freeze: true,
-			freeze_message: __("Loading Kanban card..."),
-		});
-		state.context = response.message;
-		render();
+		try {
+			const response = await frappe.call({
+				method: "cfg_kanban.api.operator.get_card_context",
+				args: { token, operator_session_token: state.session_token },
+				freeze: true,
+				freeze_message: __("Loading Kanban card..."),
+			});
+			state.context = response.message;
+			set_scanner_message(__("Card loaded. Scan another card at any time."), "green");
+			render();
+		} finally {
+			focus_scanner();
+		}
 	}
 
 	function render() {
 		$root.empty();
+		set_scanner_message(state.awaiting_operator_scan
+			? __("Scan the NEXT OPERATOR credential now")
+			: (state.operator ? __("Scanner ready for Kanban card") : __("Scanner ready for operator credential")),
+			state.awaiting_operator_scan ? "orange" : "green");
 		$card_camera.toggle(Boolean(state.operator));
 		if (!state.operator) {
 			const setup = state.access && state.access.can_manage_operators
@@ -242,6 +465,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			$root.find(".cfg-operator-camera").on("click", scan_operator_qr);
 			$root.find(".cfg-operator-login").on("click", () => show_operator_login(false));
 			$root.find(".cfg-development-proxy").on("click", show_development_proxy_login);
+			focus_scanner();
 			return;
 		}
 		const e = frappe.utils.escape_html;
@@ -257,6 +481,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (!state.context) {
 			$root.append(`<div class="empty-state text-muted text-center p-5">
 				${__("Scan a Kanban QR code or enter its card number to begin.")}</div>`);
+			focus_scanner();
 			return;
 		}
 		const { card, master, cycle, effective_work_order, work_order_attention, selected_job_card, executions, operation_summaries, process_tasks, service_tasks, service_identity_card, work_orders, route_warnings } = state.context;
@@ -570,6 +795,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				operator_session_token: state.session_token } });
 		const definitions = response.message.fields || [];
 		const fields = [
+			{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data",
+				description: __("Scan quantity command cards here; no keypad is required.") },
+			{ fieldtype: "HTML", options: `<div class="alert alert-info py-2">
+				<strong>${__("Hands-free examples")}</strong>: <code>CFG:QTY:GOOD:+1</code> ·
+				<code>CFG:QTY:REJECT:+1</code> · <code>CFG:CMD:CONFIRM</code> · <code>CFG:CMD:CANCEL</code>
+			</div>` },
 			{ fieldname: "good_qty", label: __("Good Qty"), fieldtype: "Float", reqd: 1 },
 			{ fieldname: "reject_qty", label: __("Reject Qty"), fieldtype: "Float", default: 0,
 				read_only: !state.operator.permissions.report_reject },
@@ -595,7 +826,22 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				await load_card(state.context.card.qr_code);
 			},
 		});
+		state.active_progress_dialog = { dialog, row };
+		dialog.onhide = () => {
+			if (state.active_progress_dialog && state.active_progress_dialog.dialog === dialog) {
+				state.active_progress_dialog = null;
+			}
+			focus_scanner();
+		};
 		dialog.show();
+		const command_field = dialog.get_field("scanner_command");
+		command_field.$input.attr({ autocomplete: "off", inputmode: "none" });
+		command_field.$input.on("keydown.cfg_progress_scanner", (event) => {
+			if (event.key !== "Enter" && event.key !== "Tab") return;
+			event.preventDefault();
+			process_scan(command_field.$input.val());
+		});
+		focus_progress_scanner();
 	}
 
 	function dialog_field(definition) {

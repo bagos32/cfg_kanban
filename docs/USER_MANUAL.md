@@ -585,20 +585,39 @@ state without triggering production.
 Reprints require a reason. Replacement creates a new tag identity and revision, marks the old tag
 Replaced, and preserves the relationship between both records.
 
-## 12. Android scanning
+## 12. Scanner-first floor operation
 
-The current user-facing method is a browser session on the Android device:
+The Kanban Operator page supports both a fixed USB/Bluetooth keyboard-wedge scanner and the device
+camera. For a fixed floor terminal:
 
-1. Connect the device to a secure network that can reach ERPNext.
-2. Open the ERPNext HTTPS address in Chrome.
-3. Log in with an authorized Manufacturing User account.
-4. Open `/app/kanban-operator`.
-5. Use an Android scanner that types QR content as keyboard input, or manually enter the Card
-   Number.
-6. Select **Find Card**, then perform the available action.
+1. Configure the barcode scanner to append **Enter** after every scan.
+2. Open `/app/kanban-operator` in browser full-screen or kiosk mode. This prevents accidental focus
+   on the browser address bar, which a web page cannot control.
+3. Scan the operator credential directly. The page automatically keeps its scanner input ready.
+4. Scan a Kanban card. The previous scanned value is cleared automatically, so the next card can be
+   scanned without touching the screen.
+5. Watch the green/orange **Scanner ready** banner before scanning.
 
-The current page accepts scanner keyboard input but does not yet open the phone camera itself. A
-camera-based Progressive Web App, offline queue, and device enrollment are not implemented.
+The same actions can be performed with function keys or printed command QR/Code 128 labels:
+
+| Key | Command payload | Result |
+|---|---|---|
+| F1 | `CFG:CMD:HELP` | Show the scanner guide |
+| F2 | `CFG:CMD:SWITCH_OPERATOR` | Arm the next scan as an operator credential |
+| F3 | `CFG:CMD:NEXT_CARD` | Clear the current card and wait for the next one |
+| F4 | `CFG:CMD:CAMERA_CARD` | Open the camera scanner |
+| F8 | `CFG:CMD:END_SESSION` | Ask for confirmation, then end the operator session |
+
+Inside **Report Progress**, quantity labels can replace keypad entry. Examples:
+
+- `CFG:QTY:GOOD:+1` adds one good unit.
+- `CFG:QTY:GOOD:10` sets good quantity to 10.
+- `CFG:QTY:REJECT:+1` adds one rejected unit, subject to operator permission.
+- `CFG:CMD:CONFIRM` submits the progress form.
+- `CFG:CMD:CANCEL` closes the progress form without submitting.
+
+The camera scanner remains available over HTTPS. Offline queue and device enrollment are not yet
+implemented.
 
 The server scan APIs support stable event tokens for retry/idempotency. Custom scanner clients
 must retain the same event token when retrying the same physical scan.
@@ -803,8 +822,9 @@ print dialog use **Actual Size / 100%**, disable headers and footers, and select
 media or card-printer driver. Because the raw credential is never stored, print or download it while
 the issuance dialog is open; issuing it again creates a new QR and invalidates the old card.
 
-The active operator is always displayed at the top of the Operator page. **Switch Operator** ends
-the previous operator's active session on that terminal/station. Sessions also expire after the
+The active operator is always displayed at the top of the Operator page. **Switch Operator (F2)**
+arms the page for the next operator credential; a successful login replaces the previous active
+session on that terminal/station. Sessions also expire after the
 inactivity period configured in **CFG Kanban Settings** (15 minutes by default).
 
 Kanban progress, events, and ERP commands retain both identities: the Employee who performed the
@@ -840,6 +860,7 @@ history whenever a user-visible workflow changes.
 
 | Version | Date | Change |
 |---|---|---|
+| 0.4 | 17 September 2026 | Added scanner-first focus recovery, command labels/function keys, and scan-driven progress quantities |
 | 0.3 | 15 September 2026 | Added mobile camera scanning and the Administrator-only development Employee proxy |
 | 0.2 | 15 September 2026 | Added Employee-based shared-terminal operator authentication, authorization, and audit attribution |
 | 0.1 | 11 September 2026 | Initial manual covering the current stock, Sales Order, MTO, printing, scanning, execution, WIP, and audit functions |

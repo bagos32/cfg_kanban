@@ -49,6 +49,17 @@ class TestOperatorAuthenticationContract(TestCase):
         self.assertIn("Print Large QR Sheet", profile)
         self.assertIn("Download QR", profile)
 
+    def test_operator_console_supports_scanner_first_commands(self):
+        api = (ROOT / "api" / "operator.py").read_text()
+        console = (ROOT / "cfg_kanban" / "page" / "kanban_operator" /
+                   "kanban_operator.js").read_text()
+        self.assertIn("def get_scanner_command_sheet", api)
+        self.assertIn("CFG:CMD:SWITCH_OPERATOR", api)
+        self.assertIn("CFG:QTY:GOOD:+1", api)
+        self.assertIn("install_scanner_shortcuts", console)
+        self.assertIn("inputmode: \"none\"", console)
+        self.assertIn("Print Command Labels", console)
+
     def test_development_proxy_is_explicitly_enabled_and_administrator_only(self):
         auth = (ROOT / "services" / "operator_auth.py").read_text()
         api = (ROOT / "api" / "operator.py").read_text()
