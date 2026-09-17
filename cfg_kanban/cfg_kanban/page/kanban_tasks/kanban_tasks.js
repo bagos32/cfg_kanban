@@ -2,11 +2,19 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({ parent: wrapper, title: __("Kanban Service Tasks"), single_column: true });
 	const session_key = "cfg_kanban_operator_session";
 	const state = { token: localStorage.getItem(session_key), operator: null };
+	const $mobile_actions = $(`<div class="cfg-service-mobile-actions mb-3">
+		<button class="btn btn-default refresh-tasks"><span class="octicon octicon-sync"></span> ${__("Refresh")}</button>
+		<button class="btn btn-primary identify-operator">${__("Scan / Switch Operator")}</button>
+		<button class="btn btn-success create-service-task">${__("Create Task")}</button>
+	</div>`).appendTo(page.main);
 	const $identity = $("<div class='mb-3'></div>").appendTo(page.main);
 	const $root = $("<div class='cfg-kanban-tasks'></div>").appendTo(page.main);
 	page.set_primary_action(__("Refresh"), load, "refresh");
 	page.add_inner_button(__("Identify Operator"), identify_operator);
 	page.add_inner_button(__("Create Task"), create_task);
+	$mobile_actions.find(".refresh-tasks").on("click", load);
+	$mobile_actions.find(".identify-operator").on("click", identify_operator);
+	$mobile_actions.find(".create-service-task").on("click", create_task);
 
 	async function load() {
 		if (!state.token) return show_login_required();
@@ -27,16 +35,23 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 
 	function render_identity() {
 		const e = frappe.utils.escape_html;
-		$identity.html(`<div class="alert alert-info"><strong>${__("Active operator")}: ${e(state.operator.employee_name || state.operator.employee)}</strong>
-			<span class="ml-2">${e(state.operator.kanban_role || "")}</span></div>`);
+		$identity.html(`<div class="alert alert-info cfg-service-identity">
+			<div><small>${__("Active operator")}</small><br><strong>${e(state.operator.employee_name || state.operator.employee)}</strong>
+			<span class="ml-2">${e(state.operator.kanban_role || "")}</span></div>
+			<div class="cfg-service-session-actions">
+				<button class="btn btn-default switch-operator">${__("Switch")}</button>
+				<button class="btn btn-default end-session">${__("End Session")}</button>
+			</div></div>`);
+		$identity.find(".switch-operator").on("click", identify_operator);
+		$identity.find(".end-session").on("click", confirm_end_session);
 	}
 
 	function show_login_required(message) {
 		$identity.empty();
-		$root.html(`<div class="frappe-card text-center p-5"><h4>${__("Operator identification required")}</h4>
+		$root.html(`<div class="frappe-card text-center p-5 cfg-service-login"><h3>${__("Operator identification required")}</h3>
 			<p class="text-muted">${message || __("Scan the operator QR or enter the credential before viewing tasks.")}</p>
-			<button class="btn btn-primary scan-operator">${__("Scan Operator QR")}</button>
-			<button class="btn btn-default enter-credential">${__("Enter Credential / PIN")}</button></div>`);
+			<div class="cfg-service-login-actions"><button class="btn btn-primary scan-operator">${__("Scan Operator QR with Camera")}</button>
+			<button class="btn btn-default enter-credential">${__("Enter Credential / PIN")}</button></div></div>`);
 		$root.find(".scan-operator").on("click", scan_operator_qr);
 		$root.find(".enter-credential").on("click", credential_dialog);
 	}
@@ -66,6 +81,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		], primary_action_label: __("Continue"), primary_action: async (values) => {
 			await login_operator(values.token, values.pin, values.station); dialog.hide();
 		} });
+		dialog.$wrapper.addClass("cfg-service-task-dialog");
 		dialog.show();
 	}
 
@@ -89,6 +105,19 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		localStorage.removeItem(session_key); state.token = null; state.operator = null;
 	}
 
+	function confirm_end_session() {
+		frappe.confirm(__("End this operator session?"), end_session);
+	}
+
+	async function end_session() {
+		if (state.token) {
+			await frappe.call({ method: "cfg_kanban.api.operator.logout_operator",
+				args: { operator_session_token: state.token }, freeze: true });
+		}
+		clear_session();
+		show_login_required(__("Operator session ended. Scan the next operator credential."));
+	}
+
 	async function create_task() {
 		if (!state.token) return show_login_required();
 		try {
@@ -110,6 +139,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				}, freeze: true });
 				dialog.hide(); await load();
 			} });
+			dialog.$wrapper.addClass("cfg-service-task-dialog");
 			dialog.show();
 		} catch (error) {
 			frappe.msgprint({ title: __("Cannot Create Task"),
@@ -124,13 +154,19 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				<p class="text-muted">${__("A Senior Operator or Supervisor can select Create Task. Scheduled tasks appear automatically when due.")}</p></div>`);
 			return;
 		}
+		$root.append(`<div class="cfg-service-list-heading"><div><h3>${__("Open Service Tasks")}</h3>
+			<small class="text-muted">${__("Tap the required action on the task card.")}</small></div>
+			<span class="indicator-pill blue">${tasks.length} ${__("Open")}</span></div>`);
 		tasks.forEach((task) => {
 			const e = frappe.utils.escape_html;
-			const $row = $(`<div class="frappe-card p-3 mb-2"><div class="row align-items-center">
-				<div class="col-md-4"><strong>${e(task.task_name)}</strong><br><small>${e(task.task_category)} · ${e(task.trigger_type)}</small></div>
-				<div class="col-md-2"><span class="indicator-pill ${indicator(task.status)}">${e(task.status)}</span><br><small>${e(task.priority)}</small></div>
-				<div class="col-md-3">${task.workstation ? `${__("Workstation")}: ${e(task.workstation)}<br>` : ""}${task.asset ? `${__("Asset")}: ${e(task.asset)}<br>` : ""}<small>${__("Due")}: ${e(task.due_on || "-")}</small></div>
-				<div class="col-md-3 text-right actions"></div></div></div>`).appendTo($root);
+			const $row = $(`<div class="frappe-card cfg-service-task-card ${priority_class(task.priority)}">
+				<div class="cfg-service-task-head"><div><h4>${e(task.task_name)}</h4><small>${e(task.task_category)} · ${e(task.trigger_type)}</small></div>
+				<div class="text-right"><span class="indicator-pill ${indicator(task.status)}">${e(task.status)}</span><div class="cfg-priority">${e(task.priority)}</div></div></div>
+				<div class="cfg-service-task-meta">
+					${task.workstation ? `<div><small>${__("Workstation")}</small><strong>${e(task.workstation)}</strong></div>` : ""}
+					${task.asset ? `<div><small>${__("Asset")}</small><strong>${e(task.asset)}</strong></div>` : ""}
+					<div><small>${__("Due")}</small><strong>${e(task.due_on || "-")}</strong></div>
+				</div><div class="actions cfg-service-task-actions"></div></div>`).appendTo($root);
 			const $actions = $row.find(".actions");
 			if (["Planned", "Due", "Assigned", "Overdue"].includes(task.status)) button($actions, __("Start"), "btn-primary", () => task_dialog(task, "Start"));
 			if (["Due", "Assigned", "In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, task.status === "Correction Required" ? __("Correct and Resubmit") : __("Complete"), "btn-success", () => task_dialog(task, "Complete"));
@@ -183,6 +219,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				dialog.hide(); await load();
 			});
 		}
+		dialog.$wrapper.addClass("cfg-service-task-dialog");
 		dialog.show();
 	}
 
@@ -229,7 +266,12 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	}
 
 	function button($parent, label, style, action) {
-		$("<button class='btn btn-sm " + style + " ml-1'>" + label + "</button>").appendTo($parent).on("click", action);
+		$("<button class='btn " + style + "'>" + label + "</button>").appendTo($parent).on("click", action);
+	}
+	function priority_class(priority) {
+		if (priority === "Urgent") return "priority-urgent";
+		if (priority === "High") return "priority-high";
+		return "";
 	}
 	function indicator(status) {
 		if (status === "Completed") return "green";

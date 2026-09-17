@@ -55,11 +55,21 @@ class TestOperatorAuthenticationContract(TestCase):
                    "kanban_operator.js").read_text()
         self.assertIn("def get_scanner_command_sheet", api)
         self.assertIn("CFG:CMD:SWITCH_OPERATOR", api)
+        self.assertIn("CFG:CMD:START", api)
+        self.assertIn("CFG:CMD:REPORT_PROGRESS", api)
+        self.assertIn("quantity_steps", api)
+        self.assertIn("CFG:CMD:DISMISS", api)
         self.assertIn("CFG:QTY:GOOD:+1", api)
         self.assertIn("install_scanner_shortcuts", console)
         self.assertIn("inputmode: \"none\"", console)
         self.assertIn("Print Command Labels", console)
         self.assertIn('primary_action_label: __("Close")', console)
+        self.assertIn('run_context_execution_action("start")', console)
+        self.assertIn('run_context_execution_action("report_progress")', console)
+        self.assertIn("capture_scan_behind_message", console)
+        self.assertIn("configure_scanner_command_sheet", console)
+        self.assertLess(console.index("cfg-scanner-status"),
+                        console.index("cfg-kanban-card-camera"))
 
     def test_development_proxy_is_explicitly_enabled_and_administrator_only(self):
         auth = (ROOT / "services" / "operator_auth.py").read_text()

@@ -61,6 +61,10 @@ class TestProcessTaskContract(TestCase):
         self.assertIn("Scan Operator QR", console)
         self.assertIn("Create Task", console)
         self.assertIn("No open service tasks", console)
+        self.assertIn("cfg-service-mobile-actions", console)
+        self.assertIn("Scan / Switch Operator", console)
+        self.assertIn("End Session", console)
+        self.assertIn("cfg-service-task-actions", console)
 
     def test_standalone_compliance_record_supports_rejection_reports_and_printing(self):
         service = (ROOT / "services" / "standalone_tasks.py").read_text()

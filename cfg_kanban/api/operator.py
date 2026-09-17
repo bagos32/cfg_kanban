@@ -83,23 +83,44 @@ def get_console_access():
 
 
 @frappe.whitelist()
-def get_scanner_command_sheet():
+def get_scanner_command_sheet(quantity_steps=None):
     """Return fixed, non-secret command labels for the floor scanner station."""
     allowed_roles = {"Kanban Terminal", "Manufacturing User", "Manufacturing Manager", "System Manager"}
     if not allowed_roles.intersection(frappe.get_roles(frappe.session.user)):
         frappe.throw("You are not permitted to print Kanban scanner controls", frappe.PermissionError)
-    commands = (
+    if isinstance(quantity_steps, str):
+        try:
+            quantity_steps = frappe.parse_json(quantity_steps)
+        except (TypeError, ValueError):
+            quantity_steps = quantity_steps.split(",")
+    if quantity_steps and not isinstance(quantity_steps, (list, tuple)):
+        quantity_steps = [quantity_steps]
+    quantity_steps = quantity_steps or (1, 5, 10, 100)
+    normalized_steps = []
+    for value in quantity_steps[:12]:
+        number = flt(value)
+        if number <= 0 or number > 1000000:
+            frappe.throw("Quantity label values must be greater than zero and not exceed 1,000,000")
+        if number not in normalized_steps:
+            normalized_steps.append(number)
+    commands = [
         ("Switch Operator", "CFG:CMD:SWITCH_OPERATOR", "F2"),
         ("Next Card / Clear", "CFG:CMD:NEXT_CARD", "F3"),
         ("Camera Scan", "CFG:CMD:CAMERA_CARD", "F4"),
         ("End Operator Session", "CFG:CMD:END_SESSION", "F8"),
-        ("Good +1", "CFG:QTY:GOOD:+1", ""),
-        ("Good +5", "CFG:QTY:GOOD:+5", ""),
-        ("Good +10", "CFG:QTY:GOOD:+10", ""),
+        ("Start Operation", "CFG:CMD:START", ""),
+        ("Report Progress", "CFG:CMD:REPORT_PROGRESS", ""),
+    ]
+    commands.extend([
+        (f"Good +{number:g}", f"CFG:QTY:GOOD:+{number:g}", "")
+        for number in normalized_steps
+    ])
+    commands.extend([
         ("Reject +1", "CFG:QTY:REJECT:+1", ""),
         ("Confirm / Submit", "CFG:CMD:CONFIRM", ""),
         ("Cancel", "CFG:CMD:CANCEL", ""),
-    )
+        ("Dismiss Message", "CFG:CMD:DISMISS", ""),
+    ])
     return [{"label": label, "payload": payload, "key": key,
              "qr_svg": get_qr_svg(payload, 180)} for label, payload, key in commands]
 

@@ -35,3 +35,161 @@
 		flex-direction: column;
 	}
 }
+
+.cfg-service-mobile-actions {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 10px;
+}
+
+.cfg-service-mobile-actions .btn,
+.cfg-service-login-actions .btn,
+.cfg-service-session-actions .btn,
+.cfg-service-task-actions .btn {
+	min-height: 48px;
+	font-size: 15px;
+	font-weight: 700;
+}
+
+.cfg-service-identity,
+.cfg-service-list-heading,
+.cfg-service-task-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.cfg-service-session-actions,
+.cfg-service-login-actions,
+.cfg-service-task-actions {
+	display: flex;
+	gap: 10px;
+}
+
+.cfg-service-login-actions {
+	justify-content: center;
+	margin-top: 18px;
+}
+
+.cfg-service-list-heading {
+	margin: 8px 0 14px;
+}
+
+.cfg-service-list-heading h3,
+.cfg-service-task-head h4 {
+	margin: 0;
+}
+
+.cfg-service-task-card {
+	margin-bottom: 14px;
+	padding: 18px;
+	border-left: 6px solid var(--gray-400);
+}
+
+.cfg-service-task-card.priority-high { border-left-color: var(--orange-500); }
+.cfg-service-task-card.priority-urgent { border-left-color: var(--red-500); }
+
+.cfg-service-task-meta {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 12px;
+	margin: 16px 0;
+	padding: 12px 0;
+	border-top: 1px solid var(--border-color);
+	border-bottom: 1px solid var(--border-color);
+}
+
+.cfg-service-task-meta small,
+.cfg-service-task-meta strong {
+	display: block;
+}
+
+.cfg-service-task-actions {
+	justify-content: flex-end;
+}
+
+.cfg-priority {
+	margin-top: 6px;
+	font-weight: 700;
+}
+
+.cfg-service-task-dialog .modal-dialog {
+	max-width: 900px;
+}
+
+.cfg-service-task-dialog .checkbox label {
+	min-height: 44px;
+	display: flex;
+	align-items: center;
+	font-size: 15px;
+}
+
+@media (max-width: 767px) {
+	.cfg-service-mobile-actions {
+		grid-template-columns: 1fr 1fr;
+		position: sticky;
+		top: 0;
+		z-index: 20;
+		padding: 8px;
+		margin-left: -8px;
+		margin-right: -8px;
+		background: var(--bg-color);
+	}
+
+	.cfg-service-mobile-actions .create-service-task {
+		grid-column: 1 / -1;
+	}
+
+	.cfg-service-identity,
+	.cfg-service-task-head {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.cfg-service-session-actions,
+	.cfg-service-login-actions,
+	.cfg-service-task-actions {
+		width: 100%;
+		flex-direction: column;
+	}
+
+	.cfg-service-session-actions .btn,
+	.cfg-service-login-actions .btn,
+	.cfg-service-task-actions .btn {
+		width: 100%;
+		min-height: 54px;
+		font-size: 17px;
+	}
+
+	.cfg-service-task-meta {
+		grid-template-columns: 1fr;
+	}
+
+	.cfg-service-task-card {
+		padding: 16px;
+	}
+
+	.cfg-service-task-dialog .modal-dialog {
+		margin: 0;
+		min-height: 100vh;
+		max-width: none;
+	}
+
+	.cfg-service-task-dialog .modal-content {
+		min-height: 100vh;
+		border-radius: 0;
+	}
+
+	.cfg-service-task-dialog .modal-footer {
+		position: sticky;
+		bottom: 0;
+		z-index: 5;
+		background: var(--modal-bg);
+	}
+
+	.cfg-service-task-dialog .modal-footer .btn {
+		min-height: 52px;
+		font-size: 17px;
+	}
+}

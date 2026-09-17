@@ -278,6 +278,15 @@ request action/API.
 Operators use **Kanban Service Tasks** to start, complete, and—when separately authorized—verify the
 work. These tasks never create or update an ERPNext Work Order, Job Card, or Stock Entry.
 
+The Service Tasks page is optimized for phones and tablets rather than a fixed barcode terminal.
+Large touch controls for **Refresh**, **Scan / Switch Operator**, and **Create Task** remain at the
+top of the page. Each task is displayed as a separate touch card with prominent **Start**,
+**Complete**, **Correct and Resubmit**, or **Verify** actions according to its status. Urgent and
+high-priority work has a colored card edge. On a phone, task forms use the full screen with a sticky
+action footer so the final action remains accessible after scrolling through instructions and
+checklists. The operator can explicitly switch identity or end the shared session from the active
+operator banner.
+
 Work instructions, completion checklist, measurements, and notes are presented as separate sections.
 When **Require Supervisor Verification** is enabled, completion moves the Task to **Awaiting
 Verification**. A different authorized employee must approve it. Rejection requires remarks and
@@ -608,6 +617,13 @@ The same actions can be performed with function keys or printed command QR/Code 
 | F4 | `CFG:CMD:CAMERA_CARD` | Open the camera scanner |
 | F8 | `CFG:CMD:END_SESSION` | Ask for confirmation, then end the operator session |
 
+Operational command labels have no function-key equivalent:
+
+- `CFG:CMD:START` starts the operation when exactly one execution lane is Ready.
+- `CFG:CMD:REPORT_PROGRESS` opens progress entry when exactly one execution lane is eligible.
+- If multiple lanes are eligible, the command is refused and the operator must select the correct
+  lane on screen. This prevents a general command label from updating the wrong Job Card.
+
 Inside **Report Progress**, quantity labels can replace keypad entry. Examples:
 
 - `CFG:QTY:GOOD:+1` adds one good unit.
@@ -615,6 +631,15 @@ Inside **Report Progress**, quantity labels can replace keypad entry. Examples:
 - `CFG:QTY:REJECT:+1` adds one rejected unit, subject to operator permission.
 - `CFG:CMD:CONFIRM` submits the progress form.
 - `CFG:CMD:CANCEL` closes the progress form without submitting.
+
+When printing the command sheet, enter the routine Good Quantity increments required by that
+workstation, separated by commas—for example `1, 10, 50, 100`. The sheet is generated on demand, so
+different operations may keep different laminated quantity sheets without changing the Kanban Card
+or Master. A scanned absolute command such as `CFG:QTY:GOOD:100` sets the field to 100, while
+`CFG:QTY:GOOD:+100` adds 100 to its current value.
+
+If an error message is open, the operator may immediately scan the next card. The panel closes the
+message and processes that scan. `CFG:CMD:DISMISS` closes the message without loading another card.
 
 The camera scanner remains available over HTTPS. Offline queue and device enrollment are not yet
 implemented.

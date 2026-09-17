@@ -8,7 +8,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	const session_key = "cfg_kanban_operator_session";
 	const state = { context: null, operator: null, access: null,
 		session_token: localStorage.getItem(session_key), awaiting_operator_scan: false,
-		active_progress_dialog: null, scanner_message: __("Scanner ready") };
+		active_progress_dialog: null, scanner_message: __("Scanner ready"),
+		modal_scan_buffer: "", modal_scan_at: 0 };
 	const scan = page.add_field({
 		label: __("Fixed scanner input — scan any card"),
 		fieldtype: "Data",
@@ -17,6 +18,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	});
 	page.set_primary_action(__("Find Card"), () => process_scan(scan.get_value()), "search");
 	page.add_inner_button(__("Clear / Next Card (F3)"), clear_for_next_card);
+	const $scanner_status = $(`<div class="cfg-scanner-status mt-3 mb-3" aria-live="polite"></div>`)
+		.appendTo(page.main);
 
 	const $card_camera = $(`<div class="cfg-kanban-card-camera mt-3 mb-3">
 		<button class="btn btn-primary btn-lg btn-block">
@@ -33,9 +36,6 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	page.add_inner_button(__("Scan Operator QR"), scan_operator_qr);
 	page.add_inner_button(__("Camera Scan (F4)"), scan_kanban_qr);
 	page.add_inner_button(__("Scanner Help (F1)"), show_scanner_help);
-
-	const $scanner_status = $(`<div class="cfg-scanner-status mt-3" aria-live="polite"></div>`)
-		.appendTo(page.main);
 	install_scanner_shortcuts();
 
 	async function load_console() {
@@ -270,8 +270,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			END_SESSION: confirm_end_operator_session,
 			CAMERA: scan_kanban_qr,
 			CAMERA_CARD: scan_kanban_qr,
+			START: () => run_context_execution_action("start"),
+			REPORT_PROGRESS: () => run_context_execution_action("report_progress"),
 			CONFIRM: submit_active_progress,
 			CANCEL: cancel_active_dialog,
+			DISMISS: dismiss_visible_message,
 		};
 		if (!commands[command]) {
 			set_scanner_message(__("Unknown scanner command: {0}", [command]), "red");
@@ -282,10 +285,35 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		return true;
 	}
 
+	function run_context_execution_action(action) {
+		if (!state.context || !state.context.card) {
+			frappe.show_alert({ message: __("Scan a Kanban card first"), indicator: "orange" });
+			return focus_scanner();
+		}
+		const executions = state.context.executions || [];
+		const eligible = executions.filter((row) => {
+			if (action === "start") {
+				return row.status === "Ready" && state.operator.permissions.start;
+			}
+			return ["Ready", "In Progress", "Paused"].includes(row.status) &&
+				state.operator.permissions.report_progress;
+		});
+		if (eligible.length !== 1) {
+			const message = eligible.length
+				? __("More than one execution lane is eligible. Select the correct lane on screen.")
+				: __("No execution lane is currently eligible for this command.");
+			frappe.msgprint({ title: __("Scanner Command Not Applied"), message, indicator: "orange" });
+			return;
+		}
+		if (action === "start") return job_action(eligible[0], "start");
+		return progress_dialog(eligible[0]);
+	}
+
 	function install_scanner_shortcuts() {
 		$(document).off("keydown.cfg_kanban_operator");
 		$(document).on("keydown.cfg_kanban_operator", (event) => {
 			if (!$(wrapper).is(":visible")) return;
+			if (capture_scan_behind_message(event)) return;
 			const handlers = {
 				F1: show_scanner_help,
 				F2: prepare_operator_switch,
@@ -307,6 +335,35 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		$(wrapper).off("click.cfg_scanner_focus").on("click.cfg_scanner_focus", (event) => {
 			if (!$(event.target).is("input, textarea, select, button, a, .modal *")) focus_scanner();
 		});
+	}
+
+	function capture_scan_behind_message(event) {
+		if (!$('.modal:visible').length || state.active_progress_dialog) return false;
+		if ($(event.target).is("input, textarea, select")) return false;
+		const now = Date.now();
+		if (now - state.modal_scan_at > 150) state.modal_scan_buffer = "";
+		state.modal_scan_at = now;
+		if (event.key === "Enter" || event.key === "Tab") {
+			if (!state.modal_scan_buffer) return false;
+			event.preventDefault();
+			const value = state.modal_scan_buffer;
+			state.modal_scan_buffer = "";
+			dismiss_visible_message();
+			if (value.toUpperCase() !== "CFG:CMD:DISMISS") window.setTimeout(() => process_scan(value), 100);
+			return true;
+		}
+		if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+			state.modal_scan_buffer += event.key;
+			event.preventDefault();
+			return true;
+		}
+		return false;
+	}
+
+	function dismiss_visible_message() {
+		const $modal = $(".modal:visible").last();
+		if ($modal.length) $modal.modal("hide");
+		window.setTimeout(focus_scanner, 100);
 	}
 
 	function focus_scanner() {
@@ -342,17 +399,30 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<tr><td>F4</td><td><code>CFG:CMD:CAMERA_CARD</code></td><td>${__("Open camera scanner")}</td></tr>
 			<tr><td>F8</td><td><code>CFG:CMD:END_SESSION</code></td><td>${__("End operator session after confirmation")}</td></tr>
 			</tbody></table>
+			<p><strong>${__("Operation commands")}</strong>: <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>.</p>
 			<p><strong>${__("Progress dialog commands")}</strong>: <code>CFG:QTY:GOOD:+1</code>, <code>CFG:QTY:REJECT:+1</code>, <code>CFG:CMD:CONFIRM</code>, <code>CFG:CMD:CANCEL</code>.</p>
+			<p><strong>${__("Message control")}</strong>: scan the next card to close an error and continue, or scan <code>CFG:CMD:DISMISS</code> to close it.</p>
 			<div class="alert alert-warning">${__("A web page cannot receive scanner keys while the browser address bar is selected. Use full-screen/kiosk mode and configure the scanner to append Enter.")}</div>
 		</div>`);
 		dialog.onhide = focus_scanner;
 		dialog.show();
 		const $print = $(`<button class="btn btn-default mr-2">${__("Print Command Labels")}</button>`);
-		$print.on("click", print_scanner_command_sheet);
+		$print.on("click", configure_scanner_command_sheet);
 		dialog.get_primary_btn().before($print);
 	}
 
-	async function print_scanner_command_sheet() {
+	function configure_scanner_command_sheet() {
+		frappe.prompt([
+			{ fieldname: "quantity_steps", label: __("Routine Good Quantity Increments"),
+				fieldtype: "Data", reqd: 1, default: "1, 5, 10, 100",
+				description: __("Comma-separated positive quantities. Example: 1, 10, 50, 100") },
+		], (values) => {
+			const steps = String(values.quantity_steps || "").split(",").map((value) => value.trim()).filter(Boolean);
+			print_scanner_command_sheet(steps);
+		}, __("Configure Command Labels"), __("Generate Printable Sheet"));
+	}
+
+	async function print_scanner_command_sheet(quantity_steps) {
 		const popup = window.open("", "_blank", "width=1000,height=800");
 		if (!popup) {
 			frappe.msgprint(__("Allow pop-ups for this site to print scanner command labels."));
@@ -360,7 +430,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}
 		popup.document.write(`<p style="font-family:Arial;padding:20px">${__("Preparing command labels...")}</p>`);
 		try {
-			const response = await frappe.call({ method: "cfg_kanban.api.operator.get_scanner_command_sheet" });
+			const response = await frappe.call({ method: "cfg_kanban.api.operator.get_scanner_command_sheet",
+				args: { quantity_steps } });
 			const labels = (response.message || []).map((row) => `<div class="command-label">
 				<div class="command-title">${frappe.utils.escape_html(row.label)}</div>
 				${row.key ? `<div class="command-key">${frappe.utils.escape_html(row.key)}</div>` : ""}
@@ -369,7 +440,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			</div>`).join("");
 			popup.document.open();
 			popup.document.write(`<html><head><meta charset="utf-8"><title>${__("Kanban Scanner Command Labels")}</title>
-				<style>@page{size:A4 portrait;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;color:#111}.heading{text-align:center;margin-bottom:5mm}.sheet{display:grid;grid-template-columns:repeat(2,1fr);gap:4mm}.command-label{height:49mm;border:1.2mm solid #111;border-radius:2mm;padding:3mm;display:grid;grid-template-columns:1fr 30mm;grid-template-rows:auto 1fr auto;gap:1mm;break-inside:avoid}.command-title{font-size:5mm;font-weight:800}.command-key{grid-column:1;font-size:8mm;font-weight:900;align-self:center}.command-label img{grid-column:2;grid-row:1/4;width:29mm;height:29mm;align-self:center}.command-payload{grid-column:1;font-family:monospace;font-size:2.8mm;font-weight:700;align-self:end;word-break:break-all}.note{text-align:center;font-size:3mm;margin-top:4mm}@media print{.no-print{display:none}}</style>
+				<style>@page{size:A4 portrait;margin:8mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;color:#111}.heading{text-align:center;margin-bottom:3mm}.heading h2{margin:0}.sheet{display:grid;grid-template-columns:repeat(2,1fr);gap:3mm}.command-label{height:42mm;border:1.2mm solid #111;border-radius:2mm;padding:2.5mm;display:grid;grid-template-columns:1fr 27mm;grid-template-rows:auto 1fr auto;gap:1mm;break-inside:avoid}.command-title{font-size:4.5mm;font-weight:800}.command-key{grid-column:1;font-size:7mm;font-weight:900;align-self:center}.command-label img{grid-column:2;grid-row:1/4;width:26mm;height:26mm;align-self:center}.command-payload{grid-column:1;font-family:monospace;font-size:2.6mm;font-weight:700;align-self:end;word-break:break-all}.note{text-align:center;font-size:2.8mm;margin-top:3mm}@media print{.no-print{display:none}}</style>
 				</head><body><div class="heading"><h2>CFG KANBAN — SCANNER CONTROLS</h2></div><div class="sheet">${labels}</div>
 				<div class="note">${__("Configure the fixed scanner to append Enter. Use full-screen or kiosk mode.")}</div>
 				<script>window.onload=()=>window.print();<\/script></body></html>`);
