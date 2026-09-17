@@ -68,6 +68,8 @@ class TestOperatorAuthenticationContract(TestCase):
         self.assertIn('run_context_execution_action("report_progress")', console)
         self.assertIn("capture_scan_behind_message", console)
         self.assertIn("configure_scanner_command_sheet", console)
+        self.assertIn("confirm_visible_dialog", console)
+        self.assertIn('value.toUpperCase() === "CFG:CMD:CONFIRM"', console)
         self.assertLess(console.index("cfg-scanner-status"),
                         console.index("cfg-kanban-card-camera"))
 

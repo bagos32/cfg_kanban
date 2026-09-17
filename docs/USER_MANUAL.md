@@ -640,6 +640,9 @@ or Master. A scanned absolute command such as `CFG:QTY:GOOD:100` sets the field 
 
 If an error message is open, the operator may immediately scan the next card. The panel closes the
 message and processes that scan. `CFG:CMD:DISMISS` closes the message without loading another card.
+When a Yes/No confirmation is open, `CFG:CMD:CONFIRM` selects its primary Yes/Confirm action;
+`CFG:CMD:CANCEL` or `CFG:CMD:DISMISS` closes it without approval. The same Confirm label continues
+to submit the Report Progress dialog when that form is active.
 
 The camera scanner remains available over HTTPS. Offline queue and device enrollment are not yet
 implemented.

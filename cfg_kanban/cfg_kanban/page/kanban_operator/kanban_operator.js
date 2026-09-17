@@ -339,7 +339,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	function capture_scan_behind_message(event) {
 		if (!$('.modal:visible').length || state.active_progress_dialog) return false;
-		if ($(event.target).is("input, textarea, select")) return false;
+		if ($(event.target).is("input, textarea, select") &&
+			$(event.target).closest(".modal:visible").length) return false;
 		const now = Date.now();
 		if (now - state.modal_scan_at > 150) state.modal_scan_buffer = "";
 		state.modal_scan_at = now;
@@ -348,8 +349,16 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			event.preventDefault();
 			const value = state.modal_scan_buffer;
 			state.modal_scan_buffer = "";
+			if (value.toUpperCase() === "CFG:CMD:CONFIRM") {
+				confirm_visible_dialog();
+				return true;
+			}
+			if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(value.toUpperCase())) {
+				dismiss_visible_message();
+				return true;
+			}
 			dismiss_visible_message();
-			if (value.toUpperCase() !== "CFG:CMD:DISMISS") window.setTimeout(() => process_scan(value), 100);
+			window.setTimeout(() => process_scan(value), 100);
 			return true;
 		}
 		if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -364,6 +373,16 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const $modal = $(".modal:visible").last();
 		if ($modal.length) $modal.modal("hide");
 		window.setTimeout(focus_scanner, 100);
+	}
+
+	function confirm_visible_dialog() {
+		const $modal = $(".modal:visible").last();
+		const $primary = $modal.find(".modal-footer .btn-primary:visible").last();
+		if (!$primary.length || $primary.prop("disabled")) {
+			frappe.show_alert({ message: __("This message has no confirm action"), indicator: "orange" });
+			return;
+		}
+		$primary.trigger("click");
 	}
 
 	function focus_scanner() {
