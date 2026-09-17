@@ -59,6 +59,7 @@ class TestOperatorAuthenticationContract(TestCase):
         self.assertIn("install_scanner_shortcuts", console)
         self.assertIn("inputmode: \"none\"", console)
         self.assertIn("Print Command Labels", console)
+        self.assertIn('primary_action_label: __("Close")', console)
 
     def test_development_proxy_is_explicitly_enabled_and_administrator_only(self):
         auth = (ROOT / "services" / "operator_auth.py").read_text()

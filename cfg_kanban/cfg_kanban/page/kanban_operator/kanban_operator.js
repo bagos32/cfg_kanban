@@ -327,7 +327,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	}
 
 	function show_scanner_help() {
-		const dialog = new frappe.ui.Dialog({ title: __("Hands-free Scanner Controls"), size: "large" });
+		const dialog = new frappe.ui.Dialog({
+			title: __("Hands-free Scanner Controls"),
+			size: "large",
+			primary_action_label: __("Close"),
+			primary_action: () => dialog.hide(),
+		});
 		dialog.$body.html(`<div class="cfg-scanner-help">
 			<p>${__("Keep this page open in full-screen or kiosk mode. Scan cards directly; the previous number is cleared automatically.")}</p>
 			<table class="table table-bordered"><thead><tr><th>${__("Function key")}</th><th>${__("Barcode / QR payload")}</th><th>${__("Action")}</th></tr></thead><tbody>
@@ -342,9 +347,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		</div>`);
 		dialog.onhide = focus_scanner;
 		dialog.show();
-		const $print = $(`<button class="btn btn-default btn-sm mr-2">${__("Print Command Labels")}</button>`);
+		const $print = $(`<button class="btn btn-default mr-2">${__("Print Command Labels")}</button>`);
 		$print.on("click", print_scanner_command_sheet);
-		dialog.$wrapper.find(".modal-footer").prepend($print);
+		dialog.get_primary_btn().before($print);
 	}
 
 	async function print_scanner_command_sheet() {
