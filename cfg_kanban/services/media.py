@@ -301,9 +301,16 @@ def _allowed_mime_types():
 def _s3_client(config):
     try:
         import boto3
+        from botocore.config import Config
     except ImportError:
         frappe.throw("boto3 is required for private media storage")
-    return boto3.client("s3", region_name=config["region"])
+    region = config["region"]
+    return boto3.client(
+        "s3",
+        region_name=region,
+        endpoint_url=f"https://s3.{region}.amazonaws.com",
+        config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
+    )
 
 
 def _validate_reference(doctype, name, media_class, permission_type, permission_checked):

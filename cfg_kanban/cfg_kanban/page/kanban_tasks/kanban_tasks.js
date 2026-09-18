@@ -418,7 +418,8 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				refresh_rows();
 				$status.html(`<div class="alert alert-success">${__("Media evidence uploaded and verified")}</div>`);
 			} catch (error) {
-				$status.html(`<div class="alert alert-danger">${__("Media upload was not completed. Check configuration or network access and retry.")}</div>`);
+				const detail = frappe.utils.escape_html(error.message || __("Unknown upload error"));
+				$status.html(`<div class="alert alert-danger"><strong>${__("Media upload was not completed.")}</strong><br>${detail}</div>`);
 				console.error("CFG Kanban media upload failed", error);
 			} finally {
 				$picker.removeClass("disabled");
