@@ -1,6 +1,6 @@
 {
  "doctype":"DocType","name":"CFG Kanban Process Task Profile","module":"CFG Kanban","istable":1,
- "field_order":["task_key","task_name","sequence","task_category","task_type","linked_operation","trigger_point","mandatory","blocking","responsible_role","workstation","asset","checklist","require_supervisor_verification","validity_duration_hours","reuse_while_valid","completion_rule"],
+ "field_order":["task_key","task_name","sequence","task_category","task_type","linked_operation","trigger_point","mandatory","blocking","responsible_role","workstation","asset","checklist","qc_controlled","enable_sample_traveller","test_method","specification_reference","allow_conditional_release","require_supervisor_verification","validity_duration_hours","reuse_while_valid","completion_rule"],
  "fields":[
   {"fieldname":"task_key","label":"Task Key","fieldtype":"Data","reqd":1,"in_list_view":1,"columns":2,"description":"Stable key used by dynamic fields and runtime idempotency."},
   {"fieldname":"task_name","label":"Task Name","fieldtype":"Data","reqd":1,"in_list_view":1,"columns":3},
@@ -15,6 +15,11 @@
   {"fieldname":"workstation","label":"Workstation","fieldtype":"Link","options":"Workstation"},
   {"fieldname":"asset","label":"Asset","fieldtype":"Link","options":"Asset"},
   {"fieldname":"checklist","label":"Checklist","fieldtype":"Small Text","description":"One checklist item per line."},
+  {"fieldname":"qc_controlled","label":"Controlled QC Task","fieldtype":"Check","description":"Requires a sample identity and controlled Pass, Fail, or Conditional Release outcome."},
+  {"fieldname":"enable_sample_traveller","label":"Enable Sample Traveller QR","fieldtype":"Check","depends_on":"eval:doc.qc_controlled"},
+  {"fieldname":"test_method","label":"Test Method","fieldtype":"Data","depends_on":"eval:doc.qc_controlled"},
+  {"fieldname":"specification_reference","label":"Specification Reference","fieldtype":"Data","depends_on":"eval:doc.qc_controlled","description":"Neutral specification or approved procedure revision reference; no TrackQMS dependency."},
+  {"fieldname":"allow_conditional_release","label":"Allow Conditional Release","fieldtype":"Check","depends_on":"eval:doc.qc_controlled","description":"Conditional release still requires independent supervisor verification."},
   {"fieldname":"require_supervisor_verification","label":"Require Supervisor Verification","fieldtype":"Check"},
   {"fieldname":"validity_duration_hours","label":"Validity Duration (Hours)","fieldtype":"Float"},
   {"fieldname":"reuse_while_valid","label":"Reuse While Valid","fieldtype":"Check"},

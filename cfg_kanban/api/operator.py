@@ -171,7 +171,9 @@ def get_card_context(token, operator_session_token=None):
             "CFG Kanban Process Task", filters={"kanban_cycle": cycle.name},
             fields=["name", "task_name", "sequence", "task_type", "trigger_point",
                     "linked_operation", "status", "blocking", "workstation",
-                    "verification_required", "valid_until", "reused_from_task"],
+                    "verification_required", "valid_until", "reused_from_task",
+                    "qc_controlled", "qc_result", "sample_id", "test_method",
+                    "specification_reference", "exception"],
             order_by="sequence asc, creation asc",
         )
         work_orders = frappe.get_all("Work Order", filters={"cfg_kanban_cycle": cycle.name,

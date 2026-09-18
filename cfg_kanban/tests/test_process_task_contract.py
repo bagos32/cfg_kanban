@@ -89,3 +89,31 @@ class TestProcessTaskContract(TestCase):
         self.assertTrue((ROOT / "cfg_kanban" / "print_format" /
                          "cfg_verified_maintenance_record" /
                          "cfg_verified_maintenance_record.json").exists())
+
+    def test_permanent_service_points_resolve_occurrences_and_control_overlap(self):
+        service = (ROOT / "services" / "standalone_tasks.py").read_text()
+        api = (ROOT / "api" / "task.py").read_text()
+        console = (ROOT / "cfg_kanban" / "page" / "kanban_tasks" /
+                   "kanban_tasks.js").read_text()
+        self.assertIn("def resolve_service_point", service)
+        self.assertIn("Prevent While Open", service)
+        self.assertIn("_is_skipped_holiday", service)
+        self.assertIn("def disposition_task", service)
+        self.assertIn("def resolve_service_scan", api)
+        self.assertIn("def supervisor_disposition", api)
+        self.assertIn("CFG:SERVICE:SCHEDULE:", console)
+        self.assertIn("Cancel / Bypass", console)
+
+    def test_controlled_qc_tasks_hold_cycle_and_support_retest(self):
+        service = (ROOT / "services" / "process_tasks.py").read_text()
+        api = (ROOT / "api" / "process_task.py").read_text()
+        console = (ROOT / "cfg_kanban" / "page" / "kanban_operator" /
+                   "kanban_operator.js").read_text()
+        self.assertIn("def _apply_qc_outcome", service)
+        self.assertIn('"status": "Hold"', service)
+        self.assertIn("QC Process Task Failed", service)
+        self.assertIn("def reset_qc_for_retest", service)
+        self.assertIn("def resolve_scan", api)
+        self.assertIn("get_sample_label", api)
+        self.assertIn("Product", console.replace("Item", "Product"))
+        self.assertIn("Authorise Retest", console)

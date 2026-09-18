@@ -46,6 +46,15 @@ def ensure_tasks(cycle_name):
             "responsible_role": profile.responsible_role,
             "workstation": profile.workstation,
             "asset": profile.asset,
+            "item_code": cycle.item_code,
+            "batch_no": cycle.batch_no,
+            "work_order": cycle.work_order,
+            "qc_controlled": profile.qc_controlled,
+            "test_method": profile.test_method,
+            "specification_reference": profile.specification_reference,
+            "allow_conditional_release": profile.allow_conditional_release,
+            "qc_result": "Pending" if profile.qc_controlled else None,
+            "qc_attempt": 1 if profile.qc_controlled else 0,
             "checklist": profile.checklist,
             "verification_required": (profile.require_supervisor_verification
                                       or profile.completion_rule == "Supervisor Verified"),
@@ -56,6 +65,13 @@ def ensure_tasks(cycle_name):
             "valid_until": reusable.valid_until if reusable else None,
             "reused_from_task": reusable.name if reusable else None,
         }).insert(ignore_permissions=True)
+        task.db_set("process_qr_payload", f"CFG:PROCESS_TASK:{task.name}",
+                    update_modified=False)
+        if profile.enable_sample_traveller:
+            task.db_set({"sample_id": task.name,
+                         "sample_qr_payload": f"CFG:SAMPLE:{task.name}"},
+                        update_modified=False)
+            task.reload()
         created.append(task.name)
         if reusable:
             record("Process Task Reused", cycle=cycle.name, process_task=task.name,
@@ -137,7 +153,13 @@ def assert_gate_open(cycle_name, trigger_point, operation=None):
 def task_form(task_name, capture_on):
     task = frappe.get_doc("CFG Kanban Process Task", task_name)
     rows = definitions(task.kanban_master, capture_on, process_task_key=task.task_key)
-    return {"task": task.as_dict(), "fields": rows}
+    cycle = frappe.get_doc("CFG Kanban Cycle", task.kanban_cycle)
+    return {"task": task.as_dict(), "fields": rows, "production_context": {
+        "cycle": cycle.name, "card": cycle.kanban_card, "item_code": cycle.item_code,
+        "batch_no": cycle.batch_no, "work_order": cycle.work_order,
+        "planned_qty": cycle.planned_qty, "status": cycle.status,
+        "operation": task.linked_operation,
+    }}
 
 
 def start_task(task_name, session_token, values=None, notes=None):
@@ -167,7 +189,8 @@ def start_task(task_name, session_token, values=None, notes=None):
     return task
 
 
-def complete_task(task_name, session_token, values=None, checklist_results=None, notes=None):
+def complete_task(task_name, session_token, values=None, checklist_results=None, notes=None,
+                  sample_id=None, qc_result=None, qc_disposition_notes=None):
     task = frappe.get_doc("CFG Kanban Process Task", task_name)
     profile, session = require_operator(
         session_token, "task_complete", operation=task.linked_operation,
@@ -188,10 +211,24 @@ def complete_task(task_name, session_token, values=None, checklist_results=None,
     task.completed_by = profile.employee
     task.completed_on = now_datetime()
     task.notes = notes
+    if task.qc_controlled:
+        _apply_qc_outcome(task, profile, sample_id, qc_result, qc_disposition_notes)
+        if task.status == "Blocked":
+            task.save(ignore_permissions=True)
+            record("QC Process Task Failed", cycle=task.kanban_cycle,
+                   process_task=task.name, reference_doctype=task.doctype,
+                   reference_name=task.name, operator=profile.employee,
+                   operator_session=session.name, terminal_user=session.terminal_user,
+                   notes=task.qc_disposition_notes)
+            return task
     task.status = "Awaiting Verification" if task.verification_required else "Completed"
+    if task.qc_controlled and task.qc_result == "Conditional Release":
+        task.status = "Awaiting Verification"
     if task.status == "Completed":
         _set_validity(task)
     task.save(ignore_permissions=True)
+    if task.status == "Completed" and task.qc_controlled:
+        _release_qc_hold_if_clear(task.kanban_cycle)
     record("Process Task Completed" if task.status == "Completed" else "Process Task Awaiting Verification",
            cycle=task.kanban_cycle, process_task=task.name,
            reference_doctype=task.doctype, reference_name=task.name,
@@ -222,10 +259,55 @@ def verify_task(task_name, session_token, values=None, notes=None):
     task.notes = notes or task.notes
     _set_validity(task)
     task.save(ignore_permissions=True)
+    _release_qc_hold_if_clear(task.kanban_cycle)
     record("Process Task Verified", cycle=task.kanban_cycle, process_task=task.name,
            reference_doctype=task.doctype, reference_name=task.name,
            operator=profile.employee, operator_session=session.name,
            terminal_user=session.terminal_user)
+    return task
+
+
+def reset_qc_for_retest(task_name, session_token, reason):
+    task = frappe.get_doc("CFG Kanban Process Task", task_name)
+    profile, session = require_operator(
+        session_token, "task_verify", operation=task.linked_operation,
+        workstation=task.workstation,
+    )
+    if not task.qc_controlled or task.status != "Blocked" or task.qc_result != "Fail":
+        frappe.throw("Only a failed controlled QC task can be prepared for retest")
+    if not (reason or "").strip():
+        frappe.throw("Retest reason is required")
+    if task.exception:
+        frappe.db.set_value("CFG Kanban Exception", task.exception, {
+            "status": "Acknowledged", "resolution": f"Retest authorised: {reason}"
+        })
+    history = frappe.parse_json(task.qc_attempt_history or "[]")
+    history.append({
+        "attempt": task.qc_attempt or 1, "sample_id": task.sample_id,
+        "result": task.qc_result, "disposition_notes": task.qc_disposition_notes,
+        "completed_by": task.completed_by, "completed_on": task.completed_on,
+        "exception": task.exception, "checklist_results": task.checklist_results,
+        "execution_values": [row.as_dict(no_nulls=True) for row in task.execution_values],
+        "retest_authorised_by": profile.employee, "retest_reason": reason,
+        "retest_authorised_on": str(now_datetime()),
+    })
+    task.status = "Ready"
+    task.blocked = 0
+    task.qc_result = "Pending"
+    task.qc_attempt = (task.qc_attempt or 1) + 1
+    task.qc_attempt_history = frappe.as_json(history)
+    task.sample_id = None
+    task.qc_disposition_notes = f"Retest authorised by {profile.employee}: {reason}"
+    task.completed_by = None
+    task.completed_on = None
+    task.checklist_results = None
+    task.set("execution_values", [])
+    task.save(ignore_permissions=True)
+    record("QC Process Task Retest Authorised", cycle=task.kanban_cycle,
+           process_task=task.name, reference_doctype=task.doctype,
+           reference_name=task.name, operator=profile.employee,
+           operator_session=session.name, terminal_user=session.terminal_user,
+           notes=reason)
     return task
 
 
@@ -296,3 +378,58 @@ def _replace_values(task, values):
 
 def _parse_values(values):
     return frappe.parse_json(values) if isinstance(values, str) else (values or [])
+
+
+def _apply_qc_outcome(task, profile, sample_id, result, disposition_notes):
+    result = (result or "").strip()
+    if not (sample_id or "").strip():
+        frappe.throw("Sample ID is required for a controlled QC task")
+    if result not in ("Pass", "Fail", "Conditional Release"):
+        frappe.throw("Select a controlled QC Result")
+    if result in ("Fail", "Conditional Release") and not (disposition_notes or "").strip():
+        frappe.throw("Disposition notes are required for this QC Result")
+    if result == "Conditional Release" and not task.allow_conditional_release:
+        frappe.throw("Conditional Release is not permitted by this Process Task profile")
+    task.sample_id = sample_id
+    task.sample_qr_payload = task.sample_qr_payload or f"CFG:SAMPLE:{task.name}"
+    task.qc_result = result
+    task.qc_disposition_notes = disposition_notes
+    if result != "Fail":
+        return
+    task.status = "Blocked"
+    task.blocked = 1
+    exception = frappe.get_doc({
+        "doctype": "CFG Kanban Exception", "exception_type": "QC Failure",
+        "severity": "Critical", "status": "Open", "kanban_cycle": task.kanban_cycle,
+        "process_task": task.name, "message": disposition_notes,
+        "reference_doctype": task.doctype, "reference_name": task.name,
+        "raised_on": now_datetime(),
+    }).insert(ignore_permissions=True)
+    task.exception = exception.name
+    frappe.db.set_value("CFG Kanban Cycle", task.kanban_cycle,
+                        {"status": "Hold", "blocked": 1, "exception": exception.name})
+
+
+def _release_qc_hold_if_clear(cycle_name):
+    open_failures = frappe.db.count("CFG Kanban Process Task", {
+        "kanban_cycle": cycle_name, "qc_controlled": 1, "status": "Blocked"
+    })
+    if open_failures:
+        return
+    cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
+    if cycle.status == "Hold":
+        failed_tasks = frappe.get_all(
+            "CFG Kanban Process Task",
+            filters={"kanban_cycle": cycle_name, "qc_controlled": 1,
+                     "exception": ["is", "set"]},
+            fields=["exception"],
+        )
+        for row in failed_tasks:
+            if row.exception:
+                frappe.db.set_value("CFG Kanban Exception", row.exception, {
+                    "status": "Resolved", "resolved_on": now_datetime(),
+                    "resolved_by": frappe.session.user,
+                    "resolution": "QC retest passed and all controlled QC holds cleared",
+                })
+        cycle.db_set({"status": "In Production" if cycle.started_on else "Released",
+                      "blocked": 0, "exception": None}, update_modified=True)

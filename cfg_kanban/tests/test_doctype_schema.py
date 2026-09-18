@@ -198,6 +198,9 @@ class TestDocTypeSchema(TestCase):
                          "trigger_point", "mandatory", "blocking", "workstation", "asset",
                          "require_supervisor_verification", "validity_duration_hours",
                          "reuse_while_valid", "completion_rule"}.issubset(profile))
+        self.assertTrue({"qc_controlled", "enable_sample_traveller", "test_method",
+                         "specification_reference", "allow_conditional_release"}
+                        .issubset(profile))
 
     def test_process_task_runtime_is_auditable_and_filterable(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}
@@ -208,6 +211,10 @@ class TestDocTypeSchema(TestCase):
                          "completed_by", "execution_values", "verification_required",
                          "verified_by", "valid_until", "reused_from_task", "exception"}
                         .issubset(task))
+        self.assertTrue({"item_code", "batch_no", "work_order", "process_qr_payload", "sample_id",
+                         "sample_qr_payload", "qc_controlled", "qc_result",
+                         "qc_disposition_notes", "qc_attempt", "qc_attempt_history",
+                         "media_evidence_html"}.issubset(task))
         for fieldname in ("kanban_cycle", "task_name", "trigger_point", "status"):
             self.assertEqual(task[fieldname].get("in_list_view"), 1)
         event = {row["fieldname"]: row for row in schemas["CFG Kanban Event"]["fields"]}
@@ -231,6 +238,8 @@ class TestDocTypeSchema(TestCase):
         self.assertTrue({"trigger_type", "interval_value", "next_due_on", "workstation",
                          "asset", "location", "task_field_definitions",
                          "require_supervisor_verification"}.issubset(schedule))
+        self.assertTrue({"service_point_enabled", "service_point_code", "overlap_policy",
+                         "holiday_policy", "holiday_list"}.issubset(schedule))
         self.assertEqual(schedule["task_field_definitions"]["options"],
                          "CFG Kanban Field Definition")
         task = {row["fieldname"]: row for row in schemas["CFG Kanban Task"]["fields"]}
@@ -238,6 +247,8 @@ class TestDocTypeSchema(TestCase):
                          "requested_on", "due_on", "assigned_employee", "checklist_results",
                          "checklist_evidence", "execution_values", "verified_by",
                          "verification_status", "verification_notes", "exception"}.issubset(task))
+        self.assertTrue({"supervisor_disposition", "disposition_by", "disposition_on",
+                         "disposition_reason"}.issubset(task))
         self.assertEqual(task["checklist_evidence"]["options"],
                          "CFG Kanban Checklist Result")
         self.assertIn("Correction Required", task["status"]["options"].splitlines())

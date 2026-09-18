@@ -3,13 +3,15 @@ import frappe
 from cfg_kanban.services.operator_auth import require_operator
 from cfg_kanban.services.media import list_reference_media
 from cfg_kanban.services.standalone_tasks import (complete_task, create_manual, start_task,
-                                                  reject_task, task_form, verify_task)
+                                                  disposition_task, reject_task, resolve_service_point,
+                                                  task_form, verify_task)
+from cfg_kanban.services.printing import get_qr_svg
 
 
 @frappe.whitelist()
 def get_open_tasks(operator_session_token=None):
     profile, _session = require_operator(operator_session_token)
-    filters = {"status": ["not in", ("Completed", "Cancelled")]}
+    filters = {"status": ["not in", ("Completed", "Cancelled", "Bypassed")]}
     allowed_workstations = [row.workstation for row in profile.allowed_workstations
                             if row.workstation]
     if allowed_workstations:
@@ -93,3 +95,21 @@ def verify(task_name, operator_session_token, values=None, notes=None):
 @frappe.whitelist()
 def reject(task_name, operator_session_token, notes):
     return reject_task(task_name, operator_session_token, notes).as_dict()
+
+
+@frappe.whitelist()
+def resolve_service_scan(scan_value, operator_session_token):
+    return resolve_service_point(scan_value, operator_session_token)
+
+
+@frappe.whitelist()
+def get_service_point_label(schedule_name):
+    frappe.only_for(("Manufacturing Manager", "System Manager"))
+    schedule = frappe.get_doc("CFG Kanban Task Schedule", schedule_name)
+    payload = schedule.service_point_code or f"CFG:SERVICE:SCHEDULE:{schedule.name}"
+    return {"schedule": schedule.as_dict(), "payload": payload, "qr_svg": get_qr_svg(payload)}
+
+
+@frappe.whitelist()
+def supervisor_disposition(task_name, disposition, reason, operator_session_token):
+    return disposition_task(task_name, operator_session_token, disposition, reason).as_dict()

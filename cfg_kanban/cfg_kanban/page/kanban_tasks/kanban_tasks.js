@@ -92,6 +92,23 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			catch (error) { scanner_error(__("Operator identification failed. Check the credential and retry.")); }
 			return;
 		}
+		if (/^CFG:SERVICE:SCHEDULE:/i.test(raw)) {
+			try {
+				const resolved = await frappe.call({ method: "cfg_kanban.api.task.resolve_service_scan", args: {
+					scan_value: raw, operator_session_token: state.token,
+				} });
+				if (!resolved.message.task) {
+					scanner_error(__(resolved.message.message));
+					return;
+				}
+				await load();
+				find_service_task(resolved.message.task.name);
+				return;
+			} catch (error) {
+				scanner_error(__("Service Point QR could not be resolved."));
+				return;
+			}
+		}
 		const task_value = service_task_token(raw);
 		const known_task = state.tasks.some((task) => [task.name, task.task_name, task.task_schedule]
 			.filter(Boolean).some((candidate) => String(candidate).toLowerCase() === task_value.toLowerCase()));
@@ -279,7 +296,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		$root.append(`<div class="cfg-service-list-heading"><div><h3>${__("Open Service Tasks")}</h3>
 			<small class="text-muted">${__("Tap the required action on the task card.")}</small></div>
 			<span class="indicator-pill blue">${tasks.length} ${__("Open")}</span></div>`);
-		tasks.forEach((task) => {
+			tasks.forEach((task) => {
 			const e = frappe.utils.escape_html;
 			const $row = $(`<div class="frappe-card cfg-service-task-card ${priority_class(task.priority)}">
 				<div class="cfg-service-task-head"><div><h4>${e(task.task_name)}</h4><small>${e(task.task_category)} · ${e(task.trigger_type)}</small></div>
@@ -293,7 +310,24 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			if (["Planned", "Due", "Assigned", "Overdue"].includes(task.status)) button($actions, __("Start"), "btn-primary", () => task_dialog(task, "Start"));
 			if (["Due", "Assigned", "In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, task.status === "Correction Required" ? __("Correct and Resubmit") : __("Complete"), "btn-success", () => task_dialog(task, "Complete"));
 			if (task.status === "Awaiting Verification") button($actions, __("Verify"), "btn-warning", () => task_dialog(task, "Verify"));
+			if (state.operator && state.operator.permissions.task_verify && !["Completed", "Cancelled", "Bypassed"].includes(task.status)) {
+				button($actions, __("Cancel / Bypass"), "btn-default", () => disposition_dialog(task));
+			}
 		});
+	}
+
+	function disposition_dialog(task) {
+		frappe.prompt([
+			{ fieldname: "disposition", label: __("Disposition"), fieldtype: "Select", options: "Cancelled\nBypassed", reqd: 1,
+				description: __("Cancel when the occurrence should not exist, such as a holiday. Bypass only for an approved operational exception.") },
+			{ fieldname: "reason", label: __("Supervisor Reason"), fieldtype: "Small Text", reqd: 1 },
+		], async (values) => {
+			await frappe.call({ method: "cfg_kanban.api.task.supervisor_disposition", args: {
+				task_name: task.name, disposition: values.disposition, reason: values.reason,
+				operator_session_token: state.token,
+			}, freeze: true });
+			await load();
+		}, __("Cancel or Bypass Task Occurrence"), __("Apply Disposition"));
 	}
 
 	async function task_dialog(task, action) {

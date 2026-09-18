@@ -1,6 +1,6 @@
 {
  "doctype":"DocType","name":"CFG Kanban Task Schedule","module":"CFG Kanban","autoname":"KTS-.#####","title_field":"schedule_name","track_changes":1,
- "field_order":["schedule_name","active","company","task_name","task_category","trigger_type","interval_value","interval_unit","calendar_repeat_days","next_due_on","default_due_hours","priority","responsible_role","workstation","asset","location","checklist","task_field_definitions","require_supervisor_verification","instructions","last_generated_on"],
+ "field_order":["schedule_name","active","company","task_name","task_category","trigger_type","service_point_enabled","service_point_code","overlap_policy","holiday_policy","holiday_list","interval_value","interval_unit","calendar_repeat_days","next_due_on","default_due_hours","priority","responsible_role","workstation","asset","location","checklist","task_field_definitions","require_supervisor_verification","instructions","last_generated_on"],
  "fields":[
   {"fieldname":"schedule_name","label":"Schedule Name","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1},
   {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1},
@@ -8,6 +8,11 @@
   {"fieldname":"task_name","label":"Task Name","fieldtype":"Data","reqd":1,"in_list_view":1},
   {"fieldname":"task_category","label":"Category","fieldtype":"Select","options":"Housekeeping\nMachine Maintenance\nVehicle Maintenance\nInspection\nSafety\nEmergency\nEnvironmental\nOther","reqd":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"trigger_type","label":"Trigger Type","fieldtype":"Select","options":"Time Interval\nCalendar Schedule\nMeter / Usage\nManual Request\nCondition\nEmergency Event","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"service_point_enabled","label":"Permanent Service Point QR","fieldtype":"Check","default":"0","description":"Use one permanent QR at the location. Each scan resolves to the current open occurrence for this schedule."},
+  {"fieldname":"service_point_code","label":"Service Point Code","fieldtype":"Data","read_only":1,"unique":1,"description":"Stable scanner payload generated from this schedule."},
+  {"fieldname":"overlap_policy","label":"Recurring Task Overlap Policy","fieldtype":"Select","options":"Prevent While Open\nAllow Parallel Occurrences","default":"Prevent While Open","reqd":1,"description":"Prevent While Open keeps one actionable occurrence until it is completed. Allow Parallel creates each due occurrence independently."},
+  {"fieldname":"holiday_policy","label":"Holiday Generation Policy","fieldtype":"Select","options":"Generate Normally\nSkip Listed Holidays","default":"Generate Normally","reqd":1,"description":"Skip Listed Holidays advances the recurrence without creating an occurrence on a listed holiday."},
+  {"fieldname":"holiday_list","label":"Holiday List","fieldtype":"Link","options":"Holiday List","depends_on":"eval:doc.holiday_policy=='Skip Listed Holidays'","mandatory_depends_on":"eval:doc.holiday_policy=='Skip Listed Holidays'"},
   {"fieldname":"interval_value","label":"Interval Value","fieldtype":"Float","depends_on":"eval:doc.trigger_type=='Time Interval'"},
   {"fieldname":"interval_unit","label":"Interval Unit","fieldtype":"Select","options":"Hours\nDays\nWeeks\nMonths","default":"Days","depends_on":"eval:doc.trigger_type=='Time Interval'"},
   {"fieldname":"calendar_repeat_days","label":"Calendar Repeat (Days)","fieldtype":"Int","default":"1","depends_on":"eval:doc.trigger_type=='Calendar Schedule'","description":"Repeat from Next Due On by this many calendar days."},

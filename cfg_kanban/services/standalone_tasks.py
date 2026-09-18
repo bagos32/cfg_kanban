@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import add_to_date, cint, now_datetime
+from frappe.utils import add_to_date, cint, get_datetime, now_datetime
 
 from cfg_kanban.services.dynamic_forms import (normalized_values, standalone_definitions,
                                                validate_values)
@@ -16,8 +16,12 @@ def generate_due_tasks():
                  "next_due_on": ["<=", now_datetime()]},
         fields=["name", "next_due_on"],
     )
-    return [create_from_schedule(row.name, scheduled_for=row.next_due_on).name
-            for row in schedules]
+    created = []
+    for row in schedules:
+        task = create_from_schedule(row.name, scheduled_for=row.next_due_on)
+        if task:
+            created.append(task.name)
+    return created
 
 
 def create_from_schedule(schedule_name, scheduled_for=None, request_source=None,
@@ -25,7 +29,24 @@ def create_from_schedule(schedule_name, scheduled_for=None, request_source=None,
     schedule = frappe.get_doc("CFG Kanban Task Schedule", schedule_name)
     if not schedule.active:
         frappe.throw("This Task Schedule is inactive")
+    if (schedule.overlap_policy or "Prevent While Open") == "Prevent While Open":
+        open_name = frappe.db.get_value(
+            "CFG Kanban Task",
+            {"task_schedule": schedule.name,
+             "status": ["not in", ("Completed", "Cancelled")]},
+            "name", order_by="due_on asc, creation asc",
+        )
+        if open_name:
+            return frappe.get_doc("CFG Kanban Task", open_name)
     scheduled_for = scheduled_for or schedule.next_due_on or now_datetime()
+    if request_source in (None, "Schedule") and _is_skipped_holiday(schedule, scheduled_for):
+        schedule.db_set({"last_generated_on": now_datetime(),
+                         "next_due_on": _next_due(schedule, scheduled_for)},
+                        update_modified=False)
+        record("Scheduled Task Skipped for Holiday", reference_doctype=schedule.doctype,
+               reference_name=schedule.name,
+               notes=f"No occurrence generated for {scheduled_for}")
+        return None
     key = canonical_key("standalone-task", schedule.name, generation_marker or scheduled_for)
     existing = frappe.db.get_value("CFG Kanban Task", {"generation_key": key}, "name")
     if existing:
@@ -72,6 +93,56 @@ def create_manual(schedule_name, request_source, priority=None, event_token=None
     if priority:
         task.db_set("priority", priority)
         task.priority = priority
+    return task
+
+
+def resolve_service_point(scan_value, session_token):
+    """Resolve a permanent schedule/location identity to its current task occurrence."""
+    schedule_name = _service_schedule_name(scan_value)
+    schedule = frappe.get_doc("CFG Kanban Task Schedule", schedule_name)
+    profile, _session = require_operator(
+        session_token, "task_start", workstation=schedule.workstation
+    )
+    open_name = frappe.db.get_value(
+        "CFG Kanban Task",
+        {"task_schedule": schedule.name,
+         "status": ["not in", ("Completed", "Cancelled")]},
+        "name", order_by="due_on asc, creation asc",
+    )
+    task = frappe.get_doc("CFG Kanban Task", open_name) if open_name else None
+    generated = False
+    if not task and schedule.active and schedule.next_due_on and \
+            get_datetime(schedule.next_due_on) <= now_datetime():
+        task = create_from_schedule(schedule.name, scheduled_for=schedule.next_due_on)
+        generated = True
+    return {
+        "schedule": schedule.as_dict(),
+        "task": task.as_dict() if task else None,
+        "generated": generated,
+        "operator": profile.employee,
+        "message": ("Current Service Task resolved" if task else
+                    f"No task is due. Next due: {schedule.next_due_on or 'not scheduled'}"),
+    }
+
+
+def disposition_task(task_name, session_token, disposition, reason):
+    task = frappe.get_doc("CFG Kanban Task", task_name)
+    profile, session = require_operator(session_token, "task_verify", workstation=task.workstation)
+    if profile.kanban_role not in ("Supervisor", "Development Proxy"):
+        frappe.throw("Only a Supervisor can cancel or bypass a Service Task occurrence")
+    if task.status in ("Completed", "Cancelled", "Bypassed"):
+        frappe.throw(f"Task cannot be changed while it is {task.status}")
+    if disposition not in ("Cancelled", "Bypassed"):
+        frappe.throw("Unsupported supervisor disposition")
+    if not (reason or "").strip():
+        frappe.throw("Supervisor reason is required")
+    task.status = disposition
+    task.supervisor_disposition = disposition
+    task.disposition_by = profile.employee
+    task.disposition_on = now_datetime()
+    task.disposition_reason = reason
+    task.save(ignore_permissions=True)
+    _task_event(f"Standalone Task {disposition}", task, profile, session, notes=reason)
     return task
 
 
@@ -219,6 +290,25 @@ def _next_due(schedule, base):
     elif schedule.interval_unit == "Months":
         kwargs = {"months": value}
     return add_to_date(base, **kwargs)
+
+
+def _service_schedule_name(value):
+    value = (value or "").strip()
+    marker = "CFG:SERVICE:SCHEDULE:"
+    if value.upper().startswith(marker):
+        value = value[len(marker):]
+    if not value or not frappe.db.exists("CFG Kanban Task Schedule", value):
+        frappe.throw("Permanent Service Point QR is not recognised")
+    return value
+
+
+def _is_skipped_holiday(schedule, scheduled_for):
+    if schedule.holiday_policy != "Skip Listed Holidays" or not schedule.holiday_list:
+        return False
+    return bool(frappe.db.exists(
+        "Holiday", {"parent": schedule.holiday_list,
+                    "holiday_date": get_datetime(scheduled_for).date()}
+    ))
 
 
 def _task_event(event_type, task, profile, session, notes=None):

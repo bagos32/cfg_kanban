@@ -179,7 +179,8 @@ def list_reference_media(reference_doctype, reference_name, permission_checked=F
         filters={"reference_doctype": reference_doctype, "reference_name": reference_name,
                  "status": ["in", statuses]},
         fields=["media_id", "status", "media_class", "original_filename", "content_type",
-                "size_bytes", "created_by", "created_at", "confirmed_at"],
+                "size_bytes", "created_by", "operator_employee", "operator_session",
+                "created_at", "confirmed_at"],
         order_by="confirmed_at desc, created_at desc",
     )
     return rows

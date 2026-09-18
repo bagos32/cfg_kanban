@@ -50,6 +50,27 @@ class TestSharedMediaContract(TestCase):
         self.assertIn("confirm_task_upload", console)
         self.assertIn("create_task_view_url", console)
 
+    def test_process_task_supports_private_qc_evidence(self):
+        api = (ROOT / "api" / "media.py").read_text()
+        operator = (ROOT / "cfg_kanban" / "page" / "kanban_operator" /
+                    "kanban_operator.js").read_text()
+        self.assertIn("create_process_task_upload_url", api)
+        self.assertIn("confirm_process_task_upload", api)
+        self.assertIn("process-task-evidence", (ROOT / "services" / "media.py").read_text())
+        self.assertIn("Take Photo / Add QC Evidence", operator)
+        self.assertIn("confirm_process_task_upload", operator)
+
+    def test_task_form_exposes_private_thumbnail_gallery(self):
+        form = (ROOT / "public" / "js" / "cfg_kanban_task.js").read_text()
+        self.assertIn("get_reference_gallery", form)
+        self.assertIn("preview_url", form)
+        self.assertIn("Open Original", form)
+        self.assertIn("operator_employee", form)
+        schema = json.loads((ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_task" /
+                             "cfg_kanban_task.json").read_text())
+        fields = {row["fieldname"] for row in schema["fields"]}
+        self.assertIn("media_evidence_html", fields)
+
     def test_media_configuration_is_deployment_owned_and_fail_closed(self):
         source = (ROOT / "services" / "media.py").read_text()
         for setting in ("MEDIA_S3_REGION", "MEDIA_S3_BUCKET", "MEDIA_ENVIRONMENT",

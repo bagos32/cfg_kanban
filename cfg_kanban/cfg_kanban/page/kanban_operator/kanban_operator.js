@@ -8,7 +8,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	const session_key = "cfg_kanban_operator_session";
 	const state = { context: null, operator: null, access: null,
 		session_token: localStorage.getItem(session_key), awaiting_operator_scan: false,
-		active_progress_dialog: null, scanner_message: __("Scanner ready"),
+		active_progress_dialog: null, pending_process_task: null, scanner_message: __("Scanner ready"),
 		modal_scan_buffer: "", modal_scan_at: 0 };
 	const scan = page.add_field({
 		label: __("Fixed scanner input — scan any card"),
@@ -249,7 +249,21 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			state.awaiting_operator_scan = false;
 			return login_scanned_operator(operator_token_from_scan(value));
 		}
+		if (/^CFG:(PROCESS_TASK|SAMPLE):/i.test(value)) return load_process_task_scan(value);
 		return load_card(value);
+	}
+
+	async function load_process_task_scan(value) {
+		const response = await frappe.call({ method: "cfg_kanban.api.process_task.resolve_scan", args: {
+			scan_value: value, operator_session_token: state.session_token,
+		} });
+		state.pending_process_task = response.message.task.name;
+		await load_card(response.message.card_qr);
+		const task = (state.context.process_tasks || []).find((row) => row.name === state.pending_process_task);
+		state.pending_process_task = null;
+		if (!task) return frappe.msgprint(__("The scanned Process Task is not available in this cycle."));
+		const action = task.status === "Ready" ? "Start" : task.status === "Awaiting Verification" ? "Verify" : "Complete";
+		return process_task_dialog(task, action);
 	}
 
 	async function dispatch_scanner_command(raw_value) {
@@ -666,10 +680,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		tasks.forEach((task) => {
 			const reuse = task.reused_from_task
 				? `<div class="text-success"><small>${__("Valid completion reused from")}: ${e(task.reused_from_task)}</small></div>` : "";
+			const qc = task.qc_controlled ? `<div><small>${__("QC")}: <strong>${e(task.qc_result || "Pending")}</strong>${task.sample_id ? ` · ${__("Sample")}: ${e(task.sample_id)}` : ""}</small></div>` : "";
 			const $row = $(`<div class="frappe-card p-3 mb-2"><div class="row align-items-center">
 				<div class="col-md-4"><strong>${e(task.sequence)}. ${e(task.task_name)}</strong><br>
 					<small>${e(task.task_type || "")} · ${e(task.trigger_point || "")}</small>
-					${task.linked_operation ? `<div class="text-muted">${__("Operation")}: ${e(task.linked_operation)}</div>` : ""}${reuse}</div>
+					${task.linked_operation ? `<div class="text-muted">${__("Operation")}: ${e(task.linked_operation)}</div>` : ""}${qc}${reuse}</div>
 				<div class="col-md-2"><span class="indicator-pill ${indicator(task.status)}">${e(task.status)}</span></div>
 				<div class="col-md-3">${task.workstation ? `${__("Workstation")}: ${e(task.workstation)}` : ""}
 					${task.valid_until ? `<br><small>${__("Valid until")}: ${e(task.valid_until)}</small>` : ""}</div>
@@ -685,7 +700,20 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			if (task.status === "Awaiting Verification" && state.operator.permissions.task_verify) {
 				add_action($buttons, __("Verify Task"), "btn-warning", () => process_task_dialog(task, "Verify"));
 			}
+			if (task.status === "Blocked" && task.qc_controlled && state.operator.permissions.task_verify) {
+				add_action($buttons, __("Authorise Retest"), "btn-warning", () => authorize_qc_retest(task));
+			}
 		});
+	}
+
+	function authorize_qc_retest(task) {
+		frappe.prompt([{ fieldname: "reason", label: __("Retest Reason / Corrective Action"), fieldtype: "Small Text", reqd: 1 }],
+			async (values) => {
+				await frappe.call({ method: "cfg_kanban.api.process_task.authorize_retest", args: {
+					task_name: task.name, reason: values.reason, operator_session_token: state.session_token,
+				}, freeze: true });
+				await load_card(state.context.card.qr_code);
+			}, __("Authorise Controlled QC Retest"), __("Authorise"));
 	}
 
 	async function process_task_dialog(task, action) {
@@ -693,13 +721,26 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			task_name: task.name, capture_on: action, operator_session_token: state.session_token,
 		} });
 		const details = response.message.task;
+		const context = response.message.production_context || {};
 		const definitions = response.message.fields || [];
+		const initial_media = response.message.media || [];
 		const checklist = (details.checklist || "").split("\n").map((item) => item.trim()).filter(Boolean);
 		const fields = [
-			{ fieldtype: "HTML", options: `<p><strong>${frappe.utils.escape_html(details.task_name)}</strong><br>${frappe.utils.escape_html(details.trigger_point || "")}</p>` },
+			{ fieldtype: "HTML", options: `<div class="alert alert-info"><strong>${frappe.utils.escape_html(details.task_name)}</strong><br>
+				${__("Item")}: <b>${frappe.utils.escape_html(context.item_code || "-")}</b> · ${__("Batch")}: <b>${frappe.utils.escape_html(context.batch_no || "-")}</b><br>
+				${__("Cycle")}: ${frappe.utils.escape_html(context.cycle || "-")} · ${__("Work Order")}: ${frappe.utils.escape_html(context.work_order || "-")} · ${__("Operation")}: ${frappe.utils.escape_html(context.operation || "-")}</div>` },
+			...(details.qc_controlled && action === "Complete" ? [
+				{ fieldname: "sample_id", label: __("Sample ID"), fieldtype: "Data", reqd: 1, default: details.sample_id || details.name },
+				{ fieldname: "qc_result", label: __("QC Result"), fieldtype: "Select", reqd: 1,
+					options: details.allow_conditional_release ? "Pass\nFail\nConditional Release" : "Pass\nFail" },
+				{ fieldname: "qc_reference", fieldtype: "HTML", options: `<p><b>${__("Test Method")}</b>: ${frappe.utils.escape_html(details.test_method || "-")}<br><b>${__("Specification")}</b>: ${frappe.utils.escape_html(details.specification_reference || "-")}</p>` },
+				{ fieldname: "qc_disposition_notes", label: __("QC Disposition / Hold Notes"), fieldtype: "Small Text" },
+			] : []),
 			...checklist.map((item, index) => ({ fieldname: `check_${index}`, label: item, fieldtype: "Check",
 				reqd: action === "Complete" })),
 			...definitions.map(dialog_field),
+			{ fieldtype: "Section Break", label: __("Private QC / Process Evidence") },
+			{ fieldname: "process_media", fieldtype: "HTML", options: process_media_html(initial_media, action !== "Verify") },
 			{ fieldname: "notes", label: __("Notes"), fieldtype: "Small Text" },
 		];
 		const method = { Start: "start", Complete: "complete", Verify: "verify" }[action];
@@ -713,12 +754,80 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					task_name: task.name, operator_session_token: state.session_token,
 					values: dynamic_values, notes: values.notes,
 				};
+				if (details.qc_controlled && action === "Complete") Object.assign(args, {
+					sample_id: values.sample_id, qc_result: values.qc_result,
+					qc_disposition_notes: values.qc_disposition_notes,
+				});
 				if (action === "Complete") args.checklist_results = checklist_results;
 				await frappe.call({ method: `cfg_kanban.api.process_task.${method}`, args, freeze: true });
 				dialog.hide();
 				await load_card(state.context.card.qr_code);
 			} });
 		dialog.show();
+		bind_process_media(dialog, task, action, initial_media);
+	}
+
+	function process_media_html(rows, can_upload) {
+		return `<div class="cfg-task-media-evidence">${can_upload ? `<label class="btn btn-primary cfg-process-media-picker">
+			${__("Take Photo / Add QC Evidence")}<input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf" capture="environment" multiple hidden></label>` : ""}
+			<div class="cfg-process-media-status mt-2"></div><div class="cfg-process-media-list mt-2">${process_media_rows(rows)}</div></div>`;
+	}
+
+	function process_media_rows(rows) {
+		const e = frappe.utils.escape_html;
+		if (!rows.length) return `<div class="text-muted">${__("No private evidence attached yet.")}</div>`;
+		return rows.map((row) => `<button type="button" class="btn btn-default cfg-process-media-row" data-id="${e(row.media_id)}">
+			<strong>${e(row.original_filename)}</strong> <span class="indicator-pill green">${e(row.status)}</span></button>`).join(" ");
+	}
+
+	function bind_process_media(dialog, task, action, initial_rows) {
+		const $field = dialog.get_field("process_media").$wrapper;
+		let rows = initial_rows || [];
+		const refresh = () => {
+			$field.find(".cfg-process-media-list").html(process_media_rows(rows));
+			$field.find(".cfg-process-media-row").off("click").on("click", async function () {
+				const response = await frappe.call({ method: "cfg_kanban.api.media.create_process_task_view_url", args: {
+					task_name: task.name, media_id: $(this).data("id"), operator_session_token: state.session_token,
+				} });
+				window.open(response.message.url, "_blank", "noopener");
+			});
+		};
+		refresh();
+		if (action === "Verify") return;
+		$field.find("input[type=file]").on("change", async function () {
+			const files = Array.from(this.files || []);
+			const $status = $field.find(".cfg-process-media-status");
+			try {
+				for (const file of files) {
+					$status.html(`<div class="alert alert-info">${__("Uploading {0}", [frappe.utils.escape_html(file.name)])}</div>`);
+					const auth = await frappe.call({ method: "cfg_kanban.api.media.create_process_task_upload_url", args: {
+						task_name: task.name, original_filename: file.name, content_type: file.type,
+						size_bytes: file.size, idempotency_key: frappe.utils.get_random(32),
+						operator_session_token: state.session_token,
+					} });
+					if (!auth.message.already_available) {
+						const upload = auth.message;
+						const form = new FormData();
+						Object.entries(upload.fields || {}).forEach(([key, value]) => form.append(key, value));
+						form.append("file", file);
+						const result = await fetch(upload.url, { method: upload.method, body: form });
+						if (!result.ok) throw new Error(__("Private media upload failed with HTTP {0}", [result.status]));
+						await frappe.call({ method: "cfg_kanban.api.media.confirm_process_task_upload", args: {
+							task_name: task.name, media_id: upload.media_id, confirmation_token: upload.confirmation_token,
+							operator_session_token: state.session_token,
+						} });
+					}
+				}
+				const response = await frappe.call({ method: "cfg_kanban.api.media.list_process_task_media", args: {
+					task_name: task.name, operator_session_token: state.session_token,
+				} });
+				rows = response.message || [];
+				refresh();
+				$status.html(`<div class="alert alert-success">${__("Evidence uploaded and verified")}</div>`);
+			} catch (error) {
+				$status.html(`<div class="alert alert-danger">${frappe.utils.escape_html(error.message || __("Media upload failed"))}</div>`);
+			} finally { this.value = ""; }
+		});
 	}
 
 	function render_summaries(summaries) {

@@ -36,6 +36,19 @@ class CFGKanbanMaster(Document):
                 frappe.throw(f"Linked Operation is required for Process Task {row.task_name}")
             if row.reuse_while_valid and (row.validity_duration_hours or 0) <= 0:
                 frappe.throw(f"Validity Duration must be positive for Process Task {row.task_name}")
+            if row.qc_controlled:
+                if not row.test_method or not row.specification_reference:
+                    frappe.throw(
+                        f"Test Method and Specification Reference are required for controlled QC Process Task {row.task_name}"
+                    )
+                if row.reuse_while_valid:
+                    frappe.throw(
+                        f"Controlled QC Process Task {row.task_name} cannot reuse a result from another production cycle"
+                    )
+            if (row.enable_sample_traveller or row.allow_conditional_release) and not row.qc_controlled:
+                frappe.throw(
+                    f"Enable Controlled QC Task before configuring sample or conditional release for {row.task_name}"
+                )
         keys = [row.field_key for row in self.operator_field_definitions]
         if len(keys) != len(set(keys)):
             frappe.throw("Dynamic operator Field Keys must be unique")
