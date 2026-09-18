@@ -161,21 +161,37 @@
 	font-size: 15px;
 }
 
-.cfg-media-picker {
+.cfg-media-picker,
+.cfg-camera-picker,
+.cfg-file-picker,
+.cfg-process-camera-picker,
+.cfg-process-file-picker {
 	cursor: pointer;
 }
 
-.cfg-media-picker.disabled {
+.cfg-media-picker.disabled,
+.cfg-camera-picker.disabled,
+.cfg-file-picker.disabled,
+.cfg-process-camera-picker.disabled,
+.cfg-process-file-picker.disabled {
 	pointer-events: none;
 	opacity: 0.6;
 }
 
-.cfg-media-list {
+.cfg-media-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.cfg-media-list,
+.cfg-process-media-list {
 	display: grid;
 	gap: 8px;
 }
 
-.cfg-media-row {
+.cfg-media-row,
+.cfg-process-media-row {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -186,7 +202,9 @@
 }
 
 .cfg-media-row span:first-child,
-.cfg-media-row small {
+.cfg-media-row small,
+.cfg-process-media-row span:first-child,
+.cfg-process-media-row small {
 	display: block;
 }
 
@@ -327,8 +345,18 @@
 	}
 
 	.cfg-media-picker,
-	.cfg-media-row {
+	.cfg-camera-picker,
+	.cfg-file-picker,
+	.cfg-process-camera-picker,
+	.cfg-process-file-picker,
+	.cfg-media-row,
+	.cfg-process-media-row {
 		width: 100%;
 		min-height: 54px;
+	}
+
+	.cfg-media-actions {
+		display: grid;
+		grid-template-columns: 1fr;
 	}
 }

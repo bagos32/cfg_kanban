@@ -34,7 +34,9 @@ async function render_private_media(frm) {
 		const e = frappe.utils.escape_html;
 		$wrapper.html(`<div class="cfg-task-media-gallery">${rows.map((row) => `<article class="frappe-card cfg-task-media-card">
 			<div class="cfg-task-media-preview">${row.preview_url ? `<img src="${e(row.preview_url)}" loading="lazy">` : `<div class="cfg-task-media-file-icon">FILE</div>`}</div>
-			<div class="cfg-task-media-details"><strong>${e(row.original_filename)}</strong><small>${e(row.content_type || "-")}</small><small>${e(row.confirmed_at || row.created_at || "-")}</small></div>
+			<div class="cfg-task-media-details"><strong>${e(row.original_filename)}</strong><small>${e(row.content_type || "-")}</small><small>${e(row.confirmed_at || row.created_at || "-")}</small>
+			${row.capture_timestamp ? `<small><b>${__("Captured")}</b>: ${e(row.capture_timestamp)}</small>` : ""}
+			${row.geotag ? `<small><b>GPS</b>: ${e(row.geotag.latitude)}, ${e(row.geotag.longitude)} · ±${e(row.geotag.accuracy_metres || 0)}m</small>` : ""}</div>
 			<button class="btn btn-default open-qc-media" data-id="${e(row.media_id)}">${__("Open Original")}</button></article>`).join("")}</div>`);
 		$wrapper.find(".open-qc-media").on("click", async function () {
 			const view = await frappe.call({ method: "cfg_kanban.api.media.create_view_url",

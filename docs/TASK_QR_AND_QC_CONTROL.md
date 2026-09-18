@@ -44,5 +44,13 @@ Dynamic fields remain the structured measurement record. Private image, video, o
 stored through the shared S3 media registry as `process-task-evidence`; the Process Task form shows
 thumbnails and short-lived links to originals.
 
+The operator panels deliberately separate live camera capture from ordinary file upload. A camera
+photo is available only while the task is In Progress and is rendered with the server timestamp,
+task identity, device latitude/longitude, and reported GPS accuracy. The same capture proof is kept
+as structured namespaced media metadata. Location permission is mandatory for this evidence mode.
+Existing photos, PDFs, videos, and other allowed files can be uploaded separately without modifying
+their contents. An operator may remove an accidental attachment; removal archives the registry
+record and hides it from the active task while retaining the audit history and private object.
+
 Controlled QC results are always cycle-specific and cannot use the reusable-task validity option.
 The Process Task profile requires both a Test Method and a neutral Specification Reference.

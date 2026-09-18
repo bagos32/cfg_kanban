@@ -740,7 +740,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				reqd: action === "Complete" })),
 			...definitions.map(dialog_field),
 			{ fieldtype: "Section Break", label: __("Private QC / Process Evidence") },
-			{ fieldname: "process_media", fieldtype: "HTML", options: process_media_html(initial_media, action !== "Verify") },
+			{ fieldname: "process_media", fieldtype: "HTML", options: process_media_html(initial_media, action !== "Verify", details.status === "In Progress") },
 			{ fieldname: "notes", label: __("Notes"), fieldtype: "Small Text" },
 		];
 		const method = { Start: "start", Complete: "complete", Verify: "verify" }[action];
@@ -767,17 +767,23 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		bind_process_media(dialog, task, action, initial_media);
 	}
 
-	function process_media_html(rows, can_upload) {
-		return `<div class="cfg-task-media-evidence">${can_upload ? `<label class="btn btn-primary cfg-process-media-picker">
-			${__("Take Photo / Add QC Evidence")}<input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf" capture="environment" multiple hidden></label>` : ""}
+	function process_media_html(rows, can_upload, can_camera) {
+		return `<div class="cfg-task-media-evidence">${can_upload ? `<div class="cfg-media-actions">
+			${can_camera ? `<label class="btn btn-primary cfg-process-camera-picker">${__("Take Timestamped Photo")}
+				<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden></label>` : ""}
+			<label class="btn btn-default cfg-process-file-picker">${__("Upload Photo / PDF / File")}
+				<input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf" multiple hidden></label></div>
+			<small class="text-muted">${can_camera ? __("Camera photos receive server time and device geolocation. Uploaded files remain unchanged.") : __("Start the task to enable timestamped camera capture. Existing files can still be uploaded.")}</small>` : ""}
 			<div class="cfg-process-media-status mt-2"></div><div class="cfg-process-media-list mt-2">${process_media_rows(rows)}</div></div>`;
 	}
 
 	function process_media_rows(rows) {
 		const e = frappe.utils.escape_html;
 		if (!rows.length) return `<div class="text-muted">${__("No private evidence attached yet.")}</div>`;
-		return rows.map((row) => `<button type="button" class="btn btn-default cfg-process-media-row" data-id="${e(row.media_id)}">
-			<strong>${e(row.original_filename)}</strong> <span class="indicator-pill green">${e(row.status)}</span></button>`).join(" ");
+		return rows.map((row) => `<div class="cfg-process-media-row" data-id="${e(row.media_id)}">
+			<strong>${e(row.original_filename)}</strong><span><span class="indicator-pill green">${e(row.status)}</span>
+			<button type="button" class="btn btn-default btn-sm cfg-open-process-media">${__("Open")}</button>
+			<button type="button" class="btn btn-danger btn-sm cfg-remove-process-media">${__("Remove")}</button></span></div>`).join("");
 	}
 
 	function bind_process_media(dialog, task, action, initial_rows) {
@@ -785,25 +791,49 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		let rows = initial_rows || [];
 		const refresh = () => {
 			$field.find(".cfg-process-media-list").html(process_media_rows(rows));
-			$field.find(".cfg-process-media-row").off("click").on("click", async function () {
+			$field.find(".cfg-open-process-media").off("click").on("click", async function () {
 				const response = await frappe.call({ method: "cfg_kanban.api.media.create_process_task_view_url", args: {
-					task_name: task.name, media_id: $(this).data("id"), operator_session_token: state.session_token,
+					task_name: task.name, media_id: $(this).closest(".cfg-process-media-row").data("id"), operator_session_token: state.session_token,
 				} });
 				window.open(response.message.url, "_blank", "noopener");
+			});
+			$field.find(".cfg-remove-process-media").off("click").on("click", function () {
+				const media_id = $(this).closest(".cfg-process-media-row").data("id");
+				frappe.confirm(__("Remove this accidental attachment? The audit record will be retained."), async () => {
+					await frappe.call({ method: "cfg_kanban.api.media.archive_process_task_media", args: {
+						task_name: task.name, media_id, operator_session_token: state.session_token,
+					}, freeze: true });
+					rows = rows.filter((row) => row.media_id !== media_id);
+					refresh();
+				});
 			});
 		};
 		refresh();
 		if (action === "Verify") return;
-		$field.find("input[type=file]").on("change", async function () {
-			const files = Array.from(this.files || []);
+		const handle_upload = async (input, camera_capture) => {
+			let files = Array.from(input.files || []);
 			const $status = $field.find(".cfg-process-media-status");
 			try {
+				let capture_timestamp = null;
+				let geotag = null;
+				if (camera_capture) {
+					geotag = await process_execution_geotag();
+					const stamp = await frappe.call({ method: "cfg_kanban.api.media.get_process_task_camera_stamp", args: {
+						task_name: task.name, operator_session_token: state.session_token,
+					} });
+					capture_timestamp = stamp.message.captured_at;
+					files = [await stamp_process_photo(files[0], capture_timestamp, task.name, geotag)];
+				}
 				for (const file of files) {
 					$status.html(`<div class="alert alert-info">${__("Uploading {0}", [frappe.utils.escape_html(file.name)])}</div>`);
 					const auth = await frappe.call({ method: "cfg_kanban.api.media.create_process_task_upload_url", args: {
 						task_name: task.name, original_filename: file.name, content_type: file.type,
 						size_bytes: file.size, idempotency_key: frappe.utils.get_random(32),
 						operator_session_token: state.session_token,
+						capture_source: camera_capture ? "timestamped-camera" : "file-upload",
+						capture_timestamp,
+						latitude: geotag && geotag.latitude, longitude: geotag && geotag.longitude,
+						location_accuracy: geotag && geotag.accuracy,
 					} });
 					if (!auth.message.already_available) {
 						const upload = auth.message;
@@ -826,7 +856,52 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				$status.html(`<div class="alert alert-success">${__("Evidence uploaded and verified")}</div>`);
 			} catch (error) {
 				$status.html(`<div class="alert alert-danger">${frappe.utils.escape_html(error.message || __("Media upload failed"))}</div>`);
-			} finally { this.value = ""; }
+			} finally { input.value = ""; }
+		};
+		$field.find(".cfg-process-camera-picker input").on("change", function () { handle_upload(this, true); });
+		$field.find(".cfg-process-file-picker input").on("change", function () { handle_upload(this, false); });
+	}
+
+	function process_execution_geotag() {
+		if (!navigator.geolocation) return Promise.reject(new Error(__("This device does not provide geolocation.")));
+		return new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(
+			(position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude,
+				accuracy: position.coords.accuracy }),
+			() => reject(new Error(__("Location permission is required for timestamped task photos. Use Upload File for existing evidence."))),
+			{ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+		));
+	}
+
+	async function stamp_process_photo(file, captured_at, task_name, geotag) {
+		const bitmap = await load_process_bitmap(file);
+		const canvas = document.createElement("canvas");
+		canvas.width = bitmap.width; canvas.height = bitmap.height;
+		const context = canvas.getContext("2d");
+		context.drawImage(bitmap, 0, 0);
+		const font_size = Math.max(24, Math.round(canvas.width * 0.027));
+		const padding = Math.round(font_size * 0.7);
+		context.fillStyle = "rgba(0,0,0,0.72)";
+		context.fillRect(0, canvas.height - font_size * 3.4, canvas.width, font_size * 3.4);
+		context.fillStyle = "#fff"; context.font = `bold ${font_size}px Arial`;
+		context.fillText(`${captured_at} · ${task_name}`, padding, canvas.height - font_size * 1.55);
+		context.font = `${Math.round(font_size * 0.65)}px Arial`;
+		context.fillText(`GPS ${geotag.latitude.toFixed(6)}, ${geotag.longitude.toFixed(6)} · ±${Math.round(geotag.accuracy)}m`, padding, canvas.height - font_size * 0.75);
+		context.fillText("CFG Kanban execution capture · server time + device geolocation", padding, canvas.height - font_size * 0.18);
+		const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+		if (bitmap.close) bitmap.close();
+		if (!blob) throw new Error(__("The camera photo could not be timestamped."));
+		const base = String(file.name || "photo").replace(/\.[^.]+$/, "");
+		return new File([blob], `${base}-timestamped.jpg`, { type: "image/jpeg", lastModified: Date.now() });
+	}
+
+	async function load_process_bitmap(file) {
+		if (window.createImageBitmap) return createImageBitmap(file);
+		return new Promise((resolve, reject) => {
+			const image = new Image();
+			const url = URL.createObjectURL(file);
+			image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+			image.onerror = () => { URL.revokeObjectURL(url); reject(new Error(__("The selected image could not be read."))); };
+			image.src = url;
 		});
 	}
 

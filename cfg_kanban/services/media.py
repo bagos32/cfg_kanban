@@ -180,9 +180,15 @@ def list_reference_media(reference_doctype, reference_name, permission_checked=F
                  "status": ["in", statuses]},
         fields=["media_id", "status", "media_class", "original_filename", "content_type",
                 "size_bytes", "created_by", "operator_employee", "operator_session",
-                "created_at", "confirmed_at"],
+                "created_at", "confirmed_at", "extensions_json"],
         order_by="confirmed_at desc, created_at desc",
     )
+    for row in rows:
+        extensions = frappe.parse_json(row.extensions_json or "{}")
+        proof = extensions.get("cfg_kanban", {})
+        row["capture_source"] = proof.get("capture_source")
+        row["capture_timestamp"] = proof.get("capture_timestamp")
+        row["geotag"] = proof.get("geotag")
     return rows
 
 
@@ -193,7 +199,8 @@ def get_print_media(reference_doctype, reference_name):
         filters={"reference_doctype": reference_doctype, "reference_name": reference_name,
                  "status": "available"},
         fields=["media_id", "media_class", "original_filename", "content_type",
-                "size_bytes", "checksum_algorithm", "checksum_value", "confirmed_at"],
+                "size_bytes", "checksum_algorithm", "checksum_value", "confirmed_at",
+                "extensions_json"],
         order_by="confirmed_at asc, creation asc",
     )
 
@@ -379,5 +386,5 @@ def _metadata(media):
         "size_bytes", "checksum_algorithm", "checksum_value", "etag", "version_id",
         "status", "created_by", "created_at", "confirmed_at", "retention_class",
         "access_classification", "operator_employee", "operator_session", "archived_at",
-        "deleted_at",
+        "deleted_at", "extensions_json",
     )}

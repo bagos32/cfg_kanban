@@ -44,7 +44,10 @@ class TestSharedMediaContract(TestCase):
     def test_service_task_ui_uploads_directly_and_confirms(self):
         console = (ROOT / "cfg_kanban" / "page" / "kanban_tasks" /
                    "kanban_tasks.js").read_text()
-        self.assertIn("Take Photo / Add Evidence", console)
+        self.assertIn("Take Timestamped Photo", console)
+        self.assertIn("Upload Photo / PDF / File", console)
+        self.assertIn("get_execution_geotag", console)
+        self.assertIn("archive_task_media", console)
         self.assertIn("new FormData()", console)
         self.assertIn("fetch(upload.url", console)
         self.assertIn("confirm_task_upload", console)
@@ -57,8 +60,23 @@ class TestSharedMediaContract(TestCase):
         self.assertIn("create_process_task_upload_url", api)
         self.assertIn("confirm_process_task_upload", api)
         self.assertIn("process-task-evidence", (ROOT / "services" / "media.py").read_text())
-        self.assertIn("Take Photo / Add QC Evidence", operator)
+        self.assertIn("Take Timestamped Photo", operator)
+        self.assertIn("Upload Photo / PDF / File", operator)
+        self.assertIn("process_execution_geotag", operator)
+        self.assertIn("archive_process_task_media", operator)
         self.assertIn("confirm_process_task_upload", operator)
+
+    def test_execution_camera_evidence_has_server_time_geotag_and_recoverable_remove(self):
+        api = (ROOT / "api" / "media.py").read_text()
+        service = (ROOT / "services" / "media.py").read_text()
+        self.assertIn("get_task_camera_stamp", api)
+        self.assertIn("get_process_task_camera_stamp", api)
+        self.assertIn("Geolocation is required", api)
+        self.assertIn('"geotag"', api)
+        self.assertIn("archive_task_media", api)
+        self.assertIn("archive_process_task_media", api)
+        self.assertIn('"capture_timestamp"', service)
+        self.assertIn('"extensions_json"', service)
 
     def test_task_form_exposes_private_thumbnail_gallery(self):
         form = (ROOT / "public" / "js" / "cfg_kanban_task.js").read_text()

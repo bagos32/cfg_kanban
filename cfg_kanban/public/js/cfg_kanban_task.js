@@ -53,6 +53,8 @@ function media_gallery_html(rows) {
 				<small>${escape(row.content_type || "-")} · ${format_media_bytes(row.size_bytes)}</small>
 				<small>${__("Captured by")}: ${escape(row.operator_employee || row.created_by || "-")}</small>
 				<small>${escape(row.confirmed_at || row.created_at || "-")}</small>
+				${row.capture_timestamp ? `<small><strong>${__("Captured")}</strong>: ${escape(row.capture_timestamp)}</small>` : ""}
+				${row.geotag ? `<small><strong>GPS</strong>: ${escape(row.geotag.latitude)}, ${escape(row.geotag.longitude)} · ±${escape(row.geotag.accuracy_metres || 0)}m</small>` : ""}
 				<small>${__("Media ID")}: ${escape(row.media_id)}</small></div>
 			<button type="button" class="btn btn-default cfg-open-task-media" data-media-id="${escape(row.media_id)}">${__("Open Original")}</button>
 		</article>`;
