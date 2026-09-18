@@ -42,6 +42,42 @@
 	gap: 10px;
 }
 
+.cfg-service-scanner {
+	padding: 16px;
+	border-left: 5px solid var(--blue-500);
+}
+
+.cfg-service-scanner-heading,
+.cfg-service-scanner-controls {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.cfg-service-scanner-heading {
+	justify-content: space-between;
+	margin-bottom: 12px;
+}
+
+.cfg-service-scanner-heading small {
+	display: block;
+}
+
+.cfg-service-scanner-controls .service-scan-input {
+	min-width: 240px;
+	min-height: 46px;
+	font-size: 17px;
+	flex: 1;
+}
+
+.cfg-service-scanner-controls .btn {
+	min-height: 46px;
+}
+
+.cfg-service-scanner .scanner-message {
+	margin-top: 8px;
+}
+
 .cfg-service-mobile-actions .btn,
 .cfg-service-login-actions .btn,
 .cfg-service-session-actions .btn,
@@ -155,6 +191,18 @@
 }
 
 @media (max-width: 767px) {
+	.cfg-service-scanner-heading,
+	.cfg-service-scanner-controls {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.cfg-service-scanner-controls .btn,
+	.cfg-service-scanner-controls .service-scan-input {
+		width: 100%;
+		min-height: 54px;
+	}
+
 	.cfg-service-mobile-actions {
 		grid-template-columns: 1fr 1fr;
 		position: sticky;

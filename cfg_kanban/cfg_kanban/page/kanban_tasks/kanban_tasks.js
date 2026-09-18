@@ -1,7 +1,19 @@
 frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({ parent: wrapper, title: __("Kanban Service Tasks"), single_column: true });
 	const session_key = "cfg_kanban_operator_session";
-	const state = { token: localStorage.getItem(session_key), operator: null };
+	const state = { token: localStorage.getItem(session_key), operator: null, tasks: [] };
+	const $scanner = $(`<div class="frappe-card cfg-service-scanner mb-3">
+		<div class="cfg-service-scanner-heading"><div><strong>${__("Service Task Scanner")}</strong>
+			<small class="text-muted">${__("USB scanners can scan directly into this field and append Enter.")}</small></div>
+			<span class="indicator-pill orange scanner-mode">${__("Operator scan required")}</span></div>
+		<div class="cfg-service-scanner-controls">
+			<input type="text" class="form-control service-scan-input" autocomplete="off" autocapitalize="off"
+				spellcheck="false" placeholder="${__("Scan operator or task/card code")}">
+			<button class="btn btn-primary find-service-task">${__("Find Task / Card")}</button>
+			<button class="btn btn-default camera-service-task">${__("Camera Scan")}</button>
+			<button class="btn btn-default clear-service-filter">${__("Show All")}</button>
+		</div><div class="text-muted scanner-message"><small>${__("Before login, a scan identifies the operator. After login, a scan finds the Service Task card.")}</small></div>
+	</div>`).appendTo(page.main);
 	const $mobile_actions = $(`<div class="cfg-service-mobile-actions mb-3">
 		<button class="btn btn-default refresh-tasks"><span class="octicon octicon-sync"></span> ${__("Refresh")}</button>
 		<button class="btn btn-primary identify-operator">${__("Scan / Switch Operator")}</button>
@@ -15,6 +27,12 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	$mobile_actions.find(".refresh-tasks").on("click", load);
 	$mobile_actions.find(".identify-operator").on("click", identify_operator);
 	$mobile_actions.find(".create-service-task").on("click", create_task);
+	$scanner.find(".find-service-task").on("click", process_scanner_value);
+	$scanner.find(".camera-service-task").on("click", scan_service_code);
+	$scanner.find(".clear-service-filter").on("click", clear_task_filter);
+	$scanner.find(".service-scan-input").on("keydown", (event) => {
+		if (event.key === "Enter") { event.preventDefault(); process_scanner_value(); }
+	});
 
 	async function load() {
 		if (!state.token) return show_login_required();
@@ -26,7 +44,10 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			render_identity();
 			const response = await frappe.call({ method: "cfg_kanban.api.task.get_open_tasks",
 				args: { operator_session_token: state.token } });
-			render(response.message || []);
+			state.tasks = response.message || [];
+			render(state.tasks);
+			update_scanner_mode();
+			focus_scanner();
 		} catch (error) {
 			clear_session();
 			show_login_required(__("The operator session expired. Identify the operator again on this page."));
@@ -44,9 +65,12 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			</div></div>`);
 		$identity.find(".switch-operator").on("click", identify_operator);
 		$identity.find(".end-session").on("click", confirm_end_session);
+		update_scanner_mode();
 	}
 
 	function show_login_required(message) {
+		state.tasks = [];
+		update_scanner_mode();
 		$identity.empty();
 		$root.html(`<div class="frappe-card text-center p-5 cfg-service-login"><h3>${__("Operator identification required")}</h3>
 			<p class="text-muted">${message || __("Scan the operator QR or enter the credential before viewing tasks.")}</p>
@@ -54,6 +78,103 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			<button class="btn btn-default enter-credential">${__("Enter Credential / PIN")}</button></div></div>`);
 		$root.find(".scan-operator").on("click", scan_operator_qr);
 		$root.find(".enter-credential").on("click", credential_dialog);
+		focus_scanner();
+	}
+
+	async function process_scanner_value() {
+		const $input = $scanner.find(".service-scan-input");
+		const raw = String($input.val() || "").trim();
+		if (!raw) { focus_scanner(); return; }
+		$input.val("");
+		const operator = operator_token_from_url(raw);
+		if (!state.token || operator) {
+			try { await login_operator(operator || raw); }
+			catch (error) { scanner_error(__("Operator identification failed. Check the credential and retry.")); }
+			return;
+		}
+		const task_value = service_task_token(raw);
+		const known_task = state.tasks.some((task) => [task.name, task.task_name, task.task_schedule]
+			.filter(Boolean).some((candidate) => String(candidate).toLowerCase() === task_value.toLowerCase()));
+		if (/^KTASK-/i.test(task_value) || known_task || task_value !== raw) {
+			find_service_task(task_value);
+			return;
+		}
+		try { await login_operator(raw); }
+		catch (error) { scanner_error(__("The scan is not an open Service Task or a valid operator credential.")); }
+	}
+
+	function find_service_task(value) {
+		const query = String(value || "").trim().toLowerCase();
+		const exact = state.tasks.filter((task) => [task.name, task.task_name, task.task_schedule]
+			.filter(Boolean).some((candidate) => String(candidate).toLowerCase() === query));
+		const matches = exact.length ? exact : state.tasks.filter((task) => [task.name, task.task_name]
+			.filter(Boolean).some((candidate) => String(candidate).toLowerCase().includes(query)));
+		if (matches.length !== 1) {
+			scanner_error(matches.length ? __("More than one Service Task matches. Scan the exact Task ID.") :
+				__("No open Service Task matches {0}.", [frappe.utils.escape_html(value)]));
+			return;
+		}
+		render(matches);
+		$scanner.find(".scanner-message").html(`<small class="text-success">${__("Task found: {0}", [frappe.utils.escape_html(matches[0].name)])}</small>`);
+		setTimeout(() => document.querySelector(".cfg-service-task-card")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+		focus_scanner();
+	}
+
+	function clear_task_filter() {
+		if (state.token) render(state.tasks);
+		$scanner.find(".service-scan-input").val("");
+		$scanner.find(".scanner-message").html(`<small>${__("Ready for the next operator or Service Task scan.")}</small>`);
+		focus_scanner();
+	}
+
+	function scan_service_code() {
+		if (!(frappe.ui && frappe.ui.Scanner)) {
+			scanner_error(__("Camera scanning is unavailable in this browser. Use the scan field instead."));
+			return;
+		}
+		new frappe.ui.Scanner({ dialog: true, multiple: false, on_scan(data) {
+			const value = String((data && data.decodedText) || "").trim();
+			$scanner.find(".service-scan-input").val(value);
+			process_scanner_value();
+		} });
+	}
+
+	function service_task_token(value) {
+		try {
+			const url = new URL(value);
+			const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
+			const parameter = hash.get("service_task") || hash.get("task") ||
+				url.searchParams.get("service_task") || url.searchParams.get("task");
+			if (parameter) return parameter;
+			const match = url.pathname.match(/\/cfg-kanban-task\/([^/?#]+)/i);
+			return match ? decodeURIComponent(match[1]) : value;
+		} catch (error) { return value; }
+	}
+
+	function operator_token_from_url(value) {
+		try {
+			const url = new URL(value);
+			return new URLSearchParams(url.hash.replace(/^#/, "")).get("operator") ||
+				url.searchParams.get("operator");
+		} catch (error) { return null; }
+	}
+
+	function update_scanner_mode() {
+		$scanner.find(".scanner-mode").removeClass("orange green")
+			.addClass(state.token ? "green" : "orange")
+			.text(state.token ? __("Task scanner ready") : __("Operator scan required"));
+	}
+
+	function scanner_error(message) {
+		$scanner.find(".scanner-message").html(`<small class="text-danger">${message}</small>`);
+		frappe.show_alert({ message, indicator: "red" }, 5);
+		focus_scanner();
+	}
+
+	function focus_scanner() {
+		if (window.matchMedia("(min-width: 768px) and (hover: hover)").matches) {
+			setTimeout(() => $scanner.find(".service-scan-input").trigger("focus").select(), 50);
+		}
 	}
 
 	function identify_operator() {
@@ -102,7 +223,8 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	}
 
 	function clear_session() {
-		localStorage.removeItem(session_key); state.token = null; state.operator = null;
+		localStorage.removeItem(session_key); state.token = null; state.operator = null; state.tasks = [];
+		update_scanner_mode();
 	}
 
 	function confirm_end_session() {
