@@ -20,6 +20,7 @@ def cancel_and_rollback(signal_name, reason):
     work_order_name = cycle.work_order or (
         signal.erp_reference_name if signal.erp_reference_doctype == "Work Order" else None
     )
+    _assert_no_purchase_activity(cycle)
     _assert_no_production_activity(cycle, work_order_name)
     if work_order_name and frappe.db.exists("Work Order", work_order_name):
         work_order = frappe.get_doc("Work Order", work_order_name)
@@ -31,6 +32,16 @@ def cancel_and_rollback(signal_name, reason):
         elif work_order.docstatus == 1:
             work_order.flags.ignore_permissions = True
             work_order.cancel()
+    material_request_name = cycle.get("material_request")
+    if material_request_name and frappe.db.exists("Material Request", material_request_name):
+        request = frappe.get_doc("Material Request", material_request_name)
+        if request.docstatus == 0:
+            frappe.delete_doc("Material Request", request.name, ignore_permissions=True,
+                              ignore_links=True)
+        elif request.docstatus == 1:
+            request.flags.ignore_permissions = True
+            request.cancel()
+        cycle.db_set("material_request", None, update_modified=False)
 
     previous_cycle_state = cycle.status
     card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card) if cycle.kanban_card else None
@@ -85,3 +96,15 @@ def _assert_no_production_activity(cycle, work_order_name=None):
                 frappe.throw("This Signal cannot be rolled back because a submitted Job Card exists")
             if frappe.db.exists("Job Card Time Log", {"parent": ["in", job_cards]}):
                 frappe.throw("This Signal cannot be rolled back because Job Card time logs exist")
+
+
+def _assert_no_purchase_activity(cycle):
+    if not cycle.get("material_request") and not cycle.get("purchase_order"):
+        return
+    if frappe.db.exists("Purchase Receipt", {"cfg_kanban_cycle": cycle.name,
+                                               "docstatus": 1}):
+        frappe.throw("This Signal cannot be rolled back because a submitted Purchase Receipt exists")
+    if cycle.get("purchase_order"):
+        frappe.throw("This Signal has an effective Purchase Order. Cancel or close the ERPNext Purchase "
+                     "Order first, then reconcile the Kanban Cycle; automatic rollback stops here to "
+                     "protect purchasing history.")

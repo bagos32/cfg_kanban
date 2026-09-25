@@ -9,6 +9,49 @@ frappe.ui.form.on("CFG Kanban Cycle", {
 			frm.add_custom_button(__("Open Work Order"), () =>
 				frappe.set_route("Form", "Work Order", frm.doc.work_order), __("View"));
 		}
+		if (frm.doc.material_request) {
+			frm.add_custom_button(__("Open Material Request"), () =>
+				frappe.set_route("Form", "Material Request", frm.doc.material_request), __("View"));
+		}
+		if (frm.doc.purchase_order) {
+			frm.add_custom_button(__("Open Purchase Order"), () =>
+				frappe.set_route("Form", "Purchase Order", frm.doc.purchase_order), __("View"));
+			if (!["Completed", "Cancelled", "Blocked"].includes(frm.doc.status) && (frm.doc.outstanding_qty || 0) > 0) {
+				frm.add_custom_button(__("Receive Purchased Item"), async () => {
+				const response = await frappe.call({ method: "cfg_kanban.api.purchase.get_receipt_context",
+					args: { cycle_name: frm.doc.name } });
+				const context = response.message;
+				frappe.prompt([
+					{ fieldname: "delivered_qty", label: __("Delivered Qty"), fieldtype: "Float", reqd: 1, default: context.outstanding_qty },
+					{ fieldname: "accepted_qty", label: __("Accepted Qty"), fieldtype: "Float", reqd: 1, default: context.outstanding_qty },
+					{ fieldname: "rejected_qty", label: __("Rejected Qty"), fieldtype: "Float", default: 0 },
+					{ fieldname: "warehouse", label: __("Accepted Warehouse"), fieldtype: "Link", options: "Warehouse", reqd: 1, default: context.warehouse },
+					{ fieldname: "rejected_warehouse", label: __("Rejected Warehouse"), fieldtype: "Link", options: "Warehouse", default: context.rejected_warehouse },
+					{ fieldname: "supplier_delivery_note", label: __("Supplier Delivery Note"), fieldtype: "Data" },
+				], async (values) => {
+					const result = await frappe.call({ method: "cfg_kanban.api.purchase.receive_purchase",
+						args: { cycle_name: frm.doc.name, ...values, event_token: frappe.utils.get_random(16) },
+						freeze: true, freeze_message: __("Creating Purchase Receipt...") });
+					frappe.set_route("Form", "Purchase Receipt", result.message.purchase_receipt);
+				}, __("Receive against {0}", [context.purchase_order]), __("Create Purchase Receipt"));
+				}, __("Purchase Replenishment"));
+			}
+		}
+		if (frm.doc.purchase_status && !frm.doc.purchase_order &&
+			["Manufacturing Manager", "Purchase Manager", "System Manager"].some((role) => frappe.user_roles.includes(role))) {
+			frm.add_custom_button(__("Select Purchase Order"), () => {
+				frappe.prompt([
+					{ fieldname: "purchase_order", label: __("Submitted Purchase Order"), fieldtype: "Link", options: "Purchase Order", reqd: 1,
+						get_query: () => ({ filters: { supplier: frm.doc.supplier, docstatus: 1 } }) },
+					{ fieldname: "reason", label: __("Selection Reason"), fieldtype: "Small Text", reqd: 1 },
+				], async (values) => {
+					await frappe.call({ method: "cfg_kanban.api.purchase.select_purchase_order",
+						args: { cycle_name: frm.doc.name, purchase_order_name: values.purchase_order, reason: values.reason },
+						freeze: true, freeze_message: __("Validating Purchase Order...") });
+					frm.reload_doc();
+				}, __("Select Effective Purchase Order"), __("Link Purchase Order"));
+			}, __("Purchase Replenishment"));
+		}
 		if (["Manufacturing Manager", "System Manager"].some((role) => frappe.user_roles.includes(role))) {
 			if (frm.doc.kanban_card && !frm.doc.runtime_allocation &&
 				!["Completed", "Cancelled"].includes(frm.doc.status)) {

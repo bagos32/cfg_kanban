@@ -110,6 +110,23 @@ class TestDocTypeSchema(TestCase):
             self.assertEqual(by_name[fieldname].get("in_standard_filter"), 1)
         self.assertTrue({"cancellation_reason", "cancelled_on", "cancelled_by"}.issubset(by_name))
 
+    def test_purchase_replenishment_schema_is_explicit(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        master = {row["fieldname"]: row for row in schemas["CFG Kanban Master"]["fields"]}
+        self.assertIn("Purchase Replenishment", master["control_type"]["options"].splitlines())
+        self.assertTrue({"default_supplier", "supplier_pack_size", "minimum_order_qty",
+                         "purchase_order_multiple", "auto_submit_material_request",
+                         "receipt_posting_mode", "allow_partial_receipt",
+                         "over_receipt_tolerance_pct", "rejected_warehouse"}.issubset(master))
+        cycle = {row["fieldname"] for row in schemas["CFG Kanban Cycle"]["fields"]}
+        self.assertTrue({"supplier", "material_request", "purchase_order",
+                         "purchase_order_item", "latest_purchase_receipt", "ordered_qty",
+                         "received_qty", "outstanding_qty", "purchase_status"}.issubset(cycle))
+        commands = next(row for row in schemas["CFG ERP Command"]["fields"]
+                        if row["fieldname"] == "command_type")["options"].splitlines()
+        self.assertIn("Create Material Request", commands)
+        self.assertIn("Create Purchase Receipt", commands)
+
     def test_dashboard_profile_supports_saved_multi_workstation_screens(self):
         profile_path = ROOT / "cfg_kanban_dashboard_profile" / "cfg_kanban_dashboard_profile.json"
         profile = json.loads(profile_path.read_text())

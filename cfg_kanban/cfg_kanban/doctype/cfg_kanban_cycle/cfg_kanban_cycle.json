@@ -1,6 +1,6 @@
 {
  "doctype":"DocType","name":"CFG Kanban Cycle","module":"CFG Kanban","autoname":"KCY-.YYYY.-.#####","track_changes":1,
- "field_order":["kanban_master","kanban_card","item_code","planned_qty","nominal_card_qty","effective_cycle_qty","available_input_qty","short_cycle","short_cycle_reason","actual_good_qty","reject_qty","stock_uom","batch_no","status","priority","signal","work_order","selected_job_card","runtime_allocation","source_warehouse","destination_warehouse","started_on","completed_on","blocked","exception","remarks"],
+ "field_order":["kanban_master","kanban_card","item_code","planned_qty","nominal_card_qty","effective_cycle_qty","available_input_qty","short_cycle","short_cycle_reason","actual_good_qty","reject_qty","stock_uom","batch_no","status","priority","signal","work_order","selected_job_card","runtime_allocation","purchase_section","supplier","material_request","purchase_order","purchase_order_item","latest_purchase_receipt","ordered_qty","received_qty","outstanding_qty","purchase_status","source_warehouse","destination_warehouse","started_on","completed_on","blocked","exception","remarks"],
  "fields":[
   {"fieldname":"kanban_master","label":"Kanban Master","fieldtype":"Link","options":"CFG Kanban Master","reqd":1},
   {"fieldname":"kanban_card","label":"Kanban Card","fieldtype":"Link","options":"CFG Kanban Card","in_list_view":1,"in_standard_filter":1},
@@ -15,12 +15,22 @@
   {"fieldname":"reject_qty","label":"Reject Qty","fieldtype":"Float","read_only":1},
   {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM"},
   {"fieldname":"batch_no","label":"Batch","fieldtype":"Link","options":"Batch"},
-  {"fieldname":"status","label":"Status","fieldtype":"Select","options":"New\nSignalled\nReleased\nIn Production\nPacking In Progress\nProduction Complete\nWaiting FG Receipt\nCompleted\nHold\nBlocked\nCancelled","default":"New","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"status","label":"Status","fieldtype":"Select","options":"New\nSignalled\nReleased\nMaterial Requested\nOrdered\nPartially Received\nReceived\nIn Production\nPacking In Progress\nProduction Complete\nWaiting FG Receipt\nCompleted\nHold\nBlocked\nCancelled","default":"New","read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"priority","label":"Priority","fieldtype":"Select","options":"Low\nNormal\nHigh\nUrgent","default":"Normal","in_standard_filter":1},
   {"fieldname":"signal","label":"Signal","fieldtype":"Link","options":"CFG Kanban Signal","read_only":1},
   {"fieldname":"work_order","label":"Effective Work Order","fieldtype":"Link","options":"Work Order","read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"selected_job_card","label":"Selected Job Card","fieldtype":"Link","options":"Job Card","read_only":1},
   {"fieldname":"runtime_allocation","label":"Runtime Allocation","fieldtype":"Link","options":"CFG Kanban Runtime Allocation","read_only":1},
+  {"fieldname":"purchase_section","label":"Purchase Replenishment","fieldtype":"Section Break","depends_on":"eval:doc.purchase_status"},
+  {"fieldname":"supplier","label":"Supplier","fieldtype":"Link","options":"Supplier","read_only":1,"in_standard_filter":1},
+  {"fieldname":"material_request","label":"Material Request","fieldtype":"Link","options":"Material Request","read_only":1,"in_list_view":1},
+  {"fieldname":"purchase_order","label":"Effective Purchase Order","fieldtype":"Link","options":"Purchase Order","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"purchase_order_item","label":"Purchase Order Item Row","fieldtype":"Data","read_only":1,"hidden":1},
+  {"fieldname":"latest_purchase_receipt","label":"Latest Purchase Receipt","fieldtype":"Link","options":"Purchase Receipt","read_only":1},
+  {"fieldname":"ordered_qty","label":"Ordered Qty","fieldtype":"Float","read_only":1},
+  {"fieldname":"received_qty","label":"Received Qty","fieldtype":"Float","read_only":1,"in_list_view":1},
+  {"fieldname":"outstanding_qty","label":"Outstanding Qty","fieldtype":"Float","read_only":1},
+  {"fieldname":"purchase_status","label":"Purchase Status","fieldtype":"Select","options":"Demand Released\nMaterial Requested\nOrdered\nPartially Received\nReceived\nBlocked\nCancelled","read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"source_warehouse","label":"Source Warehouse","fieldtype":"Link","options":"Warehouse"},
   {"fieldname":"destination_warehouse","label":"Destination Warehouse","fieldtype":"Link","options":"Warehouse"},
   {"fieldname":"started_on","label":"Started On","fieldtype":"Datetime","read_only":1},
@@ -29,5 +39,12 @@
   {"fieldname":"exception","label":"Exception","fieldtype":"Link","options":"CFG Kanban Exception","read_only":1},
   {"fieldname":"remarks","label":"Remarks","fieldtype":"Text"}
  ],
- "permissions":[{"role":"Manufacturing User","read":1},{"role":"Manufacturing Manager","read":1,"write":1,"create":1}]
+ "permissions":[
+  {"role":"Manufacturing User","read":1},
+  {"role":"Manufacturing Manager","read":1,"write":1,"create":1},
+  {"role":"Purchase User","read":1},
+  {"role":"Purchase Manager","read":1,"write":1},
+  {"role":"Stock User","read":1},
+  {"role":"Stock Manager","read":1,"write":1}
+ ]
 }

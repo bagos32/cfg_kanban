@@ -1,6 +1,7 @@
 # CFG Kanban
 
-For setup and day-to-day operation, see the [CFG Kanban User Manual](docs/USER_MANUAL.md).
+For the standalone, code-verified setup and operating source of truth, see the
+[CFG Kanban Code-Verified Operating Guide](docs/USER_MANUAL.md).
 The consolidated model is documented in
 [Enhanced V1 Core Architecture](docs/ENHANCED_CORE_ARCHITECTURE.md).
 
@@ -8,8 +9,8 @@ The consolidated model is documented in
 **when and why** replenishment or a process handoff is required; ERPNext remains the system of
 record for Work Orders, Job Cards, Stock Entries, stock, batches, and accounting.
 
-The app covers production control plus an approval-first Sales Order demand proposal flow.
-Supplier Kanban remains intentionally deferred.
+The app covers production control, an approval-first Sales Order demand proposal flow, and a
+buyer-owned purchase-replenishment baseline. Vendor-managed external processing remains a V2 item.
 
 ## Included
 
@@ -31,6 +32,9 @@ Supplier Kanban remains intentionally deferred.
 - Event, signal, ERP command, and exception records.
 - A central card state service and trigger service.
 - One ERP gateway for Work Order, Job Card, and Stock Entry actions.
+- Purchase-replenishment signals that create ERPNext Material Requests, bind a validated submitted
+  Purchase Order, and create draft or receiver-confirmed Purchase Receipts with partial-receipt,
+  tolerance, supplier, item, company, and warehouse guardrails.
 - ERPNext `doc_events` feedback for Work Order, Job Card, and Stock Entry changes.
 - Unique database-backed idempotency keys for signals and commands, plus active-cycle protection.
 - Whitelisted scan and incremental progress API skeletons.

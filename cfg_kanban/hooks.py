@@ -71,6 +71,13 @@ doc_events = {
         "on_submit": "cfg_kanban.integrations.erp_feedback.on_stock_entry_submit",
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_stock_entry_cancel",
     },
+    "Purchase Order": {
+        "on_submit": "cfg_kanban.integrations.purchase_feedback.on_purchase_order_submit",
+    },
+    "Purchase Receipt": {
+        "on_submit": "cfg_kanban.integrations.purchase_feedback.on_purchase_receipt_submit",
+        "on_cancel": "cfg_kanban.integrations.purchase_feedback.on_purchase_receipt_cancel",
+    },
 }
 
 scheduler_events = {

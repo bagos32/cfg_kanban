@@ -82,6 +82,78 @@ def create_work_order(command, payload):
     return work_order
 
 
+@handler("Create Material Request")
+def create_material_request(command, payload):
+    cycle = frappe.get_doc("CFG Kanban Cycle", command.kanban_cycle)
+    existing = frappe.db.get_value("Material Request", {
+        "cfg_kanban_cycle": cycle.name, "docstatus": ["<", 2]
+    }, "name")
+    if existing:
+        return frappe.get_doc("Material Request", existing)
+    request = frappe.get_doc({
+        "doctype": "Material Request", "material_request_type": "Purchase",
+        "company": payload["company"], "schedule_date": add_to_date(now_datetime(), days=1).date(),
+        "cfg_kanban_controlled": 1, "cfg_kanban_cycle": cycle.name,
+        "cfg_kanban_signal": command.source_signal,
+        "items": [{"item_code": payload["item_code"], "qty": payload["qty"],
+                   "uom": payload.get("stock_uom"),
+                   "warehouse": payload.get("warehouse"),
+                   "schedule_date": add_to_date(now_datetime(), days=1).date()}],
+    }).insert(ignore_permissions=True)
+    if payload.get("submit"):
+        request.submit()
+    cycle.db_set({"material_request": request.name, "supplier": payload.get("supplier"),
+                  "purchase_status": "Material Requested",
+                  "outstanding_qty": payload["qty"]})
+    signal = frappe.get_doc("CFG Kanban Signal", command.source_signal)
+    signal.db_set({"erp_reference_doctype": "Material Request",
+                   "erp_reference_name": request.name, "status": "Completed"})
+    set_cycle_state(cycle, "Material Requested", event_type="Material Request Created",
+                    reference_doctype="Material Request", reference_name=request.name)
+    return request
+
+
+@handler("Create Purchase Receipt")
+def create_purchase_receipt(command, payload):
+    from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_receipt
+
+    cycle = frappe.get_doc("CFG Kanban Cycle", command.kanban_cycle)
+    receipt = make_purchase_receipt(payload["purchase_order"])
+    selected = [row for row in receipt.items
+                if row.get("purchase_order_item") == payload["purchase_order_item"]]
+    if not selected:
+        frappe.throw("ERPNext could not map the selected Purchase Order item row")
+    receipt.set("items", selected)
+    row = receipt.items[0]
+    row.received_qty = payload["delivered_qty"]
+    row.qty = payload["accepted_qty"]
+    row.rejected_qty = payload.get("rejected_qty") or 0
+    row.warehouse = payload.get("warehouse")
+    row.rejected_warehouse = payload.get("rejected_warehouse")
+    receipt.supplier_delivery_note = payload.get("supplier_delivery_note")
+    receipt.cfg_kanban_controlled = 1
+    receipt.cfg_kanban_cycle = cycle.name
+    receipt.cfg_kanban_signal = command.source_signal
+    receipt.insert(ignore_permissions=True)
+
+    item = frappe.db.get_value("Item", cycle.item_code,
+                               ["has_batch_no", "has_serial_no", "inspection_required_before_purchase"],
+                               as_dict=True)
+    controlled = item and (item.has_batch_no or item.has_serial_no or
+                           item.inspection_required_before_purchase)
+    if payload.get("submit") and not controlled:
+        receipt.submit()
+    receipt._cfg_command_result = {
+        "doctype": receipt.doctype, "name": receipt.name, "docstatus": receipt.docstatus,
+        "submitted": receipt.docstatus == 1,
+        "requires_erp_completion": bool(payload.get("submit") and controlled),
+        "message": ("Draft retained because batch, serial, or Quality Inspection control must "
+                    "be completed in ERPNext before submission") if payload.get("submit") and controlled else None,
+    }
+    cycle.db_set("latest_purchase_receipt", receipt.name)
+    return receipt
+
+
 @frappe.whitelist()
 def reload_draft_work_order_bom(work_order_name):
     """Repair a draft Kanban Work Order created before BOM population was added."""

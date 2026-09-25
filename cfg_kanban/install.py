@@ -27,6 +27,10 @@ def _custom_fields():
         {"fieldname": "cfg_kanban_cycle", "label": "Kanban Cycle", "fieldtype": "Link", "options": "CFG Kanban Cycle", "read_only": 1, "insert_after": "cfg_kanban_controlled"},
         {"fieldname": "cfg_kanban_signal", "label": "Kanban Signal", "fieldtype": "Link", "options": "CFG Kanban Signal", "read_only": 1, "insert_after": "cfg_kanban_cycle"},
     ]
+    def purchase_common(insert_after):
+        fields = [dict(field) for field in common]
+        fields[0]["insert_after"] = insert_after
+        return fields
     return {
         "Work Order": common + [
             {"fieldname": "cfg_production_origin", "label": "Production Origin", "fieldtype": "Select", "options": "KANBAN\nMANUAL\nPLANNING\nSALES ORDER\nREWORK\nTRIAL", "insert_after": "cfg_kanban_signal"},
@@ -52,6 +56,9 @@ def _custom_fields():
              "read_only": 1, "unique": 1, "insert_after": "completed_qty", "module": "CFG Kanban"},
         ],
         "Stock Entry": common,
+        "Material Request": purchase_common("terms"),
+        "Purchase Order": purchase_common("terms"),
+        "Purchase Receipt": purchase_common("terms"),
         "CFG Kanban Master": [
             {"fieldname": "cfg_sales_demand_section", "label": "Sales Demand Trigger", "fieldtype": "Section Break", "insert_after": "remarks", "module": "CFG Kanban"},
             {"fieldname": "enable_sales_order_trigger", "label": "Enable Sales Order Trigger", "fieldtype": "Check", "insert_after": "cfg_sales_demand_section", "module": "CFG Kanban"},

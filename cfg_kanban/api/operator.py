@@ -11,6 +11,7 @@ from cfg_kanban.services.progress import report
 from cfg_kanban.services.printing import get_qr_svg
 from cfg_kanban.services.operation_summary import recalculate
 from cfg_kanban.services.triggers import create_work_order_command
+from cfg_kanban.services.purchase_replenishment import create_material_request_command
 from cfg_kanban.services.runtime_selector import allocate as allocate_runtime_card
 from cfg_kanban.services.runtime_selector import preview as preview_runtime_card
 from cfg_kanban.services.signal_cancellation import cancel_and_rollback
@@ -389,7 +390,7 @@ def _runtime_close_readiness(execution, work_order, job_card):
 
 @frappe.whitelist()
 def approve_signal(signal_name):
-    frappe.only_for(("Manufacturing Manager", "System Manager"))
+    frappe.only_for(("Manufacturing Manager", "Purchase Manager", "System Manager"))
     signal = frappe.get_doc("CFG Kanban Signal", signal_name)
     if signal.status == "Completed":
         return {"signal": signal.name, "command": signal.command, "duplicate": True}
@@ -397,7 +398,10 @@ def approve_signal(signal_name):
         frappe.throw(f"Signal cannot be approved while it is {signal.status}")
     assert_gate_open(signal.kanban_cycle, "Before Cycle Start")
     signal.db_set({"status": "Validated", "validated_on": now_datetime()})
-    command = create_work_order_command(signal.name)
+    master = frappe.get_doc("CFG Kanban Master", signal.kanban_master)
+    command = (create_material_request_command(signal.name)
+               if master.control_type == "Purchase Replenishment"
+               else create_work_order_command(signal.name))
     result = execute_command(command.name)
     return {"signal": signal.name, "command": command.name,
             "erp_document": result.name, "duplicate": False}
@@ -405,7 +409,7 @@ def approve_signal(signal_name):
 
 @frappe.whitelist()
 def cancel_signal(signal_name, reason):
-    frappe.only_for(("Manufacturing Manager", "System Manager"))
+    frappe.only_for(("Manufacturing Manager", "Purchase Manager", "System Manager"))
     signal = frappe.get_doc("CFG Kanban Signal", signal_name)
     signal.check_permission("write")
     if signal.status == "Cancelled":

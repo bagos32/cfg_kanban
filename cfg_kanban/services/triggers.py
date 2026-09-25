@@ -6,6 +6,7 @@ from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key, insert_once
 from cfg_kanban.services.state_machine import transition_card
 from cfg_kanban.services.process_tasks import ensure_tasks, evaluate_gate
+from cfg_kanban.services.purchase_replenishment import create_material_request_command
 
 
 def consume_card(card_name, *, device_id=None, event_token=None, trusted_operator=False):
@@ -34,8 +35,10 @@ def consume_card(card_name, *, device_id=None, event_token=None, trusted_operato
     ensure_tasks(cycle.name)
     cycle_start_gate = evaluate_gate(cycle.name, "Before Cycle Start")
     automatic_release = master.automation_level == "Automatic" and cycle_start_gate["open"]
+    signal_type = ("Purchase Replenishment" if master.control_type == "Purchase Replenishment"
+                   else "Production Replenishment")
     signal, created = insert_once(frappe.get_doc({
-        "doctype": "CFG Kanban Signal", "signal_type": "Production Replenishment",
+        "doctype": "CFG Kanban Signal", "signal_type": signal_type,
         "kanban_master": master.name, "kanban_card": card.name, "kanban_cycle": cycle.name,
         "item_code": master.item_code, "requested_qty": cycle.planned_qty, "stock_uom": master.stock_uom,
         "status": "Validated" if automatic_release else "Waiting Approval",
@@ -45,7 +48,9 @@ def consume_card(card_name, *, device_id=None, event_token=None, trusted_operato
     cycle.db_set({"signal": signal.name, "status": "Signalled"})
     transition_card(card, "Signal Created", event_type="Signal Created", cycle=cycle.name)
     if created and automatic_release:
-        command = create_work_order_command(signal.name)
+        command = (create_material_request_command(signal.name)
+                   if master.control_type == "Purchase Replenishment"
+                   else create_work_order_command(signal.name))
         execute_command(command.name)
     return {"duplicate": not created, "cycle": cycle.name, "signal": signal.name}
 

@@ -1,19 +1,38 @@
-# CFG Kanban User Manual
+# CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Manual version:** 0.6
+**Guide version:** 1.0
 
-**Updated:** 18 September 2026
+**Updated:** 23 September 2026
 
-**Scope:** Functions implemented in the current development build
+**Scope:** Current repository code; Frappe/ERPNext v15
+
+**Canonical file:** `docs/USER_MANUAL.md`
 
 ## 1. Purpose of this manual
 
-This manual explains how to configure and operate CFG Kanban from an empty installation through
+This guide explains how to configure and operate CFG Kanban from an empty installation through
 the first production signal. It covers normal reusable-card replenishment, Sales Order stock
 proposals, customer make-to-order production, operation reporting, production Process Tasks,
 standalone Service Tasks, controlled QC, private media evidence, printing, handling-unit tags, and
 audit records.
+
+This file is designed to be usable by a person or by another LLM without access to the development
+chat history. When this guide and an earlier chat answer disagree, use this guide for the code
+revision in which it is shipped. When this guide and the running ERPNext site disagree, first verify
+that the site has pulled this revision, migrated, built assets, and cleared cache; then treat the
+running DocType metadata and server code as authoritative.
+
+### How field names are written
+
+Every configuration field is written as **Screen Label** (`internal_fieldname`) where ambiguity is
+possible. The Screen Label is what a user normally sees in ERPNext. The internal fieldname is what
+an administrator, report author, API client, or LLM should use when inspecting metadata or code.
+Do not invent a similarly worded field when the exact label below is absent.
+
+Records described as **system-created** must not be manually created merely to move a workflow
+forward. Use the operator page, approval button, ERPNext document action, reconciliation action, or
+controlled recovery action identified in this guide.
 
 CFG Kanban is the process-control layer. ERPNext remains the official system of record for Items,
 BOMs, Operations, Work Orders, Job Cards, Batches, Stock Entries, stock balances, deliveries, and
@@ -40,6 +59,28 @@ Do not begin by creating a card. First decide which of these two policies applie
 Use **Stock Replenishment** for products made repeatedly for inventory. Use **Customer
 Make-to-Order** where every order must have its own batch and common expiry date, and unused stock
 must not be supplied to that customer.
+
+### Choose the card behaviour separately
+
+Production policy and Card Type answer different questions. Production policy decides *why and how
+much* to produce. Card Type decides *what a scan does*.
+
+| Exact Card Type | What scanning it does | Creates a new Work Order? | Required setup |
+|---|---|---|---|
+| Physical Unit Card | Consumes a reusable replenishment card and creates a Signal/Cycle | Yes, after Automatic or Approval release | Production Master, BOM, warehouses |
+| Physical Batch Card | Same trigger model for a batch-sized quantity | Yes, after Automatic or Approval release | Production Master, BOM, warehouses |
+| Process Kanban | Selects an eligible open Job Card for the same Item and controlled Operation | No; allocates against an existing submitted Work Order/Job Card | Controlled Operation on Card and matching Operation Profile |
+| Station Kanban | Same runtime allocation, restricted to one eligible Workstation | No | Controlled Operation and Eligible Workstation |
+| Asset Card | Finds open standalone Service Tasks for one Asset | Never | Asset; no Master required |
+| Location Card | Finds open standalone Service Tasks for one location text | Never | Location Reference; no Master required |
+| Task Card | Finds open standalone Service Tasks from one Task Schedule | Never | Task Schedule; no Master required |
+
+A Process/Station card is a reusable runtime allocation tool. It filters Job Cards by the Card Item,
+Master Company, Card Operation, submitted Kanban-controlled Work Order, remaining Job Card demand,
+and available upstream input. A Station Kanban adds an exact Workstation match. The system recommends
+according to **Runtime Selection Priority**, but an authorised operator may choose another eligible
+candidate and must give an Override Reason. One card-sized Cycle is then created for the effective
+quantity; it does not mirror every Job Card on that Work Order.
 
 ## 3. Roles and responsibilities
 
@@ -153,27 +194,44 @@ the Kanban Master and Cycle for that control.
 
 ## 6. Initial system settings
 
-Open **CFG Kanban Settings**. Only a System Manager can maintain this Single DocType.
+Open **CFG Kanban Settings**. This is a Single DocType. Its explicit DocType permission is
+**CFG Kanban System Maintenance**; the role is created by the app installation/migration hook.
 
 Recommended pilot configuration:
 
-| Setting | Recommended starting value | Meaning |
+| Screen label (`fieldname`) | Recommended starting value | Meaning |
 |---|---|---|
-| Enabled | Yes | Configuration flag; full server-side blocking when disabled is not yet wired |
-| Default Company | Your production company | Default business context |
-| Default WIP Warehouse | Pilot WIP warehouse | Intermediate production location |
-| Default FG Warehouse | Pilot finished-goods warehouse | Completed-product location |
-| Default Automation Level | Approval | Keeps Work Order creation under supervisor control |
-| Allow Manual WO for Kanban Item | No initially | Avoids bypassing the Kanban signal during the pilot |
-| Require Manual Override Reason | Yes | Preserves an audit reason for exceptions |
-| Auto-submit Work Order | No initially | Allows review before ERPNext submission |
-| Auto-start Job Card | No initially | Reserved setting; current operators start work deliberately |
-| Enable WIP Ledger | Yes | Enables quantity handoff records |
-| Enable Dynamic Forms | Yes | Shows Master-defined operator fields |
-| Command Retry Limit | 3 | Intended retry control; automated retry orchestration is not complete |
-| Exception Email Role | Manufacturing Manager | Intended notification audience; email automation is not complete |
+| Enabled (`enabled`) | Yes | Global configuration flag; it is not a complete kill switch in every API |
+| Default Company (`default_company`) | Production company | Default business context |
+| Default WIP Warehouse (`default_wip_warehouse`) | Pilot WIP warehouse | Intermediate production location |
+| Default FG Warehouse (`default_fg_warehouse`) | Pilot FG warehouse | Completed-product location |
+| Default Automation Level (`default_automation_level`) | Approval | Options: Automatic, Approval, Signal Only |
+| Allow Manual WO for Kanban Item (`allow_manual_wo_for_kanban_item`) | No initially | Policy flag against bypassing Kanban |
+| Require Manual Override Reason (`require_manual_override_reason`) | Yes | Preserves exception reasons |
+| Auto-submit Work Order (`auto_submit_work_order`) | No initially | When enabled, the created Work Order is submitted by the ERP gateway |
+| Auto-start Job Card (`auto_start_job_card`) | No initially | When enabled, starts the selected Job Card when runtime production begins |
+| Auto-submit Job Card at Target (`auto_submit_job_card`) | No initially | Submits only after verified completed quantity reaches the full Job Card target |
+| Enable WIP Ledger (`enable_wip_ledger`) | Yes | Enables quantity handoff records |
+| Enable Dynamic Forms (`enable_dynamic_forms`) | Yes | Enables Master/Schedule-defined fields |
+| Operator Session Inactivity (Minutes) (`operator_session_timeout_minutes`) | 15 | Ends inactive operator sessions |
+| Enable Administrator Operator Bypass (Development Only) (`enable_administrator_operator_bypass`) | No | Literal Administrator only; never enable for production |
+| Command Retry Limit (`command_retry_limit`) | 3 | Retry policy value; full retry orchestration is not complete |
+| Exception Email Role (`exception_email_role`) | Manufacturing Manager | Intended audience; full email automation is not complete |
+
+Private media fields are also maintained here: **Enable Private Media Storage**
+(`enable_private_media`), **Environment** (`media_environment`), **AWS Region**
+(`media_s3_region`), **Private S3 Bucket** (`media_s3_bucket`), upload limits, allowed MIME types,
+retention class, optional KMS ARN, and upload/view authorization lifetimes. AWS credentials are
+intentionally absent; the server must use its workload/instance role.
 
 Save the Settings before creating the pilot Master.
+
+The runtime trigger uses the **Master's Automation Level** (`automation_level`). `Automatic`
+creates/executes the Work Order command immediately only when the Before Cycle Start gate is open.
+`Approval` creates a Waiting Approval Signal. In the current code, `Signal Only` also remains
+Waiting Approval and can still be released through the same manager approval action; it is not a
+hard technical prohibition against Work Order creation. Treat the distinction as policy until a
+separate Signal-Only release restriction is implemented.
 
 ## 7. Guided setup: create the first stock-replenishment Kanban
 
@@ -183,26 +241,26 @@ Use one test product and one simple route. Do not start with multiple products.
 
 Open **CFG Kanban Master → New** and complete:
 
-| Field | Example | Guidance |
+| Screen label (`fieldname`) | Example | Guidance |
 |---|---|---|
-| Kanban Name | Chili Sauce 500 ml – FG Loop | A clear loop name, not only the Item code |
-| Active | Yes | Only active Masters should be used |
-| Company | Your company | Must match the BOM and warehouses |
-| Item | Finished Item | Item to be produced or moved |
-| BOM | Default active BOM | Required for production Work Orders |
-| Control Type | Production | Current vertical slice is production-focused |
-| Card Representation | Batch or Container | What one card physically represents |
-| Replenishment Qty | 400 | Quantity represented by one normal card |
-| Stock UOM | Nos | Must match the Item/BOM context |
-| Number of Cards | 2 | Planned physical cards for the loop |
-| Source Warehouse | Raw-material/source | Used by the Work Order command |
-| WIP Warehouse | Production WIP | Used by ERPNext manufacturing |
-| Destination Warehouse | Finished Goods | Stock target and finished output destination |
-| Automation Level | Approval | Recommended until the process is proven |
-| Default Priority | Normal | Applied to Signals and Cycles |
-| Allow Partial Output | As required | Policy indicator for the loop |
-| Use ERP BOM Operations | Yes | Keep ERPNext Operations as the route source |
-| Revision | 1 | Increase when the controlled design changes |
+| Kanban Name (`kanban_name`) | Chili Sauce 500 ml – FG Loop | Clear loop name, not only Item code |
+| Active (`active`) | Yes | Only active Masters should be used |
+| Company (`company`) | Your company | Must match BOM and warehouses |
+| Item (`item_code`) | Finished Item | Item controlled by the loop |
+| BOM (`bom`) | Active BOM | Required for production Work Orders |
+| Control Type (`control_type`) | Production | Options: Production, Withdrawal, Transfer |
+| Card Representation (`card_representation`) | Batch | Options: Unit, Batch, Container |
+| Replenishment Qty (`replenishment_qty`) | 400 | Nominal quantity represented by a card |
+| Stock UOM (`stock_uom`) | Nos | Item/BOM stock unit |
+| Number of Cards (`number_of_cards`) | 2 | Planned physical identities |
+| Source Warehouse (`source_warehouse`) | Raw-material/source | Work Order source |
+| WIP Warehouse (`wip_warehouse`) | Production WIP | ERP manufacturing WIP location |
+| Destination Warehouse (`destination_warehouse`) | Finished Goods | Finished output/stock target warehouse |
+| Automation Level (`automation_level`) | Approval | Automatic, Approval, or Signal Only |
+| Default Priority (`default_priority`) | Normal | Low, Normal, High, or Urgent |
+| Allow Partial Output (`allow_partial_output`) | As required | Loop policy |
+| Use ERP BOM Operations (`use_erp_bom_operations`) | Yes | ERPNext route remains authoritative |
+| Revision (`revision`) | 1 | Increase when controlled design changes |
 
 The Replenishment Qty is the card quantity. It is not the warehouse minimum stock level.
 
@@ -218,21 +276,29 @@ Add one row for every controlled operation, in sequence. For example:
 
 Important profile fields:
 
-| Field | Purpose |
+| Screen label (`fieldname`) | Purpose |
 |---|---|
-| Operation | ERPNext Operation used by the BOM/Job Card |
-| Sequence | Unique processing order within this Master |
-| Workstation | Preferred workstation |
-| Mandatory | Whether the operation is required |
-| Allow Parallel | Allows overlapping Job Cards when process conditions permit |
-| Dependency Operation | Upstream operation controlling readiness |
-| Start Rule | When the operation may begin |
-| Minimum Qty / Percentage | Threshold used by the applicable start rule |
-| Transfer Multiple | Smallest quantity released digitally, such as 12 bottles per carton |
-| Output Reporting Mode | Completion-only or incremental reporting |
-| Handoff Mode | How output becomes available downstream |
-| Destination Operation | Operation receiving the released quantity |
-| Completion Rule | Full quantity, operator completion, or threshold |
+| Operation (`operation`) | ERPNext Operation used by BOM/Job Card |
+| Sequence (`sequence`) | Unique route order |
+| Workstation (`workstation`) | Preferred workstation |
+| Reference Operation Time (Minutes) (`time_in_mins`) | Standard reference duration |
+| Mandatory (`mandatory`) | Whether operation is required |
+| Execution Mode (`execution_mode`) | Single Workstation, Parallel Workstations, or Sequential Split |
+| Runtime Selection Priority (`runtime_selection_rule`) | Oldest WO First, Smallest Remaining First, or Largest Remaining First |
+| Interruption Policy (`interruption_policy`) | Controls supervisor pause/give-way behaviour |
+| Setup Family (`setup_family`) / Cleaning Class (`cleaning_class`) | Required for compatible-item interruption checks |
+| Dependency Operation (`dependency_operation`) | Upstream operation controlling readiness |
+| Start Rule (`start_rule`) | Previous complete, quantity/percentage/full-batch threshold, or no dependency |
+| Minimum Qty (`minimum_qty`) / Minimum Percentage (`minimum_percentage`) | Applicable start threshold |
+| Output Reporting Mode (`output_reporting_mode`) | Completion Only or Incremental |
+| Handoff Mode (`handoff_mode`) | Physical Card, Digital Quantity, Full Batch, or Automatic |
+| Transfer Multiple (`transfer_multiple`) | Smallest digital release increment |
+| Require Destination Scan (`require_destination_scan`) | Requires destination confirmation where used |
+| Destination Operation (`destination_operation`) | Downstream Operation |
+| Completion Rule (`completion_rule`) | Full Qty, Operator Complete, or Threshold |
+
+`Allow Parallel` (`allow_parallel`) still exists as a hidden legacy compatibility field. Configure
+new Masters with **Execution Mode** rather than looking for a visible Allow Parallel checkbox.
 
 Handoff modes:
 
@@ -361,6 +427,13 @@ Both require a reason and preserve the record. Do not delete generated task hist
 Operators use **Kanban Service Tasks** to start, complete, and—when separately authorized—verify the
 work. These tasks never create or update an ERPNext Work Order, Job Card, or Stock Entry.
 
+The Service Task Panel does not show every task indiscriminately. It excludes Completed, Cancelled,
+and Bypassed occurrences. If the Operator Profile has Allowed Workstations, only tasks at those
+Workstations are returned. A non-Supervisor sees unassigned tasks plus tasks assigned to that same
+Employee; a Supervisor may see all otherwise eligible tasks. Starting an unassigned task assigns it
+to the starting Employee. A task already assigned to someone else cannot be started or completed by
+another normal operator.
+
 The Service Tasks page is optimized for phones and tablets rather than a fixed barcode terminal.
 Large touch controls for **Refresh**, **Scan / Switch Operator**, and **Create Task** remain at the
 top of the page. Each task is displayed as a separate touch card with prominent **Start**,
@@ -438,17 +511,26 @@ Open **CFG Kanban Card → New**. Create the number of cards defined by the Mast
 
 Complete:
 
-| Field | Guidance |
+| Screen label (`fieldname`) | Guidance |
 |---|---|
-| Kanban Master | The pilot Master |
-| Card Number | Unique visible identifier, for example `CDL-001` |
-| Card Type | Physical Unit, Physical Batch, Process, or Station Card |
-| Item | Same Item as the Master |
-| Kanban Qty | Normally the Master's Replenishment Qty |
-| Active | Yes |
-| Revision | Start with 1 |
-| Current State | Available |
-| Current Warehouse/Station | Optional physical location |
+| Kanban Master (`kanban_master`) | Required for production card types |
+| Card Number (`card_number`) | Unique visible identifier, for example `CDL-001` |
+| Card Type (`card_type`) | Use one exact option described below |
+| Item (`item_code`) | Filled from Master for production cards |
+| Kanban Qty (`kanban_qty`) | Normally Master Replenishment Qty |
+| Controlled Operation (`operation`) | Required for Process Kanban and Station Kanban |
+| Eligible Workstation (`workstation`) | Required only for Station Kanban |
+| Asset (`asset`) | Required only for Asset Card |
+| Location Reference (`location_reference`) | Required only for Location Card |
+| Task Schedule (`task_schedule`) | Required only for Task Card |
+| Active (`active`) | Yes |
+| Revision (`revision`) | Start with 1 |
+
+Exact **Card Type** (`card_type`) options are: `Physical Unit Card`, `Physical Batch Card`,
+`Process Kanban`, `Station Kanban`, `Asset Card`, `Location Card`, and `Task Card`. The first four
+are production cards. The final three are service identity cards and do not trigger production.
+**Card Behaviour** (`card_behavior`), current state, QR, UUID, active Cycle, handoff mode, and most
+location/status fields are derived or system-maintained.
 
 UUID and QR Code are generated by the server if left empty. Do not copy a QR identity from another
 card.
@@ -541,15 +623,42 @@ New WIP release: 12
 
 ### Complete work
 
-When a linked Job Card is In Progress, select **Complete**. ERPNext Job Card feedback updates the
-Process Execution. ERPNext Work Order feedback moves the Cycle into In Production and later
-Production Complete.
+When a linked Job Card is In Progress and its ERPNext completed quantity has reached its target,
+select **Complete**. ERPNext Job Card feedback updates the Process Execution. ERPNext Work Order
+feedback moves the Cycle into In Production and later Production Complete.
+
+Every positive Kanban Good Qty creates an auditable **Update Job Card** ERP Command containing the
+Job Card, Work Order, Cycle, Process Execution, optional Runtime Allocation, Operation Progress,
+incremental quantity, operator Employee, terminal User, timestamps, notes, and retry token. The
+gateway creates or closes an ERPNext Job Card Time Log and links it back through **Kanban Progress**
+(`cfg_kanban_progress`). A retry of the same progress reference does not add the quantity twice.
+
+If **Auto-submit Job Card at Target** is enabled, the gateway submits the draft Job Card only when
+ERPNext `total_completed_qty` reaches `for_quantity`. Otherwise the Job Card remains draft until an
+authorised Complete action or a valid manual ERPNext submission.
 
 Submitting a linked Manufacture Stock Entry records an Event and moves the Cycle to **Waiting FG
 Receipt**.
 
-> Current limitation: do not expect the card to reset automatically after receipt. Final cycle
-> closure and reusable-card return are the next required control stage.
+> Physical replenishment limitation: Manufacture Stock Entry feedback currently moves the Cycle to
+> Waiting FG Receipt, but the final FG receipt confirmation and reusable physical-card return are
+> not yet implemented as one automatic closure action.
+
+### Close a Process/Station runtime allocation
+
+Runtime-selected Process/Station cards have a separate implemented closure. **Close Kanban Cycle**
+is allowed only after all of these are true:
+
+- the full allocation target has been reported in Kanban;
+- the Before Cycle Close Process Task gate is open;
+- the ERPNext Job Card is Work In Progress or Completed;
+- the ERPNext Work Order is started, or it uses Skip Transfer and the Job Card is already active;
+- ERPNext Job Card completed quantity is at least this allocation's Kanban Good Qty.
+
+Closure marks the execution/allocation/Cycle Completed and returns the reusable Card through
+Production Released → In Production → Produced → Available. It clears Active Cycle. If several
+card cycles feed one larger Job Card, the Job Card remains open until cumulative completed quantity
+reaches its own full target.
 
 ## 9. Stock-based Sales Order proposals
 
@@ -776,7 +885,32 @@ Task action appropriate to its status. The Service Task scanner recognises perma
 The server scan APIs support stable event tokens for retry/idempotency. Custom scanner clients
 must retain the same event token when retrying the same physical scan.
 
-## 13. Understanding system records
+## 13. Production dashboard and dispatch sequence
+
+The **Kanban Floor** page reads a saved **CFG Kanban Dashboard Profile**. A profile does not create
+production; it controls which live executions are displayed and whether the screen is read-only,
+operator-oriented, or supervisor-controlled.
+
+Key exact fields are **Profile Name** (`profile_name`), **View Type** (`view_type`), **Access Mode**
+(`access_mode`), optional Company/Production Line/Warehouse/Customer/Item Group filters,
+**Selected Workstations** (`workstations`), **Queue Depth per Workstation** (`queue_depth`),
+**Refresh Interval (seconds)** (`refresh_interval_seconds`), **Screen Columns** (`column_count`),
+and the statistics/completed/alerts switches.
+
+For supervisor sequence control, use **View Type = Supervisor Sequence Control** and **Access Mode =
+Supervisor**. A Manufacturing Manager/System Manager can then:
+
+- reorder work that is still queued and not started;
+- mark queued work as expedited;
+- pause the currently In Progress Job Card and give way to a Ready execution on the same Workstation;
+- resume a paused execution when no competing execution is active.
+
+Every change requires a reason and creates immutable Sequence Change/Event audit. Interruption is
+also governed by the operation's **Interruption Policy**. `Compatible Items Only` additionally
+requires matching Setup Family and Cleaning Class. The dashboard never rewrites Work Order planned
+dates or ERPNext manufacturing history merely to change visual order.
+
+## 14. Understanding system records
 
 | Record | What it means | Normally edited by users? |
 |---|---|---|
@@ -793,7 +927,21 @@ must retain the same event token when retrying the same physical scan.
 | Exception | Something needing review | Managers acknowledge/resolve |
 | Handling Unit | Identity of a pallet/container within a Cycle | Created and scanned operationally |
 
-## 14. State references
+Additional records:
+
+| Record | What it means | Creation/maintenance rule |
+|---|---|---|
+| CFG Kanban Operation Summary | Aggregate of one operation across one or more Job Card lanes | System-created/recalculated |
+| CFG Kanban Runtime Allocation | One Process/Station card allocation against one existing Job Card | Operator confirmation creates it |
+| CFG Kanban Process Task | Production-cycle prerequisite/control/QC task | Generated from Master when Cycle is created |
+| CFG Kanban Task Schedule | Reusable definition for independent service work | Supervisor setup |
+| CFG Kanban Task | One service occurrence | Scheduler, service-point resolution, or authorised request |
+| CFG Kanban Media | Private S3 object registry and audit metadata | Upload workflow; not a normal attachment |
+| CFG Kanban Dispatch Queue | Current workstation sequence entry | System-maintained from executions |
+| CFG Kanban Sequence Change | Immutable supervisor sequencing audit | System-created |
+| CFG Kanban Operator Session | Employee identity on a shared terminal | QR/PIN login creates it |
+
+## 15. State references
 
 Reusable Card states:
 
@@ -810,8 +958,8 @@ Available
 ```
 
 Blocked can be entered from operational states. Inactive is used for retired/replaced cards.
-Although the state model includes the complete path, automatic transitions after In Production are
-not yet fully wired in the current vertical slice.
+Runtime Process/Station closure drives Produced → Available. The physical replenishment flow does
+not yet have one final automatic FG-receipt/card-return action, so do not force these states manually.
 
 Cycle states:
 
@@ -820,10 +968,10 @@ New → Signalled → Released → In Production
 → Production Complete → Waiting FG Receipt → Completed
 ```
 
-Hold, Blocked, and Cancelled represent exceptions or stopped work. Final completion controls remain
-under development.
+Hold, Blocked, and Cancelled represent exceptions or stopped work. Runtime Cycle completion is
+implemented; final physical replenishment completion remains under development.
 
-## 15. Troubleshooting
+## 16. Troubleshooting
 
 ### “Card cannot move from … to …”
 
@@ -929,7 +1077,7 @@ authorised Supervisor records the corrective action and selects **Authorise Rete
 sample and measurements through the same controlled task. The hold clears only after the required
 QC outcome and verification are satisfied.
 
-## 16. Audit and control rules
+## 17. Audit and control rules
 
 - Do not manually create ERPNext Work Orders to bypass a blocked Kanban Signal.
 - Do not photocopy, duplicate, or manually edit QR/opaque identities.
@@ -940,7 +1088,7 @@ QC outcome and verification are satisfied.
 - Treat WIP Ledger and Operation Progress as audit records, not editable worksheets.
 - Resolve Exceptions with an explanation instead of deleting them.
 
-## 17. Deployment and update procedure
+## 18. Deployment and update procedure
 
 Before every development-server deployment, take a site backup. Then update the server:
 
@@ -963,7 +1111,7 @@ bench --site site1.local list-apps
 
 Then perform one controlled test before using the new behavior with production data.
 
-## 18. First-pilot acceptance checklist
+## 19. First-pilot acceptance checklist
 
 - [ ] Development site backup completed.
 - [ ] App migration and build completed without errors.
@@ -988,7 +1136,7 @@ Then perform one controlled test before using the new behavior with production d
 - [ ] Events, ERP Commands, and Exceptions reviewed.
 - [ ] Known incomplete cycle-closure behavior understood by pilot users.
 
-## 19. Shared-terminal operator access
+## 20. Shared-terminal operator access
 
 The Kanban Operator page uses two separate identities:
 
@@ -1032,11 +1180,12 @@ scanning an operator QR. The selected Employee and Administrator are both retain
 trail, and the proxy is clearly marked in the Operator page. Disable this setting before production
 use; disabling it also invalidates an active proxy session at its next server-authorized action.
 
-## 20. Current limitations and planned manual updates
+## 21. Current limitations and planned manual updates
 
 The following are not complete in the current build:
 
-- Final FG receipt confirmation, Cycle closure, reusable-card release, and return to Available.
+- Final FG receipt confirmation, Cycle closure, and reusable physical-card return for the normal
+  replenishment flow. Runtime Process/Station allocation closure is implemented.
 - Automatic planned Batch selection on Manufacture Stock Entry.
 - Delivery Note enforcement of the Sales Order's dedicated MTO Batch.
 - Controlled assistant for Sales Order quantity amendment/accepted excess.
@@ -1049,10 +1198,215 @@ The following are not complete in the current build:
 This file is the maintained manual source. Update its version, date, affected sections, and revision
 history whenever a user-visible workflow changes.
 
-## 21. Revision history
+## 22. Exact configuration-field reference
+
+This section exists specifically to prevent a user or an LLM from substituting a plausible but
+nonexistent field name. Child-table rows are opened from their parent form; they are not separate
+business documents to create from the workspace.
+
+### CFG Kanban Master child tables
+
+**Operation Profiles** (`operation_profiles`) uses the fields listed in Step 2. Its most important
+exact Select values are:
+
+- **Execution Mode**: `Single Workstation`, `Parallel Workstations`, `Sequential Split`.
+- **Runtime Selection Priority**: `Oldest Work Order First`, `Smallest Remaining First`,
+  `Largest Remaining First`.
+- **Start Rule**: `Previous Operation Complete`, `Minimum Qty Available`,
+  `Minimum Percentage Available`, `Full Batch Available`, `No Dependency`.
+- **Output Reporting Mode**: `Completion Only`, `Incremental`.
+- **Handoff Mode**: `Physical Card Handoff`, `Digital Quantity Handoff`, `Full Batch Handoff`,
+  `Automatic Handoff`.
+
+**Process Task Profiles** (`process_task_profiles`) exact setup fields are **Task Key**
+(`task_key`), **Task Name** (`task_name`), **Sequence** (`sequence`), **Category**
+(`task_category`), **Task Type** (`task_type`), **Linked Operation** (`linked_operation`),
+**Trigger Point** (`trigger_point`), **Mandatory** (`mandatory`), **Blocking** (`blocking`),
+**Responsible Role** (`responsible_role`), **Workstation** (`workstation`), **Asset** (`asset`),
+**Checklist** (`checklist`), **Controlled QC Task** (`qc_controlled`), **Enable Sample Traveller QR**
+(`enable_sample_traveller`), **Test Method** (`test_method`), **Specification Reference**
+(`specification_reference`), **Allow Conditional Release** (`allow_conditional_release`),
+**Require Supervisor Verification** (`require_supervisor_verification`), **Validity Duration
+(Hours)** (`validity_duration_hours`), **Reuse While Valid** (`reuse_while_valid`), and **Completion Rule**
+(`completion_rule`).
+
+Exact Trigger Point values are `Before Cycle Start`, `Before Operation Start`,
+`After Operation Complete`, `Before WIP Release`, `Before FG Release`, and `Before Cycle Close`.
+An operation-specific trigger requires Linked Operation. Controlled QC requires Test Method and
+Specification Reference, cannot be reused, and is the only valid basis for a Sample Traveller or
+Conditional Release.
+
+**Operator Field Definitions** (`operator_field_definitions`) exact fields are **Applies To**
+(`definition_scope`: Operation, Process Task, Standalone Task), **Operation** (`operation`),
+**Process Task Key** (`process_task_key`), **Field Key** (`field_key`), **Label** (`label`),
+**Field Type** (`field_type`: Data, Int, Float, Check, Select, Date, Datetime, Text), **Mandatory**
+(`mandatory`), **Capture On** (`capture_on`: Start, Progress, Complete, Verify), **Options**
+(`options`), **Default Value** (`default_value`), **Precision** (`precision`), **Minimum Value**
+(`min_value`), **Maximum Value** (`max_value`), **Unit** (`unit`), **Read Only** (`read_only`),
+**Map to Job Card** (`map_to_job_card`), **Job Card Field** (`job_card_field`), **Display Order**
+(`display_order`), **Visible Condition** (`visible_condition`), and **Validation Message**
+(`validation_message`). Generic arbitrary Job Card field mapping is not implemented; the two mapping
+fields are metadata for a controlled future mapping.
+
+### Sales-demand fields added to CFG Kanban Master
+
+These are Custom Fields installed by the app and therefore do not appear in the base Master JSON:
+
+| Screen label | Internal fieldname | Exact choices / use |
+|---|---|---|
+| Enable Sales Order Trigger | `enable_sales_order_trigger` | Enables evaluation on submitted Sales Orders |
+| Sales Trigger Mode | `sales_trigger_mode` | Proposal Only; Approval Required |
+| Threshold Source | `threshold_source` | ERPNext Warehouse Reorder Level; Kanban Override |
+| Minimum Stock Override | `minimum_stock_override` | Required only for Kanban Override |
+| Demand Scope | `demand_scope` | General; Customer; Sales Territory; Production Line |
+| Demand Scope Value | `demand_scope_value` | Exact matching value for a non-General scope |
+| Master Priority | `master_priority` | Higher number wins after scope specificity |
+| Production Policy | `production_policy` | Stock Replenishment; Customer Make-to-Order |
+| MTO Extra Production Tolerance % | `mto_extra_tolerance_pct` | Master maximum |
+| Plan Work Order to Maximum Permitted Qty | `mto_plan_to_maximum` | MTO planning switch |
+| MTO Batch Policy | `mto_batch_policy` | One Batch per Sales Order Line |
+| Existing Stock Usage | `mto_existing_stock_usage` | Prohibited |
+| Order Consolidation | `mto_order_consolidation` | Prohibited |
+| Minimum Shortage to Propose | `sales_minimum_shortage_qty` | Ignore smaller stock shortages |
+| Maximum Cards per Sales Order | `sales_max_cards_per_order` | Recommendation safety cap |
+
+### CFG Kanban Task Schedule
+
+Use this record only for standalone service/maintenance work. Exact main fields are **Schedule Name**
+(`schedule_name`), **Active** (`active`), **Company** (`company`), **Task Name** (`task_name`),
+**Category** (`task_category`), **Trigger Type** (`trigger_type`), **Permanent Service Point QR**
+(`service_point_enabled`), read-only **Service Point Code** (`service_point_code`), **Recurring Task
+Overlap Policy** (`overlap_policy`), **Holiday Generation Policy** (`holiday_policy`), **Holiday
+List** (`holiday_list`), interval/calendar values, **Next Due On** (`next_due_on`), **Complete Within
+(Hours)** (`default_due_hours`), **Default Priority** (`priority`), responsibility/location fields,
+**Checklist** (`checklist`), **Dynamic Form Fields** (`task_field_definitions`), **Require Supervisor
+Verification** (`require_supervisor_verification`), and **Instructions** (`instructions`).
+
+Exact Trigger Type choices are `Time Interval`, `Calendar Schedule`, `Meter / Usage`,
+`Manual Request`, `Condition`, and `Emergency Event`. Only Time Interval and Calendar Schedule are
+generated by the hourly scheduler. A Time Interval needs positive Interval Value and Next Due On; a
+Calendar Schedule needs positive Calendar Repeat (Days) and Next Due On. The other trigger types
+require a controlled manual/API event in the current implementation.
+
+### CFG Kanban Operator Profile
+
+Create one profile per Employee. Exact fields are **Employee** (`employee`), **Active** (`active`),
+**Kanban Role** (`kanban_role`: Operator, Senior Operator, Supervisor), optional PIN controls,
+permissions **Start**, **Complete**, **Verify Process Tasks**, **Report Reject**, **Partial Complete /
+Progress**, **Override**, **Reopen**, plus **Allowed Workstations** and **Allowed Operations** child
+tables. A profile role alone does not grant an action: the corresponding permission checkbox and
+scope must also allow it. The terminal ERPNext user separately needs the `Kanban Terminal` role (or
+manager/system-manager access).
+
+### ERPNext Custom Fields owned by the app
+
+- Work Order, Job Card, Stock Entry, Material Request, Purchase Order, and Purchase Receipt:
+  **Kanban Controlled** (`cfg_kanban_controlled`), **Kanban
+  Cycle** (`cfg_kanban_cycle`), and **Kanban Signal** (`cfg_kanban_signal`).
+- Work Order also has **Production Origin** (`cfg_production_origin`), **MTO Sales Order**
+  (`cfg_sales_order`), and **MTO Planned Batch** (`cfg_planned_batch`).
+- Job Card Time Log has **Kanban Progress** (`cfg_kanban_progress`) for idempotent quantity sync.
+- Sales Order has **Kanban Production Line** (`cfg_production_line`), **Customer PO Allows Extra
+  Quantity** (`cfg_po_allows_extra_qty`), **Customer PO Extra Tolerance %**
+  (`cfg_po_extra_tolerance_pct`), and **PO Tolerance Reference** (`cfg_po_tolerance_reference`).
+- Batch has **Sales Demand** (`cfg_sales_demand`) and **Sales Order** (`cfg_sales_order`).
+
+### User-entered versus system-maintained
+
+Users normally create Settings, Masters, Cards, Operator Profiles, Task Schedules, Dashboard
+Profiles, and Handling Units. The app normally creates Demands, Signals, Cycles, ERP Commands,
+Process Executions, Operation Summaries, Runtime Allocations, Process Tasks, service Task
+occurrences, Progress, WIP Ledger, Events, Sequence Changes, Operator Sessions, and Media registry
+records. Supervisors interact with those generated records only through their defined approval,
+verification, disposition, reconciliation, recovery, or exception actions.
+
+## 23. Buyer-owned purchase replenishment
+
+Use **Control Type** (`control_type`) = **Purchase Replenishment** when the item is bought from a
+normal third-party supplier. This V1 flow does not represent buyer-directed contract manufacturing;
+that richer vendor execution model remains V2.
+
+On **CFG Kanban Master**, configure exact fields **Default Supplier** (`default_supplier`),
+**Destination Warehouse** (`destination_warehouse`), optional **Supplier Pack Size**
+(`supplier_pack_size`), **Minimum Order Qty** (`minimum_order_qty`), **Purchase Order Multiple**
+(`purchase_order_multiple`), **Submit Material Request on Approval**
+(`auto_submit_material_request`), **Receipt Posting Mode** (`receipt_posting_mode`), **Allow Partial
+Receipt** (`allow_partial_receipt`), **Kanban Over-receipt Tolerance %**
+(`over_receipt_tolerance_pct`), and optional **Rejected Warehouse** (`rejected_warehouse`).
+
+The operational sequence is:
+
+1. Consume the reusable Card. The app creates a **Purchase Replenishment** Signal and Cycle.
+2. For Approval mode, open the Signal and select **Approve and Create Material Request**. Automatic
+   mode performs the same command immediately. Signal Only does not create an ERP document.
+3. ERPNext Material Request is the first purchasing record. Purchasing creates and submits the
+   Purchase Order from it using the normal ERPNext buying workflow.
+4. A Purchase Order made from the linked Material Request is associated automatically when the
+   link is unambiguous. Otherwise open the Cycle and use **Purchase Replenishment → Select Purchase
+   Order**. The submitted PO must match Company, Supplier, and Item, and the reason is audited.
+5. At receipt, open the Cycle and choose **Purchase Replenishment → Receive Purchased Item**. Enter
+   Delivered Qty, Accepted Qty, Rejected Qty, warehouses, and Supplier Delivery Note. Delivered
+   must equal Accepted plus Rejected and may not exceed outstanding PO quantity plus the configured
+   tolerance.
+6. **Create Draft Purchase Receipt** leaves ERPNext submission to an authorised stock user.
+   **Submit After Receiver Confirmation** submits simple items immediately. Batch-controlled,
+   serial-controlled, or incoming-inspection items deliberately remain Draft until their standard
+   ERPNext batch/serial/Quality Inspection information is completed. **Require Supervisor Approval**
+   also creates a Draft.
+7. Only a submitted Purchase Receipt updates ERPNext stock. Partial receipt leaves the Cycle and
+   Card active as **Partially Received**. Full receipt completes the Cycle and recycles the Card to
+   **Available**. Purchase Invoice and payment remain the later ERPNext accounts workflow.
+
+Material Request, Purchase Order, and Purchase Receipt receive app-owned read-only trace fields
+**Kanban Controlled**, **Kanban Cycle**, and **Kanban Signal**. Supplier/company/item mismatch,
+fully received PO rows, and over-receipt create a visible **CFG Kanban Exception** and block the
+purchase Cycle. A purchase Signal with an effective PO or submitted Receipt will not be silently
+rolled back; resolve the ERP purchasing record and reconcile instead.
+
+## 24. Reconciliation and recovery decision table
+
+| Situation | Correct action | Do not do |
+|---|---|---|
+| Accidental non-Sales Signal; no production activity | Open Signal → Cancel and Roll Back; enter reason | Delete Signal/Cycle/Card |
+| Sales Order Demand must stop before release | Cancel Sales Order or controlled Demand workflow | Use Signal rollback directly |
+| More than one Work Order claims one Cycle | On Cycle select the effective submitted Work Order and reason; inactive WO must have no activity | Edit Cycle link directly |
+| Submitted WO has operations/Job Cards but Kanban missed them | Use Work Order **Sync to Kanban** / reconcile action | Create Process Executions manually |
+| Draft legacy WO was created without BOM rows | Use **Reload Draft Work Order BOM** after correcting BOM | Submit an operation-less WO |
+| Submitted WO has no operation rows | Correct BOM/WO; ERPNext cannot generate valid Job Cards | Fabricate unrelated Job Cards |
+| Legacy Process/Station Cycle predates runtime allocation and has no activity | Use **Release Legacy Runtime Card** with reason | Force Card state to Available |
+| Any progress, WIP, submitted Stock Entry, Job Card time log, or production quantity exists | Raise/resolve a production Exception; automatic rollback is deliberately refused | Delete audit/ERP records |
+| Service occurrence falls on closure/holiday after generation | Supervisor Cancel or Bypass with reason | Delete occurrence |
+| QC Result is Fail | Correct cause, Supervisor Authorise Retest, enter a new controlled result | Manually clear Cycle Hold |
+
+Signal rollback cancels/deletes only activity-free ERP documents, marks Cycle and Signal Cancelled,
+returns the Card to Available, clears Active Cycle, and records Events. A submitted Work Order can be
+cancelled only while ERPNext permits it and the code has found no production/material activity.
+
+## 25. Guidance rules for another LLM
+
+When using this file as context, an assistant must:
+
+1. Name the exact Screen Label and internal fieldname from this guide; never invent a synonym.
+2. First classify the request as physical replenishment, runtime Process/Station allocation,
+   production Process Task/QC, standalone Service Task, Sales stock demand, or MTO demand.
+3. Keep ERPNext as system of record for Work Orders, Job Cards, Stock Entries, Batches, and stock.
+4. Never advise direct edits to system-created status fields or deletion of transactional history.
+5. Ask for the Card Type, current Card/Cycle/Signal state, effective Work Order, Job Card state and
+   docstatus, and relevant ERP Command before diagnosing a production flow.
+6. For service recurrence, check scheduler state, Next Due On, overlap policy, and holiday policy.
+7. For media, distinguish timestamped/geotagged live camera capture from unchanged file upload;
+   never request AWS secret keys in ERPNext.
+8. Treat Process Task and standalone Task as separate domains. Only Process Tasks gate production.
+9. State an implementation limitation explicitly instead of proposing a field or button that the
+   code does not contain.
+10. Confirm the deployed Git revision/migration when the UI does not match this guide.
+
+## 26. Revision history
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1 | 25 September 2026 | Added buyer-owned Purchase Replenishment through Material Request, Purchase Order selection, guarded Purchase Receipt creation, partial receipt, ERP feedback, and Card recycling |
+| 1.0 | 23 September 2026 | Re-audited repository code; added exact labels/internal fieldnames, card-behaviour split, runtime allocation/closure, Job Card sync, dashboard/dispatch, recovery table, and independent-LLM rules |
 | 0.6 | 18 September 2026 | Added permanent Service Point QR, overlap/holiday policies, Supervisor cancellation/bypass, Process/Sample QR, controlled QC hold/retest, private multi-file evidence, timestamp/GPS camera capture, and recoverable removal |
 | 0.5 | 18 September 2026 | Added private S3 media settings, task evidence gallery, mobile Service Task scanning, and scheduler guidance |
 | 0.4 | 17 September 2026 | Added scanner-first focus recovery, command labels/function keys, and scan-driven progress quantities |

@@ -1,6 +1,5 @@
 {
- "doctype":"DocType", "name":"CFG Kanban Card", "module":"CFG Kanban",
- "autoname":"naming_series:", "title_field":"card_number", "search_fields":"card_number,item_code,card_type,current_state", "track_changes":1,
+ "doctype":"DocType","name":"CFG Kanban Card","module":"CFG Kanban","autoname":"naming_series:","title_field":"card_number","search_fields":"card_number,item_code,card_type,current_state","track_changes":1,
  "field_order":["identity_section","naming_series","kanban_master","card_number","card_type","card_behavior","active","revision","item_section","item_code","kanban_qty","stock_uom","operation","workstation","handoff_mode","service_identity_section","asset","location_reference","task_schedule","location_section","source_warehouse","current_station","current_warehouse","destination_warehouse","status_section","current_state","active_cycle","last_event","last_scan_time","blocked","blocked_reason","identity_control_section","qr_code","uuid","print_count","last_printed_on","last_printed_by","replacement_of"],
  "fields":[
   {"fieldname":"identity_section","label":"Card Identity","fieldtype":"Section Break"},
@@ -28,7 +27,7 @@
   {"fieldname":"current_warehouse","label":"Current Warehouse","fieldtype":"Link","options":"Warehouse"},
   {"fieldname":"destination_warehouse","label":"Destination Warehouse","fieldtype":"Link","options":"Warehouse","read_only":1},
   {"fieldname":"status_section","label":"Live Status","fieldtype":"Section Break"},
-  {"fieldname":"current_state","label":"Current State","fieldtype":"Select","options":"Available\nConsumed\nSignal Created\nReplenishment Requested\nProduction Released\nIn Production\nProduced\nIn Transit\nBlocked\nInactive","default":"Available","read_only":1,"in_list_view":1,"in_standard_filter":1,"description":"System-controlled lifecycle state. Resolve the linked Cycle or exception instead of changing this value manually."},
+  {"fieldname":"current_state","label":"Current State","fieldtype":"Select","options":"Available\nConsumed\nSignal Created\nReplenishment Requested\nPurchase Ordered\nPartially Received\nReceived\nProduction Released\nIn Production\nProduced\nIn Transit\nBlocked\nInactive","default":"Available","read_only":1,"in_list_view":1,"in_standard_filter":1,"description":"System-controlled lifecycle state. Resolve the linked Cycle or exception instead of changing this value manually."},
   {"fieldname":"active_cycle","label":"Active Cycle","fieldtype":"Link","options":"CFG Kanban Cycle","read_only":1},
   {"fieldname":"last_event","label":"Last Event","fieldtype":"Link","options":"CFG Kanban Event","read_only":1},
   {"fieldname":"last_scan_time","label":"Last Scan Time","fieldtype":"Datetime","read_only":1},
@@ -42,5 +41,9 @@
   {"fieldname":"last_printed_by","label":"Last Printed By","fieldtype":"Link","options":"User","read_only":1},
   {"fieldname":"replacement_of","label":"Replacement Of","fieldtype":"Link","options":"CFG Kanban Card","read_only":1}
  ],
- "permissions":[{"role":"Manufacturing User","read":1,"write":1,"create":1,"print":1},{"role":"Manufacturing Manager","read":1,"write":1,"create":1,"delete":1,"print":1},{"role":"System Manager","read":1,"write":1,"create":1,"delete":1,"print":1}]
+ "permissions":[
+  {"role":"Manufacturing User","read":1,"write":1,"create":1,"print":1},
+  {"role":"Manufacturing Manager","read":1,"write":1,"create":1,"delete":1,"print":1},
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1,"print":1}
+ ]
 }
