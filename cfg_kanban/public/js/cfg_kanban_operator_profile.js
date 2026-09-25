@@ -1,4 +1,7 @@
 frappe.ui.form.on("CFG Kanban Operator Profile", {
+	setup(frm) {
+		frm.set_query("responsibility", "responsibilities", () => ({ filters: { active: 1 } }));
+	},
 	refresh(frm) {
 		if (frm.is_new()) return;
 		frm.add_custom_button(__("Issue New QR Credential"), async () => {

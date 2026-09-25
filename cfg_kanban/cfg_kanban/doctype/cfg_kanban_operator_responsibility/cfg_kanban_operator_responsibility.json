@@ -1,0 +1,1 @@
+{"doctype":"DocType","name":"CFG Kanban Operator Responsibility","module":"CFG Kanban","istable":1,"field_order":["responsibility"],"fields":[{"fieldname":"responsibility","label":"Kanban Responsibility","fieldtype":"Link","options":"CFG Kanban Responsibility","reqd":1,"in_list_view":1}]}

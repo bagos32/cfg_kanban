@@ -180,6 +180,9 @@ def public_operator(profile, session):
         "employee_name": employee_name or profile.employee,
         "operator_profile": profile.name,
         "kanban_role": profile.kanban_role,
+        "responsibilities": [row.responsibility for row in profile.responsibilities
+                             if row.responsibility],
+        "view_all_responsibilities": bool(cint(profile.get("view_all_responsibilities"))),
         "station": session.station,
         "started_on": session.started_on,
         "expires_on": session.expires_on,
@@ -191,7 +194,8 @@ def public_operator(profile, session):
 def _development_proxy_profile(employee):
     values = {"name": "Administrator Development Proxy", "employee": employee,
               "active": 1, "kanban_role": "Development Proxy",
-              "allowed_operations": [], "allowed_workstations": []}
+              "allowed_operations": [], "allowed_workstations": [],
+              "responsibilities": [], "view_all_responsibilities": 1}
     for flag in set(ACTION_FLAGS.values()):
         values[flag] = 1
     return frappe._dict(values)

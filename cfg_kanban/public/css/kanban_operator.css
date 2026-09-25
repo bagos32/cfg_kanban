@@ -24,12 +24,38 @@
 	min-height: 44px;
 }
 
+.cfg-panel-switcher {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 14px 16px;
+	border: 1px solid var(--border-color);
+	border-radius: var(--border-radius-lg);
+	background: var(--card-bg);
+}
+
+.cfg-panel-switcher small {
+	display: block;
+	color: var(--text-muted);
+	margin-top: 3px;
+}
+
 .cfg-scanner-help code {
 	font-size: 0.9rem;
 	user-select: all;
 }
 
 @media (max-width: 767px) {
+	.cfg-panel-switcher {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.cfg-panel-switcher .btn {
+		width: 100%;
+		min-height: 48px;
+	}
 	.cfg-scanner-ready {
 		align-items: flex-start;
 		flex-direction: column;
@@ -38,7 +64,7 @@
 
 .cfg-service-mobile-actions {
 	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
+	grid-template-columns: repeat(4, minmax(0, 1fr));
 	gap: 10px;
 }
 
@@ -288,6 +314,7 @@
 		background: var(--bg-color);
 	}
 
+	.cfg-service-mobile-actions .open-production-panel,
 	.cfg-service-mobile-actions .create-service-task {
 		grid-column: 1 / -1;
 	}

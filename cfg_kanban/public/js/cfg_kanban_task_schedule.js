@@ -1,4 +1,7 @@
 frappe.ui.form.on("CFG Kanban Task Schedule", {
+	setup(frm) {
+		frm.set_query("responsible_role", () => ({ filters: { active: 1 } }));
+	},
 	refresh(frm) {
 		(frm.doc.task_field_definitions || []).forEach((row) => {
 			if (row.definition_scope !== "Standalone Task") {

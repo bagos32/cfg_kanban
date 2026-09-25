@@ -118,6 +118,17 @@ login. **Operator** performs assigned work, **Senior Operator** may request unpl
 and **Supervisor** may verify work, authorise QC retests, or apply task dispositions when the
 corresponding permission is enabled.
 
+**Kanban Responsibility** is separate from both the authority level above and ERPNext User roles.
+Create operational responsibilities such as Housekeeping, Maintenance, Quality, Production,
+Warehouse, or Safety in **CFG Kanban Responsibility**. Add one or more to the Operator Profile's
+**Responsible Roles** (`responsibilities`) table. Task Schedule **Responsible Kanban Role**
+(`responsible_role`) then controls which scanner-only Employees can see an unassigned occurrence.
+An occurrence assigned directly to the Employee remains visible. Blank-responsibility tasks remain
+generally available within workstation scope. A Supervisor can be scoped to several responsibilities
+or use **View All Responsibilities** (`view_all_responsibilities`). For backward compatibility, an
+Operator Profile with an empty Responsible Roles table remains unrestricted until responsibilities
+are deliberately assigned.
+
 ERPNext permissions still apply. A Kanban role does not automatically grant permission to Items,
 BOMs, Work Orders, Job Cards, Stock Entries, Warehouses, or Batches.
 
@@ -435,6 +446,10 @@ to the starting Employee. A task already assigned to someone else cannot be star
 another normal operator.
 
 The Service Tasks page is optimized for phones and tablets rather than a fixed barcode terminal.
+Both operator pages contain a prominent panel switch: **Open Service Task Panel** on the Production
+Operator page and **Production Panel** / **Open Production Operator Panel** on the Service page.
+They share the active operator-session token stored on that terminal, so an identified operator can
+move between panels without scanning the credential again while the session remains valid.
 Large touch controls for **Refresh**, **Scan / Switch Operator**, and **Create Task** remain at the
 top of the page. Each task is displayed as a separate touch card with prominent **Start**, **Report
 Progress**, **Complete**, **Correct and Resubmit**, or **Verify** actions according to its status. Urgent and
@@ -1286,7 +1301,8 @@ Use this record only for standalone service/maintenance work. Exact main fields 
 (`service_point_enabled`), read-only **Service Point Code** (`service_point_code`), **Recurring Task
 Overlap Policy** (`overlap_policy`), **Holiday Generation Policy** (`holiday_policy`), **Holiday
 List** (`holiday_list`), interval/calendar values, **Next Due On** (`next_due_on`), **Complete Within
-(Hours)** (`default_due_hours`), **Default Priority** (`priority`), responsibility/location fields,
+(Hours)** (`default_due_hours`), **Default Priority** (`priority`), **Responsible Kanban Role**
+(`responsible_role`, linked to CFG Kanban Responsibility), responsibility/location fields,
 **Checklist** (`checklist`), **Dynamic Form Fields** (`task_field_definitions`), **Require Supervisor
 Verification** (`require_supervisor_verification`), and **Instructions** (`instructions`).
 
@@ -1301,7 +1317,8 @@ require a controlled manual/API event in the current implementation.
 Create one profile per Employee. Exact fields are **Employee** (`employee`), **Active** (`active`),
 **Kanban Role** (`kanban_role`: Operator, Senior Operator, Supervisor), optional PIN controls,
 permissions **Start**, **Complete**, **Verify Process Tasks**, **Report Reject**, **Partial Complete /
-Progress**, **Override**, **Reopen**, plus **Allowed Workstations** and **Allowed Operations** child
+Progress**, **Override**, **Reopen**, **Responsible Roles** (`responsibilities`), **View All
+Responsibilities** (`view_all_responsibilities`), plus **Allowed Workstations** and **Allowed Operations** child
 tables. A profile role alone does not grant an action: the corresponding permission checkbox and
 scope must also allow it. The terminal ERPNext user separately needs the `Kanban Terminal` role (or
 manager/system-manager access).

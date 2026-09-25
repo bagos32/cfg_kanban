@@ -181,7 +181,24 @@ class TestDocTypeSchema(TestCase):
         self.assertTrue({"qr_token_hash", "pin_required", "pin", "kanban_role",
                          "can_start", "can_complete", "can_report_reject",
                          "can_partial_complete", "can_override", "can_reopen",
+                         "responsibilities", "view_all_responsibilities",
                          "allowed_workstations", "allowed_operations"}.issubset(fields))
+        self.assertEqual(fields["responsibilities"]["options"],
+                         "CFG Kanban Operator Responsibility")
+
+    def test_service_responsibility_is_independent_from_erp_roles(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        schedule = {row["fieldname"]: row for row in
+                    schemas["CFG Kanban Task Schedule"]["fields"]}
+        task = {row["fieldname"]: row for row in schemas["CFG Kanban Task"]["fields"]}
+        child = {row["fieldname"]: row for row in
+                 schemas["CFG Kanban Operator Responsibility"]["fields"]}
+        self.assertEqual(schedule["responsible_role"]["options"],
+                         "CFG Kanban Responsibility")
+        self.assertEqual(task["responsible_role"]["options"],
+                         "CFG Kanban Responsibility")
+        self.assertEqual(child["responsibility"]["options"],
+                         "CFG Kanban Responsibility")
 
         progress = {row["fieldname"]: row for row in
                     schemas["CFG Kanban Operation Progress"]["fields"]}

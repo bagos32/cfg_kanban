@@ -15,6 +15,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		</div><div class="text-muted scanner-message"><small>${__("Before login, a scan identifies the operator. After login, a scan finds the Service Task card.")}</small></div>
 	</div>`).appendTo(page.main);
 	const $mobile_actions = $(`<div class="cfg-service-mobile-actions mb-3">
+		<button class="btn btn-info open-production-panel">${__("Production Panel")}</button>
 		<button class="btn btn-default refresh-tasks"><span class="octicon octicon-sync"></span> ${__("Refresh")}</button>
 		<button class="btn btn-primary identify-operator">${__("Scan / Switch Operator")}</button>
 		<button class="btn btn-success create-service-task">${__("Create Task")}</button>
@@ -22,8 +23,10 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	const $identity = $("<div class='mb-3'></div>").appendTo(page.main);
 	const $root = $("<div class='cfg-kanban-tasks'></div>").appendTo(page.main);
 	page.set_primary_action(__("Refresh"), load, "refresh");
+	page.add_inner_button(__("Open Production Operator Panel"), () => frappe.set_route("kanban-operator"));
 	page.add_inner_button(__("Identify Operator"), identify_operator);
 	page.add_inner_button(__("Create Task"), create_task);
+	$mobile_actions.find(".open-production-panel").on("click", () => frappe.set_route("kanban-operator"));
 	$mobile_actions.find(".refresh-tasks").on("click", load);
 	$mobile_actions.find(".identify-operator").on("click", identify_operator);
 	$mobile_actions.find(".create-service-task").on("click", create_task);
@@ -302,6 +305,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				<div class="cfg-service-task-head"><div><h4>${e(task.task_name)}</h4><small>${e(task.task_category)} · ${e(task.trigger_type)}</small></div>
 				<div class="text-right"><span class="indicator-pill ${indicator(task.status)}">${e(task.status)}</span><div class="cfg-priority">${e(task.priority)}</div></div></div>
 				<div class="cfg-service-task-meta">
+					${task.responsible_role ? `<div><small>${__("Responsible Role")}</small><strong>${e(task.responsible_role)}</strong></div>` : ""}
 					${task.workstation ? `<div><small>${__("Workstation")}</small><strong>${e(task.workstation)}</strong></div>` : ""}
 					${task.asset ? `<div><small>${__("Asset")}</small><strong>${e(task.asset)}</strong></div>` : ""}
 					<div><small>${__("Due")}</small><strong>${e(task.due_on || "-")}</strong></div>

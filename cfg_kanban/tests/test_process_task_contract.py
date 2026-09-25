@@ -79,6 +79,12 @@ class TestProcessTaskContract(TestCase):
         self.assertIn("Scan / Switch Operator", console)
         self.assertIn("End Session", console)
         self.assertIn("cfg-service-task-actions", console)
+        self.assertIn("Open Production Operator Panel", console)
+        operator_console = (ROOT / "cfg_kanban" / "page" / "kanban_operator" /
+                            "kanban_operator.js").read_text()
+        self.assertIn("Open Service Task Panel", operator_console)
+        self.assertIn("profile.responsibilities", api)
+        self.assertIn("responsibility_allowed", api)
 
     def test_standalone_compliance_record_supports_rejection_reports_and_printing(self):
         service = (ROOT / "services" / "standalone_tasks.py").read_text()

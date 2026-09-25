@@ -19,7 +19,7 @@
   {"fieldname":"next_due_on","label":"Next Due On","fieldtype":"Datetime","in_list_view":1},
   {"fieldname":"default_due_hours","label":"Complete Within (Hours)","fieldtype":"Float","default":"24"},
   {"fieldname":"priority","label":"Default Priority","fieldtype":"Select","options":"Low\nNormal\nHigh\nUrgent","default":"Normal"},
-  {"fieldname":"responsible_role","label":"Responsible Role","fieldtype":"Link","options":"Role"},
+  {"fieldname":"responsible_role","label":"Responsible Kanban Role","fieldtype":"Link","options":"CFG Kanban Responsibility","description":"Operational task responsibility. This is independent of ERPNext User roles and permissions."},
   {"fieldname":"workstation","label":"Workstation","fieldtype":"Link","options":"Workstation","in_standard_filter":1},
   {"fieldname":"asset","label":"Asset","fieldtype":"Link","options":"Asset","in_standard_filter":1},
   {"fieldname":"location","label":"Location","fieldtype":"Data","in_standard_filter":1},
@@ -29,5 +29,8 @@
   {"fieldname":"instructions","label":"Instructions","fieldtype":"Text Editor"},
   {"fieldname":"last_generated_on","label":"Last Generated On","fieldtype":"Datetime","read_only":1}
  ],
- "permissions":[{"role":"Manufacturing Manager","read":1,"write":1,"create":1,"delete":1},{"role":"System Manager","read":1,"write":1,"create":1,"delete":1}]
+ "permissions":[
+  {"role":"Manufacturing Manager","read":1,"write":1,"create":1,"delete":1},
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1}
+ ]
 }

@@ -20,12 +20,27 @@ def get_open_tasks(operator_session_token=None):
         "CFG Kanban Task", filters=filters,
         fields=["name", "task_name", "task_category", "status", "priority", "requested_on",
                 "due_on", "assigned_employee", "workstation", "asset", "location",
-                "verification_required", "task_schedule", "trigger_type", "started_on"],
+                "verification_required", "task_schedule", "trigger_type", "started_on",
+                "responsible_role"],
         order_by="priority desc, due_on asc, creation asc", limit_page_length=200,
     )
-    if profile.kanban_role != "Supervisor":
-        rows = [row for row in rows
-                if not row.assigned_employee or row.assigned_employee == profile.employee]
+    responsibilities = {row.responsibility for row in profile.responsibilities
+                        if row.responsibility}
+    unrestricted = not responsibilities or (
+        profile.kanban_role == "Supervisor" and profile.view_all_responsibilities
+    )
+    visible = []
+    for row in rows:
+        assigned_to_operator = row.assigned_employee == profile.employee
+        responsibility_allowed = (unrestricted or not row.responsible_role or
+                                  row.responsible_role in responsibilities)
+        if assigned_to_operator:
+            visible.append(row)
+        elif profile.kanban_role == "Supervisor" and responsibility_allowed:
+            visible.append(row)
+        elif not row.assigned_employee and responsibility_allowed:
+            visible.append(row)
+    rows = visible
     return rows
 
 

@@ -17,7 +17,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		change: () => process_scan(scan.get_value()),
 	});
 	page.set_primary_action(__("Find Card"), () => process_scan(scan.get_value()), "search");
+	page.add_inner_button(__("Open Service Task Panel"), () => frappe.set_route("kanban-tasks"));
 	page.add_inner_button(__("Clear / Next Card (F3)"), clear_for_next_card);
+	const $panel_switcher = $(`<div class="cfg-panel-switcher mb-3">
+		<div><strong>${__("Production Operator Panel")}</strong><small>${__("Use this panel for production cards, operations, and process tasks.")}</small></div>
+		<button class="btn btn-primary btn-lg open-service-panel">${__("Open Service Task Panel")}</button>
+	</div>`).appendTo(page.main);
+	$panel_switcher.find(".open-service-panel").on("click", () => frappe.set_route("kanban-tasks"));
 	const $scanner_status = $(`<div class="cfg-scanner-status mt-3 mb-3" aria-live="polite"></div>`)
 		.appendTo(page.main);
 
