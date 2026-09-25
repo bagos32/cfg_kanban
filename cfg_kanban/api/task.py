@@ -4,7 +4,7 @@ from cfg_kanban.services.operator_auth import require_operator
 from cfg_kanban.services.media import list_reference_media
 from cfg_kanban.services.standalone_tasks import (complete_task, create_manual, start_task,
                                                   disposition_task, reject_task, resolve_service_point,
-                                                  task_form, verify_task)
+                                                  progress_task, task_form, verify_task)
 from cfg_kanban.services.printing import get_qr_svg
 
 
@@ -20,7 +20,7 @@ def get_open_tasks(operator_session_token=None):
         "CFG Kanban Task", filters=filters,
         fields=["name", "task_name", "task_category", "status", "priority", "requested_on",
                 "due_on", "assigned_employee", "workstation", "asset", "location",
-                "verification_required", "task_schedule", "trigger_type"],
+                "verification_required", "task_schedule", "trigger_type", "started_on"],
         order_by="priority desc, due_on asc, creation asc", limit_page_length=200,
     )
     if profile.kanban_role != "Supervisor":
@@ -79,6 +79,11 @@ def get_task_form(task_name, capture_on="Complete", operator_session_token=None)
 @frappe.whitelist()
 def start(task_name, operator_session_token, values=None, notes=None):
     return start_task(task_name, operator_session_token, values).as_dict()
+
+
+@frappe.whitelist()
+def progress(task_name, operator_session_token, values=None, notes=None):
+    return progress_task(task_name, operator_session_token, values, notes).as_dict()
 
 
 @frappe.whitelist()

@@ -308,6 +308,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				</div><div class="actions cfg-service-task-actions"></div></div>`).appendTo($root);
 			const $actions = $row.find(".actions");
 			if (["Planned", "Due", "Assigned", "Overdue"].includes(task.status)) button($actions, __("Start"), "btn-primary", () => task_dialog(task, "Start"));
+			if (task.started_on && ["In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, __("Report Progress"), "btn-info", () => task_dialog(task, "Progress"));
 			if (["Due", "Assigned", "In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, task.status === "Correction Required" ? __("Correct and Resubmit") : __("Complete"), "btn-success", () => task_dialog(task, "Complete"));
 			if (task.status === "Awaiting Verification") button($actions, __("Verify"), "btn-warning", () => task_dialog(task, "Verify"));
 			if (state.operator && state.operator.permissions.task_verify && !["Completed", "Cancelled", "Bypassed"].includes(task.status)) {
@@ -356,7 +357,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			{ fieldtype: "Section Break", label: action === "Verify" ? __("Verification Decision") : __("Notes") },
 			{ fieldname: "notes", label: __("Notes"), fieldtype: "Small Text" },
 		];
-		const method = { Start: "start", Complete: "complete", Verify: "verify" }[action];
+		const method = { Start: "start", Progress: "progress", Complete: "complete", Verify: "verify" }[action];
 		const dialog = new frappe.ui.Dialog({ title: __(`${action} Service Task`), fields,
 			primary_action_label: __(action), primary_action: async (values) => {
 				const args = { task_name: task.name, operator_session_token: state.token,
@@ -582,7 +583,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	function dialog_field(definition) {
 		const types = { Data: "Data", Int: "Int", Float: "Float", Check: "Check", Select: "Select", Date: "Date", Datetime: "Datetime", Text: "Small Text" };
 		return { fieldname: `dynamic_${definition.field_key}`, label: definition.label,
-			fieldtype: types[definition.field_type] || "Data", reqd: definition.mandatory,
+			fieldtype: types[definition.field_type] || "Data", reqd: Boolean(Number(definition.mandatory)),
 			options: definition.options, default: definition.default_value, read_only: definition.read_only };
 	}
 

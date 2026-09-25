@@ -51,6 +51,17 @@ class TestProcessTaskContract(TestCase):
         self.assertIn("generate_due_tasks", hooks)
         self.assertIn("update_overdue_tasks", hooks)
 
+    def test_service_progress_fields_have_a_real_capture_action_and_completion_gate(self):
+        service = (ROOT / "services" / "standalone_tasks.py").read_text()
+        api = (ROOT / "api" / "task.py").read_text()
+        console = (ROOT / "cfg_kanban" / "page" / "kanban_tasks" /
+                   "kanban_tasks.js").read_text()
+        self.assertIn("def progress_task", service)
+        self.assertIn("_assert_required_progress(task)", service)
+        self.assertIn("def progress(", api)
+        self.assertIn("Report Progress", console)
+        self.assertIn('Progress: "progress"', console)
+
     def test_service_task_console_can_identify_operator_and_create_from_schedule(self):
         api = (ROOT / "api" / "task.py").read_text()
         console = (ROOT / "cfg_kanban" / "page" / "kanban_tasks" /

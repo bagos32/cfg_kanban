@@ -436,14 +436,22 @@ another normal operator.
 
 The Service Tasks page is optimized for phones and tablets rather than a fixed barcode terminal.
 Large touch controls for **Refresh**, **Scan / Switch Operator**, and **Create Task** remain at the
-top of the page. Each task is displayed as a separate touch card with prominent **Start**,
-**Complete**, **Correct and Resubmit**, or **Verify** actions according to its status. Urgent and
+top of the page. Each task is displayed as a separate touch card with prominent **Start**, **Report
+Progress**, **Complete**, **Correct and Resubmit**, or **Verify** actions according to its status. Urgent and
 high-priority work has a colored card edge. On a phone, task forms use the full screen with a sticky
 action footer so the final action remains accessible after scrolling through instructions and
 checklists. The operator can explicitly switch identity or end the shared session from the active
 operator banner.
 
 Work instructions, completion checklist, measurements, and notes are presented as separate sections.
+Dynamic fields use their exact **Capture On** stage: Start appears in the Start dialog, Progress in
+**Report Progress**, Complete in the completion dialog, and Verify in the independent verification
+dialog. A task must be started before Progress can be reported. Every Progress submission is kept as
+a separate timestamped measurement row. Completion is blocked until every mandatory Progress field
+has at least one valid recorded value. Mandatory Check fields must be checked; zero remains valid for
+mandatory numeric fields. A mandatory read-only definition must have a Default Value or the Schedule
+cannot be saved.
+
 When **Require Supervisor Verification** is enabled, completion moves the Task to **Awaiting
 Verification**. A different authorized employee must approve it. Rejection requires remarks and
 moves it to **Correction Required** for correction and resubmission.

@@ -171,6 +171,21 @@ def start_task(task_name, session_token, values=None):
     return task
 
 
+def progress_task(task_name, session_token, values=None, notes=None):
+    task = frappe.get_doc("CFG Kanban Task", task_name)
+    profile, session = require_operator(session_token, "task_complete",
+                                        workstation=task.workstation)
+    _validate_assignment(task, profile)
+    if task.status not in ("In Progress", "Overdue", "Correction Required"):
+        frappe.throw(f"Task progress cannot be reported while it is {task.status}")
+    if not task.started_on:
+        frappe.throw("Start the Service Task before reporting progress")
+    _apply_values(task, "Progress", values, profile.employee)
+    task.save(ignore_permissions=True)
+    _task_event("Standalone Task Progress Reported", task, profile, session, notes=notes)
+    return task
+
+
 def complete_task(task_name, session_token, values=None, checklist_results=None, notes=None):
     task = frappe.get_doc("CFG Kanban Task", task_name)
     profile, session = require_operator(session_token, "task_complete", workstation=task.workstation)
@@ -180,6 +195,7 @@ def complete_task(task_name, session_token, values=None, checklist_results=None,
     if task.status not in ("Due", "Assigned", "In Progress", "Overdue", "Correction Required"):
         frappe.throw(f"Task cannot complete while it is {task.status}")
     _apply_values(task, "Complete", values, profile.employee)
+    _assert_required_progress(task)
     _apply_checklist(task, checklist_results, profile.employee)
     task.completed_by = profile.employee
     task.completed_on = now_datetime()
@@ -255,10 +271,30 @@ def _apply_values(task, capture_on, supplied, employee):
     for value in normalized_values(rows, supplied):
         value.update({"capture_on": capture_on, "captured_by": employee,
                       "captured_on": now_datetime()})
-        if value["field_key"] in existing:
+        if capture_on == "Progress":
+            task.append("execution_values", value)
+        elif value["field_key"] in existing:
             existing[value["field_key"]].update(value)
         else:
             task.append("execution_values", value)
+
+
+def _assert_required_progress(task):
+    rows = standalone_definitions(task.task_schedule, "Progress") if task.task_schedule else []
+    required = {row.field_key: row for row in rows if row.mandatory}
+    if not required:
+        return
+    captured = set()
+    for value in task.execution_values:
+        if value.capture_on != "Progress" or value.value in (None, ""):
+            continue
+        definition = required.get(value.field_key)
+        if definition and not (definition.field_type == "Check" and not cint(value.value)):
+            captured.add(value.field_key)
+    missing = [row.label for key, row in required.items() if key not in captured]
+    if missing:
+        frappe.throw("Report mandatory Progress fields before completing this task: "
+                     + ", ".join(missing))
 
 
 def _apply_checklist(task, supplied, employee):

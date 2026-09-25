@@ -26,3 +26,8 @@ class CFGKanbanTaskSchedule(Document):
                        if row.definition_scope != "Standalone Task"]
         if wrong_scope:
             frappe.throw("Task Schedule dynamic fields must use Applies To = Standalone Task")
+        unusable = [row.label for row in self.task_field_definitions
+                    if row.mandatory and row.read_only and not row.default_value]
+        if unusable:
+            frappe.throw("Mandatory read-only dynamic fields require a Default Value: "
+                         + ", ".join(unusable))

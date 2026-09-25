@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 
 FIELD_COLUMNS = [
@@ -42,7 +42,8 @@ def validate_values(rows, supplied_values):
     for definition in rows:
         value = supplied.get(definition.field_key)
         message = definition.validation_message or f"Invalid value for {definition.label}"
-        if definition.mandatory and value in (None, ""):
+        if definition.mandatory and (value in (None, "") or
+                                     (definition.field_type == "Check" and not cint(value))):
             frappe.throw(f"{definition.label} is required")
         if value in (None, ""):
             continue
