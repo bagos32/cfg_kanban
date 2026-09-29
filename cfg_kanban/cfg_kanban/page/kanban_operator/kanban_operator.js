@@ -19,13 +19,16 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	page.set_primary_action(__("Find Card"), () => process_scan(scan.get_value()), "search");
 	page.add_inner_button(__("Open Service Task Panel"), () => frappe.set_route("kanban-tasks"));
 	page.add_inner_button(__("Clear / Next Card (F3)"), clear_for_next_card);
-	const $panel_switcher = $(`<div class="cfg-panel-switcher mb-3">
+	const $sticky_header = $("<div class='cfg-operator-sticky-shell'></div>").appendTo(page.main);
+	const $scanner_status = $(`<div class="cfg-scanner-status" aria-live="polite"></div>`)
+		.appendTo($sticky_header);
+	const $operator_identity = $("<div class='cfg-production-identity'></div>").appendTo($sticky_header);
+	const $root = $("<div class='cfg-kanban-operator cfg-active-work-region mt-3'></div>").appendTo(page.main);
+	const $panel_switcher = $(`<div class="cfg-panel-switcher mt-3 mb-3">
 		<div><strong>${__("Production Operator Panel")}</strong><small>${__("Use this panel for production cards, operations, and process tasks.")}</small></div>
 		<button class="btn btn-primary btn-lg open-service-panel">${__("Open Service Task Panel")}</button>
 	</div>`).appendTo(page.main);
 	$panel_switcher.find(".open-service-panel").on("click", () => frappe.set_route("kanban-tasks"));
-	const $scanner_status = $(`<div class="cfg-scanner-status mt-3 mb-3" aria-live="polite"></div>`)
-		.appendTo(page.main);
 
 	const $card_camera = $(`<div class="cfg-kanban-card-camera mt-3 mb-3">
 		<button class="btn btn-primary btn-lg btn-block">
@@ -36,7 +39,6 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		</small>
 	</div>`).appendTo(page.main).hide();
 	$card_camera.find("button").on("click", scan_kanban_qr);
-	const $root = $("<div class='cfg-kanban-operator mt-4'></div>").appendTo(page.main);
 	page.add_inner_button(__("Switch Operator (F2)"), prepare_operator_switch);
 	page.add_inner_button(__("End Operator Session (F8)"), confirm_end_operator_session);
 	page.add_inner_button(__("Scan Operator QR"), scan_operator_qr);
@@ -89,6 +91,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		state.operator = null;
 		state.context = null;
 		state.awaiting_operator_scan = false;
+		$operator_identity.empty();
 	}
 
 	function activate_operator(message) {
@@ -568,6 +571,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			state.awaiting_operator_scan ? "orange" : "green");
 		$card_camera.toggle(Boolean(state.operator));
 		if (!state.operator) {
+			$operator_identity.html(`<div class="cfg-production-identity-empty">
+				<strong>${__("No active operator")}</strong><small>${__("Scan an operator credential to begin.")}</small></div>`);
 			const setup = state.access && state.access.can_manage_operators
 				? `<p><a class="btn btn-default" href="/app/cfg-kanban-operator-profile">${__("Manage Operator Profiles")}</a></p>` : "";
 			const development_proxy = state.access && state.access.can_use_development_proxy
@@ -584,18 +589,20 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			return;
 		}
 		const e = frappe.utils.escape_html;
-		$root.append(`<div class="alert alert-info d-flex justify-content-between align-items-center">
-			<div><strong>${__("Active operator")}: ${e(state.operator.employee_name)}</strong>
-			<span class="ml-2">${e(state.operator.employee)} · ${e(state.operator.kanban_role || "")}</span>
+		$operator_identity.html(`<div><small>${__("Active operator")}</small><strong>${e(state.operator.employee_name)}</strong>
+			<span>${e(state.operator.employee)} · ${e(state.operator.kanban_role || "")}</span>
 			${state.operator.development_proxy ? `<span class="indicator-pill orange ml-2">${__("Administrator Proxy")}</span>` : ""}</div>
-			<div>${e(state.operator.station || "")}</div></div>`);
+			<div><small>${__("Station")}</small><strong>${e(state.operator.station || "-")}</strong></div>`);
 		if (state.access && state.access.can_use_development_proxy) {
 			$("<button class='btn btn-warning btn-sm mb-3'>" + __("Change Development Proxy Employee") + "</button>")
 				.appendTo($root).on("click", show_development_proxy_login);
 		}
 		if (!state.context) {
-			$root.append(`<div class="empty-state text-muted text-center p-5">
-				${__("Scan a Kanban QR code or enter its card number to begin.")}</div>`);
+			$root.append(`<div class="cfg-work-section-heading"><div><h3>${__("Active Work")}</h3>
+				<small>${__("The scanned production card and its current execution appear here.")}</small></div>
+				<span class="indicator-pill grey">0 ${__("Active")}</span></div>
+				<div class="frappe-card empty-state text-muted text-center p-5">
+				${__("No production card is selected. Scan a Kanban card to load the current work.")}</div>`);
 			focus_scanner();
 			return;
 		}
@@ -604,7 +611,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const work_order_label = effective_work_order
 			? `${document_link("work-order", effective_work_order.name)}${status_line(effective_work_order.status, effective_work_order.docstatus)}`
 			: document_link("work-order", null);
-		$root.append(`<div class="frappe-card p-4 mb-4">
+		$root.append(`<div class="cfg-work-section-heading"><div><h3>${__("Active Work")}</h3>
+			<small>${__("Current scanned production card, ERP status, tasks and execution lanes.")}</small></div>
+			<span class="indicator-pill blue">1 ${__("Selected")}</span></div>
+			<div class="frappe-card p-4 mb-4 cfg-active-production-card">
 			<div class="d-flex justify-content-between align-items-start flex-wrap">
 				<div><div class="d-flex align-items-center flex-wrap"><h3 class="mr-3 mb-1">${e(card.card_number)}</h3>
 					<span class="indicator-pill blue mb-1">${e(card.card_type || __("Unspecified Card Type"))}</span></div>

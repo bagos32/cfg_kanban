@@ -1,7 +1,52 @@
 .cfg-scanner-status {
+	position: relative;
+}
+
+.cfg-operator-sticky-shell,
+.cfg-service-sticky-shell {
 	position: sticky;
 	top: 0;
-	z-index: 20;
+	z-index: 30;
+	padding-top: 8px;
+	background: var(--bg-color);
+	box-shadow: 0 6px 12px -12px rgba(0, 0, 0, 0.55);
+}
+
+.cfg-production-identity {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 10px 14px;
+	border: 1px solid var(--border-color);
+	border-top: 0;
+	border-radius: 0 0 var(--border-radius) var(--border-radius);
+	background: var(--card-bg);
+}
+
+.cfg-production-identity > div,
+.cfg-production-identity small,
+.cfg-production-identity strong,
+.cfg-production-identity span,
+.cfg-production-identity-empty small {
+	display: block;
+}
+
+.cfg-work-section-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin: 8px 0 14px;
+}
+
+.cfg-work-section-heading h3 {
+	margin: 0;
+}
+
+.cfg-active-production-card,
+.cfg-service-task-card.is-active {
+	border-left: 6px solid var(--green-500);
 }
 
 .cfg-scanner-ready {
@@ -73,6 +118,26 @@
 	border-left: 5px solid var(--blue-500);
 }
 
+.cfg-service-sticky-shell .cfg-service-scanner {
+	margin-bottom: 0 !important;
+	border-radius: var(--border-radius) var(--border-radius) 0 0;
+}
+
+.cfg-service-sticky-shell .cfg-service-identity {
+	margin-bottom: 0;
+	border-radius: 0 0 var(--border-radius) var(--border-radius);
+}
+
+.cfg-service-active-work {
+	margin-top: 16px;
+}
+
+.cfg-service-empty-section {
+	margin-bottom: 14px;
+	padding: 18px;
+	border-style: dashed;
+}
+
 .cfg-service-scanner-heading,
 .cfg-service-scanner-controls {
 	display: flex;
@@ -98,6 +163,11 @@
 
 .cfg-service-scanner-controls .btn {
 	min-height: 46px;
+}
+
+.cfg-service-scanner-controls .camera-service-task {
+	min-width: 210px;
+	font-weight: 700;
 }
 
 .cfg-service-scanner .scanner-message {
@@ -303,15 +373,30 @@
 		min-height: 54px;
 	}
 
+	.cfg-service-scanner-controls .camera-service-task {
+		min-height: 62px;
+		font-size: 18px;
+	}
+
 	.cfg-service-mobile-actions {
 		grid-template-columns: 1fr 1fr;
-		position: sticky;
-		top: 0;
-		z-index: 20;
 		padding: 8px;
 		margin-left: -8px;
 		margin-right: -8px;
 		background: var(--bg-color);
+	}
+
+	.cfg-operator-sticky-shell,
+	.cfg-service-sticky-shell {
+		margin-left: -8px;
+		margin-right: -8px;
+		padding: 8px;
+	}
+
+	.cfg-production-identity,
+	.cfg-work-section-heading {
+		align-items: flex-start;
+		flex-direction: column;
 	}
 
 	.cfg-service-mobile-actions .open-production-panel,

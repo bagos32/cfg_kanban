@@ -450,13 +450,24 @@ Both operator pages contain a prominent panel switch: **Open Service Task Panel*
 Operator page and **Production Panel** / **Open Production Operator Panel** on the Service page.
 They share the active operator-session token stored on that terminal, so an identified operator can
 move between panels without scanning the credential again while the session remains valid.
-Large touch controls for **Refresh**, **Scan / Switch Operator**, and **Create Task** remain at the
-top of the page. Each task is displayed as a separate touch card with prominent **Start**, **Report
-Progress**, **Complete**, **Correct and Resubmit**, or **Verify** actions according to its status. Urgent and
-high-priority work has a colored card edge. On a phone, task forms use the full screen with a sticky
-action footer so the final action remains accessible after scrolling through instructions and
-checklists. The operator can explicitly switch identity or end the shared session from the active
-operator banner.
+The scanner and active-operator identity form a sticky header and remain visible while the operator
+scrolls. Immediately below it, **Active Work** contains tasks already started and assigned to that
+Employee. Starting a task reloads the panel, moves the task from **Ready / Open Tasks** into Active
+Work, and scrolls to that section. Active tasks are ordered with the most recently updated first.
+A Supervisor sees tasks assigned to other Employees separately under **Other Supervisor Work**;
+they are not mixed into the Supervisor's own active work.
+
+On the Service Task Panel, **Scan Task QR with Camera** is the primary task-selection action and is
+shown first with the largest mobile control. The scan field and **Find Task / Card** remain available
+as desktop or scanner-keyboard fallbacks; operators are not expected to type Task IDs routinely.
+
+Large touch controls for **Refresh**, **Scan / Switch Operator**, **Create Task**, and panel switching
+appear after Active Work and before the ready queue. Each task is displayed as a separate touch card
+with prominent **Start**, **Report Progress**, **Complete**, **Correct and Resubmit**, or **Verify**
+actions according to its status. Urgent and high-priority work has a colored card edge. On a phone,
+task forms use the full screen with a sticky action footer so the final action remains accessible
+after scrolling through instructions and checklists. The operator can explicitly switch identity or
+end the shared session from the active operator banner.
 
 Work instructions, completion checklist, measurements, and notes are presented as separate sections.
 Dynamic fields use their exact **Capture On** stage: Start appears in the Start dialog, Progress in
@@ -859,6 +870,11 @@ camera. For a fixed floor terminal:
 4. Scan a Kanban card. The previous scanned value is cleared automatically, so the next card can be
    scanned without touching the screen.
 5. Watch the green/orange **Scanner ready** banner before scanning.
+
+The scanner-status and active-operator identity stay pinned at the top while the page scrolls. The
+scanned production card is presented as **Active Work**, including its Cycle, effective Work Order,
+process tasks, operation results, and Job Card execution lanes. General camera and panel-navigation
+controls follow the Active Work area so the current production context remains visually dominant.
 
 The same actions can be performed with function keys or printed command QR/Code 128 labels:
 

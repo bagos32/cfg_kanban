@@ -2,26 +2,28 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({ parent: wrapper, title: __("Kanban Service Tasks"), single_column: true });
 	const session_key = "cfg_kanban_operator_session";
 	const state = { token: localStorage.getItem(session_key), operator: null, tasks: [] };
+	const $sticky_header = $("<div class='cfg-service-sticky-shell'></div>").appendTo(page.main);
 	const $scanner = $(`<div class="frappe-card cfg-service-scanner mb-3">
 		<div class="cfg-service-scanner-heading"><div><strong>${__("Service Task Scanner")}</strong>
 			<small class="text-muted">${__("USB scanners can scan directly into this field and append Enter.")}</small></div>
 			<span class="indicator-pill orange scanner-mode">${__("Operator scan required")}</span></div>
 		<div class="cfg-service-scanner-controls">
+			<button class="btn btn-primary camera-service-task">${__("Scan Task QR with Camera")}</button>
 			<input type="text" class="form-control service-scan-input" autocomplete="off" autocapitalize="off"
 				spellcheck="false" placeholder="${__("Scan operator or task/card code")}">
-			<button class="btn btn-primary find-service-task">${__("Find Task / Card")}</button>
-			<button class="btn btn-default camera-service-task">${__("Camera Scan")}</button>
+			<button class="btn btn-default find-service-task">${__("Find Task / Card")}</button>
 			<button class="btn btn-default clear-service-filter">${__("Show All")}</button>
 		</div><div class="text-muted scanner-message"><small>${__("Before login, a scan identifies the operator. After login, a scan finds the Service Task card.")}</small></div>
-	</div>`).appendTo(page.main);
+	</div>`).appendTo($sticky_header);
+	const $identity = $("<div class='mb-3'></div>").appendTo($sticky_header);
+	const $active_root = $("<div class='cfg-service-active-work'></div>").appendTo(page.main);
 	const $mobile_actions = $(`<div class="cfg-service-mobile-actions mb-3">
 		<button class="btn btn-info open-production-panel">${__("Production Panel")}</button>
 		<button class="btn btn-default refresh-tasks"><span class="octicon octicon-sync"></span> ${__("Refresh")}</button>
 		<button class="btn btn-primary identify-operator">${__("Scan / Switch Operator")}</button>
 		<button class="btn btn-success create-service-task">${__("Create Task")}</button>
 	</div>`).appendTo(page.main);
-	const $identity = $("<div class='mb-3'></div>").appendTo(page.main);
-	const $root = $("<div class='cfg-kanban-tasks'></div>").appendTo(page.main);
+	const $root = $("<div class='cfg-kanban-tasks cfg-service-ready-work'></div>").appendTo(page.main);
 	page.set_primary_action(__("Refresh"), load, "refresh");
 	page.add_inner_button(__("Open Production Operator Panel"), () => frappe.set_route("kanban-operator"));
 	page.add_inner_button(__("Identify Operator"), identify_operator);
@@ -39,7 +41,8 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 
 	async function load() {
 		if (!state.token) return show_login_required();
-		$root.html(`<div class="text-muted p-4">${__("Loading service tasks...")}</div>`);
+		$active_root.html(`<div class="text-muted p-4">${__("Loading active work...")}</div>`);
+		$root.html(`<div class="text-muted p-4">${__("Loading ready tasks...")}</div>`);
 		try {
 			const session = await frappe.call({ method: "cfg_kanban.api.operator.operator_session_status",
 				args: { operator_session_token: state.token } });
@@ -74,7 +77,9 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	function show_login_required(message) {
 		state.tasks = [];
 		update_scanner_mode();
-		$identity.empty();
+		$identity.html(`<div class="alert alert-warning cfg-service-identity"><div>
+			<small>${__("Active operator")}</small><br><strong>${__("Not identified")}</strong></div></div>`);
+		$active_root.empty();
 		$root.html(`<div class="frappe-card text-center p-5 cfg-service-login"><h3>${__("Operator identification required")}</h3>
 			<p class="text-muted">${message || __("Scan the operator QR or enter the credential before viewing tasks.")}</p>
 			<div class="cfg-service-login-actions"><button class="btn btn-primary scan-operator">${__("Scan Operator QR with Camera")}</button>
@@ -136,7 +141,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		}
 		render(matches);
 		$scanner.find(".scanner-message").html(`<small class="text-success">${__("Task found: {0}", [frappe.utils.escape_html(matches[0].name)])}</small>`);
-		setTimeout(() => document.querySelector(".cfg-service-task-card")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+		setTimeout(() => document.querySelector(".cfg-service-active-work .cfg-service-task-card, .cfg-service-ready-work .cfg-service-task-card")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
 		focus_scanner();
 	}
 
@@ -290,26 +295,51 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	}
 
 	function render(tasks) {
+		$active_root.empty();
 		$root.empty();
+		const employee = state.operator && state.operator.employee;
+		const active_statuses = ["In Progress", "Overdue", "Correction Required"];
+		const active = tasks.filter((task) => task.assigned_employee === employee && task.started_on &&
+			active_statuses.includes(task.status)).sort((a, b) => String(b.modified || b.started_on || "")
+				.localeCompare(String(a.modified || a.started_on || "")));
+		const supervisor = tasks.filter((task) => state.operator && state.operator.kanban_role === "Supervisor" &&
+			task.assigned_employee && task.assigned_employee !== employee && !active.includes(task));
+		const ready = tasks.filter((task) => !active.includes(task) && !supervisor.includes(task));
+		render_task_section($active_root, active, __("Active Work"),
+			__("Tasks currently started by this operator."), "green", true);
+		render_task_section($root, ready, __("Ready / Open Tasks"),
+			__("Start a task to move it immediately into Active Work."), "blue", false);
+		if (supervisor.length) render_task_section($root, supervisor, __("Other Supervisor Work"),
+			__("Tasks assigned to other employees within your responsibility scope."), "orange", false);
 		if (!tasks.length) {
-			$root.html(`<div class="frappe-card text-center p-5"><h4>${__("No open service tasks")}</h4>
+			$root.append(`<div class="frappe-card text-center p-5"><h4>${__("No open service tasks")}</h4>
 				<p class="text-muted">${__("A Senior Operator or Supervisor can select Create Task. Scheduled tasks appear automatically when due.")}</p></div>`);
 			return;
 		}
-		$root.append(`<div class="cfg-service-list-heading"><div><h3>${__("Open Service Tasks")}</h3>
-			<small class="text-muted">${__("Tap the required action on the task card.")}</small></div>
-			<span class="indicator-pill blue">${tasks.length} ${__("Open")}</span></div>`);
-			tasks.forEach((task) => {
+	}
+
+	function render_task_section($container, tasks, title, help, color, active_section) {
+		$container.append(`<div class="cfg-service-list-heading"><div><h3>${title}</h3>
+			<small class="text-muted">${help}</small></div>
+			<span class="indicator-pill ${color}">${tasks.length} ${active_section ? __("Active") : __("Open")}</span></div>`);
+		if (!tasks.length) {
+			$container.append(`<div class="frappe-card cfg-service-empty-section text-muted">
+				${active_section ? __("No task is currently active for this operator.") : __("No tasks are ready in this section.")}</div>`);
+			return;
+		}
+		tasks.forEach((task) => {
 			const e = frappe.utils.escape_html;
-			const $row = $(`<div class="frappe-card cfg-service-task-card ${priority_class(task.priority)}">
+			const $row = $(`<div class="frappe-card cfg-service-task-card ${priority_class(task.priority)} ${active_section ? "is-active" : ""}">
 				<div class="cfg-service-task-head"><div><h4>${e(task.task_name)}</h4><small>${e(task.task_category)} · ${e(task.trigger_type)}</small></div>
 				<div class="text-right"><span class="indicator-pill ${indicator(task.status)}">${e(task.status)}</span><div class="cfg-priority">${e(task.priority)}</div></div></div>
 				<div class="cfg-service-task-meta">
 					${task.responsible_role ? `<div><small>${__("Responsible Role")}</small><strong>${e(task.responsible_role)}</strong></div>` : ""}
+					${task.assigned_employee ? `<div><small>${__("Assigned Employee")}</small><strong>${e(task.assigned_employee)}</strong></div>` : ""}
 					${task.workstation ? `<div><small>${__("Workstation")}</small><strong>${e(task.workstation)}</strong></div>` : ""}
 					${task.asset ? `<div><small>${__("Asset")}</small><strong>${e(task.asset)}</strong></div>` : ""}
+					${task.started_on ? `<div><small>${__("Started")}</small><strong>${e(task.started_on)}</strong></div>` : ""}
 					<div><small>${__("Due")}</small><strong>${e(task.due_on || "-")}</strong></div>
-				</div><div class="actions cfg-service-task-actions"></div></div>`).appendTo($root);
+				</div><div class="actions cfg-service-task-actions"></div></div>`).appendTo($container);
 			const $actions = $row.find(".actions");
 			if (["Planned", "Due", "Assigned", "Overdue"].includes(task.status)) button($actions, __("Start"), "btn-primary", () => task_dialog(task, "Start"));
 			if (task.started_on && ["In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, __("Report Progress"), "btn-info", () => task_dialog(task, "Progress"));
@@ -370,6 +400,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				if (action === "Complete") args.checklist_results = checklist.map((item, index) => ({ item, completed: values[`check_${index}`] ? 1 : 0 }));
 				await frappe.call({ method: `cfg_kanban.api.task.${method}`, args, freeze: true });
 				dialog.hide(); await load();
+				if (action === "Start") scroll_to_active_work();
 			} });
 		if (action === "Verify") {
 			dialog.set_secondary_action_label(__("Reject for Correction"));
@@ -594,6 +625,10 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	function button($parent, label, style, action) {
 		$("<button class='btn " + style + "'>" + label + "</button>").appendTo($parent).on("click", action);
 	}
+	function scroll_to_active_work() {
+		setTimeout(() => $active_root[0]?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+	}
+
 	function priority_class(priority) {
 		if (priority === "Urgent") return "priority-urgent";
 		if (priority === "High") return "priority-high";

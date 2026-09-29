@@ -21,7 +21,7 @@ def get_open_tasks(operator_session_token=None):
         fields=["name", "task_name", "task_category", "status", "priority", "requested_on",
                 "due_on", "assigned_employee", "workstation", "asset", "location",
                 "verification_required", "task_schedule", "trigger_type", "started_on",
-                "responsible_role"],
+                "responsible_role", "modified"],
         order_by="priority desc, due_on asc, creation asc", limit_page_length=200,
     )
     responsibilities = {row.responsibility for row in profile.responsibilities
