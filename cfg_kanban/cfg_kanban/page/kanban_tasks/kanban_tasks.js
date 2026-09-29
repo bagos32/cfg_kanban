@@ -63,10 +63,10 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	function render_identity() {
 		const e = frappe.utils.escape_html;
 		$identity.html(`<div class="alert alert-info cfg-service-identity">
-			<div><small>${__("Active operator")}</small><br><strong>${e(state.operator.employee_name || state.operator.employee)}</strong>
-			<span class="ml-2">${e(state.operator.kanban_role || "")}</span></div>
+			<div class="cfg-active-operator-details"><small>${__("Active operator")}</small><strong class="cfg-active-operator-name">${e(state.operator.employee_name || state.operator.employee)}</strong>
+			<span>${e(state.operator.kanban_role || "")}</span></div>
 			<div class="cfg-service-session-actions">
-				<button class="btn btn-default switch-operator">${__("Switch")}</button>
+				<button class="btn btn-primary switch-operator">${__("Switch Operator")}</button>
 				<button class="btn btn-default end-session">${__("End Session")}</button>
 			</div></div>`);
 		$identity.find(".switch-operator").on("click", identify_operator);

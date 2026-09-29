@@ -468,6 +468,10 @@ row. The number field remains available as a desktop or scanner-keyboard fallbac
 not expected to type Task IDs routinely. The active-operator **Switch** and **End Session** controls
 are compact and side by side. **Production Panel**, **Refresh**, and **Scan / Switch Operator** share
 one compact navigation row, while **Create Task** remains a separate prominent action.
+On phone-sized screens the sticky scanner/operator header is deliberately compressed to roughly one
+quarter of the usable viewport. Repeated scanner guidance is reduced to a single status line, while
+**Scan Task QR with Camera**, the active Employee name, and **Switch Operator** remain prominent.
+Find, Show All, and End Session remain available as smaller secondary controls.
 
 Large touch controls for **Refresh**, **Scan / Switch Operator**, **Create Task**, and panel switching
 appear after Active Work and before the ready queue. Each task is displayed as a separate touch card

@@ -128,6 +128,17 @@
 	border-radius: 0 0 var(--border-radius) var(--border-radius);
 }
 
+.cfg-active-operator-details small,
+.cfg-active-operator-details strong,
+.cfg-active-operator-details span {
+	display: block;
+}
+
+.cfg-active-operator-name {
+	font-size: 19px;
+	line-height: 1.2;
+}
+
 .cfg-service-active-work {
 	margin-top: 16px;
 }
@@ -448,9 +459,29 @@
 }
 
 @media (max-width: 767px) {
+	.cfg-service-sticky-shell {
+		padding-top: 4px;
+		padding-bottom: 4px;
+	}
+
+	.cfg-service-sticky-shell .cfg-service-scanner {
+		padding: 8px 10px;
+	}
+
 	.cfg-service-scanner-heading {
-		align-items: stretch;
-		flex-direction: column;
+		align-items: center;
+		flex-direction: row;
+		margin-bottom: 6px;
+		font-size: 12px;
+	}
+
+	.cfg-service-scanner-heading small {
+		display: none;
+	}
+
+	.cfg-service-scanner-heading .indicator-pill {
+		margin-left: auto;
+		font-size: 10px;
 	}
 
 	.cfg-service-scanner-controls {
@@ -461,11 +492,12 @@
 	.cfg-service-scanner-controls .camera-service-task {
 		width: 100%;
 		min-width: 0;
-		min-height: 48px;
+		min-height: 42px;
 	}
 
 	.cfg-service-scanner-controls .camera-service-task {
-		font-size: 15px;
+		font-size: 14px;
+		font-weight: 800;
 		white-space: normal;
 	}
 
@@ -474,6 +506,16 @@
 		width: 100%;
 		min-height: 30px;
 		font-size: 13px;
+	}
+
+	.cfg-service-scanner .scanner-message {
+		max-width: 100%;
+		margin-top: 4px;
+		overflow: hidden;
+		font-size: 11px;
+		line-height: 1.2;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.cfg-service-mobile-actions {
@@ -507,6 +549,36 @@
 		flex-direction: column;
 	}
 
+	.cfg-service-sticky-shell .cfg-service-identity {
+		align-items: center;
+		flex-direction: row;
+		margin: 0;
+		padding: 7px 10px;
+	}
+
+	.cfg-active-operator-details {
+		min-width: 0;
+		flex: 1;
+	}
+
+	.cfg-active-operator-details small {
+		font-size: 10px;
+		line-height: 1;
+	}
+
+	.cfg-active-operator-name {
+		overflow: hidden;
+		font-size: 18px;
+		line-height: 1.15;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.cfg-active-operator-details span {
+		font-size: 11px;
+		line-height: 1.1;
+	}
+
 	.cfg-service-login-actions,
 	.cfg-service-task-actions {
 		width: 100%;
@@ -515,9 +587,9 @@
 
 	.cfg-service-session-actions {
 		display: grid;
-		grid-template-columns: 1fr 1fr;
-		width: 100%;
-		gap: 8px;
+		grid-template-columns: minmax(105px, 1fr) auto;
+		width: auto;
+		gap: 5px;
 	}
 
 	.cfg-service-login-actions .btn,
@@ -528,11 +600,23 @@
 	}
 
 	.cfg-service-session-actions .btn {
-		width: 100%;
-		min-height: 32px;
+		width: auto;
+		min-height: 28px;
 		padding-top: 4px;
 		padding-bottom: 4px;
+		font-size: 11px;
+	}
+
+	.cfg-service-session-actions .switch-operator {
+		min-height: 38px;
 		font-size: 13px;
+		font-weight: 800;
+	}
+
+	.cfg-service-session-actions .end-session {
+		align-self: center;
+		padding-right: 6px;
+		padding-left: 6px;
 	}
 
 	.cfg-service-mobile-actions .btn {
