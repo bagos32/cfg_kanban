@@ -132,17 +132,54 @@
 	margin-top: 16px;
 }
 
+.cfg-service-work-block {
+	margin-bottom: 16px;
+	padding: 14px;
+	border: 1px solid var(--border-color);
+	border-left-width: 6px;
+	border-radius: var(--border-radius-lg);
+}
+
+.cfg-service-work-block.active-work {
+	border-left-color: var(--green-500);
+	background: rgba(34, 197, 94, 0.09);
+}
+
+.cfg-service-work-block.ready-work {
+	border-left-color: var(--blue-500);
+	background: rgba(59, 130, 246, 0.08);
+}
+
+.cfg-service-work-block.supervisor-work {
+	border-left-color: var(--orange-500);
+	background: rgba(245, 158, 11, 0.1);
+}
+
+.cfg-service-work-block .cfg-service-list-heading {
+	margin-top: 0;
+}
+
+.cfg-service-work-block .cfg-service-task-card:last-child,
+.cfg-service-work-block .cfg-service-empty-section:last-child {
+	margin-bottom: 0;
+}
+
 .cfg-service-empty-section {
 	margin-bottom: 14px;
 	padding: 18px;
 	border-style: dashed;
 }
 
-.cfg-service-scanner-heading,
-.cfg-service-scanner-controls {
+.cfg-service-scanner-heading {
 	display: flex;
 	align-items: center;
 	gap: 10px;
+}
+
+.cfg-service-scanner-controls {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(210px, 0.72fr);
+	gap: 8px 10px;
 }
 
 .cfg-service-scanner-heading {
@@ -162,12 +199,19 @@
 }
 
 .cfg-service-scanner-controls .btn {
-	min-height: 46px;
+	min-height: 34px;
 }
 
 .cfg-service-scanner-controls .camera-service-task {
 	min-width: 210px;
+	min-height: 46px;
 	font-weight: 700;
+}
+
+.cfg-service-scanner-controls .find-service-task,
+.cfg-service-scanner-controls .clear-service-filter {
+	padding-top: 4px;
+	padding-bottom: 4px;
 }
 
 .cfg-service-scanner .scanner-message {
@@ -221,6 +265,49 @@
 
 .cfg-service-task-card.priority-high { border-left-color: var(--orange-500); }
 .cfg-service-task-card.priority-urgent { border-left-color: var(--red-500); }
+
+.cfg-service-work-block.active-work .cfg-service-task-card {
+	border: 1px solid rgba(34, 197, 94, 0.48);
+	border-left: 7px solid var(--green-500);
+	background: rgba(34, 197, 94, 0.18);
+	box-shadow: 0 3px 10px rgba(34, 197, 94, 0.12);
+}
+
+.cfg-service-work-block.ready-work .cfg-service-task-card {
+	border: 1px solid rgba(59, 130, 246, 0.28);
+	border-left: 6px solid var(--blue-500);
+	background: rgba(59, 130, 246, 0.07);
+}
+
+.cfg-service-work-block.supervisor-work .cfg-service-task-card {
+	border: 1px solid rgba(245, 158, 11, 0.4);
+	border-left: 6px solid var(--orange-500);
+	background: rgba(245, 158, 11, 0.13);
+}
+
+.cfg-service-task-card .cfg-task-state-chip {
+	display: inline-block;
+	margin-right: 8px;
+	padding: 2px 6px;
+	border-radius: 4px;
+	color: #fff;
+	font-size: 10px;
+	font-weight: 800;
+	letter-spacing: 0.05em;
+	vertical-align: middle;
+}
+
+.cfg-service-work-block.active-work .cfg-task-state-chip {
+	background: var(--green-500);
+}
+
+.cfg-service-work-block.ready-work .cfg-task-state-chip {
+	background: var(--blue-500);
+}
+
+.cfg-service-work-block.supervisor-work .cfg-task-state-chip {
+	background: var(--orange-500);
+}
 
 .cfg-service-task-meta {
 	display: grid;
@@ -361,25 +448,36 @@
 }
 
 @media (max-width: 767px) {
-	.cfg-service-scanner-heading,
-	.cfg-service-scanner-controls {
+	.cfg-service-scanner-heading {
 		align-items: stretch;
 		flex-direction: column;
 	}
 
-	.cfg-service-scanner-controls .btn,
-	.cfg-service-scanner-controls .service-scan-input {
+	.cfg-service-scanner-controls {
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	}
+
+	.cfg-service-scanner-controls .service-scan-input,
+	.cfg-service-scanner-controls .camera-service-task {
 		width: 100%;
-		min-height: 54px;
+		min-width: 0;
+		min-height: 48px;
 	}
 
 	.cfg-service-scanner-controls .camera-service-task {
-		min-height: 62px;
-		font-size: 18px;
+		font-size: 15px;
+		white-space: normal;
+	}
+
+	.cfg-service-scanner-controls .find-service-task,
+	.cfg-service-scanner-controls .clear-service-filter {
+		width: 100%;
+		min-height: 30px;
+		font-size: 13px;
 	}
 
 	.cfg-service-mobile-actions {
-		grid-template-columns: 1fr 1fr;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
 		padding: 8px;
 		margin-left: -8px;
 		margin-right: -8px;
@@ -399,7 +497,6 @@
 		flex-direction: column;
 	}
 
-	.cfg-service-mobile-actions .open-production-panel,
 	.cfg-service-mobile-actions .create-service-task {
 		grid-column: 1 / -1;
 	}
@@ -410,19 +507,44 @@
 		flex-direction: column;
 	}
 
-	.cfg-service-session-actions,
 	.cfg-service-login-actions,
 	.cfg-service-task-actions {
 		width: 100%;
 		flex-direction: column;
 	}
 
-	.cfg-service-session-actions .btn,
+	.cfg-service-session-actions {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		width: 100%;
+		gap: 8px;
+	}
+
 	.cfg-service-login-actions .btn,
 	.cfg-service-task-actions .btn {
 		width: 100%;
 		min-height: 54px;
 		font-size: 17px;
+	}
+
+	.cfg-service-session-actions .btn {
+		width: 100%;
+		min-height: 32px;
+		padding-top: 4px;
+		padding-bottom: 4px;
+		font-size: 13px;
+	}
+
+	.cfg-service-mobile-actions .btn {
+		min-height: 38px;
+		padding: 5px 6px;
+		font-size: 12px;
+		white-space: normal;
+	}
+
+	.cfg-service-mobile-actions .create-service-task {
+		min-height: 46px;
+		font-size: 15px;
 	}
 
 	.cfg-service-task-meta {

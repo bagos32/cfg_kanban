@@ -8,9 +8,9 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			<small class="text-muted">${__("USB scanners can scan directly into this field and append Enter.")}</small></div>
 			<span class="indicator-pill orange scanner-mode">${__("Operator scan required")}</span></div>
 		<div class="cfg-service-scanner-controls">
-			<button class="btn btn-primary camera-service-task">${__("Scan Task QR with Camera")}</button>
 			<input type="text" class="form-control service-scan-input" autocomplete="off" autocapitalize="off"
-				spellcheck="false" placeholder="${__("Scan operator or task/card code")}">
+				spellcheck="false" placeholder="${__("Scan or type Task / Card No.")}">
+			<button class="btn btn-primary camera-service-task">${__("Scan Task QR with Camera")}</button>
 			<button class="btn btn-default find-service-task">${__("Find Task / Card")}</button>
 			<button class="btn btn-default clear-service-filter">${__("Show All")}</button>
 		</div><div class="text-muted scanner-message"><small>${__("Before login, a scan identifies the operator. After login, a scan finds the Service Task card.")}</small></div>
@@ -319,18 +319,21 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	}
 
 	function render_task_section($container, tasks, title, help, color, active_section) {
-		$container.append(`<div class="cfg-service-list-heading"><div><h3>${title}</h3>
+		const block_class = active_section ? "active-work" : color === "orange" ? "supervisor-work" : "ready-work";
+		const chip_label = active_section ? __("ACTIVE WORK") : color === "orange" ? __("SUPERVISOR VIEW") : __("OPEN TASK");
+		const $section = $(`<section class="cfg-service-work-block ${block_class}"></section>`).appendTo($container);
+		$section.append(`<div class="cfg-service-list-heading"><div><h3>${title}</h3>
 			<small class="text-muted">${help}</small></div>
 			<span class="indicator-pill ${color}">${tasks.length} ${active_section ? __("Active") : __("Open")}</span></div>`);
 		if (!tasks.length) {
-			$container.append(`<div class="frappe-card cfg-service-empty-section text-muted">
+			$section.append(`<div class="frappe-card cfg-service-empty-section text-muted">
 				${active_section ? __("No task is currently active for this operator.") : __("No tasks are ready in this section.")}</div>`);
 			return;
 		}
 		tasks.forEach((task) => {
 			const e = frappe.utils.escape_html;
 			const $row = $(`<div class="frappe-card cfg-service-task-card ${priority_class(task.priority)} ${active_section ? "is-active" : ""}">
-				<div class="cfg-service-task-head"><div><h4>${e(task.task_name)}</h4><small>${e(task.task_category)} · ${e(task.trigger_type)}</small></div>
+				<div class="cfg-service-task-head"><div><h4><span class="cfg-task-state-chip">${chip_label}</span>${e(task.task_name)}</h4><small>${e(task.task_category)} · ${e(task.trigger_type)}</small></div>
 				<div class="text-right"><span class="indicator-pill ${indicator(task.status)}">${e(task.status)}</span><div class="cfg-priority">${e(task.priority)}</div></div></div>
 				<div class="cfg-service-task-meta">
 					${task.responsible_role ? `<div><small>${__("Responsible Role")}</small><strong>${e(task.responsible_role)}</strong></div>` : ""}
@@ -339,7 +342,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 					${task.asset ? `<div><small>${__("Asset")}</small><strong>${e(task.asset)}</strong></div>` : ""}
 					${task.started_on ? `<div><small>${__("Started")}</small><strong>${e(task.started_on)}</strong></div>` : ""}
 					<div><small>${__("Due")}</small><strong>${e(task.due_on || "-")}</strong></div>
-				</div><div class="actions cfg-service-task-actions"></div></div>`).appendTo($container);
+				</div><div class="actions cfg-service-task-actions"></div></div>`).appendTo($section);
 			const $actions = $row.find(".actions");
 			if (["Planned", "Due", "Assigned", "Overdue"].includes(task.status)) button($actions, __("Start"), "btn-primary", () => task_dialog(task, "Start"));
 			if (task.started_on && ["In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, __("Report Progress"), "btn-info", () => task_dialog(task, "Progress"));

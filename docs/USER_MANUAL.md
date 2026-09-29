@@ -456,10 +456,18 @@ Employee. Starting a task reloads the panel, moves the task from **Ready / Open 
 Work, and scrolls to that section. Active tasks are ordered with the most recently updated first.
 A Supervisor sees tasks assigned to other Employees separately under **Other Supervisor Work**;
 they are not mixed into the Supervisor's own active work.
+The three behavioral sections use consistent visual meaning: a green-tinted block for Active Work,
+a blue-tinted block for Ready / Open Tasks, and an amber-tinted block for Other Supervisor Work.
+Each individual task card repeats that contrast with a matching border, surface tint, and an
+**ACTIVE WORK**, **OPEN TASK**, or **SUPERVISOR VIEW** chip. This remains identifiable after the
+section heading scrolls away. Colors indicate operational state and do not replace written status.
 
 On the Service Task Panel, **Scan Task QR with Camera** is the primary task-selection action and is
-shown first with the largest mobile control. The scan field and **Find Task / Card** remain available
-as desktop or scanner-keyboard fallbacks; operators are not expected to type Task IDs routinely.
+shown beside the Task/Card number field. **Find Task / Card** and **Show All** form a slimmer second
+row. The number field remains available as a desktop or scanner-keyboard fallback; operators are
+not expected to type Task IDs routinely. The active-operator **Switch** and **End Session** controls
+are compact and side by side. **Production Panel**, **Refresh**, and **Scan / Switch Operator** share
+one compact navigation row, while **Create Task** remains a separate prominent action.
 
 Large touch controls for **Refresh**, **Scan / Switch Operator**, **Create Task**, and panel switching
 appear after Active Work and before the ready queue. Each task is displayed as a separate touch card
