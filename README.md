@@ -4,6 +4,10 @@ For the standalone, code-verified setup and operating source of truth, see the
 [CFG Kanban Code-Verified Operating Guide](docs/USER_MANUAL.md).
 The consolidated model is documented in
 [Enhanced V1 Core Architecture](docs/ENHANCED_CORE_ARCHITECTURE.md).
+The approved multi-company stock-tag and customer-delivery extension is documented in
+[Multi-Company Logistics Architecture](docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md).
+Its Package A identity/configuration foundation is implemented; intercompany posting and driver
+delivery workflows remain Packages B-C.
 
 `cfg_kanban` is a Frappe/ERPNext v15 process-control app for production Kanban. Kanban decides
 **when and why** replenishment or a process handoff is required; ERPNext remains the system of
@@ -47,6 +51,10 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
   A6 landscape single-sided Operational Card.
 - Disposable 45 mm × 250 mm monochrome Handling Unit tags with QR and Code 128 identities,
   one per pallet/container, backed by a separate handling-unit transaction and lifecycle.
+- Package A of the approved multi-company logistics foundation: directional Logistics Routes,
+  Customer Scan Points, pre-registered main/child Stock Tag families, extended Handling Units,
+  Company snapshots, and an immutable quantity ledger. Intercompany ERP posting and driver
+  delivery screens remain Packages B-C and are not yet active.
 
 ## Control flow
 

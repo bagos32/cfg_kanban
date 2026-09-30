@@ -67,3 +67,11 @@ manufacturing document. Task Cards may create an idempotent manual service reque
 Process Task and standalone Task events use the existing CFG Kanban Event stream. Both domains can
 link Exceptions. Transaction history is preserved; cancellation, expiry, invalidation, reconciliation,
 and recovery are preferred over deletion.
+
+## Approved logistics extension
+
+Multi-company handover, persistent Stock Tags, company-specific lorry Warehouses, Customer Site
+scanning, delivery allocation, proof of delivery, and delayed intercompany billing are defined in
+[Multi-Company Logistics Architecture](MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md). That architecture
+is additive: it extends Handling Units and introduces logistics aggregates without turning
+Production Cycles into accounting or delivery documents.

@@ -1,0 +1,43 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Handling Unit Quantity Ledger","module":"CFG Kanban","autoname":"HUL-.YYYY.-.#####","title_field":"event_type","track_changes":0,
+ "field_order":["event_type","posting_datetime","idempotency_key","handling_section","source_handling_unit","destination_handling_unit","item_code","batch_no","quantity_section","transaction_uom","conversion_factor","qty","stock_uom","stock_qty","delta_section","source_qty_delta","destination_qty_delta","source_reserved_delta","destination_reserved_delta","location_section","source_company","source_warehouse","destination_company","destination_warehouse","reference_section","reference_doctype","reference_name","operator","operator_session","device_id","reason","system_generated"],
+ "fields":[
+  {"fieldname":"event_type","label":"Event Type","fieldtype":"Select","options":"Opening Balance\nPack / Activate\nSplit\nReplace\nLoad into Container\nUnload from Container\nReserve\nUnreserve\nDeliver\nCustomer Return\nReturn to Warehouse\nLocation Transfer\nQuarantine\nRelease\nDamage\nReconcile Increase\nReconcile Decrease\nEmpty\nRefill","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"posting_datetime","label":"Posting Datetime","fieldtype":"Datetime","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"idempotency_key","label":"Idempotency Key","fieldtype":"Data","reqd":1,"unique":1,"read_only":1,"hidden":1},
+  {"fieldname":"handling_section","label":"Physical Identities","fieldtype":"Section Break"},
+  {"fieldname":"source_handling_unit","label":"Source Handling Unit","fieldtype":"Link","options":"CFG Kanban Handling Unit","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"destination_handling_unit","label":"Destination Handling Unit","fieldtype":"Link","options":"CFG Kanban Handling Unit","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"batch_no","label":"Batch","fieldtype":"Link","options":"Batch","read_only":1,"in_standard_filter":1},
+  {"fieldname":"quantity_section","label":"Quantity","fieldtype":"Section Break"},
+  {"fieldname":"transaction_uom","label":"Transaction UOM","fieldtype":"Link","options":"UOM","reqd":1,"read_only":1},
+  {"fieldname":"conversion_factor","label":"Conversion Factor","fieldtype":"Float","default":"1","reqd":1,"read_only":1},
+  {"fieldname":"qty","label":"Transaction Quantity","fieldtype":"Float","reqd":1,"read_only":1},
+  {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM","reqd":1,"read_only":1},
+  {"fieldname":"stock_qty","label":"Stock Quantity","fieldtype":"Float","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"delta_section","label":"Signed Balance Effects","fieldtype":"Section Break","collapsible":1},
+  {"fieldname":"source_qty_delta","label":"Source Quantity Delta","fieldtype":"Float","read_only":1},
+  {"fieldname":"destination_qty_delta","label":"Destination Quantity Delta","fieldtype":"Float","read_only":1},
+  {"fieldname":"source_reserved_delta","label":"Source Reserved Delta","fieldtype":"Float","read_only":1},
+  {"fieldname":"destination_reserved_delta","label":"Destination Reserved Delta","fieldtype":"Float","read_only":1},
+  {"fieldname":"location_section","label":"Company and Warehouse Snapshot","fieldtype":"Section Break"},
+  {"fieldname":"source_company","label":"Source Company","fieldtype":"Link","options":"Company","read_only":1,"in_standard_filter":1},
+  {"fieldname":"source_warehouse","label":"Source Warehouse","fieldtype":"Link","options":"Warehouse","read_only":1,"in_standard_filter":1},
+  {"fieldname":"destination_company","label":"Destination Company","fieldtype":"Link","options":"Company","read_only":1,"in_standard_filter":1},
+  {"fieldname":"destination_warehouse","label":"Destination Warehouse","fieldtype":"Link","options":"Warehouse","read_only":1,"in_standard_filter":1},
+  {"fieldname":"reference_section","label":"Audit Reference","fieldtype":"Section Break"},
+  {"fieldname":"reference_doctype","label":"Reference DocType","fieldtype":"Link","options":"DocType","read_only":1},
+  {"fieldname":"reference_name","label":"Reference Name","fieldtype":"Dynamic Link","options":"reference_doctype","read_only":1},
+  {"fieldname":"operator","label":"Operator","fieldtype":"Link","options":"Employee","read_only":1,"in_standard_filter":1},
+  {"fieldname":"operator_session","label":"Operator Session","fieldtype":"Link","options":"CFG Kanban Operator Session","read_only":1},
+  {"fieldname":"device_id","label":"Device ID","fieldtype":"Data","read_only":1},
+  {"fieldname":"reason","label":"Reason","fieldtype":"Small Text","read_only":1},
+  {"fieldname":"system_generated","label":"System Generated","fieldtype":"Check","default":"1","read_only":1}
+ ],
+ "permissions":[
+  {"role":"Stock Manager","read":1,"print":1},
+  {"role":"Manufacturing Manager","read":1,"print":1},
+  {"role":"System Manager","read":1,"print":1}
+ ]
+}

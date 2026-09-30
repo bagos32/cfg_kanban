@@ -7,6 +7,7 @@ from cfg_kanban.services.progress import report
 from cfg_kanban.services.triggers import consume_card
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key
+from cfg_kanban.services.logistics_foundation import post_quantity_event
 from cfg_kanban.services.operator_auth import require_operator
 from cfg_kanban.services.wip import append_entry
 
@@ -117,7 +118,32 @@ def scan_handling_unit(token, action, device_id=None, event_token=None, reason=N
     previous = unit.state
     values = {"state": target, "last_scan_time": now_datetime()}
     if target == "Void":
+        if unit.reserved_qty:
+            frappe.throw("Reserved Handling Unit quantity must be released before voiding the tag")
+        if unit.current_qty:
+            post_quantity_event(
+                event_type="Reconcile Decrease",
+                qty=unit.current_qty,
+                stock_uom=unit.stock_uom,
+                idempotency_key=f"{key}:quantity",
+                source_handling_unit=unit.name,
+                item_code=unit.item_code,
+                batch_no=unit.batch_no,
+                source_company=unit.inventory_company,
+                source_warehouse=unit.current_warehouse,
+                reference_doctype=unit.doctype,
+                reference_name=unit.name,
+                operator=profile.employee,
+                operator_session=operator_session.name,
+                device_id=device_id,
+                reason=reason or "Tag voided; quantity returned to untagged stock control",
+            )
         values["void_reason"] = reason or "Voided by scan"
+        values.update({"identity_state": "Void", "movement_state": "Empty"})
+    else:
+        values["movement_state"] = {
+            "Attached": "Packed", "Dispatched": "Loaded", "Received": "Received"
+        }[target]
     unit.db_set(values, update_modified=True)
     event = record(f"Handling Unit {target}", card=unit.kanban_card, cycle=unit.kanban_cycle,
                    previous_state=previous, new_state=target,

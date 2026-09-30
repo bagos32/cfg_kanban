@@ -4,6 +4,7 @@ import frappe
 from frappe.utils import now_datetime
 
 from cfg_kanban.services.events import record
+from cfg_kanban.services.logistics_foundation import post_quantity_event
 
 
 @frappe.whitelist()
@@ -57,17 +58,51 @@ def replace_card(card_name, new_card_number, reason):
 
 @frappe.whitelist()
 def replace_handling_unit(unit_name, new_handling_unit_id, reason):
-    frappe.only_for(("Manufacturing Manager", "System Manager"))
+    frappe.only_for(("Manufacturing Manager", "Stock Manager", "System Manager"))
     old = frappe.get_doc("CFG Kanban Handling Unit", unit_name)
     if old.state in ("Received", "Void", "Replaced"):
         frappe.throw(f"A {old.state.lower()} tag cannot be replaced")
     if not reason:
         frappe.throw("Replacement reason is required")
+    if old.reserved_qty:
+        frappe.throw("Unreserve the Handling Unit quantity before replacing its physical tag")
+    if old.tag_kind == "Reusable Container" and old.current_qty:
+        frappe.throw(
+            "Unload the reusable container before replacing its physical identity"
+        )
     new = frappe.copy_doc(old)
     new.name = None
     new.handling_unit_id = new_handling_unit_id
     new.opaque_token = None
+    registered = frappe.db.get_value(
+        "CFG Kanban Tag Identity",
+        {"visible_code": new_handling_unit_id, "state": "Unused"},
+        ["parent", "tag_role"],
+        as_dict=True,
+    )
+    if registered:
+        expected_role = "Child" if old.tag_kind == "Child Stock Tag" else "Main"
+        if old.tag_kind == "Reusable Container" or registered.tag_role != expected_role:
+            frappe.throw(f"Replacement tag {new_handling_unit_id} has the wrong tag role")
+        if old.tag_kind == "Child Stock Tag" and registered.parent != old.tag_family:
+            frappe.throw("A Child Stock Tag replacement must use an unused identity from its Tag Family")
+        new.tag_family = registered.parent
+    elif old.tag_kind == "Child Stock Tag":
+        frappe.throw("A Child Stock Tag must be replaced with an unused registered tag identity")
+    else:
+        new.tag_family = None
+        new.parent_handling_unit = None
+        new.root_handling_unit = None
+        new.child_index = 0
+    if old.tag_kind == "Main Stock Tag":
+        new.root_handling_unit = None
     new.state = "Issued"
+    new.identity_state = "Active"
+    new.current_qty = 0
+    new.reserved_qty = 0
+    new.available_qty = 0
+    new.qty = old.current_qty
+    new.original_qty = old.current_qty
     new.print_revision = (old.print_revision or 0) + 1
     new.print_count = 0
     new.last_printed_on = None
@@ -76,8 +111,36 @@ def replace_handling_unit(unit_name, new_handling_unit_id, reason):
     new.replacement_of = old.name
     new.replaced_by = None
     new.void_reason = None
+    new.flags.skip_initial_ledger = True
     new.insert()
-    old.db_set({"state": "Replaced", "replaced_by": new.name, "void_reason": reason})
+    if old.current_qty:
+        post_quantity_event(
+            event_type="Replace",
+            qty=old.current_qty,
+            stock_uom=old.stock_uom,
+            idempotency_key=f"handling-unit-replacement:{old.name}:{new.name}",
+            source_handling_unit=old.name,
+            destination_handling_unit=new.name,
+            item_code=old.item_code,
+            batch_no=old.batch_no,
+            source_company=old.inventory_company,
+            destination_company=new.inventory_company,
+            source_warehouse=old.current_warehouse,
+            destination_warehouse=new.current_warehouse,
+            reference_doctype=new.doctype,
+            reference_name=new.name,
+            reason=reason,
+        )
+    old.db_set({"state": "Replaced", "identity_state": "Replaced",
+                "movement_state": "Empty", "replaced_by": new.name,
+                "void_reason": reason})
+    frappe.db.set_value(
+        "CFG Kanban Tag Identity",
+        {"handling_unit": old.name},
+        "state",
+        "Replaced",
+        update_modified=False,
+    )
     record("Handling Unit Replaced", card=old.kanban_card, cycle=old.kanban_cycle,
            previous_state=old.state, new_state="Replaced", reference_doctype=new.doctype,
            reference_name=new.name, notes=reason, system_generated=False)

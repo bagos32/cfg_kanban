@@ -14,10 +14,35 @@ def after_install():
         for field in fields:
             field.setdefault("module", "CFG Kanban")
     create_custom_fields(fields_by_doctype, update=True)
+    _ensure_responsibilities()
 
 
 def after_migrate():
     after_install()
+
+
+def _ensure_responsibilities():
+    if not frappe.db.table_exists("CFG Kanban Responsibility"):
+        return
+    responsibilities = {
+        "Logistics Dispatch": "Confirm approved stock dispatches.",
+        "Logistics Receipt": "Confirm approved stock receipts.",
+        "Vehicle Loading": "Load and unload company-specific vehicle warehouses.",
+        "Customer Delivery": "Deliver stock to an identified Customer Site.",
+        "Customer Invoice Trigger": "Trigger locked-price customer invoicing.",
+        "Logistics Supervisor": "Approve logistics exceptions and controlled overrides.",
+        "Intercompany Billing": "Prepare and reconcile intercompany billing batches.",
+        "Logistics Reconciliation": "Reconcile tag, container, vehicle, and ERP stock balances.",
+    }
+    for name, description in responsibilities.items():
+        if frappe.db.exists("CFG Kanban Responsibility", name):
+            continue
+        frappe.get_doc({
+            "doctype": "CFG Kanban Responsibility",
+            "responsibility_name": name,
+            "active": 1,
+            "description": description,
+        }).insert(ignore_permissions=True)
 
 
 def _custom_fields():

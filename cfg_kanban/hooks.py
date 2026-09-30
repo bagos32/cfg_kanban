@@ -18,6 +18,8 @@ doctype_js = {
     "CFG Kanban Process Execution": "public/js/cfg_kanban_process_execution.js",
     "CFG Kanban Cycle": "public/js/cfg_kanban_cycle.js",
     "CFG Kanban Handling Unit": "public/js/cfg_kanban_handling_unit.js",
+    "CFG Kanban Logistics Route": "public/js/cfg_kanban_logistics_route.js",
+    "CFG Kanban Customer Scan Point": "public/js/cfg_kanban_customer_scan_point.js",
     "CFG Kanban Demand": "public/js/cfg_kanban_demand.js",
     "CFG Kanban Operator Profile": "public/js/cfg_kanban_operator_profile.js",
     "CFG Kanban Task Schedule": "public/js/cfg_kanban_task_schedule.js",

@@ -40,6 +40,8 @@ class CFGKanbanCard(Document):
 
     def _copy_master_context(self):
         if not self.kanban_master:
+            if self.is_new():
+                self.company = None
             self.item_code = None
             self.stock_uom = None
             self.source_warehouse = None
@@ -49,6 +51,13 @@ class CFGKanbanCard(Document):
             self.handoff_mode = None
             return
         master = frappe.get_cached_doc("CFG Kanban Master", self.kanban_master)
+        before = None if self.is_new() else self.get_doc_before_save()
+        if before and before.company:
+            if self.company != before.company:
+                frappe.throw("Company Snapshot is immutable after the Card is created")
+            self.company = before.company
+        else:
+            self.company = master.company
         self.item_code = master.item_code
         self.stock_uom = master.stock_uom
         self.source_warehouse = master.source_warehouse

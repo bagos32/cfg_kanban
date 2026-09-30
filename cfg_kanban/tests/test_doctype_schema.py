@@ -31,6 +31,11 @@ class TestDocTypeSchema(TestCase):
                          "Kanban Maintenance Register")
         self.assertEqual(shortcuts["Private Media Evidence"], "CFG Kanban Media")
         self.assertEqual(shortcuts["Operator Profiles"], "CFG Kanban Operator Profile")
+        self.assertEqual(links["Logistics Routes"], "CFG Kanban Logistics Route")
+        self.assertEqual(links["Customer Scan Points"], "CFG Kanban Customer Scan Point")
+        self.assertEqual(links["Stock Tag Families"], "CFG Kanban Tag Family")
+        self.assertEqual(shortcuts["Handling Unit Quantity Ledger"],
+                         "CFG Kanban Handling Unit Quantity Ledger")
 
     def test_every_field_is_present_once_in_field_order(self):
         for path, schema in self._schemas():
@@ -126,6 +131,68 @@ class TestDocTypeSchema(TestCase):
                         if row["fieldname"] == "command_type")["options"].splitlines()
         self.assertIn("Create Material Request", commands)
         self.assertIn("Create Purchase Receipt", commands)
+
+    def test_logistics_foundation_schema_is_additive(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        self.assertTrue({
+            "CFG Kanban Logistics Route",
+            "CFG Kanban Customer Scan Point",
+            "CFG Kanban Tag Family",
+            "CFG Kanban Tag Identity",
+            "CFG Kanban Handling Unit Quantity Ledger",
+        }.issubset(schemas))
+
+        route = {row["fieldname"]: row for row in
+                 schemas["CFG Kanban Logistics Route"]["fields"]}
+        self.assertTrue({"source_company", "source_warehouse", "destination_company",
+                         "destination_warehouse", "internal_customer", "internal_supplier",
+                         "selling_price_list", "buying_price_list", "handover_mode",
+                         "auto_submit_dispatch_dn", "auto_submit_receipt_pr",
+                         "billing_frequency"}.issubset(route))
+
+        site = {row["fieldname"]: row for row in
+                schemas["CFG Kanban Customer Scan Point"]["fields"]}
+        self.assertTrue({"site_code", "opaque_token", "selling_company", "customer",
+                         "customer_address", "proof_policy", "require_signature",
+                         "require_photo", "require_gps"}.issubset(site))
+
+        family = {row["fieldname"]: row for row in
+                  schemas["CFG Kanban Tag Family"]["fields"]}
+        self.assertEqual(family["identities"]["options"], "CFG Kanban Tag Identity")
+        self.assertEqual(schemas["CFG Kanban Tag Identity"].get("istable"), 1)
+
+    def test_handling_unit_has_ledger_backed_logistics_identity(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        handling = {row["fieldname"]: row for row in
+                    schemas["CFG Kanban Handling Unit"]["fields"]}
+        self.assertTrue({"tag_kind", "tag_family", "parent_handling_unit",
+                         "root_handling_unit", "child_index", "inventory_company",
+                         "current_warehouse", "physical_custodian", "packed_on",
+                         "expiry_date", "original_qty", "current_qty", "reserved_qty",
+                         "available_qty", "identity_state", "movement_state",
+                         "quality_state"}.issubset(handling))
+        self.assertFalse(handling["kanban_cycle"].get("reqd", 0))
+
+        ledger = {row["fieldname"]: row for row in
+                  schemas["CFG Kanban Handling Unit Quantity Ledger"]["fields"]}
+        self.assertTrue({"idempotency_key", "source_handling_unit",
+                         "destination_handling_unit", "source_qty_delta",
+                         "destination_qty_delta", "source_reserved_delta",
+                         "destination_reserved_delta", "source_company",
+                         "destination_company", "source_warehouse",
+                         "destination_warehouse"}.issubset(ledger))
+        for permission in schemas["CFG Kanban Handling Unit Quantity Ledger"]["permissions"]:
+            self.assertFalse(permission.get("create", 0))
+            self.assertFalse(permission.get("write", 0))
+            self.assertFalse(permission.get("delete", 0))
+
+    def test_card_and_cycle_capture_company_snapshot(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        for doctype in ("CFG Kanban Card", "CFG Kanban Cycle"):
+            company = next(row for row in schemas[doctype]["fields"]
+                           if row["fieldname"] == "company")
+            self.assertEqual(company["options"], "Company")
+            self.assertEqual(company.get("read_only"), 1)
 
     def test_dashboard_profile_supports_saved_multi_workstation_screens(self):
         profile_path = ROOT / "cfg_kanban_dashboard_profile" / "cfg_kanban_dashboard_profile.json"

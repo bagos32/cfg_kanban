@@ -1,0 +1,33 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Customer Scan Point","module":"CFG Kanban","autoname":"field:site_code","title_field":"site_name","track_changes":1,
+ "field_order":["site_code","site_name","active","opaque_token","customer_section","selling_company","customer","customer_address","territory","route_reference","default_price_list","proof_section","proof_policy","require_recipient_name","require_signature","require_photo","require_gps","unattended_reason_required","replacement_section","replacement_of","replaced_by","notes"],
+ "fields":[
+  {"fieldname":"site_code","label":"Site Code","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"site_name","label":"Site / Branch Name","fieldtype":"Data","reqd":1,"in_list_view":1},
+  {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"opaque_token","label":"Opaque Scan Token","fieldtype":"Data","read_only":1,"unique":1,"hidden":1},
+  {"fieldname":"customer_section","label":"Customer Site","fieldtype":"Section Break"},
+  {"fieldname":"selling_company","label":"Selling Company","fieldtype":"Link","options":"Company","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"customer","label":"Customer","fieldtype":"Link","options":"Customer","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"customer_address","label":"Delivery Address","fieldtype":"Link","options":"Address","reqd":1,"in_standard_filter":1},
+  {"fieldname":"territory","label":"Territory","fieldtype":"Link","options":"Territory","in_standard_filter":1},
+  {"fieldname":"route_reference","label":"Route Reference","fieldtype":"Data","description":"Optional operational route or external planning identifier."},
+  {"fieldname":"default_price_list","label":"Default Selling Price List","fieldtype":"Link","options":"Price List"},
+  {"fieldname":"proof_section","label":"Proof of Delivery Policy","fieldtype":"Section Break"},
+  {"fieldname":"proof_policy","label":"Proof Policy","fieldtype":"Select","options":"Required\nOptional\nUnattended Delivery Allowed\nNo Proof Required","default":"Required","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"require_recipient_name","label":"Require Recipient Name","fieldtype":"Check","default":"1"},
+  {"fieldname":"require_signature","label":"Require Signature","fieldtype":"Check","default":"1"},
+  {"fieldname":"require_photo","label":"Require Photograph","fieldtype":"Check","default":"0"},
+  {"fieldname":"require_gps","label":"Require GPS","fieldtype":"Check","default":"0"},
+  {"fieldname":"unattended_reason_required","label":"Require Unattended-delivery Reason","fieldtype":"Check","default":"1","read_only":1,"depends_on":"eval:doc.proof_policy=='Unattended Delivery Allowed'"},
+  {"fieldname":"replacement_section","label":"Replacement and Audit","fieldtype":"Section Break","collapsible":1},
+  {"fieldname":"replacement_of","label":"Replacement Of","fieldtype":"Link","options":"CFG Kanban Customer Scan Point","read_only":1},
+  {"fieldname":"replaced_by","label":"Replaced By","fieldtype":"Link","options":"CFG Kanban Customer Scan Point","read_only":1},
+  {"fieldname":"notes","label":"Notes","fieldtype":"Text"}
+ ],
+ "permissions":[
+  {"role":"Stock Manager","read":1,"create":1,"write":1,"delete":1,"print":1},
+  {"role":"Sales Manager","read":1,"create":1,"write":1,"delete":1,"print":1},
+  {"role":"System Manager","read":1,"create":1,"write":1,"delete":1,"print":1}
+ ]
+}

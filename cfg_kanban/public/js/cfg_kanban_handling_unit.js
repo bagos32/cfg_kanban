@@ -1,6 +1,15 @@
 frappe.ui.form.on("CFG Kanban Handling Unit", {
 	setup(frm) {
 		frm._cfg_cycle_operations = [];
+		frm.set_query("tag_family", () => ({ filters: { active: 1 } }));
+		frm.set_query("parent_handling_unit", () => ({ filters: {
+			tag_kind: "Main Stock Tag",
+			identity_state: "Active",
+			tag_family: frm.doc.tag_family || "",
+		} }));
+		frm.set_query("current_warehouse", () => ({ filters: {
+			company: frm.doc.inventory_company || "", is_group: 0,
+		} }));
 		frm.set_query("current_operation", () => ({ filters: {
 			name: ["in", frm._cfg_cycle_operations.length ? frm._cfg_cycle_operations : ["__none__"]],
 		} }));
@@ -9,7 +18,8 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 		if (!frm.doc.kanban_cycle) return;
 		const [{ message: cycle }, { message: operations }] = await Promise.all([
 			frappe.db.get_value("CFG Kanban Cycle", frm.doc.kanban_cycle,
-				["kanban_card", "item_code", "stock_uom", "batch_no", "work_order"]),
+				["kanban_card", "company", "item_code", "stock_uom", "batch_no", "work_order",
+					"destination_warehouse"]),
 			frappe.call({ method: "cfg_kanban.api.form_queries.cycle_operations",
 				args: { kanban_cycle: frm.doc.kanban_cycle } }),
 		]);
@@ -17,6 +27,8 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 		await frm.set_value({
 			kanban_card: cycle.kanban_card, item_code: cycle.item_code, stock_uom: cycle.stock_uom,
 			batch_no: cycle.batch_no, work_order: cycle.work_order,
+			inventory_company: cycle.company,
+			current_warehouse: frm.doc.current_warehouse || cycle.destination_warehouse,
 			current_operation: frm.doc.current_operation || frm._cfg_cycle_operations[0] || null,
 		});
 	},

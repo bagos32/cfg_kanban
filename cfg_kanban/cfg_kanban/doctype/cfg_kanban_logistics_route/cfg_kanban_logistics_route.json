@@ -1,0 +1,37 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Logistics Route","module":"CFG Kanban","autoname":"field:route_name","title_field":"route_name","track_changes":1,
+ "field_order":["route_name","active","company_section","source_company","source_warehouse","transit_warehouse","destination_column","destination_company","destination_warehouse","party_section","internal_customer","selling_price_list","party_column","internal_supplier","buying_price_list","automation_section","handover_mode","auto_submit_dispatch_dn","auto_submit_receipt_pr","billing_frequency","require_handover_evidence","responsibility_section","dispatch_responsibility","receipt_responsibility","supervisor_responsibility","notes"],
+ "fields":[
+  {"fieldname":"route_name","label":"Route Name","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"company_section","label":"Company and Warehouse Route","fieldtype":"Section Break"},
+  {"fieldname":"source_company","label":"Source Company","fieldtype":"Link","options":"Company","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"source_warehouse","label":"Source Warehouse","fieldtype":"Link","options":"Warehouse","reqd":1,"in_standard_filter":1},
+  {"fieldname":"transit_warehouse","label":"Optional Transit Warehouse","fieldtype":"Link","options":"Warehouse"},
+  {"fieldname":"destination_column","fieldtype":"Column Break"},
+  {"fieldname":"destination_company","label":"Destination Company","fieldtype":"Link","options":"Company","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"destination_warehouse","label":"Destination Warehouse","fieldtype":"Link","options":"Warehouse","reqd":1,"in_standard_filter":1},
+  {"fieldname":"party_section","label":"Intercompany Parties and Price Lists","fieldtype":"Section Break"},
+  {"fieldname":"internal_customer","label":"Internal Customer","fieldtype":"Link","options":"Customer","reqd":1},
+  {"fieldname":"selling_price_list","label":"Selling Price List","fieldtype":"Link","options":"Price List","reqd":1},
+  {"fieldname":"party_column","fieldtype":"Column Break"},
+  {"fieldname":"internal_supplier","label":"Internal Supplier","fieldtype":"Link","options":"Supplier","reqd":1},
+  {"fieldname":"buying_price_list","label":"Buying Price List","fieldtype":"Link","options":"Price List","reqd":1},
+  {"fieldname":"automation_section","label":"Posting and Billing Policy","fieldtype":"Section Break"},
+  {"fieldname":"handover_mode","label":"Handover Mode","fieldtype":"Select","options":"Two Confirmation\nApproved Same-Location Confirmation","default":"Two Confirmation","reqd":1,"in_standard_filter":1},
+  {"fieldname":"auto_submit_dispatch_dn","label":"Auto-submit Dispatch Delivery Note","fieldtype":"Check","default":"0","description":"The confirmed dispatch always creates a draft Delivery Note. Enable only after the route has been proven safe."},
+  {"fieldname":"auto_submit_receipt_pr","label":"Auto-submit Receipt Purchase Receipt","fieldtype":"Check","default":"0","description":"The confirmed receipt always creates a draft Purchase Receipt. It cannot submit before the dispatch Delivery Note."},
+  {"fieldname":"billing_frequency","label":"Billing Frequency","fieldtype":"Select","options":"Per Transfer\nDaily\nWeekly\nMonthly\nManual Batch","default":"Manual Batch","reqd":1,"in_standard_filter":1},
+  {"fieldname":"require_handover_evidence","label":"Require Handover Evidence","fieldtype":"Check","default":"0"},
+  {"fieldname":"responsibility_section","label":"Operator Responsibilities","fieldtype":"Section Break"},
+  {"fieldname":"dispatch_responsibility","label":"Dispatch Responsibility","fieldtype":"Link","options":"CFG Kanban Responsibility","reqd":1},
+  {"fieldname":"receipt_responsibility","label":"Receipt Responsibility","fieldtype":"Link","options":"CFG Kanban Responsibility","reqd":1},
+  {"fieldname":"supervisor_responsibility","label":"Supervisor Responsibility","fieldtype":"Link","options":"CFG Kanban Responsibility","reqd":1},
+  {"fieldname":"notes","label":"Notes","fieldtype":"Text"}
+ ],
+ "permissions":[
+  {"role":"Stock Manager","read":1,"create":1,"write":1,"delete":1,"print":1},
+  {"role":"Manufacturing Manager","read":1,"create":1,"write":1,"delete":1,"print":1},
+  {"role":"System Manager","read":1,"create":1,"write":1,"delete":1,"print":1}
+ ]
+}

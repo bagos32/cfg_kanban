@@ -1367,10 +1367,12 @@ manager/system-manager access).
 ### User-entered versus system-maintained
 
 Users normally create Settings, Masters, Cards, Operator Profiles, Task Schedules, Dashboard
-Profiles, and Handling Units. The app normally creates Demands, Signals, Cycles, ERP Commands,
+Profiles, Handling Units, Logistics Routes, Customer Scan Points, and Tag Families. The app normally
+creates Demands, Signals, Cycles, ERP Commands,
 Process Executions, Operation Summaries, Runtime Allocations, Process Tasks, service Task
 occurrences, Progress, WIP Ledger, Events, Sequence Changes, Operator Sessions, and Media registry
-records. Supervisors interact with those generated records only through their defined approval,
+records. Handling Unit Quantity Ledger rows are also system-created and immutable. Supervisors
+interact with those generated records only through their defined approval,
 verification, disposition, reconciliation, recovery, or exception actions.
 
 ## 23. Buyer-owned purchase replenishment
@@ -1435,7 +1437,74 @@ Signal rollback cancels/deletes only activity-free ERP documents, marks Cycle an
 returns the Card to Available, clears Active Cycle, and records Events. A submitted Work Order can be
 cancelled only while ERPNext permits it and the code has found no production/material activity.
 
-## 25. Guidance rules for another LLM
+## 25. Multi-company logistics foundation (Package A)
+
+Package A installs the configuration and identity foundation only. It does **not** yet create
+intercompany Delivery Notes/Purchase Receipts, Movement Manifests, driver Delivery Notes, or Sales
+Invoices. Do not use the Package A forms as proof that stock moved; live posting arrives in Packages
+B-C. The locked design is in `docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md`.
+
+### CFG Kanban Logistics Route
+
+Create one directional route for each permitted company pair. Exact fields include **Route Name**
+(`route_name`), **Active** (`active`), **Source Company** (`source_company`), **Source Warehouse**
+(`source_warehouse`), optional **Transit Warehouse** (`transit_warehouse`), **Destination Company**
+(`destination_company`), **Destination Warehouse** (`destination_warehouse`), **Internal Customer**
+(`internal_customer`), **Selling Price List** (`selling_price_list`), **Internal Supplier**
+(`internal_supplier`), **Buying Price List** (`buying_price_list`), **Handover Mode**
+(`handover_mode`), **Auto-submit Dispatch Delivery Note** (`auto_submit_dispatch_dn`), **Auto-submit
+Receipt Purchase Receipt** (`auto_submit_receipt_pr`), **Billing Frequency**
+(`billing_frequency`), and the three Responsibility links.
+
+The form rejects same-Company routes, Warehouses belonging to the wrong Company, and Price Lists
+that are not enabled for the required selling/buying direction. Auto-submit fields are stored now
+but have no posting effect until Package B is installed.
+
+### CFG Kanban Customer Scan Point
+
+Create one record per physical delivery address. Exact identity fields are **Site Code**
+(`site_code`), **Site / Branch Name** (`site_name`), **Active** (`active`), **Selling Company**
+(`selling_company`), **Customer** (`customer`), **Delivery Address** (`customer_address`), optional
+**Territory** (`territory`), **Route Reference** (`route_reference`), and **Default Selling Price
+List** (`default_price_list`).
+
+Proof settings are **Proof Policy** (`proof_policy`: Required, Optional, Unattended Delivery
+Allowed, No Proof Required), **Require Recipient Name**, **Require Signature**, **Require
+Photograph**, **Require GPS**, and **Require Unattended-delivery Reason**. The Opaque Scan Token is
+generated automatically and is immutable. Customer-site delivery scanning is Package C.
+
+### CFG Kanban Tag Family
+
+Enter **Tag Family Code** (`family_code`) and **Detachable Child Count** (`child_count`, zero to
+twenty). The app generates one main identity and numbered child identities with unique opaque
+tokens. Example: `STK-1000`, `STK-1000-1` through `STK-1000-5`. The number of children and the
+registered codes/tokens cannot be changed after creation.
+
+When a Handling Unit uses a registered family code, the matching identity is activated and cannot
+be reused. A child Stock Tag requires a parent Handling Unit and transfers its starting quantity
+from that parent through the immutable ledger.
+
+### Extended CFG Kanban Handling Unit
+
+**Tag Kind** (`tag_kind`) is Main Stock Tag, Child Stock Tag, or Reusable Container. Relevant new
+fields include **Tag Family**, **Parent Handling Unit**, **Root Handling Unit**, **Child Index**,
+**Inventory Company**, **Current Warehouse**, **Physical Custodian / Vehicle**, **Packing
+Timestamp**, **Expiry Date Snapshot**, **Identity State**, **Movement State**, **Quality State**, and
+the read-only original/current/reserved/available quantity caches.
+
+A Reusable Container may exist without a production Cycle, Item, or opening quantity. It must be
+loaded through controlled ledger events. Existing production Handling Units retain their opaque
+tokens and old scan state; migration adds the new identity/state fields and an opening ledger
+balance without deleting history.
+
+### CFG Kanban Handling Unit Quantity Ledger
+
+Ledger rows are system-created, read-only, non-deletable, and idempotent. Do not create or edit them
+from Desk. Current, reserved, and available quantities can be rebuilt from their signed source and
+destination deltas. Package A provides activation, split, container-load arithmetic, reservation,
+delivery, and reconciliation primitives; the operational scan workflow is added in later packages.
+
+## 26. Guidance rules for another LLM
 
 When using this file as context, an assistant must:
 
@@ -1454,10 +1523,15 @@ When using this file as context, an assistant must:
    code does not contain.
 10. Confirm the deployed Git revision/migration when the UI does not match this guide.
 
-## 26. Revision history
+11. Treat the Logistics Route, Customer Scan Point, Tag Family, and quantity ledger as Package A
+    foundation. Never claim that intercompany posting or customer delivery scanning is operational
+    until Packages B-C are present.
+
+## 27. Revision history
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2 | 30 September 2026 | Added Package A multi-company Logistics Routes, Customer Scan Points, registered Stock Tag families, extended Handling Units, Company snapshots, immutable quantity ledger, migration, and explicit Packages B-C limitations |
 | 1.1 | 25 September 2026 | Added buyer-owned Purchase Replenishment through Material Request, Purchase Order selection, guarded Purchase Receipt creation, partial receipt, ERP feedback, and Card recycling |
 | 1.0 | 23 September 2026 | Re-audited repository code; added exact labels/internal fieldnames, card-behaviour split, runtime allocation/closure, Job Card sync, dashboard/dispatch, recovery table, and independent-LLM rules |
 | 0.6 | 18 September 2026 | Added permanent Service Point QR, overlap/holiday policies, Supervisor cancellation/bypass, Process/Sample QR, controlled QC hold/retest, private multi-file evidence, timestamp/GPS camera capture, and recoverable removal |

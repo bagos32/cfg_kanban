@@ -1,0 +1,18 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Tag Family","module":"CFG Kanban","autoname":"field:family_code","title_field":"family_code","track_changes":1,
+ "field_order":["family_code","active","child_count","issued_company","description","identities","notes"],
+ "fields":[
+  {"fieldname":"family_code","label":"Tag Family Code","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"child_count","label":"Detachable Child Count","fieldtype":"Int","default":"5","reqd":1,"in_list_view":1},
+  {"fieldname":"issued_company","label":"Issued for Company","fieldtype":"Link","options":"Company","in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"description","label":"Description","fieldtype":"Small Text"},
+  {"fieldname":"identities","label":"Registered Tag Identities","fieldtype":"Table","options":"CFG Kanban Tag Identity","read_only":1},
+  {"fieldname":"notes","label":"Notes","fieldtype":"Text"}
+ ],
+ "permissions":[
+  {"role":"Stock Manager","read":1,"create":1,"write":1,"print":1},
+  {"role":"Manufacturing Manager","read":1,"create":1,"write":1,"print":1},
+  {"role":"System Manager","read":1,"create":1,"write":1,"delete":1,"print":1}
+ ]
+}
