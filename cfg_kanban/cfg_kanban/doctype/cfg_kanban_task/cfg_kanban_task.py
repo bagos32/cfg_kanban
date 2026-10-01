@@ -3,6 +3,12 @@ from frappe.model.document import Document
 
 
 class CFGKanbanTask(Document):
+    def before_validate(self):
+        # Repair any in-memory legacy value before Frappe builds Version diffs.
+        for row in self.execution_values:
+            if row.value is not None and not isinstance(row.value, str):
+                row.value = "1" if row.value is True else "0" if row.value is False else str(row.value)
+
     def validate(self):
         if self.status == "Completed" and self.verification_required and not self.verified_on:
             frappe.throw("Supervisor verification is required before this Task is completed")

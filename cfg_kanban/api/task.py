@@ -21,7 +21,9 @@ def get_open_tasks(operator_session_token=None):
         fields=["name", "task_name", "task_category", "status", "priority", "requested_on",
                 "due_on", "assigned_employee", "workstation", "asset", "location",
                 "verification_required", "task_schedule", "trigger_type", "started_on",
-                "responsible_role", "modified"],
+                "responsible_role", "progress_count", "last_progress_by",
+                "last_progress_on", "last_progress_summary", "verification_notes",
+                "verified_by", "verified_on", "modified"],
         order_by="priority desc, due_on asc, creation asc", limit_page_length=200,
     )
     responsibilities = {row.responsibility for row in profile.responsibilities
@@ -89,6 +91,39 @@ def get_task_form(task_name, capture_on="Complete", operator_session_token=None)
     result["media"] = list_reference_media("CFG Kanban Task", task.name,
                                            permission_checked=True)
     return result
+
+
+@frappe.whitelist()
+def get_task_progress(task_name, operator_session_token=None):
+    task = frappe.get_doc("CFG Kanban Task", task_name)
+    profile, _session = require_operator(operator_session_token, workstation=task.workstation)
+    if (task.assigned_employee and task.assigned_employee != profile.employee and
+            profile.kanban_role != "Supervisor"):
+        frappe.throw("Only the assigned operator or a Supervisor can view this Task progress")
+    responsibilities = {row.responsibility for row in profile.responsibilities
+                        if row.responsibility}
+    if (task.responsible_role and responsibilities and
+            task.responsible_role not in responsibilities and
+            not (profile.kanban_role == "Supervisor" and profile.view_all_responsibilities)):
+        frappe.throw("Operator is not assigned to this Task responsibility")
+    rows = [row.as_dict() for row in task.execution_values if row.capture_on == "Progress"]
+    rows.sort(key=lambda row: str(row.get("captured_on") or ""), reverse=True)
+    events = frappe.get_all(
+        "CFG Kanban Event",
+        filters={"standalone_task": task.name,
+                 "event_type": "Standalone Task Progress Reported"},
+        fields=["event_datetime", "operator", "notes", "reference_name"],
+        order_by="event_datetime desc", limit_page_length=100,
+    )
+    return {
+        "task": task.name,
+        "progress_count": task.progress_count or 0,
+        "last_progress_by": task.last_progress_by,
+        "last_progress_on": task.last_progress_on,
+        "last_progress_summary": task.last_progress_summary,
+        "values": rows,
+        "events": events,
+    }
 
 
 @frappe.whitelist()

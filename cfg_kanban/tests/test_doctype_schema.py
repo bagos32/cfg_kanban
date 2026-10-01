@@ -417,6 +417,8 @@ class TestDocTypeSchema(TestCase):
                          "verification_status", "verification_notes", "exception"}.issubset(task))
         self.assertTrue({"supervisor_disposition", "disposition_by", "disposition_on",
                          "disposition_reason"}.issubset(task))
+        self.assertTrue({"progress_count", "last_progress_by", "last_progress_on",
+                         "last_progress_summary"}.issubset(task))
         self.assertEqual(task["checklist_evidence"]["options"],
                          "CFG Kanban Checklist Result")
         self.assertIn("Correction Required", task["status"]["options"].splitlines())

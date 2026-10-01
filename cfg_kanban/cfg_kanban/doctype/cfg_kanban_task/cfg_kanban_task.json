@@ -1,6 +1,6 @@
 {
  "doctype":"DocType","name":"CFG Kanban Task","module":"CFG Kanban","autoname":"KTASK-.YYYY.-.#####","title_field":"task_name","track_changes":1,
- "field_order":["task_name","task_category","task_schedule","company","trigger_type","request_source","generation_key","status","priority","requested_on","due_on","assigned_employee","responsible_role","workstation","asset","location","started_by","started_on","completed_by","completed_on","instructions","evidence_section","checklist","checklist_evidence","checklist_results","execution_values","media_evidence_section","media_evidence_html","completion_notes","verification_section","verification_required","verification_status","verified_by","verified_on","verification_notes","supervisor_disposition","disposition_by","disposition_on","disposition_reason","blocked_reason","exception","production_boundary_section","kanban_cycle","process_execution","work_order","job_card"],
+ "field_order":["task_name","task_category","task_schedule","company","trigger_type","request_source","generation_key","status","priority","requested_on","due_on","assigned_employee","responsible_role","workstation","asset","location","started_by","started_on","completed_by","completed_on","instructions","evidence_section","checklist","checklist_evidence","checklist_results","execution_values","progress_audit_section","progress_count","last_progress_by","last_progress_on","last_progress_summary","media_evidence_section","media_evidence_html","completion_notes","verification_section","verification_required","verification_status","verified_by","verified_on","verification_notes","supervisor_disposition","disposition_by","disposition_on","disposition_reason","blocked_reason","exception","production_boundary_section","kanban_cycle","process_execution","work_order","job_card"],
  "fields":[
   {"fieldname":"task_name","label":"Task Name","fieldtype":"Data","reqd":1,"in_list_view":1},
   {"fieldname":"task_category","label":"Category","fieldtype":"Data","reqd":1,"in_list_view":1,"in_standard_filter":1},
@@ -28,6 +28,11 @@
   {"fieldname":"checklist_evidence","label":"Structured Checklist Evidence","fieldtype":"Table","options":"CFG Kanban Checklist Result","read_only":1},
   {"fieldname":"checklist_results","label":"Legacy Checklist Results","fieldtype":"Long Text","read_only":1,"hidden":1,"description":"Retained for compatibility with records completed before structured checklist evidence was introduced."},
   {"fieldname":"execution_values","label":"Dynamic Form Values","fieldtype":"Table","options":"CFG Kanban Execution Value","read_only":1},
+  {"fieldname":"progress_audit_section","label":"Latest Operator Progress","fieldtype":"Section Break","collapsible":1},
+  {"fieldname":"progress_count","label":"Progress Reports","fieldtype":"Int","default":"0","read_only":1,"in_list_view":1},
+  {"fieldname":"last_progress_by","label":"Last Progress By","fieldtype":"Link","options":"Employee","read_only":1},
+  {"fieldname":"last_progress_on","label":"Last Progress On","fieldtype":"Datetime","read_only":1,"in_list_view":1},
+  {"fieldname":"last_progress_summary","label":"Last Progress Summary","fieldtype":"Small Text","read_only":1},
   {"fieldname":"media_evidence_section","label":"Private Media Evidence","fieldtype":"Section Break"},
   {"fieldname":"media_evidence_html","label":"Media Gallery","fieldtype":"HTML","read_only":1},
   {"fieldname":"completion_notes","label":"Completion Notes","fieldtype":"Text","read_only":1},

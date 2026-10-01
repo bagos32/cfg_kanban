@@ -64,6 +64,16 @@ def normalized_values(rows, supplied_values):
         "field_key": row.field_key,
         "label": row.label,
         "field_type": row.field_type,
-        "value": by_key.get(row.field_key, row.default_value),
+        # CFG Kanban Execution Value.value is a Text field. Keeping numeric and
+        # Check answers as Python integers makes Frappe Version formatting fail
+        # on the next save (notably correction/resubmission). Persist one stable
+        # string representation and convert with flt/cint only when evaluating.
+        "value": _storage_value(by_key.get(row.field_key, row.default_value)),
         "unit": row.unit,
     } for row in rows if by_key.get(row.field_key, row.default_value) not in (None, "")]
+
+
+def _storage_value(value):
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    return str(value)

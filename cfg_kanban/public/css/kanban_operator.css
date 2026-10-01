@@ -66,11 +66,43 @@
 .cfg-logistics-toolbar { flex-wrap: wrap; }
 .cfg-logistics-list-row { width: 100%; display: flex; justify-content: space-between; text-align: left; margin-bottom: 8px; color: var(--text-color); }
 
+.cfg-service-progress-summary {
+	display: flex;
+	justify-content: space-between;
+	gap: 16px;
+	margin-top: 10px;
+	padding: 10px 12px;
+	border-left: 4px solid var(--blue-500);
+	border-radius: 6px;
+	background: var(--subtle-fg);
+}
+
+.cfg-service-progress-summary small,
+.cfg-service-progress-summary span {
+	display: block;
+}
+
+.cfg-service-progress-summary span {
+	max-width: 65%;
+	text-align: right;
+}
+
+.cfg-correction-request {
+	margin: 10px 0 0;
+}
+
+.cfg-correction-request small {
+	display: block;
+	margin-top: 4px;
+}
+
 @media (max-width: 767px) {
 	.cfg-logistics-scan-row { display: grid; grid-template-columns: 1fr auto; }
 	.cfg-logistics-identity, .cfg-logistics-route { align-items: stretch; }
 	.cfg-logistics-toolbar .btn { flex: 1 1 45%; }
 	.cfg-logistics-docs { display: grid; }
+	.cfg-service-progress-summary { display: block; }
+	.cfg-service-progress-summary span { max-width: none; margin-top: 6px; text-align: left; }
 }
 
 .cfg-operator-sticky-shell,

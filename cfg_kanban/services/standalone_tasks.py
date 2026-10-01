@@ -180,7 +180,11 @@ def progress_task(task_name, session_token, values=None, notes=None):
         frappe.throw(f"Task progress cannot be reported while it is {task.status}")
     if not task.started_on:
         frappe.throw("Start the Service Task before reporting progress")
-    _apply_values(task, "Progress", values, profile.employee)
+    captured = _apply_values(task, "Progress", values, profile.employee)
+    task.progress_count = cint(task.progress_count) + 1
+    task.last_progress_by = profile.employee
+    task.last_progress_on = now_datetime()
+    task.last_progress_summary = _progress_summary(captured, notes)
     task.save(ignore_permissions=True)
     _task_event("Standalone Task Progress Reported", task, profile, session, notes=notes)
     return task
@@ -267,8 +271,10 @@ def _apply_values(task, capture_on, supplied, employee):
     rows = standalone_definitions(task.task_schedule, capture_on) if task.task_schedule else []
     supplied = frappe.parse_json(supplied) if isinstance(supplied, str) else (supplied or [])
     validate_values(rows, supplied)
-    existing = {row.field_key: row for row in task.execution_values}
-    for value in normalized_values(rows, supplied):
+    existing = {row.field_key: row for row in task.execution_values
+                if row.capture_on == capture_on}
+    captured = normalized_values(rows, supplied)
+    for value in captured:
         value.update({"capture_on": capture_on, "captured_by": employee,
                       "captured_on": now_datetime()})
         if capture_on == "Progress":
@@ -277,6 +283,19 @@ def _apply_values(task, capture_on, supplied, employee):
             existing[value["field_key"]].update(value)
         else:
             task.append("execution_values", value)
+    return captured
+
+
+def _progress_summary(captured, notes=None):
+    parts = []
+    for row in captured:
+        value = row["value"]
+        if row.get("unit"):
+            value = f"{value} {row['unit']}"
+        parts.append(f"{row.get('label') or row['field_key']}: {value}")
+    if (notes or "").strip():
+        parts.append(f"Notes: {notes.strip()}")
+    return "; ".join(parts) or "Progress reported without measurements or notes"
 
 
 def _assert_required_progress(task):

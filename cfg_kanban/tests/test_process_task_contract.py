@@ -61,6 +61,20 @@ class TestProcessTaskContract(TestCase):
         self.assertIn("def progress(", api)
         self.assertIn("Report Progress", console)
         self.assertIn('Progress: "progress"', console)
+        self.assertIn("get_task_progress", api)
+        self.assertIn("View Progress", console)
+        self.assertIn("last_progress_summary", service)
+        self.assertIn("Supervisor correction requested", console)
+        self.assertIn("previous ? previous.value", console)
+
+    def test_dynamic_answers_are_serialized_for_frappe_version_history(self):
+        forms = (ROOT / "services" / "dynamic_forms.py").read_text()
+        model = (ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_task" /
+                 "cfg_kanban_task.py").read_text()
+        self.assertIn('return "1" if value else "0"', forms)
+        self.assertIn('return str(value)', forms)
+        self.assertIn("def before_validate", model)
+        self.assertIn("not isinstance(row.value, str)", model)
 
     def test_service_task_console_can_identify_operator_and_create_from_schedule(self):
         api = (ROOT / "api" / "task.py").read_text()
@@ -95,7 +109,9 @@ class TestProcessTaskContract(TestCase):
         self.assertIn("Active Work", operator_console)
         self.assertIn("profile.responsibilities", api)
         self.assertIn("responsibility_allowed", api)
-        self.assertIn('"responsible_role", "modified"', api)
+        self.assertIn('"responsible_role", "progress_count"', api)
+        self.assertIn('"last_progress_on", "last_progress_summary"', api)
+        self.assertIn('"verified_by", "verified_on", "modified"', api)
 
     def test_standalone_compliance_record_supports_rejection_reports_and_printing(self):
         service = (ROOT / "services" / "standalone_tasks.py").read_text()

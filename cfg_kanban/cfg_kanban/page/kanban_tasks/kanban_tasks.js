@@ -342,8 +342,17 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 					${task.asset ? `<div><small>${__("Asset")}</small><strong>${e(task.asset)}</strong></div>` : ""}
 					${task.started_on ? `<div><small>${__("Started")}</small><strong>${e(task.started_on)}</strong></div>` : ""}
 					<div><small>${__("Due")}</small><strong>${e(task.due_on || "-")}</strong></div>
-				</div><div class="actions cfg-service-task-actions"></div></div>`).appendTo($section);
+				</div>
+				${task.progress_count ? `<div class="cfg-service-progress-summary">
+					<div><strong>${__("Progress reports")}: ${e(task.progress_count)}</strong>
+						<small>${e(task.last_progress_by || "-")} · ${e(task.last_progress_on || "-")}</small></div>
+					<span>${e(task.last_progress_summary || __("Progress recorded"))}</span></div>` : ""}
+				${task.status === "Correction Required" ? `<div class="alert alert-warning cfg-correction-request">
+					<strong>${__("Supervisor correction requested")}</strong><br>${e(task.verification_notes || __("No correction remarks were supplied."))}
+					<small>${e(task.verified_by || "-")} · ${e(task.verified_on || "-")}</small></div>` : ""}
+				<div class="actions cfg-service-task-actions"></div></div>`).appendTo($section);
 			const $actions = $row.find(".actions");
+			if (task.progress_count) button($actions, __("View Progress"), "btn-default", () => progress_history_dialog(task));
 			if (["Planned", "Due", "Assigned", "Overdue"].includes(task.status)) button($actions, __("Start"), "btn-primary", () => task_dialog(task, "Start"));
 			if (task.started_on && ["In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, __("Report Progress"), "btn-info", () => task_dialog(task, "Progress"));
 			if (["Due", "Assigned", "In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, task.status === "Correction Required" ? __("Correct and Resubmit") : __("Complete"), "btn-success", () => task_dialog(task, "Complete"));
@@ -352,6 +361,29 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				button($actions, __("Cancel / Bypass"), "btn-default", () => disposition_dialog(task));
 			}
 		});
+	}
+
+	async function progress_history_dialog(task) {
+		const response = await frappe.call({ method: "cfg_kanban.api.task.get_task_progress", args: {
+			task_name: task.name, operator_session_token: state.token,
+		} });
+		const data = response.message || {}; const e = frappe.utils.escape_html;
+		const values = data.values || []; const events = data.events || [];
+		const value_rows = values.map((row) => `<tr><td>${e(row.captured_on || "-")}</td>
+			<td>${e(row.captured_by || "-")}</td><td>${e(row.label || row.field_key)}</td>
+			<td><strong>${e(row.value)}</strong> ${e(row.unit || "")}</td></tr>`).join("");
+		const event_rows = events.filter((row) => row.notes).map((row) => `<li><strong>${e(row.event_datetime || "-")}</strong>
+			· ${e(row.operator || "-")} — ${e(row.notes)}</li>`).join("");
+		const dialog = new frappe.ui.Dialog({ title: __("Task Progress History"), size: "large", fields: [
+			{ fieldtype: "HTML", options: `<div class="cfg-progress-history">
+				<div class="alert alert-info"><strong>${e(task.task_name)}</strong><br>
+					${__("Reports")}: ${e(data.progress_count || 0)} · ${__("Latest")}: ${e(data.last_progress_on || "-")} · ${e(data.last_progress_by || "-")}<br>
+					${e(data.last_progress_summary || __("No progress summary"))}</div>
+				<h5>${__("Recorded measurements")}</h5>
+				${value_rows ? `<div class="table-responsive"><table class="table table-bordered"><thead><tr><th>${__("Time")}</th><th>${__("Operator")}</th><th>${__("Field")}</th><th>${__("Value")}</th></tr></thead><tbody>${value_rows}</tbody></table></div>` : `<p class="text-muted">${__("No dynamic Progress measurements were configured.")}</p>`}
+				${event_rows ? `<h5>${__("Progress notes")}</h5><ul>${event_rows}</ul>` : ""}</div>` },
+		] });
+		dialog.show();
 	}
 
 	function disposition_dialog(task) {
@@ -380,6 +412,10 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		const fields = [
 			{ fieldtype: "Section Break", label: __("Task Information") },
 			{ fieldtype: "HTML", options: task_identity(details) },
+			...(details.status === "Correction Required" ? [
+				{ fieldtype: "Section Break", label: __("Supervisor Correction Request") },
+				{ fieldtype: "HTML", options: `<div class="alert alert-warning"><strong>${__("Correct the evidence below and resubmit.")}</strong><p>${frappe.utils.escape_html(details.verification_notes || __("No correction remarks were supplied."))}</p><small>${frappe.utils.escape_html(details.verified_by || "-")} · ${frappe.utils.escape_html(details.verified_on || "-")}</small></div>` },
+			] : []),
 			{ fieldtype: "Section Break", label: __("Work Instructions") },
 			{ fieldtype: "HTML", options: `<div class="frappe-card p-3">${safe_rich_text(details.instructions || __("No work instructions were provided."))}</div>` },
 			...(action === "Verify" ? verification_evidence(details, existing_checklist, existing_values) : []),
@@ -388,11 +424,13 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				options: media_evidence_html(existing_media, action !== "Verify", details.status === "In Progress") },
 			...(action === "Complete" && checklist.length ? [{ fieldtype: "Section Break", label: __("Completion Checklist") }] : []),
 			...checklist.map((item, index) => ({ fieldname: `check_${index}`, label: item, fieldtype: "Check",
-				reqd: action === "Complete", hidden: action !== "Complete" })),
+				reqd: action === "Complete", hidden: action !== "Complete",
+				default: existing_checklist.some((row) => row.item === item && row.result === "Pass") ? 1 : 0 })),
 			...(definitions.length ? [{ fieldtype: "Section Break", label: action === "Verify" ? __("Verification Measurements") : action === "Start" ? __("Start Checks") : __("Measurements and Evidence") }] : []),
-			...definitions.map(dialog_field),
+			...definitions.map((definition) => dialog_field(definition, existing_values, action)),
 			{ fieldtype: "Section Break", label: action === "Verify" ? __("Verification Decision") : __("Notes") },
-			{ fieldname: "notes", label: __("Notes"), fieldtype: "Small Text" },
+			{ fieldname: "notes", label: __("Notes"), fieldtype: "Small Text",
+				default: action === "Complete" && details.status === "Correction Required" ? details.completion_notes : "" },
 		];
 		const method = { Start: "start", Progress: "progress", Complete: "complete", Verify: "verify" }[action];
 		const dialog = new frappe.ui.Dialog({ title: __(`${action} Service Task`), fields,
@@ -618,11 +656,14 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		return template.innerHTML;
 	}
 
-	function dialog_field(definition) {
+	function dialog_field(definition, existing_values, action) {
 		const types = { Data: "Data", Int: "Int", Float: "Float", Check: "Check", Select: "Select", Date: "Date", Datetime: "Datetime", Text: "Small Text" };
+		const previous = [...(existing_values || [])].reverse().find((row) =>
+			row.field_key === definition.field_key && row.capture_on === action);
 		return { fieldname: `dynamic_${definition.field_key}`, label: definition.label,
 			fieldtype: types[definition.field_type] || "Data", reqd: Boolean(Number(definition.mandatory)),
-			options: definition.options, default: definition.default_value, read_only: definition.read_only };
+			options: definition.options, default: previous ? previous.value : definition.default_value,
+			read_only: definition.read_only };
 	}
 
 	function button($parent, label, style, action) {
