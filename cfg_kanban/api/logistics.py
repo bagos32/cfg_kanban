@@ -16,6 +16,12 @@ from cfg_kanban.services.operator_auth import require_operator
 
 
 TERMINAL_STATES = {"Received", "Billing Pending", "Partially Billed", "Billed", "Closed", "Cancelled"}
+MANIFEST_LIST_FIELDS = [
+    "name", "logistics_route", "state", "source_company", "source_warehouse",
+    "destination_company", "destination_warehouse", "total_quantity",
+    "total_received_quantity", "dispatch_delivery_note", "receipt_purchase_receipt",
+    "modified",
+]
 
 
 @frappe.whitelist()
@@ -42,19 +48,19 @@ def get_logistics_console(operator_session_token):
         route["can_receive"] = bool(
             _can_view_all(profile) or route.receipt_responsibility in responsibilities
         )
-    manifests = frappe.get_all(
-        "CFG Kanban Movement Manifest",
-        filters={"state": ["not in", list(TERMINAL_STATES)]},
-        fields=["name", "logistics_route", "state", "source_company", "source_warehouse",
-                "destination_company", "destination_warehouse", "total_quantity",
-                "total_received_quantity", "dispatch_delivery_note",
-                "receipt_purchase_receipt", "modified"],
-        order_by="modified desc", limit_page_length=100,
-    )
     allowed_routes = {route.name for route in routes}
-    manifests = [row for row in manifests if row.logistics_route in allowed_routes]
+    manifests = _manifest_summaries(
+        allowed_routes,
+        {"state": ["not in", list(TERMINAL_STATES)]},
+        limit=100,
+    )
+    recent_manifests = _manifest_summaries(
+        allowed_routes,
+        {"state": ["in", list(TERMINAL_STATES)]},
+        limit=10,
+    )
     return {"operator": _operator_summary(profile, session), "routes": routes,
-            "manifests": manifests}
+            "manifests": manifests, "recent_manifests": recent_manifests}
 
 
 @frappe.whitelist()
@@ -114,6 +120,76 @@ def get_manifest(manifest_name, operator_session_token):
         (_can_view_all(profile) or route.receipt_responsibility in responsibilities)
     )
     result["operator"] = _operator_summary(profile, session)
+    return result
+
+
+@frappe.whitelist()
+def lookup_logistics_tag(scan_value, operator_session_token):
+    """Read-only tag lookup. This endpoint never changes a Manifest or balance."""
+    profile, _session = require_operator(operator_session_token)
+    identity = resolve_logistics_scan(scan_value)
+    if not identity:
+        frappe.throw("The scanned logistics identity was not found")
+    result = {"identity": identity, "handling_unit": None, "manifests": []}
+    if identity["identity_type"] != "Handling Unit":
+        return result
+
+    unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
+    result["handling_unit"] = {
+        "name": unit.name,
+        "visible_code": unit.handling_unit_id,
+        "tag_kind": unit.tag_kind,
+        "item_code": unit.item_code,
+        "description": unit.short_description,
+        "batch_no": unit.batch_no,
+        "stock_uom": unit.stock_uom,
+        "current_qty": unit.current_qty,
+        "reserved_qty": unit.reserved_qty,
+        "available_qty": unit.available_qty,
+        "inventory_company": unit.inventory_company,
+        "current_warehouse": unit.current_warehouse,
+        "physical_custodian": unit.physical_custodian,
+        "identity_state": unit.identity_state,
+        "movement_state": unit.movement_state,
+        "quality_state": unit.quality_state,
+        "packed_on": unit.packed_on,
+        "expiry_date": unit.expiry_date,
+    }
+    last_movement = frappe.db.sql(
+        """
+        select name, event_type, posting_datetime, reference_doctype, reference_name
+        from `tabCFG Kanban Handling Unit Quantity Ledger`
+        where source_handling_unit=%s or destination_handling_unit=%s
+        order by posting_datetime desc, creation desc
+        limit 1
+        """,
+        (unit.name, unit.name),
+        as_dict=True,
+    )
+    result["last_movement"] = last_movement[0] if last_movement else None
+
+    route_names = _authorized_route_names(profile)
+    parent_names = frappe.get_all(
+        "CFG Kanban Manifest Line",
+        filters={"handling_unit": unit.name},
+        pluck="parent",
+        group_by="parent",
+        limit_page_length=50,
+    )
+    if route_names and parent_names:
+        manifests = frappe.get_all(
+            "CFG Kanban Movement Manifest",
+            filters={
+                "name": ["in", parent_names],
+                "logistics_route": ["in", list(route_names)],
+            },
+            fields=MANIFEST_LIST_FIELDS,
+            order_by="modified desc",
+            limit_page_length=20,
+        )
+        manifests.sort(key=lambda row: row.state in TERMINAL_STATES)
+        result["manifests"] = manifests
+        result["preferred_manifest"] = manifests[0].name if manifests else None
     return result
 
 
@@ -575,6 +651,36 @@ def _require_route_responsibility(profile, responsibility, action):
 
 def _responsibilities(profile):
     return {row.responsibility for row in profile.responsibilities if row.responsibility}
+
+
+def _authorized_route_names(profile):
+    routes = frappe.get_all(
+        "CFG Kanban Logistics Route",
+        fields=["name", "dispatch_responsibility", "receipt_responsibility"],
+        limit_page_length=0,
+    )
+    if _can_view_all(profile):
+        return {row.name for row in routes}
+    responsibilities = _responsibilities(profile)
+    return {
+        row.name for row in routes
+        if row.dispatch_responsibility in responsibilities
+        or row.receipt_responsibility in responsibilities
+    }
+
+
+def _manifest_summaries(route_names, filters, limit):
+    if not route_names:
+        return []
+    filters = dict(filters)
+    filters["logistics_route"] = ["in", list(route_names)]
+    return frappe.get_all(
+        "CFG Kanban Movement Manifest",
+        filters=filters,
+        fields=MANIFEST_LIST_FIELDS,
+        order_by="modified desc",
+        limit_page_length=limit,
+    )
 
 
 def _can_view_all(profile):

@@ -245,6 +245,10 @@ class TestDocTypeSchema(TestCase):
         install = (APP_ROOT / "install.py").read_text()
         gateway = (APP_ROOT / "integrations" / "erp_gateway.py").read_text()
         logistics = (APP_ROOT / "api" / "logistics.py").read_text()
+        page_root = APP_ROOT / "cfg_kanban" / "page"
+        logistics_panel = (page_root / "kanban_logistics" / "kanban_logistics.js").read_text()
+        operator_panel = (page_root / "kanban_operator" / "kanban_operator.js").read_text()
+        task_panel = (page_root / "kanban_tasks" / "kanban_tasks.js").read_text()
         self.assertIn('"Delivery Note": {', hooks)
         self.assertIn("on_delivery_note_submit", hooks)
         self.assertIn('"cfg_movement_manifest"', install)
@@ -257,9 +261,16 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("resolve_logistics_scan(scan_value)", logistics)
         self.assertIn("Receiving operator must scan every Manifest tag", logistics)
         self.assertIn("def get_dispatch_requirements", logistics)
+        self.assertIn("def lookup_logistics_tag", logistics)
+        self.assertIn('"recent_manifests"', logistics)
         self.assertIn("_dispatch_retry_available", logistics)
         self.assertIn('route["can_dispatch"]', logistics)
         self.assertIn('("Supervisor", "Development Proxy")', logistics)
+        self.assertIn('scan_mode: "lookup"', logistics_panel)
+        self.assertIn("Start Dispatch Scanning", logistics_panel)
+        self.assertIn("Recently Completed", logistics_panel)
+        self.assertIn('frappe.set_route("kanban-logistics")', operator_panel)
+        self.assertIn('frappe.set_route("kanban-logistics")', task_panel)
 
     def test_card_and_cycle_capture_company_snapshot(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

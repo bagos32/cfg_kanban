@@ -18,6 +18,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	});
 	page.set_primary_action(__("Find Card"), () => process_scan(scan.get_value()), "search");
 	page.add_inner_button(__("Open Service Task Panel"), () => frappe.set_route("kanban-tasks"));
+	page.add_inner_button(__("Open Logistics Panel"), () => frappe.set_route("kanban-logistics"));
 	page.add_inner_button(__("Clear / Next Card (F3)"), clear_for_next_card);
 	const $sticky_header = $("<div class='cfg-operator-sticky-shell'></div>").appendTo(page.main);
 	const $scanner_status = $(`<div class="cfg-scanner-status" aria-live="polite"></div>`)
@@ -26,9 +27,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	const $root = $("<div class='cfg-kanban-operator cfg-active-work-region mt-3'></div>").appendTo(page.main);
 	const $panel_switcher = $(`<div class="cfg-panel-switcher mt-3 mb-3">
 		<div><strong>${__("Production Operator Panel")}</strong><small>${__("Use this panel for production cards, operations, and process tasks.")}</small></div>
-		<button class="btn btn-primary btn-lg open-service-panel">${__("Open Service Task Panel")}</button>
+		<div><button class="btn btn-primary btn-lg open-service-panel">${__("Open Service Task Panel")}</button>
+		<button class="btn btn-info btn-lg open-logistics-panel">${__("Open Logistics Panel")}</button></div>
 	</div>`).appendTo(page.main);
 	$panel_switcher.find(".open-service-panel").on("click", () => frappe.set_route("kanban-tasks"));
+	$panel_switcher.find(".open-logistics-panel").on("click", () => frappe.set_route("kanban-logistics"));
 
 	const $card_camera = $(`<div class="cfg-kanban-card-camera mt-3 mb-3">
 		<button class="btn btn-primary btn-lg btn-block">

@@ -19,6 +19,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	const $active_root = $("<div class='cfg-service-active-work'></div>").appendTo(page.main);
 	const $mobile_actions = $(`<div class="cfg-service-mobile-actions mb-3">
 		<button class="btn btn-info open-production-panel">${__("Production Panel")}</button>
+		<button class="btn btn-info open-logistics-panel">${__("Logistics Panel")}</button>
 		<button class="btn btn-default refresh-tasks"><span class="octicon octicon-sync"></span> ${__("Refresh")}</button>
 		<button class="btn btn-primary identify-operator">${__("Scan / Switch Operator")}</button>
 		<button class="btn btn-success create-service-task">${__("Create Task")}</button>
@@ -26,9 +27,11 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	const $root = $("<div class='cfg-kanban-tasks cfg-service-ready-work'></div>").appendTo(page.main);
 	page.set_primary_action(__("Refresh"), load, "refresh");
 	page.add_inner_button(__("Open Production Operator Panel"), () => frappe.set_route("kanban-operator"));
+	page.add_inner_button(__("Open Logistics Panel"), () => frappe.set_route("kanban-logistics"));
 	page.add_inner_button(__("Identify Operator"), identify_operator);
 	page.add_inner_button(__("Create Task"), create_task);
 	$mobile_actions.find(".open-production-panel").on("click", () => frappe.set_route("kanban-operator"));
+	$mobile_actions.find(".open-logistics-panel").on("click", () => frappe.set_route("kanban-logistics"));
 	$mobile_actions.find(".refresh-tasks").on("click", load);
 	$mobile_actions.find(".identify-operator").on("click", identify_operator);
 	$mobile_actions.find(".create-service-task").on("click", create_task);

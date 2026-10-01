@@ -1541,6 +1541,16 @@ intercompany location/ownership transition.
 The dedicated page is **CFG Kanban → Logistics Operator Panel** (`/app/kanban-logistics`). It accepts
 a fixed keyboard-wedge scanner in **Logistics Scanner**, or **Scan with Camera** on a phone/tablet.
 The preprinted value such as `MFG-STK1000` is scanned directly; no printed UUID is required.
+The Production Operator and Service Task panels both provide a visible **Logistics Panel** link and
+reuse the same active operator session.
+
+The scanner is read-only by default. In **Tag lookup ready** mode, scanning a Stock Tag displays its
+Item, Batch, live quantity cache, Company, Warehouse/custodian, lifecycle, last movement, and related
+Manifest history. It opens the most relevant authorized Manifest in view-only mode but does not add,
+reserve, dispatch, or receive anything. A transaction can occur only after the operator explicitly
+selects **Start Dispatch Scanning** or **Start Receipt Scanning** for the displayed Manifest. Opening
+another Manifest, switching operator, refreshing, or selecting **Stop ... Scanning** returns to safe
+lookup mode.
 
 Prerequisites:
 
@@ -1559,25 +1569,38 @@ Dispatch steps:
 
 1. Identify the operator in **Logistics Operator Panel**.
 2. Select **New Dispatch Manifest**, then select **Logistics Route**.
-3. Scan every full Stock Tag. Package B deliberately rejects partial use of one tag; split it to an
+3. Select **Start Dispatch Scanning**. Confirm that the scanner indicator names the intended Manifest.
+4. Scan every full Stock Tag. Package B deliberately rejects partial use of one tag; split it to an
    activated child identity first.
-4. Select **Prepare and Reserve**. The quantity ledger reserves every scanned tag.
-5. Select **Confirm Dispatch**. The app creates one source-company Delivery Note through **CFG ERP
+5. Select **Stop Dispatch Scanning**, then **Prepare and Reserve**. The quantity ledger reserves every
+   scanned tag.
+6. Select **Confirm Dispatch**. The app preflights the Delivery Note. Editable mandatory ERP fields
+   appear in **Required Delivery Note Details**; mandatory child tables such as **Sales Team** use a
+   multi-row grid and Sales Team percentages must total 100%. The app then creates one source-company
+   Delivery Note through **CFG ERP
    Command**. If **Auto-submit Dispatch Delivery Note** is enabled, it is submitted immediately;
    otherwise an authorized ERPNext user must review and submit the draft.
-6. Only submitted Delivery Note feedback changes the Manifest to **Awaiting Receipt** and the tags
+7. Only submitted Delivery Note feedback changes the Manifest to **Awaiting Receipt** and the tags
    to **Intercompany Transit**. A draft Delivery Note does not claim the stock moved.
 
 Receipt steps:
 
 1. The receiving operator opens/scans the Movement Manifest number, such as `KMF-2026-00001`.
-2. Rescan every physical tag listed on the Manifest. Unlisted tags and missing tags are rejected.
-3. Select **Confirm Receipt**. This is blocked until the source Delivery Note is submitted.
-4. The app creates the destination-company Purchase Receipt. When its own auto-submit setting is
+2. Select **Start Receipt Scanning**. If the current operator lacks the route's Receipt Responsibility,
+   switch operator. The panel always shows **Receipt scans: X of Y**.
+3. Rescan every physical tag listed on the Manifest. Unlisted tags and missing tags are rejected.
+4. Select **Stop Receipt Scanning**, then **Confirm Receipt** after all rows are confirmed. This is
+   blocked until the source Delivery Note is submitted.
+5. The app creates the destination-company Purchase Receipt. When its own auto-submit setting is
    disabled, review and submit the draft in ERPNext.
-5. Only submitted Purchase Receipt feedback changes the Manifest to **Received**, transfers the
+6. Only submitted Purchase Receipt feedback changes the Manifest to **Received**, transfers the
    tag's **Inventory Company** and **Current Warehouse**, and makes destination stock operationally
    available.
+
+The terminal remembers the last viewed Manifest in that browser so a refresh after manual ERP
+submission reopens it. **Recently Completed** is collapsed by default and contains only the latest
+10 authorized terminal-state Manifests; older history remains accessible by scanning a Stock Tag,
+scanning/entering the Manifest number, or using the normal Desk list.
 
 An unused **Draft** or **Prepared** Manifest can be cancelled by an override-authorized operator
 with a reason; prepared reservations are released. After an ERP document exists, use controlled
@@ -1611,6 +1634,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.6 | 1 October 2026 | Added safe default logistics Tag lookup, explicitly armed dispatch/receipt scan modes, mobile-first receipt progress, last-Manifest recovery, latest-10 completed history, mandatory ERP child-table capture, and cross-panel Logistics links |
 | 1.5 | 1 October 2026 | Fixed Service Task correction/resubmission for numeric and Check answers; added persistent progress count/latest audit fields and live supervisor progress history |
 | 1.4 | 1 October 2026 | Added Package B Movement Manifest dispatch/receipt, Logistics Operator Panel, guarded Delivery Note/Purchase Receipt commands, ERP feedback, cancellation, and exact operating prerequisites |
 | 1.3 | 1 October 2026 | Corrected Package A scanning for preprinted logistics tags: visible code is primary, UUID is internal fallback, issuer/company number namespaces are explicit, form activation resolves scans, and replacement print QR/Code 128 use the visible code |

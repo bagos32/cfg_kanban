@@ -1,8 +1,9 @@
 frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({ parent: wrapper, title: __("Kanban Logistics"), single_column: true });
 	const session_key = "cfg_kanban_operator_session";
+	const last_manifest_key = "cfg_kanban_last_manifest";
 	const state = { token: localStorage.getItem(session_key), operator: null, routes: [],
-		manifests: [], manifest: null };
+		manifests: [], recent_manifests: [], manifest: null, lookup: null, scan_mode: "lookup" };
 	const $sticky = $("<div class='cfg-logistics-sticky'></div>").appendTo(page.main);
 	const $scanner = $(`<div class="frappe-card cfg-logistics-scanner">
 		<div class="cfg-logistics-scanner-head"><div><strong>${__("Logistics Scanner")}</strong>
@@ -15,6 +16,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		</div><div class="scanner-message text-muted"><small>${__("Ready")}</small></div>
 	</div>`).appendTo($sticky);
 	const $identity = $("<div></div>").appendTo($sticky);
+	const $lookup = $("<div class='cfg-logistics-lookup mt-3'></div>").appendTo(page.main);
 	const $active = $("<div class='cfg-logistics-active mt-3'></div>").appendTo(page.main);
 	const $actions = $(`<div class="cfg-logistics-toolbar mt-3 mb-3">
 		<button class="btn btn-primary new-manifest">${__("New Dispatch Manifest")}</button>
@@ -45,9 +47,13 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			state.operator = response.message.operator;
 			state.routes = response.message.routes || [];
 			state.manifests = response.message.manifests || [];
+			state.recent_manifests = response.message.recent_manifests || [];
+			state.scan_mode = "lookup";
 			render_identity();
-			if (state.manifest) await open_manifest(state.manifest.name || state.manifest);
+			const last_manifest = state.manifest?.name || state.manifest || localStorage.getItem(last_manifest_key);
+			if (last_manifest) await open_manifest(last_manifest, { quiet: true });
 			else render_active();
+			render_lookup();
 			render_list();
 			focus_scanner();
 		} catch (error) {
@@ -63,7 +69,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		$identity.find(".login-operator").on("click", identify_operator);
 		$active.html(`<div class="frappe-card text-center p-5"><h3>${__("Operator identification required")}</h3>
 			<p class="text-muted">${message || __("Identify the operator before preparing or receiving a Manifest.")}</p></div>`);
-		$list.empty(); update_scanner_state(); focus_scanner();
+		$lookup.empty(); $list.empty(); update_scanner_state(); focus_scanner();
 	}
 
 	function render_identity() {
@@ -80,26 +86,30 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 
 	function render_active() {
 		if (!state.manifest) {
-			$active.html(`<div class="frappe-card cfg-logistics-empty"><h3>${__("No active Manifest selected")}</h3>
-				<p>${__("Create a dispatch Manifest or select an open Manifest below.")}</p></div>`);
+			$active.html(`<div class="frappe-card cfg-logistics-empty"><h3>${__("No Manifest selected")}</h3>
+				<p>${__("Scan a Stock Tag for status lookup, create a Manifest, or select one below.")}</p></div>`);
+			update_scanner_state();
 			return;
 		}
 		const m = state.manifest; const e = frappe.utils.escape_html;
 		const receipt_mode = ["Dispatched", "Awaiting Receipt", "Receipt Document Pending"].includes(m.state);
+		const receipt_scanned = (m.lines || []).filter((row) => row.receipt_scanned).length;
+		let mode_notice = `<div class="alert alert-info"><strong>${__("View-only lookup")}</strong> · ${__("Scanning a Stock Tag will show its status and will not change this Manifest.")}</div>`;
+		if (state.scan_mode === "dispatch") mode_notice = `<div class="alert alert-warning"><strong>${__("DISPATCH SCANNING ARMED")}</strong> · ${e(m.name)} · ${__("Scanned tags will be added to this Manifest.")}</div>`;
+		if (state.scan_mode === "receipt") mode_notice = `<div class="alert alert-success"><strong>${__("RECEIPT SCANNING ARMED")}</strong> · ${e(m.name)} · ${__("Only tags listed on this Manifest will be accepted.")}</div>`;
 		const lines = (m.lines || []).map((row) => `<div class="cfg-logistics-line">
 			<div><strong>${e(row.visible_code)}</strong><small>${e(row.item_code)} · ${e(row.batch_no || __("No Batch"))}</small></div>
 			<div><strong>${format_number(row.dispatch_qty)} ${e(row.stock_uom)}</strong>
 				<small>${row.receipt_scanned ? __("Receipt scan confirmed") : e(row.state)}</small></div>
-			${m.state === "Draft" ? `<button class="btn btn-xs btn-danger remove-line" data-unit="${e(row.handling_unit)}">${__("Remove")}</button>` : ""}
-		</div>`).join("");
+				${m.state === "Draft" && state.scan_mode === "dispatch" ? `<button class="btn btn-xs btn-danger remove-line" data-unit="${e(row.handling_unit)}">${__("Remove")}</button>` : ""}
+			</div>`).join("");
 		$active.html(`<div class="frappe-card cfg-logistics-manifest">
-			<div class="cfg-logistics-manifest-head"><div><small>${__("Active Manifest")}</small><h2>${e(m.name)}</h2>
+			<div class="cfg-logistics-manifest-head"><div><small>${__("Viewed Manifest")}</small><h2>${e(m.name)}</h2>
 				<strong>${e(m.logistics_route)}</strong></div><span class="indicator-pill ${state_colour(m.state)}">${e(m.state)}</span></div>
 			<div class="cfg-logistics-route"><div><small>${__("FROM")}</small><strong>${e(m.source_company)}</strong><span>${e(m.source_warehouse)}</span></div>
 				<div class="cfg-logistics-arrow">→</div><div><small>${__("TO")}</small><strong>${e(m.destination_company)}</strong><span>${e(m.destination_warehouse)}</span></div></div>
-			<div class="alert ${receipt_mode ? "alert-success" : "alert-info"}">${receipt_mode ?
-				__("Receipt mode: scan every tag listed on this Manifest.") :
-				__("Dispatch mode: scan activated preprinted Stock Tags from the source Warehouse.")}</div>
+			${mode_notice}
+			${receipt_mode ? `<div class="cfg-logistics-receipt-progress"><strong>${__("Receipt scans: {0} of {1}", [receipt_scanned, (m.lines || []).length])}</strong><span>${m.can_receive ? __("Arm Receipt Scanning and scan every physical tag.") : __("Switch to an operator assigned to the route's Receipt Responsibility.")}</span></div>` : ""}
 			<div class="cfg-logistics-lines">${lines || `<div class="text-muted p-3">${__("No tags scanned")}</div>`}</div>
 			<div class="cfg-logistics-docs"><span>${__("Delivery Note")}: <strong>${e(m.dispatch_delivery_note || __("Not created"))}</strong></span>
 				<span>${__("Purchase Receipt")}: <strong>${e(m.receipt_purchase_receipt || __("Not created"))}</strong></span></div>
@@ -112,30 +122,103 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		$active.find(".cancel-manifest").on("click", cancel_manifest);
 		$active.find(".open-dn").on("click", () => frappe.set_route("Form", "Delivery Note", m.dispatch_delivery_note));
 		$active.find(".open-pr").on("click", () => frappe.set_route("Form", "Purchase Receipt", m.receipt_purchase_receipt));
+		$active.find(".arm-dispatch").on("click", () => set_scan_mode("dispatch"));
+		$active.find(".arm-receipt").on("click", () => set_scan_mode("receipt"));
+		$active.find(".stop-scanning").on("click", () => set_scan_mode("lookup"));
+		$active.find(".clear-manifest").on("click", clear_manifest_view);
 		update_scanner_state();
 	}
 
 	function manifest_actions(m) {
 		const buttons = [];
-		if (m.can_dispatch && m.state === "Draft" && m.lines.length) buttons.push(`<button class="btn btn-primary prepare-manifest">${__("Prepare and Reserve")}</button>`);
+		const receipt_state = ["Dispatched", "Awaiting Receipt", "Receipt Document Pending"].includes(m.state);
+		const all_received = Boolean(m.lines.length && m.lines.every((row) => row.receipt_scanned));
+		if (m.can_dispatch && m.state === "Draft") {
+			buttons.push(state.scan_mode === "dispatch" ?
+				`<button class="btn btn-warning stop-scanning">${__("Stop Dispatch Scanning")}</button>` :
+				`<button class="btn btn-primary arm-dispatch">${__("Start Dispatch Scanning")}</button>`);
+		}
+		if (receipt_state && m.can_receive) {
+			buttons.push(state.scan_mode === "receipt" ?
+				`<button class="btn btn-warning stop-scanning">${__("Stop Receipt Scanning")}</button>` :
+				`<button class="btn btn-primary arm-receipt">${__("Start Receipt Scanning")}</button>`);
+		}
+		if (m.can_dispatch && m.state === "Draft" && m.lines.length) {
+			buttons.push(state.scan_mode === "lookup" ?
+				`<button class="btn btn-primary prepare-manifest">${__("Prepare and Reserve")}</button>` :
+				`<button class="btn btn-default" disabled>${__("Stop scanning before preparation")}</button>`);
+		}
 		if (m.can_dispatch && (m.state === "Prepared" || m.dispatch_retry_available)) {
 			buttons.push(`<button class="btn btn-success confirm-dispatch">${m.dispatch_retry_available ? __("Retry Dispatch") : __("Confirm Dispatch")}</button>`);
 		}
-		if (["Dispatched", "Awaiting Receipt", "Receipt Document Pending"].includes(m.state) &&
-			m.can_receive && m.lines.length && m.lines.every((row) => row.receipt_scanned)) buttons.push(`<button class="btn btn-success confirm-receipt">${__("Confirm Receipt")}</button>`);
-		if (["Draft", "Prepared"].includes(m.state) && state.operator.can_override) buttons.push(`<button class="btn btn-danger cancel-manifest">${__("Cancel Manifest")}</button>`);
+		if (receipt_state && m.can_receive && all_received) {
+			buttons.push(state.scan_mode === "lookup" ?
+				`<button class="btn btn-success confirm-receipt">${__("Confirm Receipt")}</button>` :
+				`<button class="btn btn-default" disabled>${__("Stop scanning before receipt confirmation")}</button>`);
+		}
+		else if (receipt_state && m.can_receive) buttons.push(`<button class="btn btn-default" disabled>${__("Scan all tags to confirm receipt")}</button>`);
+		else if (receipt_state) buttons.push(`<button class="btn btn-default" disabled>${__("Receipt responsibility required")}</button>`);
+		if (["Draft", "Prepared"].includes(m.state) && state.operator.can_override) {
+			buttons.push(state.scan_mode === "lookup" ?
+				`<button class="btn btn-danger cancel-manifest">${__("Cancel Manifest")}</button>` :
+				`<button class="btn btn-default" disabled>${__("Stop scanning before cancellation")}</button>`);
+		}
 		if (m.dispatch_delivery_note) buttons.push(`<button class="btn btn-default open-dn">${__("Open Delivery Note")}</button>`);
 		if (m.receipt_purchase_receipt) buttons.push(`<button class="btn btn-default open-pr">${__("Open Purchase Receipt")}</button>`);
+		buttons.push(`<button class="btn btn-default clear-manifest">${__("Clear Viewed Manifest")}</button>`);
 		return buttons.join("");
 	}
 
 	function render_list() {
 		const e = frappe.utils.escape_html;
-		$list.html(`<h3>${__("Open Movement Manifests")}</h3>${state.manifests.map((m) =>
+		const open_rows = state.manifests.map((m) =>
 			`<button class="frappe-card cfg-logistics-list-row" data-name="${e(m.name)}"><div><strong>${e(m.name)}</strong><small>${e(m.logistics_route)}</small></div>
 			<div><span class="indicator-pill ${state_colour(m.state)}">${e(m.state)}</span><small>${format_number(m.total_quantity)} ${__("total quantity")}</small></div></button>`).join("") ||
-			`<div class="text-muted p-4">${__("No open Manifests available for this operator")}</div>`}`);
+			`<div class="text-muted p-4">${__("No open Manifests available for this operator")}</div>`;
+		const recent_rows = state.recent_manifests.map((m) =>
+			`<button class="frappe-card cfg-logistics-list-row recent-manifest-row" data-name="${e(m.name)}"><div><strong>${e(m.name)}</strong><small>${e(m.logistics_route)} · ${e(display_datetime(m.modified))}</small></div>
+			<div><span class="indicator-pill ${state_colour(m.state)}">${e(m.state)}</span><small>${format_number(m.total_quantity)} ${__("total quantity")}</small></div></button>`).join("") ||
+			`<div class="text-muted p-3">${__("No recently completed Manifests")}</div>`;
+		$list.html(`<section class="cfg-logistics-open-list"><h3>${__("Open Movement Manifests")}</h3>${open_rows}</section>
+			<details class="cfg-logistics-recent mt-4"><summary><strong>${__("Recently Completed")}</strong> <span class="text-muted">${__("Latest 10")}</span></summary><div class="mt-3">${recent_rows}</div></details>`);
 		$list.find(".cfg-logistics-list-row").on("click", function () { open_manifest($(this).data("name")); });
+	}
+
+	function render_lookup() {
+		if (!state.lookup) return $lookup.empty();
+		if (!state.lookup.handling_unit) {
+			const identity = state.lookup.identity || {}; const e = frappe.utils.escape_html;
+			$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
+				<div class="cfg-logistics-tag-head"><div><small>${__("Scanned Identity Status")}</small>
+					<h3>${e(identity.visible_code || identity.name || "-")}</h3>
+					<strong>${e(identity.identity_type || __("Registered identity"))}</strong></div>
+					<button class="btn btn-default close-lookup">${__("Close")}</button></div>
+				<div class="alert alert-warning mt-3 mb-0">${__("This code is registered but is not an active stock Handling Unit. It cannot be dispatched or received until it is activated and assigned stock details.")}</div>
+			</div>`);
+			$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
+			return;
+		}
+		const e = frappe.utils.escape_html; const unit = state.lookup.handling_unit;
+		const movement = state.lookup.last_movement;
+		const manifests = (state.lookup.manifests || []).map((manifest) =>
+			`<button class="btn btn-default lookup-manifest" data-name="${e(manifest.name)}"><strong>${e(manifest.name)}</strong> · ${e(manifest.state)}</button>`
+		).join("");
+		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
+			<div class="cfg-logistics-tag-head"><div><small>${__("Scanned Tag Status")}</small><h3>${e(unit.visible_code)}</h3><strong>${e(unit.item_code || __("No item assigned"))}</strong></div>
+				<button class="btn btn-default close-lookup">${__("Close")}</button></div>
+			<div class="cfg-logistics-tag-grid">
+				<div><small>${__("Batch")}</small><strong>${e(unit.batch_no || __("No Batch"))}</strong></div>
+				<div><small>${__("Company")}</small><strong>${e(unit.inventory_company || "-")}</strong></div>
+				<div><small>${__("Location")}</small><strong>${e(unit.current_warehouse || unit.physical_custodian || __("In Transit / Unassigned"))}</strong></div>
+				<div><small>${__("Quantity")}</small><strong>${format_number(unit.current_qty)} ${e(unit.stock_uom || "")}</strong></div>
+				<div><small>${__("Available / Reserved")}</small><strong>${format_number(unit.available_qty)} / ${format_number(unit.reserved_qty)}</strong></div>
+				<div><small>${__("Lifecycle")}</small><strong>${e(unit.identity_state)} · ${e(unit.movement_state)} · ${e(unit.quality_state)}</strong></div>
+			</div>
+			<div class="cfg-logistics-last-movement"><small>${__("Last movement")}</small><strong>${movement ? `${e(movement.event_type)} · ${e(display_datetime(movement.posting_datetime))}` : __("No quantity movement recorded")}</strong></div>
+			<div class="cfg-logistics-related"><small>${__("Related Manifests")}</small><div>${manifests || `<span class="text-muted">${__("No Manifest history for this tag")}</span>`}</div></div>
+		</div>`);
+		$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
+		$lookup.find(".lookup-manifest").on("click", function () { open_manifest($(this).data("name")); });
 	}
 
 	async function process_scan(value) {
@@ -145,8 +228,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const operator = operator_token(raw);
 		if (!state.token || operator) return login_operator(operator || raw);
 		if (/^KMF-/i.test(raw)) return open_manifest(raw);
-		if (!state.manifest) return scanner_error(__("Select or create a Movement Manifest before scanning a Stock Tag."));
-		const receipt_mode = ["Dispatched", "Awaiting Receipt", "Receipt Document Pending"].includes(state.manifest.state);
+		if (state.scan_mode === "lookup") return lookup_tag(raw);
+		if (!state.manifest) return scanner_error(__("No Manifest is armed for transaction scanning."));
+		const receipt_mode = state.scan_mode === "receipt";
 		const method = receipt_mode ? "scan_receipt_tag" : "scan_dispatch_tag";
 		try {
 			const response = await frappe.call({ method: `cfg_kanban.api.logistics.${method}`, args: {
@@ -159,13 +243,37 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		focus_scanner();
 	}
 
-	async function open_manifest(name) {
+	async function lookup_tag(raw) {
+		try {
+			const response = await frappe.call({
+				method: "cfg_kanban.api.logistics.lookup_logistics_tag",
+				args: { scan_value: raw, operator_session_token: state.token },
+				freeze: true,
+				freeze_message: __("Looking up tag status..."),
+			});
+			state.lookup = response.message; render_lookup();
+			if (state.lookup.preferred_manifest) await open_manifest(state.lookup.preferred_manifest, { keep_lookup: true });
+			else clear_manifest_view({ keep_lookup: true });
+			$scanner.find(".scanner-message").html(`<small class="text-success">${__("Status loaded: {0}", [frappe.utils.escape_html(raw)])}</small>`);
+		} catch (error) { scanner_error(__("Tag status could not be loaded.")); }
+		focus_scanner();
+	}
+
+	async function open_manifest(name, options) {
+		state.scan_mode = "lookup";
+		if (!options?.keep_lookup) { state.lookup = null; render_lookup(); }
 		try {
 			const response = await frappe.call({ method: "cfg_kanban.api.logistics.get_manifest", args: {
 				manifest_name: name, operator_session_token: state.token,
 			} });
-			state.manifest = response.message; render_active(); focus_scanner();
-		} catch (error) { scanner_error(__("Manifest could not be opened for this operator.")); }
+			state.manifest = response.message;
+			localStorage.setItem(last_manifest_key, state.manifest.name);
+			render_active(); focus_scanner(); return true;
+		} catch (error) {
+			localStorage.removeItem(last_manifest_key); state.manifest = null; render_active();
+			if (!options?.quiet) scanner_error(__("Manifest could not be opened for this operator."));
+			return false;
+		}
 	}
 
 	function new_manifest_dialog() {
@@ -184,8 +292,28 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			const response = await frappe.call({ method: "cfg_kanban.api.logistics.create_manifest", args: {
 				logistics_route: values.route, event_token: unique_token(), operator_session_token: state.token,
 			}, freeze: true });
-			dialog.hide(); state.manifest = response.message; render_active(); await refresh_list(); focus_scanner();
+			dialog.hide(); state.manifest = response.message; state.scan_mode = "lookup";
+			localStorage.setItem(last_manifest_key, state.manifest.name);
+			render_active(); await refresh_list(); focus_scanner();
 		} }); dialog.show();
+	}
+
+	function set_scan_mode(mode) {
+		if (!state.manifest) return scanner_error(__("Select a Manifest before arming transaction scanning."));
+		if (mode === "dispatch" && !(state.manifest.can_dispatch && state.manifest.state === "Draft")) {
+			return scanner_error(__("This Manifest is not available for dispatch scanning."));
+		}
+		if (mode === "receipt" && !state.manifest.can_receive) {
+			return scanner_error(__("This operator or Manifest is not available for receipt scanning."));
+		}
+		state.scan_mode = mode; render_active(); focus_scanner();
+	}
+
+	function clear_manifest_view(options) {
+		state.scan_mode = "lookup"; state.manifest = null;
+		localStorage.removeItem(last_manifest_key);
+		if (!options?.keep_lookup) { state.lookup = null; render_lookup(); }
+		render_active(); focus_scanner();
 	}
 
 	async function remove_line(unit) {
@@ -195,6 +323,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	}
 
 	function prepare_manifest() {
+		if (state.scan_mode !== "lookup") return scanner_error(__("Stop transaction scanning before preparing the Manifest."));
 		frappe.confirm(__("Reserve every scanned tag for this Manifest?"), async () => {
 			await manifest_action("prepare_manifest", __("Preparing Manifest..."));
 		});
@@ -276,12 +405,14 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	}
 
 	function confirm_receipt() {
+		if (state.scan_mode !== "lookup") return scanner_error(__("Stop receipt scanning before confirming receipt."));
 		frappe.confirm(__("Confirm all scanned tags were received and create the destination Purchase Receipt?"), async () => {
 			await manifest_action("confirm_receipt", __("Creating Purchase Receipt..."));
 		});
 	}
 
 	function cancel_manifest() {
+		if (state.scan_mode !== "lookup") return scanner_error(__("Stop transaction scanning before cancelling the Manifest."));
 		frappe.prompt([{ fieldname: "reason", label: __("Cancellation Reason"), fieldtype: "Small Text", reqd: 1 }],
 			async (values) => { await manifest_action("cancel_manifest", __("Cancelling Manifest..."), { reason: values.reason }); },
 			__("Cancel Movement Manifest"), __("Cancel Manifest"));
@@ -292,13 +423,18 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			manifest_name: state.manifest.name, event_token: unique_token(), operator_session_token: state.token,
 			...(extra || {}),
 		}, freeze: true, freeze_message: message });
-		state.manifest = response.message; render_active(); await refresh_list(); focus_scanner();
+		state.manifest = response.message;
+		localStorage.setItem(last_manifest_key, state.manifest.name);
+		if ((state.scan_mode === "dispatch" && state.manifest.state !== "Draft") ||
+			(state.scan_mode === "receipt" && !state.manifest.can_receive)) state.scan_mode = "lookup";
+		render_active(); await refresh_list(); focus_scanner();
 	}
 
 	async function refresh_list() {
 		const response = await frappe.call({ method: "cfg_kanban.api.logistics.get_logistics_console",
 			args: { operator_session_token: state.token } });
 		state.routes = response.message.routes || []; state.manifests = response.message.manifests || [];
+		state.recent_manifests = response.message.recent_manifests || [];
 		render_list();
 	}
 
@@ -331,7 +467,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			}, freeze: true, freeze_message: __("Identifying operator...") });
 			state.token = response.message.session_token; localStorage.setItem(session_key, state.token);
 			if (station) localStorage.setItem("cfg_kanban_station", station);
-			state.manifest = null; await load();
+			state.manifest = null; state.lookup = null; state.scan_mode = "lookup"; await load();
 		} catch (error) { scanner_error(__("Operator identification failed.")); }
 	}
 
@@ -343,7 +479,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 
 	function clear_session() {
 		localStorage.removeItem(session_key); state.token = null; state.operator = null;
-		state.routes = []; state.manifests = []; state.manifest = null;
+		state.routes = []; state.manifests = []; state.recent_manifests = [];
+		state.manifest = null; state.lookup = null; state.scan_mode = "lookup";
 	}
 
 	function camera_scan() {
@@ -360,11 +497,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 
 	function update_scanner_state() {
 		let label = __("Operator required"); let colour = "orange";
-		if (state.token && !state.manifest) { label = __("Select Manifest"); colour = "blue"; }
-		if (state.manifest) {
-			const receipt = ["Dispatched", "Awaiting Receipt", "Receipt Document Pending"].includes(state.manifest.state);
-			label = receipt ? __("Receipt scan ready") : __("Dispatch scan ready"); colour = "green";
-		}
+		if (state.token) { label = __("Tag lookup ready"); colour = "blue"; }
+		if (state.scan_mode === "dispatch" && state.manifest) { label = `${__("Dispatch")} → ${state.manifest.name}`; colour = "orange"; }
+		if (state.scan_mode === "receipt" && state.manifest) { label = `${__("Receipt")} → ${state.manifest.name}`; colour = "green"; }
 		$scanner.find(".scanner-state").removeClass("orange blue green red").addClass(colour).text(label);
 	}
 
@@ -388,6 +523,12 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (["Exception", "Hold"].includes(value)) return "red";
 		if (["Awaiting Receipt", "Receipt Document Pending"].includes(value)) return "orange";
 		return "blue";
+	}
+
+	function display_datetime(value) {
+		if (!value) return "-";
+		try { return frappe.datetime.prettyDate(value); }
+		catch (error) { return String(value); }
 	}
 
 	load();

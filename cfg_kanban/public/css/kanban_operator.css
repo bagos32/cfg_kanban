@@ -14,6 +14,7 @@
 .cfg-logistics-scanner,
 .cfg-logistics-manifest,
 .cfg-logistics-empty,
+.cfg-logistics-tag-status,
 .cfg-logistics-list-row {
 	padding: 16px;
 	border: 1px solid var(--border-color);
@@ -29,7 +30,8 @@
 .cfg-logistics-line,
 .cfg-logistics-docs,
 .cfg-logistics-actions,
-.cfg-logistics-toolbar {
+.cfg-logistics-toolbar,
+.cfg-logistics-tag-head {
 	display: flex;
 	align-items: center;
 	gap: 10px;
@@ -52,8 +54,8 @@
 }
 
 .cfg-logistics-scan-row { margin-top: 10px; }
-.cfg-logistics-scan-row input { min-height: 42px; }
-.cfg-logistics-scan-row .camera-scan { min-height: 42px; white-space: nowrap; }
+.cfg-logistics-scan-row input { min-height: 48px; font-size: 16px; }
+.cfg-logistics-scan-row .camera-scan { min-height: 48px; white-space: nowrap; font-weight: 700; }
 .cfg-logistics-scanner .scanner-message { margin-top: 6px; min-height: 18px; }
 .cfg-logistics-active { border-left: 5px solid var(--blue-500); }
 .cfg-logistics-route { justify-content: space-around; text-align: center; padding: 14px; background: var(--subtle-fg); border-radius: 8px; }
@@ -62,9 +64,25 @@
 .cfg-logistics-lines { border-top: 1px solid var(--border-color); margin-top: 12px; }
 .cfg-logistics-line { padding: 12px 4px; border-bottom: 1px solid var(--border-color); }
 .cfg-logistics-docs, .cfg-logistics-actions { flex-wrap: wrap; margin-top: 14px; }
+.cfg-logistics-actions .btn, .cfg-logistics-toolbar .btn { min-height: 44px; font-weight: 700; }
 .cfg-logistics-docs { justify-content: space-between; }
 .cfg-logistics-toolbar { flex-wrap: wrap; }
 .cfg-logistics-list-row { width: 100%; display: flex; justify-content: space-between; text-align: left; margin-bottom: 8px; color: var(--text-color); }
+.cfg-logistics-tag-status { border-left: 6px solid var(--purple-500, #8b5cf6); background: rgba(139, 92, 246, 0.07); }
+.cfg-logistics-tag-head { justify-content: space-between; }
+.cfg-logistics-tag-head h3 { margin: 2px 0; }
+.cfg-logistics-tag-head small, .cfg-logistics-tag-grid small,
+.cfg-logistics-last-movement small, .cfg-logistics-related > small { display: block; }
+.cfg-logistics-tag-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.cfg-logistics-tag-grid > div, .cfg-logistics-last-movement { padding: 10px; border-radius: 7px; background: var(--card-bg); }
+.cfg-logistics-related { margin-top: 14px; }
+.cfg-logistics-related > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.cfg-logistics-receipt-progress { display: flex; justify-content: space-between; gap: 12px; margin: 12px 0; padding: 12px; border-left: 5px solid var(--green-500); border-radius: 7px; background: rgba(34, 197, 94, 0.1); }
+.cfg-logistics-receipt-progress span { text-align: right; }
+.cfg-logistics-open-list { padding: 14px; border-radius: 8px; background: rgba(59, 130, 246, 0.06); }
+.cfg-logistics-recent { padding: 14px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--subtle-fg); }
+.cfg-logistics-recent summary { cursor: pointer; }
+.cfg-logistics-recent .recent-manifest-row { opacity: 0.94; }
 
 .cfg-service-progress-summary {
 	display: flex;
@@ -97,10 +115,18 @@
 }
 
 @media (max-width: 767px) {
-	.cfg-logistics-scan-row { display: grid; grid-template-columns: 1fr auto; }
+	.cfg-logistics-sticky { top: 0; }
+	.cfg-logistics-scan-row { display: grid; grid-template-columns: 1fr; }
+	.cfg-logistics-scan-row .camera-scan { width: 100%; min-height: 52px; font-size: 16px; }
 	.cfg-logistics-identity, .cfg-logistics-route { align-items: stretch; }
 	.cfg-logistics-toolbar .btn { flex: 1 1 45%; }
 	.cfg-logistics-docs { display: grid; }
+	.cfg-logistics-actions { display: grid; grid-template-columns: 1fr; }
+	.cfg-logistics-actions .btn { width: 100%; min-height: 50px; }
+	.cfg-logistics-tag-grid { grid-template-columns: 1fr 1fr; }
+	.cfg-logistics-receipt-progress { display: block; }
+	.cfg-logistics-receipt-progress span { display: block; margin-top: 5px; text-align: left; }
+	.cfg-logistics-list-row { gap: 12px; }
 	.cfg-service-progress-summary { display: block; }
 	.cfg-service-progress-summary span { max-width: none; margin-top: 6px; text-align: left; }
 }
