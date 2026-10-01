@@ -31,6 +31,13 @@ def get_logistics_console(operator_session_token):
             route.dispatch_responsibility in responsibilities or
             route.receipt_responsibility in responsibilities
         )]
+    for route in routes:
+        route["can_dispatch"] = bool(
+            _can_view_all(profile) or route.dispatch_responsibility in responsibilities
+        )
+        route["can_receive"] = bool(
+            _can_view_all(profile) or route.receipt_responsibility in responsibilities
+        )
     manifests = frappe.get_all(
         "CFG Kanban Movement Manifest",
         filters={"state": ["not in", list(TERMINAL_STATES)]},
@@ -513,7 +520,10 @@ def _responsibilities(profile):
 
 
 def _can_view_all(profile):
-    return bool(profile.get("view_all_responsibilities") and profile.kanban_role == "Supervisor")
+    return bool(
+        profile.get("view_all_responsibilities") and
+        profile.kanban_role in ("Supervisor", "Development Proxy")
+    )
 
 
 def _operator_summary(profile, session):

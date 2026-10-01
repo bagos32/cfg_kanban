@@ -252,6 +252,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('@handler("Create Intercompany Purchase Receipt")', gateway)
         self.assertIn("resolve_logistics_scan(scan_value)", logistics)
         self.assertIn("Receiving operator must scan every Manifest tag", logistics)
+        self.assertIn('route["can_dispatch"]', logistics)
+        self.assertIn('("Supervisor", "Development Proxy")', logistics)
 
     def test_card_and_cycle_capture_company_snapshot(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

@@ -168,10 +168,13 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 
 	function new_manifest_dialog() {
 		if (!state.token) return identify_operator();
-		const options = state.routes.filter((route) => route.dispatch_responsibility &&
-			(state.operator.view_all_responsibilities ||
-				(state.operator.responsibilities || []).includes(route.dispatch_responsibility)));
-		if (!options.length) return frappe.msgprint(__("No active dispatch route is assigned to this operator."));
+		const options = state.routes.filter((route) => route.can_dispatch);
+		if (!options.length) {
+			const assigned = (state.operator.responsibilities || []).join(", ") || __("None");
+			return frappe.msgprint({ title: __("No Dispatch Route Assigned"), indicator: "orange",
+				message: __("No active Logistics Route authorizes this operator for dispatch. Active Kanban Role: {0}. Responsible Roles: {1}.",
+					[state.operator.kanban_role || "-", assigned]) });
+		}
 		const dialog = new frappe.ui.Dialog({ title: __("New Intercompany Dispatch Manifest"), fields: [
 			{ fieldname: "route", label: __("Logistics Route"), fieldtype: "Select", reqd: 1,
 				options: options.map((route) => route.name).join("\n") },
