@@ -4,11 +4,22 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import flt, now_datetime
 
-from cfg_kanban.services.logistics_foundation import post_quantity_event
+from cfg_kanban.services.logistics_foundation import (
+    post_quantity_event,
+    validate_physical_code_namespace,
+)
+from cfg_kanban.services.physical_identity import normalize_physical_code
 
 
 class CFGKanbanHandlingUnit(Document):
     def before_insert(self):
+        try:
+            self.handling_unit_id = normalize_physical_code(self.handling_unit_id)
+        except ValueError as exc:
+            frappe.throw(str(exc))
+        validate_physical_code_namespace(
+            self.handling_unit_id, "Handling Unit", tag_family=self.tag_family
+        )
         self._bind_tag_identity()
         self.opaque_token = self.opaque_token or str(uuid.uuid4())
         if not self.handling_unit_id:

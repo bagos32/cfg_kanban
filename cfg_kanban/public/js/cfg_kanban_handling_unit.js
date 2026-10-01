@@ -32,6 +32,55 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 			current_operation: frm.doc.current_operation || frm._cfg_cycle_operations[0] || null,
 		});
 	},
+	async handling_unit_id(frm) {
+		if (!frm.is_new() || frm._cfg_resolving_tag || !frm.doc.handling_unit_id) return;
+		frm._cfg_resolving_tag = true;
+		try {
+			const response = await frappe.call({
+				method: "cfg_kanban.api.form_queries.preprinted_tag_context",
+				args: { scan_value: frm.doc.handling_unit_id },
+			});
+			const identity = response.message || {};
+			if (!identity.found) {
+				frappe.show_alert({ message: __("Code is not in a Tag Family registry. Register preprinted Stock Tags first; unregistered codes remain available for reusable containers."), indicator: "orange" }, 8);
+				return;
+			}
+			if (identity.identity_type === "Handling Unit") {
+				frappe.msgprint({
+					title: __("Tag Already Active"),
+					message: __("{0} is already assigned to Handling Unit {1}.",
+						[identity.visible_code, identity.name]),
+					indicator: "red",
+				});
+				return;
+			}
+			if (identity.identity_type !== "Registered Tag Identity") {
+				frappe.msgprint({ title: __("Wrong Scan Type"),
+					message: __("{0} is registered as {1}, not a Stock Tag.",
+						[identity.visible_code, identity.identity_type]), indicator: "red" });
+				return;
+			}
+			if (identity.state !== "Unused") {
+				frappe.msgprint({ title: __("Tag Not Available"),
+					message: __("Preprinted tag {0} is {1}.", [identity.visible_code, identity.state]),
+					indicator: "red" });
+				return;
+			}
+			await frm.set_value({
+				handling_unit_id: identity.visible_code,
+				tag_family: identity.tag_family,
+				tag_kind: identity.tag_role === "Main" ? "Main Stock Tag" : "Child Stock Tag",
+				child_index: identity.child_index || 0,
+				inventory_company: frm.doc.inventory_company || identity.issued_company,
+			});
+			frappe.show_alert({ message: __("Registered preprinted tag recognized"), indicator: "green" });
+			if (identity.tag_role === "Child") {
+				frappe.show_alert({ message: __("Select the active main Parent Handling Unit before saving this child split."), indicator: "blue" }, 8);
+			}
+		} finally {
+			frm._cfg_resolving_tag = false;
+		}
+	},
 	refresh(frm) {
 		if (frm.doc.kanban_cycle) frm.trigger("kanban_cycle");
 		if (frm.is_new()) return;

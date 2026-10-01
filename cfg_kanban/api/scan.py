@@ -7,7 +7,7 @@ from cfg_kanban.services.progress import report
 from cfg_kanban.services.triggers import consume_card
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key
-from cfg_kanban.services.logistics_foundation import post_quantity_event
+from cfg_kanban.services.logistics_foundation import post_quantity_event, resolve_logistics_scan
 from cfg_kanban.services.operator_auth import require_operator
 from cfg_kanban.services.wip import append_entry
 
@@ -96,12 +96,25 @@ def scan_handling_unit(token, action, device_id=None, event_token=None, reason=N
                        operator_session_token=None):
     permission_action = "override" if action == "void" else "complete"
     profile, operator_session = require_operator(operator_session_token, permission_action)
-    name = frappe.db.get_value("CFG Kanban Handling Unit", {"opaque_token": token}, "name")
-    if not name:
-        frappe.throw("Unknown handling-unit tag")
+    identity = resolve_logistics_scan(token)
+    if not identity:
+        frappe.throw("Unknown handling-unit tag or preprinted stock-tag code")
+    if identity["identity_type"] == "Registered Tag Identity":
+        frappe.throw(
+            f"Preprinted tag {identity['visible_code']} is registered but not activated. "
+            "Create its Handling Unit before using lifecycle scan actions."
+        )
+    if identity["identity_type"] != "Handling Unit":
+        frappe.throw(
+            f"Scanned code {identity['visible_code']} is a {identity['identity_type']}, "
+            "not a Handling Unit"
+        )
+    name = identity["name"]
     unit = frappe.get_doc("CFG Kanban Handling Unit", name)
     if unit.state in ("Received", "Void", "Replaced"):
-        return {"name": unit.name, "state": unit.state, "terminal": True, "changed": False}
+        return {"name": unit.name, "visible_code": unit.handling_unit_id,
+                "matched_by": identity.get("matched_by"), "state": unit.state,
+                "terminal": True, "changed": False}
     target = {"attach": "Attached", "dispatch": "Dispatched", "receive": "Received",
               "void": "Void"}.get(action)
     if not target:
@@ -151,5 +164,7 @@ def scan_handling_unit(token, action, device_id=None, event_token=None, reason=N
                    device_id=key, notes=reason, operator=profile.employee,
                    operator_session=operator_session.name,
                    terminal_user=operator_session.terminal_user)
-    return {"name": unit.name, "state": target, "event": event.name,
-            "terminal": target in ("Received", "Void"), "changed": True}
+    return {"name": unit.name, "visible_code": unit.handling_unit_id,
+            "matched_by": identity.get("matched_by"), "state": target,
+            "event": event.name, "terminal": target in ("Received", "Void"),
+            "changed": True}

@@ -2,10 +2,10 @@
  "doctype":"DocType","name":"CFG Kanban Customer Scan Point","module":"CFG Kanban","autoname":"field:site_code","title_field":"site_name","track_changes":1,
  "field_order":["site_code","site_name","active","opaque_token","customer_section","selling_company","customer","customer_address","territory","route_reference","default_price_list","proof_section","proof_policy","require_recipient_name","require_signature","require_photo","require_gps","unattended_reason_required","replacement_section","replacement_of","replaced_by","notes"],
  "fields":[
-  {"fieldname":"site_code","label":"Site Code","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"site_code","label":"Printed Customer Site Code","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1,"description":"Primary physical scan code. Use a globally unique CUSTOMER/SITE prefix to avoid collision with stock-tag series."},
   {"fieldname":"site_name","label":"Site / Branch Name","fieldtype":"Data","reqd":1,"in_list_view":1},
   {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1},
-  {"fieldname":"opaque_token","label":"Opaque Scan Token","fieldtype":"Data","read_only":1,"unique":1,"hidden":1},
+  {"fieldname":"opaque_token","label":"Internal UUID Alias","fieldtype":"Data","read_only":1,"unique":1,"hidden":1,"description":"System-only fallback identity; it is not required on the printed site code."},
   {"fieldname":"customer_section","label":"Customer Site","fieldtype":"Section Break"},
   {"fieldname":"selling_company","label":"Selling Company","fieldtype":"Link","options":"Company","reqd":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"customer","label":"Customer","fieldtype":"Link","options":"Customer","reqd":1,"in_list_view":1,"in_standard_filter":1},

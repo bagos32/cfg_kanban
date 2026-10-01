@@ -2,10 +2,10 @@
  "doctype":"DocType","name":"CFG Kanban Tag Family","module":"CFG Kanban","autoname":"field:family_code","title_field":"family_code","track_changes":1,
  "field_order":["family_code","active","child_count","issued_company","description","identities","notes"],
  "fields":[
-  {"fieldname":"family_code","label":"Tag Family Code","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"family_code","label":"Preprinted Main Tag Code","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1,"description":"Exact barcode/QR value already printed on the main tag. Use a globally unique issuer/company prefix, for example MFG-STK1000."},
   {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1},
   {"fieldname":"child_count","label":"Detachable Child Count","fieldtype":"Int","default":"5","reqd":1,"in_list_view":1},
-  {"fieldname":"issued_company","label":"Issued for Company","fieldtype":"Link","options":"Company","in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"issued_company","label":"Issuing Company / Number Namespace","fieldtype":"Link","options":"Company","reqd":1,"in_list_view":1,"in_standard_filter":1,"description":"Company that owns the printed number series. This remains fixed even when inventory ownership later changes."},
   {"fieldname":"description","label":"Description","fieldtype":"Small Text"},
   {"fieldname":"identities","label":"Registered Tag Identities","fieldtype":"Table","options":"CFG Kanban Tag Identity","read_only":1},
   {"fieldname":"notes","label":"Notes","fieldtype":"Text"}

@@ -73,13 +73,20 @@ STK-1000-4     child identity 4
 STK-1000-5     child identity 5
 ```
 
-Every printed identity has its own opaque scan token. A child begins `Unused`. Activating it through
-a controlled split creates or binds its Handling Unit, copies the parent's Item, Batch, packing
+The visible preprinted code is the primary scan identity, following the same pattern as a logistics
+waybill number. Barcode and QR symbologies may both encode the same visible value. Each identity
+also has a system-generated internal UUID alias for backward compatibility, audit, revocation, and
+integration; that UUID is not required on the physical tag. A child begins `Unused`. Activating it
+through a controlled split creates or binds its Handling Unit, copies the parent's Item, Batch, packing
 timestamp, expiry, inventory Company, quality status, and trace references, and transfers an exact
 quantity out of the parent. The parent balance is reduced in the same controlled transaction.
 
-The visible suffix is not the security identity. The opaque token resolves the registered tag and
-can be revoked or replaced without reusing an old identity.
+Visible codes must be globally unique within the ERP site and use an issuer/company-controlled
+prefix such as `MFG-STK1000`. The issuing Company owns the number namespace; it does not change when
+inventory ownership moves to another Company. Resolution accepts the visible code first and the
+internal UUID alias second. Replacement revokes the old identity without reusing its printed code.
+The printed code is an identifier, not an authentication secret: operator authorization, allowed
+routes, state transitions, idempotency, and ERP confirmation protect every consequential action.
 
 ### 3.4 Reusable loose-stock container
 
@@ -95,7 +102,8 @@ mixing. A configurable route or container policy may require one Item/Batch per 
 
 A Customer Scan Point identifies one Customer delivery site/address for one selling Company. One
 Customer with several branches receives a separate code for each branch. Its QR/barcode contains
-an opaque, revocable token rather than mutable Customer or address data.
+a stable, prefixed visible site code; the database also retains an internal UUID alias. Neither
+identity embeds mutable Customer or address data.
 
 ## 4. Company and vehicle model
 
@@ -453,8 +461,8 @@ constraint. Existing DocTypes are extended; they are not rebuilt.
 | DocType | Responsibility |
 |---|---|
 | CFG Kanban Logistics Route | Directional company/warehouse/party/Price List/automation/billing policy |
-| CFG Kanban Customer Scan Point | Selling Company, Customer, exact Address, opaque token, route/site and proof policy |
-| CFG Kanban Tag Family | Main visible ID, detachable child identities, opaque tokens, issue/revocation state |
+| CFG Kanban Customer Scan Point | Selling Company, Customer, exact Address, printed site code, internal UUID alias, route/site and proof policy |
+| CFG Kanban Tag Family | Issuing Company namespace, main visible ID, detachable child identities, internal UUID aliases, issue/revocation state |
 
 ### 15.2 New transactional DocTypes
 
@@ -567,7 +575,7 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
 
 - Add Company snapshots to existing Card/Cycle records where needed.
 - Extend Handling Unit without invalidating existing production tags.
-- Preserve every existing opaque token and map the current Issued, Attached, Dispatched, Received,
+- Preserve every existing internal UUID alias and map the current Issued, Attached, Dispatched, Received,
   Void, and Replaced states into the new identity/movement states without rewriting history.
 - Permit reusable-container identities that are not owned by one production Cycle while retaining
   existing Cycle links on historical production tags.

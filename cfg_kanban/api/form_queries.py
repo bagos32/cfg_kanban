@@ -1,5 +1,7 @@
 import frappe
 
+from cfg_kanban.services.logistics_foundation import resolve_logistics_scan
+
 
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
@@ -38,3 +40,25 @@ def cycle_operations(kanban_cycle):
         "parent": master, "parenttype": "CFG Kanban Master",
     }, fields=["operation", "sequence", "workstation", "handoff_mode", "destination_operation"],
         order_by="sequence asc")
+
+
+@frappe.whitelist()
+def preprinted_tag_context(scan_value):
+    """Resolve a typed/scanned preprinted code while creating a Handling Unit."""
+    if not frappe.has_permission("CFG Kanban Handling Unit", ptype="create"):
+        frappe.throw("You do not have permission to activate Handling Units",
+                     frappe.PermissionError)
+    result = resolve_logistics_scan(scan_value)
+    if not result:
+        return {"found": False, "visible_code": str(scan_value or "").strip()}
+    if result["identity_type"] == "Registered Tag Identity":
+        allowed = {
+            "identity_type", "name", "visible_code", "matched_by", "tag_family",
+            "tag_role", "child_index", "state", "handling_unit", "issued_company",
+        }
+    else:
+        # The activation form only needs enough information to reject a duplicate
+        # Handling Unit or the wrong physical-code type. Do not expose customer or
+        # warehouse context through this convenience endpoint.
+        allowed = {"identity_type", "name", "visible_code", "matched_by"}
+    return {"found": True, **{key: value for key, value in result.items() if key in allowed}}

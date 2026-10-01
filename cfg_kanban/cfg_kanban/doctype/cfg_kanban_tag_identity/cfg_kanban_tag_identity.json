@@ -5,7 +5,7 @@
   {"fieldname":"tag_role","label":"Tag Role","fieldtype":"Select","options":"Main\nChild","reqd":1,"read_only":1,"in_list_view":1},
   {"fieldname":"child_index","label":"Child Index","fieldtype":"Int","read_only":1,"in_list_view":1},
   {"fieldname":"visible_code","label":"Visible Code","fieldtype":"Data","reqd":1,"unique":1,"read_only":1,"in_list_view":1},
-  {"fieldname":"opaque_token","label":"Opaque Token","fieldtype":"Data","reqd":1,"unique":1,"read_only":1},
+  {"fieldname":"opaque_token","label":"Internal UUID Alias","fieldtype":"Data","reqd":1,"unique":1,"read_only":1,"hidden":1,"description":"System-only alias; it is not printed on preprinted tags."},
   {"fieldname":"state","label":"State","fieldtype":"Select","options":"Unused\nActivated\nRevoked\nReplaced","default":"Unused","reqd":1,"read_only":1,"in_list_view":1},
   {"fieldname":"handling_unit","label":"Handling Unit","fieldtype":"Link","options":"CFG Kanban Handling Unit","read_only":1,"in_list_view":1}
  ]

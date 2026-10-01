@@ -3,11 +3,22 @@ import uuid
 import frappe
 from frappe.model.document import Document
 
+from cfg_kanban.services.logistics_foundation import validate_physical_code_namespace
+from cfg_kanban.services.physical_identity import normalize_physical_code
+
 
 class CFGKanbanTagFamily(Document):
     def before_insert(self):
+        try:
+            normalized = normalize_physical_code(self.family_code)
+        except ValueError as exc:
+            frappe.throw(str(exc))
+        if normalized != self.family_code:
+            frappe.throw("Preprinted Main Tag Code cannot contain outer whitespace")
         self.child_count = int(self.child_count or 0)
         self._build_identities()
+        for identity in self.identities:
+            validate_physical_code_namespace(identity.visible_code, "Registered Tag Identity")
 
     def validate(self):
         self.child_count = int(self.child_count or 0)
@@ -16,10 +27,8 @@ class CFGKanbanTagFamily(Document):
         before = None if self.is_new() else self.get_doc_before_save()
         if before and int(before.child_count or 0) != self.child_count:
             frappe.throw("Detachable Child Count cannot change after the tag family is created")
-        if before and before.issued_company != self.issued_company and any(
-            row.handling_unit for row in before.identities
-        ):
-            frappe.throw("Issued Company cannot change after a tag identity is activated")
+        if before and before.issued_company != self.issued_company:
+            frappe.throw("Issuing Company / Number Namespace cannot change after creation")
         if before:
             previous = {
                 row.visible_code: (row.child_index, row.tag_role, row.opaque_token)

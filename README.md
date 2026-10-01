@@ -49,8 +49,9 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
   available-card reservation, idempotent demand proposals, and supervisor approval before release.
 - Two reusable English Kanban Card print formats: A6 landscape double-sided Standard Card and
   A6 landscape single-sided Operational Card.
-- Disposable 45 mm × 250 mm monochrome Handling Unit tags with QR and Code 128 identities,
-  one per pallet/container, backed by a separate handling-unit transaction and lifecycle.
+- Optional 45 mm × 250 mm monochrome replacement Handling Unit tags with QR and Code 128
+  identities, one per pallet/container, backed by a separate handling-unit transaction and
+  lifecycle. Preprinted visible tag/waybill codes are the primary physical scan identity.
 - Package A of the approved multi-company logistics foundation: directional Logistics Routes,
   Customer Scan Points, pre-registered main/child Stock Tag families, extended Handling Units,
   Company snapshots, and an immutable quantity ledger. Intercompany ERP posting and driver
@@ -120,11 +121,17 @@ Card. The Standard Card produces two A6 landscape pages; for economical A4 stock
 per sheet and duplex printing in the printer dialog, then verify front/back orientation on a test
 sheet. The Operational Card is a single A6 landscape page showing immediate movement only.
 
-Create one **CFG Kanban Handling Unit** per physical pallet, mesh, tote, or other handling unit.
-Select **Print Thermal Tag** to produce the monochrome 45 mm × 250 mm tag. Reprints require a
-reason and increment the print counter. Replacement actions issue a new opaque token and revision,
-link old and new records, and make the old identity unusable. A tag scan can only advance its own
-Issued → Attached → Dispatched → Received lifecycle (or Void); it never creates replenishment.
+Register existing preprinted stock-tag series as **CFG Kanban Tag Family** records, then scan the
+printed value (for example `MFG-STK1000`) into **Preprinted Tag / Handling Unit ID** when activating
+the physical pallet, mesh, tote, or other Handling Unit. QR and Code 128 may both encode that same
+human-readable value. The generated UUID is an internal fallback alias and is never required on a
+physical label. Use globally unique issuer/company prefixes because the same tag continues across
+ownership changes and must resolve unambiguously throughout the ERP site.
+
+**Print Thermal Tag** is an optional replacement/emergency format, not an operational dependency.
+Reprints require a reason and increment the print counter. Replacement links old and new records
+and makes the old identity unusable. A tag scan can only advance its own Issued → Attached →
+Dispatched → Received lifecycle (or Void); it never creates replenishment.
 
 ## Sales Order demand proposals
 

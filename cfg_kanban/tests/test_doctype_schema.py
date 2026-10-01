@@ -159,7 +159,13 @@ class TestDocTypeSchema(TestCase):
         family = {row["fieldname"]: row for row in
                   schemas["CFG Kanban Tag Family"]["fields"]}
         self.assertEqual(family["identities"]["options"], "CFG Kanban Tag Identity")
+        self.assertEqual(family["family_code"]["label"], "Preprinted Main Tag Code")
+        self.assertEqual(family["issued_company"].get("reqd"), 1)
         self.assertEqual(schemas["CFG Kanban Tag Identity"].get("istable"), 1)
+        identity = {row["fieldname"]: row for row in
+                    schemas["CFG Kanban Tag Identity"]["fields"]}
+        self.assertEqual(identity["opaque_token"]["label"], "Internal UUID Alias")
+        self.assertEqual(identity["opaque_token"].get("hidden"), 1)
 
     def test_handling_unit_has_ledger_backed_logistics_identity(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}
@@ -172,6 +178,11 @@ class TestDocTypeSchema(TestCase):
                          "available_qty", "identity_state", "movement_state",
                          "quality_state"}.issubset(handling))
         self.assertFalse(handling["kanban_cycle"].get("reqd", 0))
+        self.assertEqual(
+            handling["handling_unit_id"]["label"],
+            "Preprinted Tag / Handling Unit ID",
+        )
+        self.assertEqual(handling["opaque_token"]["label"], "Internal UUID Alias")
 
         ledger = {row["fieldname"]: row for row in
                   schemas["CFG Kanban Handling Unit Quantity Ledger"]["fields"]}
@@ -185,6 +196,22 @@ class TestDocTypeSchema(TestCase):
             self.assertFalse(permission.get("create", 0))
             self.assertFalse(permission.get("write", 0))
             self.assertFalse(permission.get("delete", 0))
+
+    def test_handling_unit_replacement_print_encodes_visible_code(self):
+        path = (APP_ROOT / "cfg_kanban" / "print_format" /
+                "cfg_kanban_handling_unit_tag" / "cfg_kanban_handling_unit_tag.json")
+        print_format = json.loads(path.read_text())
+        html = print_format["html"]
+        self.assertIn("get_qr_svg(doc.handling_unit_id", html)
+        self.assertIn("get_code128_svg(doc.handling_unit_id", html)
+        self.assertNotIn("get_qr_svg(doc.opaque_token", html)
+
+    def test_handling_unit_scan_api_uses_central_physical_resolver(self):
+        scan_source = (APP_ROOT / "api" / "scan.py").read_text()
+        self.assertIn("resolve_logistics_scan(token)", scan_source)
+        self.assertNotIn(
+            '"CFG Kanban Handling Unit", {"opaque_token": token}', scan_source
+        )
 
     def test_card_and_cycle_capture_company_snapshot(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

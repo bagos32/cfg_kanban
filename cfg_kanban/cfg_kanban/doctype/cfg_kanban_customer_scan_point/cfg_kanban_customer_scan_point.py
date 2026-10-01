@@ -3,11 +3,22 @@ import uuid
 import frappe
 from frappe.model.document import Document
 
-from cfg_kanban.services.logistics_foundation import validate_price_list_mode
+from cfg_kanban.services.logistics_foundation import (
+    validate_physical_code_namespace,
+    validate_price_list_mode,
+)
+from cfg_kanban.services.physical_identity import normalize_physical_code
 
 
 class CFGKanbanCustomerScanPoint(Document):
     def before_insert(self):
+        try:
+            normalized = normalize_physical_code(self.site_code)
+        except ValueError as exc:
+            frappe.throw(str(exc))
+        if normalized != self.site_code:
+            frappe.throw("Printed Customer Site Code cannot contain outer whitespace")
+        validate_physical_code_namespace(self.site_code, "Customer Scan Point")
         self.opaque_token = self.opaque_token or str(uuid.uuid4())
 
     def validate(self):

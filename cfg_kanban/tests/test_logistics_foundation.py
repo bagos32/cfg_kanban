@@ -5,9 +5,20 @@ from cfg_kanban.services.handling_unit_math import (
     event_deltas,
     validate_balance,
 )
+from cfg_kanban.services.physical_identity import normalize_physical_code
 
 
 class TestHandlingUnitQuantityMath(TestCase):
+    def test_preprinted_code_normalization_only_removes_scanner_whitespace(self):
+        self.assertEqual(normalize_physical_code("  MFG-STK1000\r\n"), "MFG-STK1000")
+        self.assertEqual(normalize_physical_code("mfg-stk1000"), "mfg-stk1000")
+
+    def test_blank_or_embedded_control_code_is_rejected(self):
+        with self.assertRaises(ValueError):
+            normalize_physical_code(" \r\n ")
+        with self.assertRaises(ValueError):
+            normalize_physical_code("MFG-\tSTK1000")
+
     def test_split_preserves_total_quantity(self):
         deltas = event_deltas("Split", 5)
         source = apply_balance_delta(10, 0, qty_delta=deltas["source_qty_delta"])

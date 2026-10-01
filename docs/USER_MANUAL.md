@@ -842,20 +842,27 @@ quantity remains governed by ERPNext amendment and over-delivery controls.
 A Handling Unit identifies one physical pallet, mesh, tote, or container. It is different from a
 reusable Kanban Card and cannot trigger replenishment.
 
-Create **CFG Kanban Handling Unit → New** after a Cycle exists. Enter:
+For a preprinted Stock Tag, first register its exact visible number under **CFG Kanban Tag Family**.
+Then create **CFG Kanban Handling Unit → New** after a Cycle exists and enter:
 
-- Handling Unit Type and unique visible ID.
+- **Preprinted Tag / Handling Unit ID** (`handling_unit_id`) by scanning the barcode/QR or typing
+  the exact visible value.
+- Handling Unit Type.
 - Kanban Cycle.
 - Quantity and UOM.
 - Carton/container count where applicable.
 - Immediate Source and Immediate Destination.
 - Sequence No. and Total Units, for example `1 of 3`.
 
-Item, Batch, Work Order, reusable Card, and description are copied from the Cycle when available.
-The Opaque Token is generated automatically; users should not type or reuse it.
+When the scanned value belongs to a registered family, the form fills **Tag Family**, **Tag Kind**,
+**Child Index**, and initial issuing Company. Item, Batch, Work Order, reusable Card, and description
+are copied from the Cycle when available. **Internal UUID Alias** (`opaque_token`) is generated
+automatically for compatibility and audit; users do not type it and it does not need to be printed.
 
-Use **Kanban Actions → Print Thermal Tag**. The PDF canvas is 45 mm × 250 mm for portrait-feed
-thermal stock, with the horizontal tag design rotated onto that canvas.
+Existing preprinted stock tags are the normal operating method, so production does not depend on a
+live tag printer. **Kanban Actions → Print Thermal Tag** is an optional replacement/emergency label.
+Its PDF canvas is 45 mm × 250 mm for portrait-feed thermal stock, with the horizontal design
+rotated onto that canvas. Both its QR and Code 128 encode the visible `handling_unit_id`.
 
 Handling-unit scan lifecycle:
 
@@ -1131,7 +1138,8 @@ QC outcome and verification are satisfied.
 ## 17. Audit and control rules
 
 - Do not manually create ERPNext Work Orders to bypass a blocked Kanban Signal.
-- Do not photocopy, duplicate, or manually edit QR/opaque identities.
+- Do not duplicate or manually alter registered physical codes. A QR and Code 128 on the same tag
+  may encode the same visible value; that is one identity, not two tags.
 - Use Replace Card or Replace Tag so the former identity becomes unusable.
 - Supply a stable event token when a scanner retries the same action.
 - Review Events for who, when, state transition, quantity, device, and linked document.
@@ -1462,7 +1470,7 @@ but have no posting effect until Package B is installed.
 
 ### CFG Kanban Customer Scan Point
 
-Create one record per physical delivery address. Exact identity fields are **Site Code**
+Create one record per physical delivery address. Exact identity fields are **Printed Customer Site Code**
 (`site_code`), **Site / Branch Name** (`site_name`), **Active** (`active`), **Selling Company**
 (`selling_company`), **Customer** (`customer`), **Delivery Address** (`customer_address`), optional
 **Territory** (`territory`), **Route Reference** (`route_reference`), and **Default Selling Price
@@ -1470,15 +1478,27 @@ List** (`default_price_list`).
 
 Proof settings are **Proof Policy** (`proof_policy`: Required, Optional, Unattended Delivery
 Allowed, No Proof Required), **Require Recipient Name**, **Require Signature**, **Require
-Photograph**, **Require GPS**, and **Require Unattended-delivery Reason**. The Opaque Scan Token is
-generated automatically and is immutable. Customer-site delivery scanning is Package C.
+Photograph**, **Require GPS**, and **Require Unattended-delivery Reason**. The printed `site_code` is
+the primary scan value. **Internal UUID Alias** is generated automatically as a system fallback.
+Customer-site delivery scanning is Package C.
 
 ### CFG Kanban Tag Family
 
-Enter **Tag Family Code** (`family_code`) and **Detachable Child Count** (`child_count`, zero to
-twenty). The app generates one main identity and numbered child identities with unique opaque
-tokens. Example: `STK-1000`, `STK-1000-1` through `STK-1000-5`. The number of children and the
-registered codes/tokens cannot be changed after creation.
+Enter **Preprinted Main Tag Code** (`family_code`), **Detachable Child Count** (`child_count`, zero
+to twenty), and **Issuing Company / Number Namespace** (`issued_company`). The app registers the
+visible main identity and numbered child identities and also creates hidden internal UUID aliases.
+Example: `MFG-STK1000`, `MFG-STK1000-1` through `MFG-STK1000-5`. Both a printed barcode and QR may
+carry the same visible code. The UUID does not need to exist on the physical tag.
+
+Visible codes are unique across the whole ERP site. Use a controlled issuer/company prefix for
+each number series, as logistics companies do with waybill numbers. The issuing Company remains
+fixed while **Inventory Company** may change through later intercompany handover. For a large
+preprinted range, import the Tag Family header rows through Frappe Data Import; child identities
+are generated automatically from `child_count`.
+
+The printed number is an identity, not a password. Scanning it never bypasses the active operator
+session, authorization, route/company validation, lifecycle rules, idempotency, or ERPNext stock
+confirmation.
 
 When a Handling Unit uses a registered family code, the matching identity is activated and cannot
 be reused. A child Stock Tag requires a parent Handling Unit and transfers its starting quantity
@@ -1493,9 +1513,10 @@ Timestamp**, **Expiry Date Snapshot**, **Identity State**, **Movement State**, *
 the read-only original/current/reserved/available quantity caches.
 
 A Reusable Container may exist without a production Cycle, Item, or opening quantity. It must be
-loaded through controlled ledger events. Existing production Handling Units retain their opaque
-tokens and old scan state; migration adds the new identity/state fields and an opening ledger
-balance without deleting history.
+loaded through controlled ledger events. Existing production Handling Units retain their internal
+UUID aliases and old scan state; migration adds the new identity/state fields and an opening ledger
+balance without deleting history. Scan resolution accepts the visible code first and old UUID
+aliases second, so previously printed labels continue to work.
 
 ### CFG Kanban Handling Unit Quantity Ledger
 
@@ -1531,6 +1552,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.3 | 1 October 2026 | Corrected Package A scanning for preprinted logistics tags: visible code is primary, UUID is internal fallback, issuer/company number namespaces are explicit, form activation resolves scans, and replacement print QR/Code 128 use the visible code |
 | 1.2 | 30 September 2026 | Added Package A multi-company Logistics Routes, Customer Scan Points, registered Stock Tag families, extended Handling Units, Company snapshots, immutable quantity ledger, migration, and explicit Packages B-C limitations |
 | 1.1 | 25 September 2026 | Added buyer-owned Purchase Replenishment through Material Request, Purchase Order selection, guarded Purchase Receipt creation, partial receipt, ERP feedback, and Card recycling |
 | 1.0 | 23 September 2026 | Re-audited repository code; added exact labels/internal fieldnames, card-behaviour split, runtime allocation/closure, Job Card sync, dashboard/dispatch, recovery table, and independent-LLM rules |

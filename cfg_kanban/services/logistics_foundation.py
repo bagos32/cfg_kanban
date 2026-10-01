@@ -2,6 +2,7 @@ import frappe
 from frappe.utils import flt, now_datetime
 
 from cfg_kanban.services.handling_unit_math import apply_balance_delta, event_deltas
+from cfg_kanban.services.physical_identity import normalize_physical_code
 
 
 def validate_warehouse_company(warehouse, company, label="Warehouse"):
@@ -23,32 +24,149 @@ def validate_price_list_mode(price_list, mode, label):
         frappe.throw(f"{label} {price_list} is not enabled for {mode.title()} transactions")
 
 
+def validate_physical_code_namespace(code, identity_type, tag_family=None):
+    """Prevent a visible code from resolving to unrelated physical identities."""
+    if identity_type != "Customer Scan Point" and frappe.db.exists(
+        "CFG Kanban Customer Scan Point", {"site_code": code}
+    ):
+        frappe.throw(
+            f"Physical code {code} is already used by a Customer Scan Point. "
+            "Use a globally unique issuer/company prefix."
+        )
+    if identity_type != "Handling Unit" and frappe.db.exists(
+        "CFG Kanban Handling Unit", {"handling_unit_id": code}
+    ):
+        frappe.throw(
+            f"Physical code {code} is already used by a Handling Unit. "
+            "Use a globally unique issuer/company prefix."
+        )
+    registered_family = frappe.db.get_value(
+        "CFG Kanban Tag Identity", {"visible_code": code}, "parent"
+    )
+    if registered_family and not (
+        identity_type == "Handling Unit" and registered_family == tag_family
+    ):
+        frappe.throw(
+            f"Physical code {code} is already registered in Tag Family {registered_family}. "
+            "Use a globally unique issuer/company prefix."
+        )
+
+
+def resolve_logistics_scan(scan_value):
+    """Resolve a preprinted visible code first and an internal UUID alias second.
+
+    The visible code is the stable, logistics-style waybill identity used on the
+    physical tag.  UUIDs remain valid for backward compatibility and audit, but
+    are not required on preprinted labels.
+    """
+    try:
+        code = normalize_physical_code(scan_value)
+    except ValueError as exc:
+        frappe.throw(str(exc))
+
+    candidates = {}
+    _add_handling_unit_match(candidates, code, "handling_unit_id", "visible_code")
+    _add_handling_unit_match(candidates, code, "opaque_token", "internal_uuid_alias")
+    _add_tag_identity_match(candidates, code, "visible_code", "visible_code")
+    _add_tag_identity_match(candidates, code, "opaque_token", "internal_uuid_alias")
+    _add_customer_match(candidates, code, "site_code", "visible_code")
+    _add_customer_match(candidates, code, "opaque_token", "internal_uuid_alias")
+
+    # An activated registered identity and its Handling Unit represent the same
+    # physical tag. Prefer the live Handling Unit rather than reporting ambiguity.
+    for key, candidate in list(candidates.items()):
+        if candidate["identity_type"] != "Registered Tag Identity":
+            continue
+        handling_unit = candidate.get("handling_unit")
+        if handling_unit and ("Handling Unit", handling_unit) in candidates:
+            candidates.pop(key)
+
+    if len(candidates) > 1:
+        identities = ", ".join(
+            f"{row['identity_type']} {row['name']}" for row in candidates.values()
+        )
+        frappe.throw(
+            f"Physical code {code} is ambiguous ({identities}). "
+            "Use globally unique company/issuer prefixes and correct the registry before scanning."
+        )
+    return next(iter(candidates.values()), None)
+
+
 def resolve_logistics_token(token):
-    handling_unit = frappe.db.get_value(
-        "CFG Kanban Handling Unit", {"opaque_token": token}, "name"
-    )
-    if handling_unit:
-        return {"identity_type": "Handling Unit", "name": handling_unit}
-    customer_site = frappe.db.get_value(
-        "CFG Kanban Customer Scan Point", {"opaque_token": token, "active": 1}, "name"
-    )
-    if customer_site:
-        return {"identity_type": "Customer Scan Point", "name": customer_site}
-    tag = frappe.db.get_value(
-        "CFG Kanban Tag Identity",
-        {"opaque_token": token},
-        ["parent", "visible_code", "state", "handling_unit"],
+    """Backward-compatible name for integrations created before visible-code scanning."""
+    return resolve_logistics_scan(token)
+
+
+def _add_handling_unit_match(candidates, code, fieldname, matched_by):
+    row = frappe.db.get_value(
+        "CFG Kanban Handling Unit",
+        {fieldname: code},
+        ["name", "handling_unit_id", "tag_kind", "tag_family", "identity_state",
+         "movement_state", "inventory_company", "current_warehouse"],
         as_dict=True,
     )
-    if tag:
-        return {
-            "identity_type": "Registered Tag Identity",
-            "name": tag.visible_code,
-            "tag_family": tag.parent,
-            "state": tag.state,
-            "handling_unit": tag.handling_unit,
-        }
-    return None
+    if not row:
+        return
+    candidates[("Handling Unit", row.name)] = {
+        "identity_type": "Handling Unit",
+        "name": row.name,
+        "visible_code": row.handling_unit_id,
+        "matched_by": matched_by,
+        "tag_kind": row.tag_kind,
+        "tag_family": row.tag_family,
+        "identity_state": row.identity_state,
+        "movement_state": row.movement_state,
+        "inventory_company": row.inventory_company,
+        "current_warehouse": row.current_warehouse,
+    }
+
+
+def _add_tag_identity_match(candidates, code, fieldname, matched_by):
+    row = frappe.db.get_value(
+        "CFG Kanban Tag Identity",
+        {fieldname: code},
+        ["name", "parent", "visible_code", "tag_role", "child_index", "state",
+         "handling_unit"],
+        as_dict=True,
+    )
+    if not row:
+        return
+    issued_company = frappe.db.get_value("CFG Kanban Tag Family", row.parent, "issued_company")
+    candidates[("Registered Tag Identity", row.name)] = {
+        "identity_type": "Registered Tag Identity",
+        "name": row.visible_code,
+        "visible_code": row.visible_code,
+        "matched_by": matched_by,
+        "tag_family": row.parent,
+        "tag_role": row.tag_role,
+        "child_index": row.child_index,
+        "state": row.state,
+        "handling_unit": row.handling_unit,
+        "issued_company": issued_company,
+    }
+
+
+def _add_customer_match(candidates, code, fieldname, matched_by):
+    row = frappe.db.get_value(
+        "CFG Kanban Customer Scan Point",
+        {fieldname: code},
+        ["name", "site_code", "site_name", "active", "selling_company", "customer",
+         "customer_address"],
+        as_dict=True,
+    )
+    if not row:
+        return
+    candidates[("Customer Scan Point", row.name)] = {
+        "identity_type": "Customer Scan Point",
+        "name": row.name,
+        "visible_code": row.site_code,
+        "matched_by": matched_by,
+        "site_name": row.site_name,
+        "active": bool(row.active),
+        "selling_company": row.selling_company,
+        "customer": row.customer,
+        "customer_address": row.customer_address,
+    }
 
 
 def post_quantity_event(*, event_type, qty, stock_uom, idempotency_key,
