@@ -1,7 +1,11 @@
 import frappe
 from frappe.utils import flt, now_datetime, today
 
-from cfg_kanban.integrations.erp_gateway import execute_command
+from cfg_kanban.integrations.erp_gateway import (
+    build_intercompany_delivery_note,
+    execute_command,
+    get_required_erp_inputs,
+)
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key, insert_once
 from cfg_kanban.services.logistics_foundation import (
@@ -100,8 +104,9 @@ def get_manifest(manifest_name, operator_session_token):
     result["receipt_document_status"] = _document_status(
         "Purchase Receipt", manifest.receipt_purchase_receipt
     )
+    result["dispatch_retry_available"] = _dispatch_retry_available(manifest)
     result["can_dispatch"] = (
-        manifest.state in ("Draft", "Prepared") and
+        (manifest.state in ("Draft", "Prepared") or result["dispatch_retry_available"]) and
         (_can_view_all(profile) or route.dispatch_responsibility in responsibilities)
     )
     result["can_receive"] = (
@@ -228,15 +233,35 @@ def prepare_manifest(manifest_name, event_token, operator_session_token):
 
 
 @frappe.whitelist()
-def confirm_dispatch(manifest_name, event_token, operator_session_token):
+def get_dispatch_requirements(manifest_name, operator_session_token):
+    profile, _session = require_operator(operator_session_token, "complete")
+    manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
+    route = frappe.get_doc("CFG Kanban Logistics Route", manifest.logistics_route)
+    _require_route_responsibility(profile, route.dispatch_responsibility, "dispatch")
+    if manifest.state != "Prepared" and not _dispatch_retry_available(manifest):
+        frappe.throw(f"Manifest cannot dispatch while it is {manifest.state}")
+    payload = _dispatch_payload(manifest)
+    delivery_note = build_intercompany_delivery_note(
+        manifest, payload, validate_required=False
+    )
+    return {"doctype": "Delivery Note", "fields": get_required_erp_inputs(delivery_note)}
+
+
+@frappe.whitelist()
+def confirm_dispatch(
+    manifest_name, event_token, operator_session_token, required_erp_inputs=None
+):
     profile, session = require_operator(operator_session_token, "complete")
     manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
     route = frappe.get_doc("CFG Kanban Logistics Route", manifest.logistics_route)
     _require_route_responsibility(profile, route.dispatch_responsibility, "dispatch")
-    if manifest.state not in ("Prepared", "Dispatch Document Pending"):
+    if (
+        manifest.state not in ("Prepared", "Dispatch Document Pending")
+        and not _dispatch_retry_available(manifest)
+    ):
         frappe.throw(f"Manifest cannot dispatch while it is {manifest.state}")
     key = canonical_key("manifest-dispatch", manifest.name)
-    payload = _dispatch_payload(manifest)
+    payload = _dispatch_payload(manifest, required_erp_inputs)
     command, _created = insert_once(frappe.get_doc({
         "doctype": "CFG ERP Command",
         "command_type": "Create Intercompany Delivery Note",
@@ -250,6 +275,20 @@ def confirm_dispatch(manifest_name, event_token, operator_session_token):
         "requested_on": now_datetime(),
         "created_by_system": 1,
     }), key, ignore_permissions=True)
+    if not _created:
+        if command.status == "Completed":
+            return get_manifest(manifest.name, operator_session_token)
+        if command.status != "Failed":
+            frappe.throw(f"Dispatch ERP Command is {command.status}; it cannot be retried")
+        command.db_set({
+            "status": "Pending",
+            "request_payload": frappe.as_json(payload),
+            "last_error": None,
+            "requested_by_operator": profile.employee,
+            "operator_session": session.name,
+            "terminal_user": session.terminal_user,
+            "requested_on": now_datetime(),
+        }, update_modified=True)
     manifest.db_set({"dispatch_key": key, "dispatch_command": command.name,
                      "dispatch_confirmed_by": profile.employee,
                      "dispatch_operator_session": session.name,
@@ -262,6 +301,7 @@ def confirm_dispatch(manifest_name, event_token, operator_session_token):
                             "Delivery Note creation or submission failed", command.name)
         raise
     manifest.reload()
+    _resolve_manifest_exception(manifest, "Delivery Note creation retried successfully")
     if delivery_note.docstatus == 0:
         manifest.db_set({"dispatch_delivery_note": delivery_note.name,
                          "state": "Dispatch Document Pending"}, update_modified=True)
@@ -451,8 +491,8 @@ def _assert_erp_stock(unit, warehouse, qty):
         )
 
 
-def _dispatch_payload(manifest):
-    return {
+def _dispatch_payload(manifest, required_erp_inputs=None):
+    payload = {
         "manifest": manifest.name,
         "company": manifest.source_company,
         "warehouse": manifest.source_warehouse,
@@ -462,6 +502,9 @@ def _dispatch_payload(manifest):
         "submit": bool(manifest.auto_submit_dispatch_dn),
         "items": [_priced_line(manifest, row, "selling") for row in manifest.lines],
     }
+    if required_erp_inputs:
+        payload["required_erp_inputs"] = frappe.parse_json(required_erp_inputs)
+    return payload
 
 
 def _receipt_payload(manifest):
@@ -558,6 +601,32 @@ def _document_status(doctype, name):
         return None
     row = frappe.db.get_value(doctype, name, ["name", "status", "docstatus"], as_dict=True)
     return row
+
+
+def _dispatch_retry_available(manifest):
+    if manifest.state != "Exception" or manifest.dispatch_delivery_note:
+        return False
+    command_name = manifest.dispatch_command
+    return bool(
+        command_name
+        and frappe.db.get_value("CFG ERP Command", command_name, "status") == "Failed"
+    )
+
+
+def _resolve_manifest_exception(manifest, resolution):
+    if not manifest.exception or not frappe.db.exists("CFG Kanban Exception", manifest.exception):
+        return
+    frappe.db.set_value(
+        "CFG Kanban Exception",
+        manifest.exception,
+        {
+            "status": "Resolved",
+            "resolved_on": now_datetime(),
+            "resolved_by": frappe.session.user,
+            "resolution": resolution,
+        },
+        update_modified=True,
+    )
 
 
 def _manifest_exception(manifest, exception_type, message, reference_name):

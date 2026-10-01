@@ -118,7 +118,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	function manifest_actions(m) {
 		const buttons = [];
 		if (m.can_dispatch && m.state === "Draft" && m.lines.length) buttons.push(`<button class="btn btn-primary prepare-manifest">${__("Prepare and Reserve")}</button>`);
-		if (m.can_dispatch && m.state === "Prepared") buttons.push(`<button class="btn btn-success confirm-dispatch">${__("Confirm Dispatch")}</button>`);
+		if (m.can_dispatch && (m.state === "Prepared" || m.dispatch_retry_available)) {
+			buttons.push(`<button class="btn btn-success confirm-dispatch">${m.dispatch_retry_available ? __("Retry Dispatch") : __("Confirm Dispatch")}</button>`);
+		}
 		if (["Dispatched", "Awaiting Receipt", "Receipt Document Pending"].includes(m.state) &&
 			m.can_receive && m.lines.length && m.lines.every((row) => row.receipt_scanned)) buttons.push(`<button class="btn btn-success confirm-receipt">${__("Confirm Receipt")}</button>`);
 		if (["Draft", "Prepared"].includes(m.state) && state.operator.can_override) buttons.push(`<button class="btn btn-danger cancel-manifest">${__("Cancel Manifest")}</button>`);
@@ -198,10 +200,51 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		});
 	}
 
-	function confirm_dispatch() {
-		frappe.confirm(__("Confirm physical dispatch and create the source-company Delivery Note?"), async () => {
-			await manifest_action("confirm_dispatch", __("Creating Delivery Note..."));
+	async function confirm_dispatch() {
+		const response = await frappe.call({
+			method: "cfg_kanban.api.logistics.get_dispatch_requirements",
+			args: { manifest_name: state.manifest.name, operator_session_token: state.token },
+			freeze: true,
+			freeze_message: __("Checking Delivery Note requirements..."),
 		});
+		const requirements = response.message.fields || [];
+		if (!requirements.length) {
+			return frappe.confirm(__("Confirm physical dispatch and create the source-company Delivery Note?"), async () => {
+				await manifest_action("confirm_dispatch", __("Creating Delivery Note..."));
+			});
+		}
+		const fields = requirements.map((row, index) => ({
+			fieldname: `required_erp_${index}`,
+			label: __(row.label),
+			fieldtype: row.fieldtype,
+			options: row.options,
+			default: row.default,
+			reqd: 1,
+			description: row.scope === "child" ? __("Required ERP table value") : __("Required ERP document value"),
+		}));
+		const dialog = new frappe.ui.Dialog({
+			title: __("Required Delivery Note Details"),
+			fields,
+			primary_action_label: __("Confirm Dispatch"),
+			primary_action: async (values) => {
+				const required_erp_inputs = { parent: {}, tables: {} };
+				requirements.forEach((row, index) => {
+					const value = values[`required_erp_${index}`];
+					if (row.scope === "parent") {
+						required_erp_inputs.parent[row.fieldname] = value;
+						return;
+					}
+					if (!required_erp_inputs.tables[row.table_field]) required_erp_inputs.tables[row.table_field] = [];
+					if (!required_erp_inputs.tables[row.table_field][row.row_index]) required_erp_inputs.tables[row.table_field][row.row_index] = {};
+					required_erp_inputs.tables[row.table_field][row.row_index][row.fieldname] = value;
+				});
+				dialog.hide();
+				await manifest_action("confirm_dispatch", __("Creating Delivery Note..."), {
+					required_erp_inputs: JSON.stringify(required_erp_inputs),
+				});
+			},
+		});
+		dialog.show();
 	}
 
 	function confirm_receipt() {

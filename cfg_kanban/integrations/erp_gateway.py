@@ -164,32 +164,7 @@ def create_intercompany_delivery_note(command, payload):
     )
     if existing:
         return frappe.get_doc("Delivery Note", existing)
-    delivery_note = frappe.get_doc({
-        "doctype": "Delivery Note",
-        "company": payload["company"],
-        "customer": payload["customer"],
-        "posting_date": now_datetime().date(),
-        "set_warehouse": payload["warehouse"],
-        "selling_price_list": payload["price_list"],
-        "cfg_kanban_controlled": 1,
-        "cfg_logistics_route": manifest.logistics_route,
-        "cfg_movement_manifest": manifest.name,
-        "cfg_counterpart_company": payload["counterpart_company"],
-        "cfg_requested_operator": command.requested_by_operator,
-        "cfg_scan_event": command.idempotency_key,
-        "items": [{
-            "item_code": row["item_code"],
-            "qty": row["qty"],
-            "uom": row["uom"],
-            "warehouse": payload["warehouse"],
-            "batch_no": row.get("batch_no"),
-            "rate": row["rate"],
-            "price_list_rate": row["rate"],
-            "cfg_handling_unit": row["handling_unit"],
-            "cfg_manifest_line": row["manifest_line"],
-        } for row in payload["items"]],
-    })
-    delivery_note.set_missing_values()
+    delivery_note = build_intercompany_delivery_note(manifest, payload, command=command)
     delivery_note.insert(ignore_permissions=True)
     manifest.db_set("dispatch_delivery_note", delivery_note.name, update_modified=True)
     _link_manifest_erp_rows(manifest.name, delivery_note, "delivery_note_item")
@@ -204,6 +179,143 @@ def create_intercompany_delivery_note(command, payload):
         "movement_manifest": manifest.name,
     }
     return delivery_note
+
+
+def build_intercompany_delivery_note(manifest, payload, command=None, validate_required=True):
+    """Build the ERP document in memory for preflight or command execution."""
+    delivery_note = frappe.get_doc({
+        "doctype": "Delivery Note",
+        "company": payload["company"],
+        "customer": payload["customer"],
+        "posting_date": now_datetime().date(),
+        "set_warehouse": payload["warehouse"],
+        "selling_price_list": payload["price_list"],
+        "cfg_kanban_controlled": 1,
+        "cfg_logistics_route": manifest.logistics_route,
+        "cfg_movement_manifest": manifest.name,
+        "cfg_counterpart_company": payload["counterpart_company"],
+        "cfg_requested_operator": command.requested_by_operator if command else None,
+        "cfg_scan_event": command.idempotency_key if command else None,
+        "items": [{
+            "item_code": row["item_code"],
+            "qty": row["qty"],
+            "uom": row["uom"],
+            "warehouse": payload["warehouse"],
+            "batch_no": row.get("batch_no"),
+            "rate": row["rate"],
+            "price_list_rate": row["rate"],
+            "cfg_handling_unit": row["handling_unit"],
+            "cfg_manifest_line": row["manifest_line"],
+        } for row in payload["items"]],
+    })
+    delivery_note.set_missing_values()
+    apply_required_erp_inputs(delivery_note, payload.get("required_erp_inputs"))
+    missing = get_required_erp_inputs(delivery_note)
+    if validate_required and missing:
+        frappe.throw(
+            "Required Delivery Note details are missing: "
+            + ", ".join(row["label"] for row in missing)
+        )
+    return delivery_note
+
+
+def get_required_erp_inputs(doc):
+    """Describe editable mandatory values still missing from an ERP document."""
+    requirements = []
+    for field in doc.meta.fields:
+        if field.fieldtype == "Table":
+            rows = doc.get(field.fieldname) or []
+            if rows:
+                for row_index, row in enumerate(rows):
+                    requirements.extend(
+                        _missing_child_requirements(field, row=row, row_index=row_index)
+                    )
+            elif field.reqd:
+                requirements.extend(_missing_child_requirements(field, row=None, row_index=0))
+            continue
+        if not field.reqd:
+            continue
+        if _is_missing_required_value(doc.get(field.fieldname)):
+            requirements.append(_required_field_descriptor(field, scope="parent"))
+    return [row for row in requirements if row]
+
+
+def apply_required_erp_inputs(doc, values):
+    values = frappe.parse_json(values) if isinstance(values, str) else (values or {})
+    allowed = get_required_erp_inputs(doc)
+    parent_values = values.get("parent") or {}
+    table_values = values.get("tables") or {}
+
+    for requirement in allowed:
+        if requirement["scope"] == "parent":
+            value = parent_values.get(requirement["fieldname"])
+            if not _is_missing_required_value(value):
+                doc.set(requirement["fieldname"], value)
+
+    table_requirements = {}
+    for requirement in allowed:
+        if requirement["scope"] != "child":
+            continue
+        key = (requirement["table_field"], requirement["row_index"])
+        table_requirements.setdefault(key, []).append(requirement)
+    for (table_field, row_index), requirements in table_requirements.items():
+        supplied_rows = table_values.get(table_field) or []
+        supplied = supplied_rows[row_index] if len(supplied_rows) > row_index else {}
+        if not supplied:
+            continue
+        rows = doc.get(table_field) or []
+        row = rows[row_index] if len(rows) > row_index else doc.append(table_field, {})
+        for requirement in requirements:
+            value = supplied.get(requirement["fieldname"])
+            if not _is_missing_required_value(value):
+                row.set(requirement["fieldname"], value)
+
+
+def _missing_child_requirements(table_field, row, row_index):
+    child_meta = frappe.get_meta(table_field.options)
+    requirements = []
+    for field in child_meta.fields:
+        if not field.reqd:
+            continue
+        value = row.get(field.fieldname) if row else None
+        if _is_missing_required_value(value):
+            requirements.append(_required_field_descriptor(
+                field,
+                scope="child",
+                table_field=table_field.fieldname,
+                table_label=table_field.label,
+                row_index=row_index,
+            ))
+    return requirements
+
+
+def _required_field_descriptor(field, scope, table_field=None, table_label=None, row_index=None):
+    supported = {
+        "Data", "Link", "Select", "Date", "Datetime", "Int", "Float",
+        "Currency", "Percent", "Check", "Time", "Duration", "Small Text", "Text",
+    }
+    if field.fieldtype not in supported or field.read_only:
+        frappe.throw(
+            f"Mandatory ERP field {table_label + ' / ' if table_label else ''}{field.label} "
+            "cannot be collected from the logistics panel. Configure a default in ERPNext."
+        )
+    default = field.default
+    if table_field == "sales_team" and field.fieldname == "allocated_percentage":
+        default = 100
+    return {
+        "scope": scope,
+        "fieldname": field.fieldname,
+        "label": f"{table_label} / {field.label}" if table_label else field.label,
+        "fieldtype": field.fieldtype,
+        "options": field.options,
+        "default": default,
+        "table_field": table_field,
+        "row_index": row_index,
+    }
+
+
+def _is_missing_required_value(value):
+    return value is None or value == "" or value == []
 
 
 @handler("Create Intercompany Purchase Receipt")

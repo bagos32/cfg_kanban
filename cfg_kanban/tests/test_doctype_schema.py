@@ -250,8 +250,13 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('"cfg_movement_manifest"', install)
         self.assertIn('@handler("Create Intercompany Delivery Note")', gateway)
         self.assertIn('@handler("Create Intercompany Purchase Receipt")', gateway)
+        self.assertIn("build_intercompany_delivery_note", gateway)
+        self.assertIn("get_required_erp_inputs", gateway)
+        self.assertIn("apply_required_erp_inputs", gateway)
         self.assertIn("resolve_logistics_scan(scan_value)", logistics)
         self.assertIn("Receiving operator must scan every Manifest tag", logistics)
+        self.assertIn("def get_dispatch_requirements", logistics)
+        self.assertIn("_dispatch_retry_available", logistics)
         self.assertIn('route["can_dispatch"]', logistics)
         self.assertIn('("Supervisor", "Development Proxy")', logistics)
 
