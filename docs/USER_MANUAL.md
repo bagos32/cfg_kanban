@@ -1445,12 +1445,14 @@ Signal rollback cancels/deletes only activity-free ERP documents, marks Cycle an
 returns the Card to Available, clears Active Cycle, and records Events. A submitted Work Order can be
 cancelled only while ERPNext permits it and the code has found no production/material activity.
 
-## 25. Multi-company logistics foundation (Package A)
+## 25. Multi-company logistics and intercompany handover (Packages A-B)
 
-Package A installs the configuration and identity foundation only. It does **not** yet create
-intercompany Delivery Notes/Purchase Receipts, Movement Manifests, driver Delivery Notes, or Sales
-Invoices. Do not use the Package A forms as proof that stock moved; live posting arrives in Packages
-B-C. The locked design is in `docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md`.
+Package A installs the configuration and physical-identity foundation. The Package B vertical slice
+adds the controlled intercompany Movement Manifest, source-company Delivery Note, destination-company
+Purchase Receipt, ERP feedback, and scan-first Logistics Operator Panel. Customer-site delivery,
+vehicle loading, loose reusable containers, proof of delivery, Sales Invoice creation, and Billing
+Batch grouping remain later packages. The locked design is in
+`docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md`.
 
 ### CFG Kanban Logistics Route
 
@@ -1465,8 +1467,9 @@ Receipt Purchase Receipt** (`auto_submit_receipt_pr`), **Billing Frequency**
 (`billing_frequency`), and the three Responsibility links.
 
 The form rejects same-Company routes, Warehouses belonging to the wrong Company, and Price Lists
-that are not enabled for the required selling/buying direction. Auto-submit fields are stored now
-but have no posting effect until Package B is installed.
+that are not enabled for the required selling/buying direction. The two auto-submit settings are
+independent: one controls the source Delivery Note and the other controls the destination Purchase
+Receipt.
 
 ### CFG Kanban Customer Scan Point
 
@@ -1522,8 +1525,56 @@ aliases second, so previously printed labels continue to work.
 
 Ledger rows are system-created, read-only, non-deletable, and idempotent. Do not create or edit them
 from Desk. Current, reserved, and available quantities can be rebuilt from their signed source and
-destination deltas. Package A provides activation, split, container-load arithmetic, reservation,
-delivery, and reconciliation primitives; the operational scan workflow is added in later packages.
+destination deltas. Package B uses these rows to reserve Manifest quantities and audit the
+intercompany location/ownership transition.
+
+### Intercompany Movement Manifest — exact operating procedure
+
+The dedicated page is **CFG Kanban → Logistics Operator Panel** (`/app/kanban-logistics`). It accepts
+a fixed keyboard-wedge scanner in **Logistics Scanner**, or **Scan with Camera** on a phone/tablet.
+The preprinted value such as `MFG-STK1000` is scanned directly; no printed UUID is required.
+
+Prerequisites:
+
+1. Create and activate the directional **CFG Kanban Logistics Route** with both Companies,
+   Warehouses, intercompany Customer/Supplier, selling/buying Price Lists, and dispatch/receipt
+   Responsibilities.
+2. Give the operators a valid **CFG Kanban Operator Profile**, the applicable Responsibility, and
+   Start/Complete permissions. Cancellation also requires Override permission.
+3. The Stock Tag must already be an active **CFG Kanban Handling Unit** with Item, Stock UOM,
+   released quality state, source Inventory Company, source Current Warehouse, and positive
+   Available Qty. ERPNext must hold at least the same Item/Batch stock in that Warehouse.
+4. A valid positive ERPNext **Item Price** must exist for both route Price Lists and the applicable
+   Item/UOM/Batch.
+
+Dispatch steps:
+
+1. Identify the operator in **Logistics Operator Panel**.
+2. Select **New Dispatch Manifest**, then select **Logistics Route**.
+3. Scan every full Stock Tag. Package B deliberately rejects partial use of one tag; split it to an
+   activated child identity first.
+4. Select **Prepare and Reserve**. The quantity ledger reserves every scanned tag.
+5. Select **Confirm Dispatch**. The app creates one source-company Delivery Note through **CFG ERP
+   Command**. If **Auto-submit Dispatch Delivery Note** is enabled, it is submitted immediately;
+   otherwise an authorized ERPNext user must review and submit the draft.
+6. Only submitted Delivery Note feedback changes the Manifest to **Awaiting Receipt** and the tags
+   to **Intercompany Transit**. A draft Delivery Note does not claim the stock moved.
+
+Receipt steps:
+
+1. The receiving operator opens/scans the Movement Manifest number, such as `KMF-2026-00001`.
+2. Rescan every physical tag listed on the Manifest. Unlisted tags and missing tags are rejected.
+3. Select **Confirm Receipt**. This is blocked until the source Delivery Note is submitted.
+4. The app creates the destination-company Purchase Receipt. When its own auto-submit setting is
+   disabled, review and submit the draft in ERPNext.
+5. Only submitted Purchase Receipt feedback changes the Manifest to **Received**, transfers the
+   tag's **Inventory Company** and **Current Warehouse**, and makes destination stock operationally
+   available.
+
+An unused **Draft** or **Prepared** Manifest can be cancelled by an override-authorized operator
+with a reason; prepared reservations are released. After an ERP document exists, use controlled
+ERP cancellation/recovery. Movement Manifests are audit records and cannot be deleted. Package B
+does not yet load a lorry, create a customer Delivery Note, or perform later intercompany billing.
 
 ## 26. Guidance rules for another LLM
 
@@ -1544,14 +1595,15 @@ When using this file as context, an assistant must:
    code does not contain.
 10. Confirm the deployed Git revision/migration when the UI does not match this guide.
 
-11. Treat the Logistics Route, Customer Scan Point, Tag Family, and quantity ledger as Package A
-    foundation. Never claim that intercompany posting or customer delivery scanning is operational
-    until Packages B-C are present.
+11. Treat Customer-site delivery, vehicle loading, loose reusable-container movement, and billing
+    grouping as future packages. Package B intercompany posting is operational only through the
+    Movement Manifest and submitted Delivery Note/Purchase Receipt feedback described above.
 
 ## 27. Revision history
 
 | Version | Date | Change |
 |---|---|---|
+| 1.4 | 1 October 2026 | Added Package B Movement Manifest dispatch/receipt, Logistics Operator Panel, guarded Delivery Note/Purchase Receipt commands, ERP feedback, cancellation, and exact operating prerequisites |
 | 1.3 | 1 October 2026 | Corrected Package A scanning for preprinted logistics tags: visible code is primary, UUID is internal fallback, issuer/company number namespaces are explicit, form activation resolves scans, and replacement print QR/Code 128 use the visible code |
 | 1.2 | 30 September 2026 | Added Package A multi-company Logistics Routes, Customer Scan Points, registered Stock Tag families, extended Handling Units, Company snapshots, immutable quantity ledger, migration, and explicit Packages B-C limitations |
 | 1.1 | 25 September 2026 | Added buyer-owned Purchase Replenishment through Material Request, Purchase Order selection, guarded Purchase Receipt creation, partial receipt, ERP feedback, and Card recycling |

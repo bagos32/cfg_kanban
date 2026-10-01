@@ -56,6 +56,32 @@ def _custom_fields():
         fields = [dict(field) for field in common]
         fields[0]["insert_after"] = insert_after
         return fields
+    logistics_common = [
+        {"fieldname": "cfg_logistics_route", "label": "Logistics Route", "fieldtype": "Link",
+         "options": "CFG Kanban Logistics Route", "read_only": 1,
+         "insert_after": "cfg_kanban_signal"},
+        {"fieldname": "cfg_movement_manifest", "label": "Movement Manifest", "fieldtype": "Link",
+         "options": "CFG Kanban Movement Manifest", "read_only": 1,
+         "insert_after": "cfg_logistics_route"},
+        {"fieldname": "cfg_counterpart_company", "label": "Counterpart Company",
+         "fieldtype": "Link", "options": "Company", "read_only": 1,
+         "insert_after": "cfg_movement_manifest"},
+        {"fieldname": "cfg_counterpart_document", "label": "Counterpart ERP Document",
+         "fieldtype": "Data", "read_only": 1, "insert_after": "cfg_counterpart_company"},
+        {"fieldname": "cfg_requested_operator", "label": "Requested by Kanban Operator",
+         "fieldtype": "Link", "options": "Employee", "read_only": 1,
+         "insert_after": "cfg_counterpart_document"},
+        {"fieldname": "cfg_scan_event", "label": "Kanban Scan Event Identity",
+         "fieldtype": "Data", "read_only": 1, "insert_after": "cfg_requested_operator"},
+    ]
+    logistics_item_fields = [
+        {"fieldname": "cfg_handling_unit", "label": "Kanban Handling Unit",
+         "fieldtype": "Link", "options": "CFG Kanban Handling Unit", "read_only": 1,
+         "insert_after": "batch_no", "module": "CFG Kanban"},
+        {"fieldname": "cfg_manifest_line", "label": "Kanban Manifest Line",
+         "fieldtype": "Data", "read_only": 1, "insert_after": "cfg_handling_unit",
+         "module": "CFG Kanban"},
+    ]
     return {
         "Work Order": common + [
             {"fieldname": "cfg_production_origin", "label": "Production Origin", "fieldtype": "Select", "options": "KANBAN\nMANUAL\nPLANNING\nSALES ORDER\nREWORK\nTRIAL", "insert_after": "cfg_kanban_signal"},
@@ -83,7 +109,10 @@ def _custom_fields():
         "Stock Entry": common,
         "Material Request": purchase_common("terms"),
         "Purchase Order": purchase_common("terms"),
-        "Purchase Receipt": purchase_common("terms"),
+        "Delivery Note": purchase_common("terms") + logistics_common,
+        "Delivery Note Item": logistics_item_fields,
+        "Purchase Receipt": purchase_common("terms") + logistics_common,
+        "Purchase Receipt Item": logistics_item_fields,
         "CFG Kanban Master": [
             {"fieldname": "cfg_sales_demand_section", "label": "Sales Demand Trigger", "fieldtype": "Section Break", "insert_after": "remarks", "module": "CFG Kanban"},
             {"fieldname": "enable_sales_order_trigger", "label": "Enable Sales Order Trigger", "fieldtype": "Check", "insert_after": "cfg_sales_demand_section", "module": "CFG Kanban"},

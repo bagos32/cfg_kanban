@@ -209,7 +209,8 @@ def _timeout_minutes():
 def _require_terminal_user():
     if not getattr(frappe, "session", None) or frappe.session.user in (None, "", "Guest"):
         frappe.throw("An authenticated Kanban terminal user is required")
-    allowed = {"Kanban Terminal", "Manufacturing Manager", "System Manager"}
+    allowed = {"Kanban Terminal", "Manufacturing Manager", "Stock User", "Stock Manager",
+               "System Manager"}
     if not allowed.intersection(frappe.get_roles(frappe.session.user)):
         frappe.throw("ERP user is not authorized as a Kanban terminal")
 

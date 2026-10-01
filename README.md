@@ -52,10 +52,11 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
 - Optional 45 mm × 250 mm monochrome replacement Handling Unit tags with QR and Code 128
   identities, one per pallet/container, backed by a separate handling-unit transaction and
   lifecycle. Preprinted visible tag/waybill codes are the primary physical scan identity.
-- Package A of the approved multi-company logistics foundation: directional Logistics Routes,
+- Packages A-B of the approved multi-company logistics architecture: directional Logistics Routes,
   Customer Scan Points, pre-registered main/child Stock Tag families, extended Handling Units,
-  Company snapshots, and an immutable quantity ledger. Intercompany ERP posting and driver
-  delivery screens remain Packages B-C and are not yet active.
+  immutable quantity ledger, scan-first Movement Manifests, and guarded intercompany Delivery Note
+  / Purchase Receipt posting with independent auto-submit policies. Vehicle/customer delivery,
+  proof-of-delivery, and Billing Batch functions remain later packages.
 
 ## Control flow
 

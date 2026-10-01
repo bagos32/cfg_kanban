@@ -23,6 +23,9 @@ def on_purchase_order_submit(doc, method=None):
 
 
 def on_purchase_receipt_submit(doc, method=None):
+    if doc.get("cfg_movement_manifest"):
+        from cfg_kanban.integrations.logistics_feedback import on_purchase_receipt_submit as logistics_submit
+        logistics_submit(doc, method)
     cycle_name = doc.get("cfg_kanban_cycle")
     if not cycle_name:
         return
@@ -30,6 +33,9 @@ def on_purchase_receipt_submit(doc, method=None):
 
 
 def on_purchase_receipt_cancel(doc, method=None):
+    if doc.get("cfg_movement_manifest"):
+        from cfg_kanban.integrations.logistics_feedback import on_purchase_receipt_cancel as logistics_cancel
+        logistics_cancel(doc, method)
     if not doc.get("cfg_kanban_cycle"):
         return
     cycle = frappe.get_doc("CFG Kanban Cycle", doc.cfg_kanban_cycle)

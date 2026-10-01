@@ -74,7 +74,8 @@ def get_console_access():
     return {
         "terminal_user": frappe.session.user,
         "can_manage_operators": bool({"Manufacturing Manager", "System Manager"} & roles),
-        "is_terminal_user": bool({"Kanban Terminal", "Manufacturing Manager", "System Manager"} & roles),
+        "is_terminal_user": bool({"Kanban Terminal", "Manufacturing Manager", "Stock User",
+                                  "Stock Manager", "System Manager"} & roles),
         "can_use_development_proxy": bool(
             frappe.session.user == "Administrator" and
             cint(frappe.db.get_single_value("CFG Kanban Settings",

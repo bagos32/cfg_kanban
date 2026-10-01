@@ -3,7 +3,7 @@
 **Architecture version:** 1.0  
 **Decision status:** Locked baseline  
 **Decision date:** 30 September 2026  
-**Implementation status:** Package A foundation implemented; Packages B-E approved but not yet implemented
+**Implementation status:** Package A and the Package B intercompany handover vertical slice are implemented; Packages C-E remain approved future scope
 
 This document is the source of truth for CFG Kanban stock-tag logistics across sister companies,
 company-specific vehicle warehouses, customer-site delivery, and delayed intercompany billing. It
@@ -584,14 +584,15 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
 - Add Logistics Route and Customer Scan Point.
 - Add schema, migration patches, permissions, and unit tests.
 
-### Package B — Intercompany handover
+### Package B — Intercompany handover (vertical slice implemented)
 
 - Add Movement Manifest and lines.
 - Add controlled Delivery Note and Purchase Receipt ERP commands that always create a draft on the
   confirmed operation and independently auto-submit each side when configured.
 - Add independent submission policies and two-confirmation workflow.
 - Add ERP feedback, idempotency, failure recovery, and Exceptions.
-- Add Billing Batch grouping without automating accounting decisions prematurely.
+- Billing Batch grouping remains the next Package B increment; accounting decisions are not
+  automated by the current vertical slice.
 
 ### Package C — Vehicle loading and customer delivery
 

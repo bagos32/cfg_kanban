@@ -1,0 +1,30 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Manifest Line","module":"CFG Kanban","istable":1,
+ "field_order":["handling_unit","visible_code","tag_kind","item_code","batch_no","stock_uom","quantity_section","available_qty_at_scan","dispatch_qty","received_qty","receipt_scanned","source_section","source_company","source_warehouse","destination_company","destination_warehouse","state","delivery_note_item","purchase_receipt_item","scan_event_key","scanned_by","scanned_on","receipt_scanned_by","receipt_scanned_on"],
+ "fields":[
+  {"fieldname":"handling_unit","label":"Handling Unit","fieldtype":"Link","options":"CFG Kanban Handling Unit","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"visible_code","label":"Preprinted Tag Code","fieldtype":"Data","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"tag_kind","label":"Tag Kind","fieldtype":"Data","read_only":1},
+  {"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"batch_no","label":"Batch","fieldtype":"Link","options":"Batch","read_only":1,"in_list_view":1},
+  {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM","reqd":1,"read_only":1},
+  {"fieldname":"quantity_section","label":"Confirmed Quantity","fieldtype":"Section Break"},
+  {"fieldname":"available_qty_at_scan","label":"Available at Scan","fieldtype":"Float","read_only":1},
+  {"fieldname":"dispatch_qty","label":"Dispatch Qty","fieldtype":"Float","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"received_qty","label":"Received Qty","fieldtype":"Float","read_only":1,"in_list_view":1},
+  {"fieldname":"receipt_scanned","label":"Receipt Tag Confirmed","fieldtype":"Check","read_only":1,"in_list_view":1},
+  {"fieldname":"source_section","label":"Route Snapshot","fieldtype":"Section Break"},
+  {"fieldname":"source_company","label":"Source Company","fieldtype":"Link","options":"Company","read_only":1},
+  {"fieldname":"source_warehouse","label":"Source Warehouse","fieldtype":"Link","options":"Warehouse","read_only":1},
+  {"fieldname":"destination_company","label":"Destination Company","fieldtype":"Link","options":"Company","read_only":1},
+  {"fieldname":"destination_warehouse","label":"Destination Warehouse","fieldtype":"Link","options":"Warehouse","read_only":1},
+  {"fieldname":"state","label":"Line State","fieldtype":"Select","options":"Prepared\nDispatch Pending\nIn Transit\nReceipt Pending\nReceived\nException\nCancelled","default":"Prepared","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"delivery_note_item","label":"Delivery Note Item Row","fieldtype":"Data","read_only":1},
+  {"fieldname":"purchase_receipt_item","label":"Purchase Receipt Item Row","fieldtype":"Data","read_only":1},
+  {"fieldname":"scan_event_key","label":"Scan Event Key","fieldtype":"Data","read_only":1},
+  {"fieldname":"scanned_by","label":"Scanned by Operator","fieldtype":"Link","options":"Employee","read_only":1},
+  {"fieldname":"scanned_on","label":"Scanned On","fieldtype":"Datetime","read_only":1}
+  ,{"fieldname":"receipt_scanned_by","label":"Receipt Scanned by Operator","fieldtype":"Link","options":"Employee","read_only":1}
+  ,{"fieldname":"receipt_scanned_on","label":"Receipt Scanned On","fieldtype":"Datetime","read_only":1}
+ ]
+}

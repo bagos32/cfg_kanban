@@ -27,6 +27,7 @@ class TestDocTypeSchema(TestCase):
         self.assertEqual(links["Operator Sessions"], "CFG Kanban Operator Session")
         self.assertEqual(shortcuts["Production Operator Panel"], "kanban-operator")
         self.assertEqual(shortcuts["Service Task Panel"], "kanban-tasks")
+        self.assertEqual(shortcuts["Logistics Operator Panel"], "kanban-logistics")
         self.assertEqual(shortcuts["Maintenance Register"],
                          "Kanban Maintenance Register")
         self.assertEqual(shortcuts["Private Media Evidence"], "CFG Kanban Media")
@@ -36,6 +37,8 @@ class TestDocTypeSchema(TestCase):
         self.assertEqual(links["Stock Tag Families"], "CFG Kanban Tag Family")
         self.assertEqual(shortcuts["Handling Unit Quantity Ledger"],
                          "CFG Kanban Handling Unit Quantity Ledger")
+        self.assertEqual(links["Movement Manifests"],
+                         "CFG Kanban Movement Manifest")
 
     def test_every_field_is_present_once_in_field_order(self):
         for path, schema in self._schemas():
@@ -212,6 +215,43 @@ class TestDocTypeSchema(TestCase):
         self.assertNotIn(
             '"CFG Kanban Handling Unit", {"opaque_token": token}', scan_source
         )
+
+    def test_intercompany_manifest_schema_and_commands_are_present(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        self.assertTrue({"CFG Kanban Movement Manifest",
+                         "CFG Kanban Manifest Line"}.issubset(schemas))
+        manifest = {row["fieldname"]: row for row in
+                    schemas["CFG Kanban Movement Manifest"]["fields"]}
+        self.assertEqual(manifest["lines"]["options"], "CFG Kanban Manifest Line")
+        self.assertTrue({"logistics_route", "state", "source_company",
+                         "source_warehouse", "destination_company",
+                         "destination_warehouse", "internal_customer",
+                         "internal_supplier", "dispatch_delivery_note",
+                         "receipt_purchase_receipt", "preparation_key",
+                         "dispatch_key", "receipt_key"}.issubset(manifest))
+        self.assertEqual(schemas["CFG Kanban Manifest Line"].get("istable"), 1)
+
+        commands = next(row for row in schemas["CFG ERP Command"]["fields"]
+                        if row["fieldname"] == "command_type")["options"].splitlines()
+        self.assertIn("Create Intercompany Delivery Note", commands)
+        self.assertIn("Create Intercompany Purchase Receipt", commands)
+        command_fields = {row["fieldname"]: row for row in
+                          schemas["CFG ERP Command"]["fields"]}
+        self.assertEqual(command_fields["command_type"].get("reqd"), 1)
+        self.assertFalse(command_fields["kanban_cycle"].get("reqd", 0))
+
+    def test_intercompany_erp_feedback_and_trace_fields_are_registered(self):
+        hooks = (APP_ROOT / "hooks.py").read_text()
+        install = (APP_ROOT / "install.py").read_text()
+        gateway = (APP_ROOT / "integrations" / "erp_gateway.py").read_text()
+        logistics = (APP_ROOT / "api" / "logistics.py").read_text()
+        self.assertIn('"Delivery Note": {', hooks)
+        self.assertIn("on_delivery_note_submit", hooks)
+        self.assertIn('"cfg_movement_manifest"', install)
+        self.assertIn('@handler("Create Intercompany Delivery Note")', gateway)
+        self.assertIn('@handler("Create Intercompany Purchase Receipt")', gateway)
+        self.assertIn("resolve_logistics_scan(scan_value)", logistics)
+        self.assertIn("Receiving operator must scan every Manifest tag", logistics)
 
     def test_card_and_cycle_capture_company_snapshot(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

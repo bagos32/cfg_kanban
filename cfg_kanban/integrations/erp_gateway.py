@@ -154,6 +154,122 @@ def create_purchase_receipt(command, payload):
     return receipt
 
 
+@handler("Create Intercompany Delivery Note")
+def create_intercompany_delivery_note(command, payload):
+    manifest = frappe.get_doc("CFG Kanban Movement Manifest", command.movement_manifest)
+    existing = frappe.db.get_value(
+        "Delivery Note",
+        {"cfg_movement_manifest": manifest.name, "docstatus": ["<", 2]},
+        "name",
+    )
+    if existing:
+        return frappe.get_doc("Delivery Note", existing)
+    delivery_note = frappe.get_doc({
+        "doctype": "Delivery Note",
+        "company": payload["company"],
+        "customer": payload["customer"],
+        "posting_date": now_datetime().date(),
+        "set_warehouse": payload["warehouse"],
+        "selling_price_list": payload["price_list"],
+        "cfg_kanban_controlled": 1,
+        "cfg_logistics_route": manifest.logistics_route,
+        "cfg_movement_manifest": manifest.name,
+        "cfg_counterpart_company": payload["counterpart_company"],
+        "cfg_requested_operator": command.requested_by_operator,
+        "cfg_scan_event": command.idempotency_key,
+        "items": [{
+            "item_code": row["item_code"],
+            "qty": row["qty"],
+            "uom": row["uom"],
+            "warehouse": payload["warehouse"],
+            "batch_no": row.get("batch_no"),
+            "rate": row["rate"],
+            "price_list_rate": row["rate"],
+            "cfg_handling_unit": row["handling_unit"],
+            "cfg_manifest_line": row["manifest_line"],
+        } for row in payload["items"]],
+    })
+    delivery_note.set_missing_values()
+    delivery_note.insert(ignore_permissions=True)
+    manifest.db_set("dispatch_delivery_note", delivery_note.name, update_modified=True)
+    _link_manifest_erp_rows(manifest.name, delivery_note, "delivery_note_item")
+    if payload.get("submit"):
+        delivery_note.submit()
+        delivery_note.reload()
+    delivery_note._cfg_command_result = {
+        "doctype": delivery_note.doctype,
+        "name": delivery_note.name,
+        "docstatus": delivery_note.docstatus,
+        "submitted": delivery_note.docstatus == 1,
+        "movement_manifest": manifest.name,
+    }
+    return delivery_note
+
+
+@handler("Create Intercompany Purchase Receipt")
+def create_intercompany_purchase_receipt(command, payload):
+    manifest = frappe.get_doc("CFG Kanban Movement Manifest", command.movement_manifest)
+    existing = frappe.db.get_value(
+        "Purchase Receipt",
+        {"cfg_movement_manifest": manifest.name, "docstatus": ["<", 2]},
+        "name",
+    )
+    if existing:
+        return frappe.get_doc("Purchase Receipt", existing)
+    receipt = frappe.get_doc({
+        "doctype": "Purchase Receipt",
+        "company": payload["company"],
+        "supplier": payload["supplier"],
+        "posting_date": now_datetime().date(),
+        "set_warehouse": payload["warehouse"],
+        "buying_price_list": payload["price_list"],
+        "cfg_kanban_controlled": 1,
+        "cfg_logistics_route": manifest.logistics_route,
+        "cfg_movement_manifest": manifest.name,
+        "cfg_counterpart_company": payload["counterpart_company"],
+        "cfg_counterpart_document": payload.get("counterpart_document"),
+        "cfg_requested_operator": command.requested_by_operator,
+        "cfg_scan_event": command.idempotency_key,
+        "items": [{
+            "item_code": row["item_code"],
+            "qty": row["qty"],
+            "received_qty": row["qty"],
+            "uom": row["uom"],
+            "warehouse": payload["warehouse"],
+            "batch_no": row.get("batch_no"),
+            "rate": row["rate"],
+            "price_list_rate": row["rate"],
+            "cfg_handling_unit": row["handling_unit"],
+            "cfg_manifest_line": row["manifest_line"],
+        } for row in payload["items"]],
+    })
+    receipt.set_missing_values()
+    receipt.insert(ignore_permissions=True)
+    manifest.db_set("receipt_purchase_receipt", receipt.name, update_modified=True)
+    _link_manifest_erp_rows(manifest.name, receipt, "purchase_receipt_item")
+    if payload.get("submit"):
+        receipt.submit()
+        receipt.reload()
+    receipt._cfg_command_result = {
+        "doctype": receipt.doctype,
+        "name": receipt.name,
+        "docstatus": receipt.docstatus,
+        "submitted": receipt.docstatus == 1,
+        "movement_manifest": manifest.name,
+    }
+    return receipt
+
+
+def _link_manifest_erp_rows(manifest_name, erp_document, target_field):
+    for row in erp_document.items:
+        manifest_line = row.get("cfg_manifest_line")
+        if manifest_line:
+            frappe.db.set_value(
+                "CFG Kanban Manifest Line", manifest_line, target_field, row.name,
+                update_modified=False,
+            )
+
+
 @frappe.whitelist()
 def reload_draft_work_order_bom(work_order_name):
     """Repair a draft Kanban Work Order created before BOM population was added."""

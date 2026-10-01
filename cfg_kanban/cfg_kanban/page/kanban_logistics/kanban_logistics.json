@@ -1,0 +1,17 @@
+{
+ "content": null,
+ "doctype": "Page",
+ "module": "CFG Kanban",
+ "name": "kanban-logistics",
+ "page_name": "kanban-logistics",
+ "roles": [
+  {"role":"Kanban Terminal"},
+  {"role":"Stock User"},
+  {"role":"Stock Manager"},
+  {"role":"Manufacturing Manager"},
+  {"role":"System Manager"}
+ ],
+ "standard": "Yes",
+ "system_page": 0,
+ "title": "Kanban Logistics"
+}
