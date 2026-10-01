@@ -424,11 +424,26 @@ def _assert_not_in_other_open_manifest(handling_unit, current_manifest):
 
 
 def _assert_erp_stock(unit, warehouse, qty):
-    from erpnext.stock.utils import get_stock_balance
+    if unit.batch_no:
+        # ERPNext v15 tracks batch availability through Serial and Batch
+        # Bundles.  get_stock_balance() only accepts inventory dimensions and
+        # no longer accepts the legacy batch_no keyword.
+        from erpnext.stock.doctype.batch.batch import get_batch_qty
 
-    balance = get_stock_balance(
-        unit.item_code, warehouse, posting_date=today(), batch_no=unit.batch_no
-    )
+        balance = get_batch_qty(
+            batch_no=unit.batch_no,
+            warehouse=warehouse,
+            item_code=unit.item_code,
+            posting_date=today(),
+            for_stock_levels=True,
+            ignore_reserved_stock=True,
+        )
+    else:
+        from erpnext.stock.utils import get_stock_balance
+
+        balance = get_stock_balance(unit.item_code, warehouse, posting_date=today())
+
+    balance = flt(balance)
     if flt(balance) + 0.000001 < flt(qty):
         frappe.throw(
             f"ERPNext stock for {unit.item_code} / {unit.batch_no or 'no batch'} in "
