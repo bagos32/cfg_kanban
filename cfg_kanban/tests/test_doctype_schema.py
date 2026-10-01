@@ -253,6 +253,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("build_intercompany_delivery_note", gateway)
         self.assertIn("get_required_erp_inputs", gateway)
         self.assertIn("apply_required_erp_inputs", gateway)
+        self.assertIn("Sales Team allocated percentage must total 100%", gateway)
         self.assertIn("resolve_logistics_scan(scan_value)", logistics)
         self.assertIn("Receiving operator must scan every Manifest tag", logistics)
         self.assertIn("def get_dispatch_requirements", logistics)

@@ -213,15 +213,39 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				await manifest_action("confirm_dispatch", __("Creating Delivery Note..."));
 			});
 		}
-		const fields = requirements.map((row, index) => ({
-			fieldname: `required_erp_${index}`,
-			label: __(row.label),
-			fieldtype: row.fieldtype,
-			options: row.options,
-			default: row.default,
-			reqd: 1,
-			description: row.scope === "child" ? __("Required ERP table value") : __("Required ERP document value"),
-		}));
+		const fields = requirements.map((row, index) => {
+			if (row.scope === "table") {
+				return {
+					fieldname: `required_erp_${index}`,
+					label: __(row.label),
+					fieldtype: "Table",
+					options: row.options,
+					reqd: 1,
+					data: row.default || [],
+					in_place_edit: true,
+					fields: (row.fields || []).map((column) => ({
+						fieldname: column.fieldname,
+						label: __(column.label),
+						fieldtype: column.fieldtype,
+						options: column.options,
+						default: column.default,
+						reqd: column.reqd ? 1 : 0,
+						in_list_view: 1,
+						columns: 2,
+					})),
+					description: __("Add one or more rows. Percentage allocations must total 100%."),
+				};
+			}
+			return {
+				fieldname: `required_erp_${index}`,
+				label: __(row.label),
+				fieldtype: row.fieldtype,
+				options: row.options,
+				default: row.default,
+				reqd: 1,
+				description: __("Required ERP document value"),
+			};
+		});
 		const dialog = new frappe.ui.Dialog({
 			title: __("Required Delivery Note Details"),
 			fields,
@@ -230,6 +254,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				const required_erp_inputs = { parent: {}, tables: {} };
 				requirements.forEach((row, index) => {
 					const value = values[`required_erp_${index}`];
+					if (row.scope === "table") {
+						required_erp_inputs.tables[row.fieldname] = value || [];
+						return;
+					}
 					if (row.scope === "parent") {
 						required_erp_inputs.parent[row.fieldname] = value;
 						return;

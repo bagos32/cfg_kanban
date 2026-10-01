@@ -225,13 +225,19 @@ def get_required_erp_inputs(doc):
     for field in doc.meta.fields:
         if field.fieldtype == "Table":
             rows = doc.get(field.fieldname) or []
-            if rows:
-                for row_index, row in enumerate(rows):
-                    requirements.extend(
-                        _missing_child_requirements(field, row=row, row_index=row_index)
-                    )
-            elif field.reqd:
-                requirements.extend(_missing_child_requirements(field, row=None, row_index=0))
+            missing_children = []
+            for row_index, row in enumerate(rows):
+                missing_children.extend(
+                    _missing_child_requirements(field, row=row, row_index=row_index)
+                )
+            invalid_sales_team = (
+                field.fieldname == "sales_team"
+                and rows
+                and abs(sum(flt(row.get("allocated_percentage")) for row in rows) - 100)
+                > 0.000001
+            )
+            if (field.reqd and not rows) or missing_children or invalid_sales_team:
+                requirements.append(_required_table_descriptor(field, rows))
             continue
         if not field.reqd:
             continue
@@ -252,24 +258,21 @@ def apply_required_erp_inputs(doc, values):
             if not _is_missing_required_value(value):
                 doc.set(requirement["fieldname"], value)
 
-    table_requirements = {}
     for requirement in allowed:
-        if requirement["scope"] != "child":
+        if requirement["scope"] != "table":
             continue
-        key = (requirement["table_field"], requirement["row_index"])
-        table_requirements.setdefault(key, []).append(requirement)
-    for (table_field, row_index), requirements in table_requirements.items():
-        supplied_rows = table_values.get(table_field) or []
-        supplied = supplied_rows[row_index] if len(supplied_rows) > row_index else {}
-        if not supplied:
-            continue
-        rows = doc.get(table_field) or []
-        row = rows[row_index] if len(rows) > row_index else doc.append(table_field, {})
-        for requirement in requirements:
-            value = supplied.get(requirement["fieldname"])
-            if not _is_missing_required_value(value):
-                row.set(requirement["fieldname"], value)
-
+        supplied_rows = table_values.get(requirement["fieldname"])
+        if supplied_rows:
+            if requirement["fieldname"] == "sales_team":
+                allocated = sum(flt(row.get("allocated_percentage")) for row in supplied_rows)
+                if abs(allocated - 100) > 0.000001:
+                    frappe.throw("Sales Team allocated percentage must total 100%")
+            allowed_columns = {column["fieldname"] for column in requirement["fields"]}
+            clean_rows = [
+                {fieldname: row.get(fieldname) for fieldname in allowed_columns}
+                for row in supplied_rows
+            ]
+            doc.set(requirement["fieldname"], clean_rows)
 
 def _missing_child_requirements(table_field, row, row_index):
     child_meta = frappe.get_meta(table_field.options)
@@ -286,7 +289,50 @@ def _missing_child_requirements(table_field, row, row_index):
                 table_label=table_field.label,
                 row_index=row_index,
             ))
-    return requirements
+    return [requirement for requirement in requirements if requirement]
+
+
+def _required_table_descriptor(table_field, rows):
+    child_meta = frappe.get_meta(table_field.options)
+    fields = []
+    for field in child_meta.fields:
+        include = bool(field.reqd or field.in_list_view)
+        if table_field.fieldname == "sales_team" and field.fieldname in (
+            "sales_person", "allocated_percentage"
+        ):
+            include = True
+        if not include or field.read_only:
+            continue
+        descriptor = _required_field_descriptor(field, scope="table_column")
+        if not descriptor:
+            continue
+        descriptor["reqd"] = bool(
+            field.reqd
+            or (
+                table_field.fieldname == "sales_team"
+                and field.fieldname in ("sales_person", "allocated_percentage")
+            )
+        )
+        if table_field.fieldname == "sales_team" and field.fieldname == "allocated_percentage":
+            descriptor["default"] = 100
+        fields.append(descriptor)
+    if not fields:
+        frappe.throw(
+            f"Mandatory ERP table {table_field.label} has no editable columns. "
+            "Configure a default in ERPNext."
+        )
+    return {
+        "scope": "table",
+        "fieldname": table_field.fieldname,
+        "label": table_field.label,
+        "fieldtype": "Table",
+        "options": table_field.options,
+        "fields": fields,
+        "default": [
+            {column["fieldname"]: row.get(column["fieldname"]) for column in fields}
+            for row in rows
+        ],
+    }
 
 
 def _required_field_descriptor(field, scope, table_field=None, table_label=None, row_index=None):
