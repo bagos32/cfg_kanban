@@ -290,11 +290,15 @@ def _missing_child_requirements(table_field, row, row_index):
 
 
 def _required_field_descriptor(field, scope, table_field=None, table_label=None, row_index=None):
+    # Read-only mandatory values such as child-row Status are maintained by
+    # ERPNext during validation and are not operator-supplied dispatch data.
+    if field.read_only:
+        return None
     supported = {
         "Data", "Link", "Select", "Date", "Datetime", "Int", "Float",
         "Currency", "Percent", "Check", "Time", "Duration", "Small Text", "Text",
     }
-    if field.fieldtype not in supported or field.read_only:
+    if field.fieldtype not in supported:
         frappe.throw(
             f"Mandatory ERP field {table_label + ' / ' if table_label else ''}{field.label} "
             "cannot be collected from the logistics panel. Configure a default in ERPNext."
