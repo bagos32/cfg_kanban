@@ -309,6 +309,18 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Discard Entire Draft Trace", form)
         self.assertIn("No Physical Tag rows remain normal ERPNext stock", form)
 
+        operator_api = (APP_ROOT / "api" / "operator.py").read_text()
+        operator_panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_operator" /
+                          "kanban_operator.js").read_text()
+        self.assertIn("def _production_stock_entries(", operator_api)
+        self.assertIn('"production_stock_entries": production_stock_entries', operator_api)
+        self.assertIn("def _authorize_trace_access(", service)
+        self.assertIn("operator_session_token", service)
+        self.assertIn("Scan Material Tags", operator_panel)
+        self.assertIn("Camera Scan Input Tag", operator_panel)
+        self.assertIn("Camera Scan Output Tag", operator_panel)
+        self.assertIn("operator_session_token: state.session_token", operator_panel)
+
     def test_handling_unit_replacement_print_encodes_visible_code(self):
         path = (APP_ROOT / "cfg_kanban" / "print_format" /
                 "cfg_kanban_handling_unit_tag" / "cfg_kanban_handling_unit_tag.json")

@@ -1,9 +1,9 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.17
+**Guide version:** 1.18
 
-**Updated:** 2 October 2026
+**Updated:** 3 October 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
@@ -983,6 +983,28 @@ When a submitted Stock Entry is cancelled, the app reverses untouched tagged inp
 and marks produced tags Void. Cancellation is blocked if a produced tag has already moved, split,
 reduced, or been reserved; resolve downstream activity first rather than deleting trace history.
 
+The same Draft trace is available from the floor Operator panel without giving the operator general
+Stock Entry access:
+
+1. Create and save the correct supported Stock Entry against the effective Work Order. Do not
+   submit it yet.
+2. On `/app/kanban-operator`, identify the operator and scan the production Kanban Card.
+3. Under **Production Material Trace**, locate the linked Stock Entry and select **Scan Material
+   Tags**.
+4. For an input row, scan the Handling Unit with a fixed scanner or **Camera Scan Input Tag**. Leave
+   **Stock Quantity (0 = automatic)** at zero to allocate the available tag quantity up to the ERP
+   row balance, or enter a smaller explicit quantity for a permitted direct-consumption allocation.
+   Material Transfer for Manufacture still requires the complete physical Handling Unit.
+5. For an output row, scan an unused preprinted main tag, confirm quantity and Handling Unit Type,
+   and select **Stage Output Tag**. Output quantity cannot be inferred when several physical
+   containers may divide one ERP row.
+6. The Stock/Manufacturing user reviews and submits the ERPNext Stock Entry. The operator panel does
+   not submit it. Reload or rescan the Card to see **Confirmed**.
+
+The server accepts this route only when the Stock Entry Company and Work Order match the scanned
+Card's active Cycle. Operator authorization, allowed Operation, allowed Workstation, and session
+expiry are enforced on every write. A submitted trace is view-only in the floor panel.
+
 ## 12. Scanner-first floor operation
 
 The Kanban Operator page supports both a fixed USB/Bluetooth keyboard-wedge scanner and the device
@@ -1359,10 +1381,10 @@ The following are not complete in the current build:
 - Full Start/Complete dynamic-field capture and arbitrary Job Card field mapping.
 - Automated email alerts and complete command retry orchestration.
 - Supplier Kanban and Sales Order fulfillment allocation beyond the implemented demand controls.
-- Scanner-first production-panel access to material tracing, a guided general same-company tagged
-  Warehouse-transfer assistant, mixed reusable-container genealogy, richer per-serial evidence, and
-  the scan-any-tag genealogy explorer. Purchase Receipt activation and Stock Entry-confirmed
-  production input/output tracing are implemented.
+- A guided general same-company tagged Warehouse-transfer assistant, mixed reusable-container
+  genealogy, richer per-serial evidence, and the scan-any-tag genealogy explorer. Purchase Receipt
+  activation, Stock Entry-confirmed production tracing, and scoped scanner-first floor access to
+  production traces are implemented.
 
 This file is the maintained manual source. Update its version, date, affected sections, and revision
 history whenever a user-visible workflow changes.
@@ -1822,6 +1844,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.18 | 3 October 2026 | Added scoped Operator-panel production material tracing for Stock Entries tied to the scanned Card's active Cycle Work Order, including fixed-scanner Enter handling, mobile camera scan buttons, automatic input-tag quantity, and submitted trace visibility |
 | 1.17 | 2 October 2026 | Added Stock Entry-confirmed production trace transactions, tagged input reservation/transfer/consumption, staged preprinted output activation, cancellation reversal guards, ERP-only coexistence, and ERPNext v15 Batch Bundle resolution |
 | 1.16 | 2 October 2026 | Added optional Item/Company mixed material-trace policies, ERP-only fallback, submitted Purchase Receipt tag activation, immutable ERP-origin references, and explicit first-slice limitations |
 | 1.15 | 2 October 2026 | Extended scoped Supervisor access to report progress and complete active Operator/Senior Operator Service Tasks with full acting-Employee audit attribution, without granting Start, Cancel/Bypass, or cross-Supervisor control |

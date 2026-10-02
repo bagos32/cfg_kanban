@@ -24,24 +24,27 @@ TOLERANCE = 0.000001
 
 
 @frappe.whitelist()
-def get_stock_entry_trace_plan(stock_entry):
-    frappe.only_for(ALLOWED_ROLES)
+def get_stock_entry_trace_plan(stock_entry, operator_session_token=None, kanban_card=None):
     doc = frappe.get_doc("Stock Entry", stock_entry)
-    doc.check_permission("read")
+    _authorize_trace_access(
+        doc, "read", operator_session_token=operator_session_token, kanban_card=kanban_card
+    )
     _assert_supported(doc)
     trace = _get_trace(doc.name)
     return _trace_plan(doc, trace)
 
 
 @frappe.whitelist()
-def allocate_input_tag(stock_entry, item_row, scan_value, qty):
-    frappe.only_for(ALLOWED_ROLES)
+def allocate_input_tag(stock_entry, item_row, scan_value, qty,
+                       operator_session_token=None, kanban_card=None):
     qty = flt(qty)
-    if qty <= 0:
-        frappe.throw("Input tag quantity must be positive")
+    if qty < 0:
+        frappe.throw("Input tag quantity cannot be negative")
     _lock_stock_entry(stock_entry)
     doc = frappe.get_doc("Stock Entry", stock_entry)
-    doc.check_permission("write")
+    operator_actor = _authorize_trace_access(
+        doc, "write", operator_session_token=operator_session_token, kanban_card=kanban_card
+    )
     _assert_editable(doc)
     row = _find_row(doc, item_row)
     if not row.s_warehouse:
@@ -61,6 +64,11 @@ def allocate_input_tag(stock_entry, item_row, scan_value, qty):
 
     trace = _ensure_trace(doc)
     remaining = _remaining_row_qty(doc, trace, row, "Input")
+    if qty == 0:
+        qty = (flt(unit.current_qty) if _is_transfer_purpose(doc)
+               else min(flt(unit.available_qty), remaining))
+    if qty <= 0:
+        frappe.throw("The scanned Handling Unit has no quantity available for this input row")
     if qty > remaining + TOLERANCE:
         frappe.throw(
             f"Allocated quantity {qty} exceeds remaining Stock Entry input quantity {remaining}"
@@ -113,14 +121,15 @@ def allocate_input_tag(stock_entry, item_row, scan_value, qty):
         reference_doctype="CFG Kanban Material Trace",
         reference_name=trace.name,
         notes=f"{row.item_code} / {row.s_warehouse}",
+        **_operator_audit(operator_actor),
     )
     return _trace_plan(doc, trace)
 
 
 @frappe.whitelist()
 def stage_output_tag(stock_entry, item_row, scan_value, qty,
-                     handling_unit_type="Container"):
-    frappe.only_for(ALLOWED_ROLES)
+                     handling_unit_type="Container", operator_session_token=None,
+                     kanban_card=None):
     qty = flt(qty)
     if qty <= 0:
         frappe.throw("Output tag quantity must be positive")
@@ -130,7 +139,9 @@ def stage_output_tag(stock_entry, item_row, scan_value, qty,
         frappe.throw(str(exc))
     _lock_stock_entry(stock_entry)
     doc = frappe.get_doc("Stock Entry", stock_entry)
-    doc.check_permission("write")
+    operator_actor = _authorize_trace_access(
+        doc, "write", operator_session_token=operator_session_token, kanban_card=kanban_card
+    )
     _assert_editable(doc)
     row = _find_row(doc, item_row)
     if not _is_output_row(doc, row):
@@ -189,16 +200,19 @@ def stage_output_tag(stock_entry, item_row, scan_value, qty,
         reference_doctype="CFG Kanban Material Trace",
         reference_name=trace.name,
         notes=f"{visible_code} / {row.item_code} / {row.t_warehouse}",
+        **_operator_audit(operator_actor),
     )
     return _trace_plan(doc, trace)
 
 
 @frappe.whitelist()
-def cancel_trace_line(stock_entry, trace_line):
-    frappe.only_for(ALLOWED_ROLES)
+def cancel_trace_line(stock_entry, trace_line, operator_session_token=None,
+                      kanban_card=None):
     _lock_stock_entry(stock_entry)
     doc = frappe.get_doc("Stock Entry", stock_entry)
-    doc.check_permission("write")
+    operator_actor = _authorize_trace_access(
+        doc, "write", operator_session_token=operator_session_token, kanban_card=kanban_card
+    )
     _assert_editable(doc)
     trace = _get_trace(doc.name)
     if not trace or trace.status != "Draft":
@@ -232,18 +246,21 @@ def cancel_trace_line(stock_entry, trace_line):
         reference_doctype="CFG Kanban Material Trace",
         reference_name=trace.name,
         notes=f"{line.direction} / {line.item_code} / {line.pending_tag_code or ''}",
+        **_operator_audit(operator_actor),
     )
     return _trace_plan(doc, trace)
 
 
 @frappe.whitelist()
-def abandon_draft_trace(stock_entry, reason):
-    frappe.only_for(ALLOWED_ROLES)
+def abandon_draft_trace(stock_entry, reason, operator_session_token=None,
+                        kanban_card=None):
     if not (reason or "").strip():
         frappe.throw("Reason is required to discard a Draft Material Trace")
     _lock_stock_entry(stock_entry)
     doc = frappe.get_doc("Stock Entry", stock_entry)
-    doc.check_permission("write")
+    operator_actor = _authorize_trace_access(
+        doc, "write", operator_session_token=operator_session_token, kanban_card=kanban_card
+    )
     _assert_editable(doc)
     trace = _get_trace(doc.name)
     if not trace or trace.status != "Draft":
@@ -280,6 +297,7 @@ def abandon_draft_trace(stock_entry, reason):
         reference_doctype="CFG Kanban Material Trace",
         reference_name=trace.name,
         notes=f"Material Trace {trace.name}: {reason.strip()}",
+        **_operator_audit(operator_actor),
     )
     return {"trace": trace.name, "status": trace.status, "stock_entry": doc.name}
 
@@ -657,6 +675,68 @@ def _assert_editable(doc):
         frappe.throw("Production tags can be staged only while the Stock Entry is Draft")
     if doc.is_new():
         frappe.throw("Save the Stock Entry before scanning production tags")
+
+
+def _authorize_trace_access(doc, permission_type, operator_session_token=None,
+                            kanban_card=None):
+    """Authorize either a normal ERP user or a tightly scoped floor operator.
+
+    A floor session never grants general Stock Entry access. It is accepted only when the
+    supplied card owns the active Cycle and the Stock Entry belongs to that Cycle's Work Order.
+    ERPNext submission remains outside this path.
+    """
+    if not operator_session_token:
+        frappe.only_for(ALLOWED_ROLES)
+        doc.check_permission(permission_type)
+        return None
+
+    if not kanban_card:
+        frappe.throw("Scan a Kanban card before opening Production Material Trace")
+    card = frappe.get_doc("CFG Kanban Card", kanban_card)
+    if not card.active_cycle:
+        frappe.throw("The scanned Kanban card has no active Cycle")
+    cycle = frappe.get_doc("CFG Kanban Cycle", card.active_cycle)
+    if cycle.kanban_card != card.name:
+        frappe.throw("The active Cycle no longer belongs to the scanned Kanban card")
+    if not cycle.work_order:
+        frappe.throw("The active Kanban Cycle has no effective Work Order")
+    if permission_type == "write" and cycle.status in ("Completed", "Cancelled"):
+        frappe.throw(f"Production Material Trace is closed because Cycle {cycle.name} is {cycle.status}")
+    if doc.work_order != cycle.work_order:
+        frappe.throw(
+            f"Stock Entry {doc.name} belongs to Work Order {doc.work_order or '(blank)'}, "
+            f"not the scanned Cycle Work Order {cycle.work_order}"
+        )
+    if doc.company != cycle.company:
+        frappe.throw(
+            f"Stock Entry Company {doc.company} does not match Kanban Cycle Company {cycle.company}"
+        )
+    linked_cycle = doc.get("cfg_kanban_cycle")
+    if linked_cycle and linked_cycle != cycle.name:
+        frappe.throw(
+            f"Stock Entry {doc.name} is explicitly linked to a different Kanban Cycle "
+            f"{linked_cycle}"
+        )
+
+    from cfg_kanban.services.operator_auth import require_operator
+
+    return require_operator(
+        operator_session_token,
+        action="report_progress" if permission_type == "write" else None,
+        operation=card.operation,
+        workstation=card.workstation,
+    )
+
+
+def _operator_audit(operator_actor):
+    if not operator_actor:
+        return {}
+    profile, session = operator_actor
+    return {
+        "operator": profile.employee,
+        "operator_session": session.name,
+        "terminal_user": session.terminal_user,
+    }
 
 
 def _lock_stock_entry(name):

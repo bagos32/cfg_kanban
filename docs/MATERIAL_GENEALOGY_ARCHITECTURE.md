@@ -1,9 +1,9 @@
 # CFG Kanban Material Genealogy Architecture
 
 **Status:** Approved additive V1 architecture; mixed-trace policy, submitted Purchase Receipt tag
-activation, and Stock Entry-confirmed production input/output tracing are implemented. A floor-panel
-scan workflow, broader Warehouse movement assistant, and the trace explorer remain subsequent
-increments.
+activation, Stock Entry-confirmed production input/output tracing, and scoped floor-panel access to
+those production traces are implemented. A broader Warehouse movement assistant and the trace
+explorer remain subsequent increments.
 
 ## 1. System boundary
 
@@ -103,15 +103,24 @@ ERPNext v15 direct Batch fields and single-Batch Serial and Batch Bundles are su
 contains multiple Batches must be split by Batch before assigning a physical Handling Unit because
 one tag cannot represent multiple lots.
 
+### Floor operator access
+
+After scanning a production Kanban Card, the Operator panel lists supported Stock Entries belonging
+to the Card's active Cycle Work Order. An authorized operator can open a Draft entry's material
+trace, scan input Handling Units, stage preprinted output tags, and cancel individual Draft trace
+lines. The floor route cannot submit the Stock Entry and cannot access an unrelated Work Order,
+Company, Cycle, or Card. Fixed scanners submit a focused tag field with their Enter suffix; mobile
+operators can use the input/output camera buttons. A zero input quantity means allocate the scanned
+tag's available quantity up to the remaining ERP input-row quantity.
+
 ### Subsequent increments
 
 The next increments add:
 
-1. scanner-first production-panel access to the Stock Entry trace workflow;
-2. a guided general same-company tagged Warehouse-transfer assistant;
-3. scan-any-tag upstream/downstream genealogy exploration and printable trace reports;
-4. container-content genealogy for mixed reusable containers;
-5. richer serial-number evidence where one physical unit requires individual serial association.
+1. a guided general same-company tagged Warehouse-transfer assistant;
+2. scan-any-tag upstream/downstream genealogy exploration and printable trace reports;
+3. container-content genealogy for mixed reusable containers;
+4. richer serial-number evidence where one physical unit requires individual serial association.
 
 Job Cards provide operator/operation context, but raw-material stock consumption remains linked to
 the Work Order and submitted Stock Entry details.

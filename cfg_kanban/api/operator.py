@@ -19,6 +19,7 @@ from cfg_kanban.services.state_machine import set_cycle_state, transition_card
 from cfg_kanban.services.process_tasks import (assert_gate_open, ensure_tasks,
                                                refresh_task_readiness)
 from cfg_kanban.services.dynamic_forms import definitions, validate_values
+from cfg_kanban.services.production_trace import SUPPORTED_PURPOSES
 
 
 @frappe.whitelist()
@@ -154,7 +155,8 @@ def get_card_context(token, operator_session_token=None):
             "card": card.as_dict(), "master": {}, "cycle": None,
             "effective_work_order": None, "work_order_attention": None,
             "selected_job_card": None, "executions": [], "work_orders": [],
-            "route_warnings": [], "operation_summaries": [], "process_tasks": [],
+            "route_warnings": [], "operation_summaries": [],
+            "production_stock_entries": [], "process_tasks": [],
             "service_tasks": service_tasks, "service_identity_card": True,
         }
     master = frappe.get_doc("CFG Kanban Master", card.kanban_master)
@@ -163,6 +165,7 @@ def get_card_context(token, operator_session_token=None):
     work_orders = []
     route_warnings = []
     operation_summaries = []
+    production_stock_entries = []
     effective_work_order = None
     work_order_attention = None
     process_tasks = []
@@ -248,6 +251,7 @@ def get_card_context(token, operator_session_token=None):
             route_warnings.append("Missing effective Job Cards for: " + ", ".join(sorted(missing)))
         if len(work_orders) > 1:
             route_warnings.append("Multiple Work Orders still claim this Cycle; supervisor reconciliation is required")
+        production_stock_entries = _production_stock_entries(cycle)
     return {
         "card": card.as_dict(),
         "master": {"name": master.name, "kanban_name": master.kanban_name,
@@ -265,10 +269,46 @@ def get_card_context(token, operator_session_token=None):
         "work_orders": work_orders,
         "route_warnings": route_warnings,
         "operation_summaries": operation_summaries,
+        "production_stock_entries": production_stock_entries,
         "process_tasks": process_tasks,
         "service_tasks": [],
         "service_identity_card": False,
     }
+
+
+def _production_stock_entries(cycle):
+    """Return only ERP transactions belonging to the scanned production Work Order."""
+    if not cycle.work_order:
+        return []
+    rows = frappe.get_all(
+        "Stock Entry",
+        filters={
+            "work_order": cycle.work_order,
+            "docstatus": ["<", 2],
+            "purpose": ["in", sorted(SUPPORTED_PURPOSES)],
+        },
+        fields=["name", "purpose", "stock_entry_type", "docstatus", "posting_date",
+                "posting_time", "cfg_kanban_cycle", "modified"],
+        order_by="modified desc",
+        limit_page_length=20,
+    )
+    rows = [row for row in rows
+            if not row.cfg_kanban_cycle or row.cfg_kanban_cycle == cycle.name]
+    if not rows:
+        return []
+    traces = frappe.get_all(
+        "CFG Kanban Material Trace",
+        filters={"stock_entry": ["in", [row.name for row in rows]]},
+        fields=["name", "stock_entry", "status"],
+    )
+    trace_by_entry = {row.stock_entry: row for row in traces}
+    for row in rows:
+        trace = trace_by_entry.get(row.name)
+        row["erp_status"] = "Draft" if row.docstatus == 0 else "Submitted"
+        row["trace"] = trace.name if trace else None
+        row["trace_status"] = trace.status if trace else "Not Started"
+        row["can_stage_trace"] = row.docstatus == 0
+    return rows
 
 
 @frappe.whitelist()

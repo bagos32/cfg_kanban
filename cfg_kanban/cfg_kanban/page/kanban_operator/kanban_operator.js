@@ -8,7 +8,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	const session_key = "cfg_kanban_operator_session";
 	const state = { context: null, operator: null, access: null,
 		session_token: localStorage.getItem(session_key), awaiting_operator_scan: false,
-		active_progress_dialog: null, pending_process_task: null, scanner_message: __("Scanner ready"),
+		active_progress_dialog: null, active_material_trace_dialog: null,
+		pending_process_task: null, scanner_message: __("Scanner ready"),
 		modal_scan_buffer: "", modal_scan_at: 0 };
 	const scan = page.add_field({
 		label: __("Fixed scanner input — scan any card"),
@@ -637,7 +638,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			focus_scanner();
 			return;
 		}
-		const { card, master, cycle, effective_work_order, work_order_attention, selected_job_card, executions, operation_summaries, process_tasks, service_tasks, service_identity_card, work_orders, route_warnings } = state.context;
+		const { card, master, cycle, effective_work_order, work_order_attention, selected_job_card,
+			executions, operation_summaries, production_stock_entries, process_tasks, service_tasks,
+			service_identity_card, work_orders, route_warnings } = state.context;
 		const cycle_label = cycle ? `${document_link("cfg-kanban-cycle", cycle.name)}${status_line(cycle.status)}` : __("No active cycle");
 		const work_order_label = effective_work_order
 			? `${document_link("work-order", effective_work_order.name)}${status_line(effective_work_order.status, effective_work_order.docstatus)}`
@@ -706,6 +709,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			$("<button class='btn btn-default mr-2'>" + __("View Timeline") + "</button>")
 				.appendTo($actions).on("click", () => show_timeline(cycle.name));
 		}
+		render_production_stock_entries(production_stock_entries || [], effective_work_order);
 		render_process_tasks(process_tasks || []);
 		render_summaries(operation_summaries || []);
 		render_executions(executions || []);
@@ -718,6 +722,205 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		tasks.forEach((task) => $section.append(`<div class="frappe-card p-3 mb-2"><strong>${e(task.task_name)}</strong>
 			<span class="indicator-pill ${indicator(task.status)} ml-2">${e(task.status)}</span><br>
 			<small>${__("Priority")}: ${e(task.priority)} · ${__("Due")}: ${e(task.due_on || "-")}</small></div>`));
+	}
+
+	function render_production_stock_entries(entries, work_order) {
+		if (!work_order) return;
+		const e = frappe.utils.escape_html;
+		const $section = $(`<div class="cfg-material-trace-section"><h4>${__("Production Material Trace")}</h4></div>`)
+			.appendTo($root);
+		if (!entries.length) {
+			$section.append(`<div class="frappe-card p-3 mb-3 text-muted">
+				${__("No Manufacture, Repack, Material Transfer for Manufacture, or Material Consumption Stock Entry is linked to this Work Order yet. ERP-only materials require no tag action.")}
+			</div>`);
+			return;
+		}
+		entries.forEach((row) => {
+			const trace_color = row.trace_status === "Confirmed" ? "green" :
+				row.trace_status === "Draft" ? "orange" : "grey";
+			const $row = $(`<div class="frappe-card p-3 mb-2"><div class="row align-items-center">
+				<div class="col-md-4"><strong>${document_link("stock-entry", row.name)}</strong><br>
+					<small>${e(row.purpose || row.stock_entry_type || "-")}</small></div>
+				<div class="col-md-2"><span class="indicator-pill ${row.docstatus === 1 ? "green" : "orange"}">${e(row.erp_status)}</span></div>
+				<div class="col-md-3"><small>${__("Material Trace")}</small><br>
+					<span class="indicator-pill ${trace_color}">${e(row.trace_status)}</span>
+					${row.trace ? `<small class="ml-1">${e(row.trace)}</small>` : ""}</div>
+				<div class="col-md-3 text-right cfg-material-trace-actions"></div>
+			</div></div>`).appendTo($section);
+			const $actions = $row.find(".cfg-material-trace-actions");
+			const label = row.can_stage_trace ? __("Scan Material Tags") :
+				row.trace_status === "Confirmed" ? __("View Confirmed Trace") : __("View ERP-Only Entry");
+			const css = row.can_stage_trace ? "btn-primary" : "btn-default";
+			add_action($actions, label, css, () => operator_material_trace_dialog(row.name));
+		});
+	}
+
+	async function operator_material_trace_dialog(stock_entry) {
+		let plan = await load_operator_trace_plan(stock_entry);
+		let dialog;
+		const reload = async () => {
+			plan = await load_operator_trace_plan(stock_entry);
+			await refresh_operator_trace_dialog(dialog, plan, reload);
+		};
+		dialog = new frappe.ui.Dialog({
+			title: __("Production Material Trace: {0}", [stock_entry]), size: "extra-large",
+			fields: [
+				{ fieldname: "summary", fieldtype: "HTML" },
+				{ fieldname: "input_section", label: __("Scan Tagged Material Input"), fieldtype: "Section Break" },
+				{ fieldname: "input_row", label: __("ERP Input Row"), fieldtype: "Select" },
+				{ fieldname: "input_scan", label: __("Handling Unit Tag"), fieldtype: "Data",
+					description: __("Scan the physical input tag. With quantity 0, the system allocates the available tag quantity up to the ERP row balance.") },
+				{ fieldname: "input_camera", label: __("Camera Scan Input Tag"), fieldtype: "Button",
+					click: () => open_camera_scanner((value) => {
+						dialog.set_value("input_scan", value);
+						dialog.get_field("allocate_input").$input.trigger("click");
+					}) },
+				{ fieldname: "input_qty", label: __("Stock Quantity (0 = automatic)"), fieldtype: "Float", default: 0 },
+				{ fieldname: "allocate_input", label: __("Allocate Input Tag"), fieldtype: "Button",
+					click: async () => {
+						await frappe.call({ method: "cfg_kanban.services.production_trace.allocate_input_tag", args: {
+							stock_entry, item_row: operator_trace_row_name(dialog.get_value("input_row")),
+							scan_value: dialog.get_value("input_scan"), qty: dialog.get_value("input_qty") || 0,
+							operator_session_token: state.session_token, kanban_card: state.context.card.name,
+						}, freeze: true, freeze_message: __("Reserving tagged production input...") });
+						frappe.show_alert({ message: __("Input tag reserved"), indicator: "green" });
+						await dialog.set_value("input_scan", "");
+						await reload();
+					} },
+				{ fieldname: "output_section", label: __("Stage Preprinted Output Tag"), fieldtype: "Section Break" },
+				{ fieldname: "output_row", label: __("ERP Output Row"), fieldtype: "Select" },
+				{ fieldname: "output_scan", label: __("Unused Preprinted Main Tag"), fieldtype: "Data",
+					description: __("The tag remains pending until ERPNext submits this Stock Entry.") },
+				{ fieldname: "output_camera", label: __("Camera Scan Output Tag"), fieldtype: "Button",
+					click: () => open_camera_scanner((value) => dialog.set_value("output_scan", value)) },
+				{ fieldname: "output_qty", label: __("Stock Quantity"), fieldtype: "Float" },
+				{ fieldname: "handling_unit_type", label: __("Handling Unit Type"), fieldtype: "Select",
+					options: "Pallet\nMesh\nTote\nContainer\nReusable Box\nOther", default: "Container" },
+				{ fieldname: "stage_output", label: __("Stage Output Tag"), fieldtype: "Button",
+					click: async () => {
+						await frappe.call({ method: "cfg_kanban.services.production_trace.stage_output_tag", args: {
+							stock_entry, item_row: operator_trace_row_name(dialog.get_value("output_row")),
+							scan_value: dialog.get_value("output_scan"), qty: dialog.get_value("output_qty"),
+							handling_unit_type: dialog.get_value("handling_unit_type"),
+							operator_session_token: state.session_token, kanban_card: state.context.card.name,
+						}, freeze: true, freeze_message: __("Staging production output tag...") });
+						frappe.show_alert({ message: __("Output tag staged pending ERP submission"), indicator: "green" });
+						await dialog.set_value("output_scan", "");
+						await reload();
+					} },
+				{ fieldname: "line_section", label: __("Current Trace Lines"), fieldtype: "Section Break" },
+				{ fieldname: "lines", fieldtype: "HTML" },
+			],
+		});
+		state.active_material_trace_dialog = dialog;
+		dialog.onhide = () => {
+			if (state.active_material_trace_dialog === dialog) state.active_material_trace_dialog = null;
+			focus_scanner();
+		};
+		dialog.show();
+		await refresh_operator_trace_dialog(dialog, plan, reload);
+	}
+
+	async function load_operator_trace_plan(stock_entry) {
+		const response = await frappe.call({
+			method: "cfg_kanban.services.production_trace.get_stock_entry_trace_plan",
+			args: { stock_entry, operator_session_token: state.session_token,
+				kanban_card: state.context.card.name },
+		});
+		return response.message;
+	}
+
+	async function refresh_operator_trace_dialog(dialog, plan, reload) {
+		const inputs = (plan.rows || []).filter((row) => row.direction === "Input" &&
+			row.tagging_available && row.remaining_qty > 0.000001);
+		const outputs = (plan.rows || []).filter((row) => row.direction === "Output" &&
+			row.tagging_available && row.remaining_qty > 0.000001);
+		const input_options = inputs.map(operator_trace_row_option);
+		const output_options = outputs.map(operator_trace_row_option);
+		dialog.set_df_property("input_row", "options", input_options.join("\n"));
+		dialog.set_df_property("output_row", "options", output_options.join("\n"));
+		dialog.fields_dict.summary.$wrapper.html(operator_trace_summary(plan));
+		dialog.fields_dict.lines.$wrapper.html(operator_trace_lines(plan));
+		const input_visible = plan.can_edit && input_options.length;
+		const output_visible = plan.can_edit && output_options.length;
+		["input_section", "input_row", "input_scan", "input_camera", "input_qty", "allocate_input"]
+			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(input_visible)));
+		["output_section", "output_row", "output_scan", "output_camera", "output_qty",
+			"handling_unit_type", "stage_output"]
+			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(output_visible)));
+		if (input_visible) {
+			const selected = input_options.includes(dialog.get_value("input_row")) ?
+				dialog.get_value("input_row") : input_options[0];
+			await dialog.set_value("input_row", selected);
+			bind_operator_trace_enter(dialog, "input_scan", "allocate_input");
+		}
+		if (output_visible) {
+			const selected = output_options.includes(dialog.get_value("output_row")) ?
+				dialog.get_value("output_row") : output_options[0];
+			await dialog.set_value("output_row", selected);
+			const selected_row = operator_trace_row(outputs, selected);
+			if (!dialog.get_value("output_qty") && selected_row) {
+				await dialog.set_value("output_qty", selected_row.remaining_qty);
+			}
+			bind_operator_trace_enter(dialog, "output_scan", "stage_output");
+		}
+		dialog.fields_dict.lines.$wrapper.find("[data-cancel-operator-trace-line]").off("click").on("click", async (event) => {
+			await frappe.call({ method: "cfg_kanban.services.production_trace.cancel_trace_line", args: {
+				stock_entry: plan.stock_entry, trace_line: event.currentTarget.dataset.cancelOperatorTraceLine,
+				operator_session_token: state.session_token, kanban_card: state.context.card.name,
+			}, freeze: true, freeze_message: __("Releasing staged trace line...") });
+			await reload();
+		});
+		window.setTimeout(() => {
+			const field = input_visible ? dialog.get_field("input_scan") :
+				output_visible ? dialog.get_field("output_scan") : null;
+			if (field) field.set_focus();
+		}, 80);
+	}
+
+	function bind_operator_trace_enter(dialog, scan_field, action_field) {
+		dialog.get_field(scan_field).$input.off("keydown.cfg_material_trace").on("keydown.cfg_material_trace", (event) => {
+			if (event.key !== "Enter" && event.key !== "Tab") return;
+			event.preventDefault();
+			dialog.get_field(action_field).$input.trigger("click");
+		});
+	}
+
+	function operator_trace_row_option(row) {
+		return `${row.row_name} :: ${row.item_code} :: ${row.remaining_qty} ${row.stock_uom}`;
+	}
+
+	function operator_trace_row_name(value) {
+		return String(value || "").split(" :: ")[0];
+	}
+
+	function operator_trace_row(rows, value) {
+		const name = operator_trace_row_name(value);
+		return rows.find((row) => row.row_name === name);
+	}
+
+	function operator_trace_summary(plan) {
+		const e = frappe.utils.escape_html;
+		const rows = (plan.rows || []).map((row) => `<tr><td>${e(row.direction)}</td>
+			<td>${e(row.item_code)}</td><td>${e(row.batch_no || "-")}</td><td>${e(row.warehouse || "-")}</td>
+			<td>${e(row.tag_policy)}</td><td>${e(row.traced_qty)} / ${e(row.stock_qty)} ${e(row.stock_uom)}</td></tr>`).join("");
+		return `<div class="alert alert-info"><strong>${e(plan.stock_entry)}</strong> · ${e(plan.purpose)} · ${e(plan.company)}<br>
+			${__("Material Trace")}: ${e(plan.trace || __("Not created"))} · ${e(plan.trace_status)}</div>
+			<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>
+			<th>${__("Stage")}</th><th>${__("Item")}</th><th>${__("Batch")}</th><th>${__("Warehouse")}</th>
+			<th>${__("Tag Policy")}</th><th>${__("Traced / ERP Qty")}</th></tr></thead><tbody>${rows}</tbody></table></div>
+			<p class="text-muted">${__("No Physical Tag rows continue through normal ERPNext stock without operator scanning. ERPNext submission confirms every staged movement.")}</p>`;
+	}
+
+	function operator_trace_lines(plan) {
+		if (!(plan.lines || []).length) return `<p class="text-muted">${__("No production tags staged.")}</p>`;
+		const e = frappe.utils.escape_html;
+		const rows = plan.lines.map((line) => `<tr><td>${e(line.direction)}</td><td>${e(line.item_code)}</td>
+			<td>${e(line.handling_unit || line.pending_tag_code || "-")}</td><td>${e(line.qty)} ${e(line.stock_uom)}</td>
+			<td>${e(line.status)}</td><td>${line.can_cancel ? `<button class="btn btn-xs btn-danger" data-cancel-operator-trace-line="${e(line.name)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
+		return `<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>
+			<th>${__("Direction")}</th><th>${__("Item")}</th><th>${__("Tag")}</th><th>${__("Quantity")}</th>
+			<th>${__("Status")}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 	}
 
 	function render_process_tasks(tasks) {
