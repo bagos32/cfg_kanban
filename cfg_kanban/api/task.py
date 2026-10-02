@@ -9,7 +9,9 @@ from cfg_kanban.services.printing import get_qr_svg
 from cfg_kanban.services.task_access import (
     assert_responsibility,
     assert_service_task_access,
+    assert_service_task_execution_access,
     can_access_service_task,
+    can_assist_service_task,
     can_view_service_task,
     can_view_all_service_tasks,
     responsibility_names,
@@ -41,7 +43,10 @@ def get_open_tasks(operator_session_token=None):
     visible = []
     for row in rows:
         row["can_operate"] = can_access_service_task(row, profile)
-        row["monitor_only"] = not row.can_operate
+        row["can_assist"] = can_assist_service_task(
+            row, profile, assigned_roles.get(row.assigned_employee)
+        )
+        row["monitor_only"] = not row.can_operate and not row.can_assist
         if can_view_service_task(row, profile, assigned_roles.get(row.assigned_employee)):
             visible.append(row)
     return visible[:200]
@@ -104,7 +109,10 @@ def get_task_form(task_name, capture_on="Complete", operator_session_token=None)
     profile, _session = require_operator(
         operator_session_token, action, workstation=task.workstation
     )
-    assert_service_task_access(task, profile)
+    if capture_on in ("Progress", "Complete"):
+        assert_service_task_execution_access(task, profile)
+    else:
+        assert_service_task_access(task, profile)
     result = task_form(task_name, capture_on)
     result["media"] = list_reference_media("CFG Kanban Task", task.name,
                                            permission_checked=True)

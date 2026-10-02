@@ -9,6 +9,7 @@ from cfg_kanban.services.operator_auth import require_operator
 from cfg_kanban.services.task_access import (
     assert_responsibility,
     assert_service_task_access,
+    assert_service_task_execution_access,
 )
 
 
@@ -183,7 +184,7 @@ def progress_task(task_name, session_token, values=None, notes=None):
     task = frappe.get_doc("CFG Kanban Task", task_name)
     profile, session = require_operator(session_token, "task_complete",
                                         workstation=task.workstation)
-    _validate_assignment(task, profile)
+    _validate_execution_assignment(task, profile)
     if task.status not in ("In Progress", "Overdue", "Correction Required"):
         frappe.throw(f"Task progress cannot be reported while it is {task.status}")
     if not task.started_on:
@@ -201,7 +202,7 @@ def progress_task(task_name, session_token, values=None, notes=None):
 def complete_task(task_name, session_token, values=None, checklist_results=None, notes=None):
     task = frappe.get_doc("CFG Kanban Task", task_name)
     profile, session = require_operator(session_token, "task_complete", workstation=task.workstation)
-    _validate_assignment(task, profile)
+    _validate_execution_assignment(task, profile)
     if task.status == "Completed":
         return task
     if task.status not in ("Due", "Assigned", "In Progress", "Overdue", "Correction Required"):
@@ -385,3 +386,7 @@ def _task_event(event_type, task, profile, session, notes=None):
 
 def _validate_assignment(task, profile):
     assert_service_task_access(task, profile)
+
+
+def _validate_execution_assignment(task, profile):
+    assert_service_task_execution_access(task, profile)

@@ -28,6 +28,15 @@ def responsibility_allowed(responsible_role, profile):
     )
 
 
+def supervisor_assistance_scope_allowed(responsible_role, profile):
+    """Require an explicit matching responsibility for role-specific assistance."""
+    return bool(
+        can_view_all_service_tasks(profile)
+        or not responsible_role
+        or responsible_role in responsibility_names(profile)
+    )
+
+
 def can_access_service_task(task, profile):
     if not workstation_allowed(task.workstation, profile):
         return False
@@ -46,17 +55,15 @@ def can_access_service_task(task, profile):
     )
 
 
-def can_view_service_task(task, profile, assigned_operator_role=None):
-    """Permit scoped monitoring without granting control of another operator's task."""
-    if can_access_service_task(task, profile):
-        return True
+def can_assist_service_task(task, profile, assigned_operator_role=None):
+    """Allow a scoped Supervisor to help execute work already started by an operator."""
     if (
         profile.kanban_role not in ("Supervisor", "Development Proxy")
         or not task.assigned_employee
         or not task.started_on
         or task.status not in ("In Progress", "Overdue", "Correction Required")
         or not workstation_allowed(task.workstation, profile)
-        or not responsibility_allowed(task.responsible_role, profile)
+        or not supervisor_assistance_scope_allowed(task.responsible_role, profile)
     ):
         return False
     if assigned_operator_role is None:
@@ -66,6 +73,21 @@ def can_view_service_task(task, profile, assigned_operator_role=None):
             "kanban_role",
         )
     return assigned_operator_role in ("Operator", "Senior Operator")
+
+
+def can_view_service_task(task, profile, assigned_operator_role=None):
+    """Permit scoped visibility without granting full control of another operator's task."""
+    return bool(
+        can_access_service_task(task, profile)
+        or can_assist_service_task(task, profile, assigned_operator_role)
+    )
+
+
+def assert_service_task_execution_access(task, profile):
+    """Authorize progress/completion while preserving assignment and disposition controls."""
+    if can_access_service_task(task, profile) or can_assist_service_task(task, profile):
+        return
+    assert_service_task_access(task, profile)
 
 
 def assert_service_task_access(task, profile):

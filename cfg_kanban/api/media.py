@@ -2,7 +2,11 @@ import frappe
 
 from cfg_kanban.services import media
 from cfg_kanban.services.operator_auth import require_operator
-from cfg_kanban.services.task_access import assert_service_task_access
+from cfg_kanban.services.task_access import (
+    assert_service_task_access,
+    assert_service_task_execution_access,
+    can_view_service_task,
+)
 
 
 @frappe.whitelist()
@@ -166,7 +170,10 @@ def _authorize_task(task_name, operator_session_token, action=None):
     profile, session = require_operator(
         operator_session_token, action, workstation=task.workstation
     )
-    assert_service_task_access(task, profile)
+    if action == "task_complete":
+        assert_service_task_execution_access(task, profile)
+    elif not can_view_service_task(task, profile):
+        assert_service_task_access(task, profile)
     return task, profile, session
 
 

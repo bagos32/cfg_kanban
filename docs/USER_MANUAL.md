@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.14
+**Guide version:** 1.15
 
 **Updated:** 2 October 2026
 
@@ -128,13 +128,16 @@ generally available within workstation scope. A Supervisor can be scoped to seve
 or enable **View All Service Tasks** (`view_all_responsibilities`). When it is unticked, the
 Supervisor sees their own assigned tasks, eligible unassigned tasks, Awaiting Verification work
 that they are authorized to verify, and matching active work started by an Operator or Senior
-Operator. The latter is marked **Monitor only**: the Supervisor can see its live status and progress
-history but cannot report, complete, cancel, bypass, or take over that task. Work assigned to another
-Supervisor remains hidden. When **View All Service Tasks** is enabled, the Supervisor can also
-control work assigned to other Employees and work across all Kanban Responsibilities. For backward
-compatibility, an Operator Profile with an empty Responsible Roles table remains unrestricted for
-unassigned tasks until responsibilities are deliberately assigned; it does not grant control over
-another Employee's assigned work.
+Operator. The latter is marked **Supervisor assist**: the Supervisor can see its live status, review
+progress, add progress, and complete it on behalf of the assigned operator. Every added measurement,
+note, attachment, completion, and event records the Supervisor's Employee identity; the original
+Assigned Employee is preserved. This assistance does not permit the Supervisor to start or take over
+an unstarted task, cancel/bypass the occurrence, or operate another Supervisor's assigned task. When
+**View All Service Tasks** is enabled, the Supervisor can also fully control work assigned to other
+Employees and work across all Kanban Responsibilities. For backward compatibility, an Operator
+Profile with an empty Responsible Roles table remains unrestricted for unassigned tasks until
+responsibilities are deliberately assigned. It does not grant assistance or control over another
+Employee's role-specific assigned work; the Supervisor must hold that explicit Responsibility.
 
 ERPNext permissions still apply. A Kanban role does not automatically grant permission to Items,
 BOMs, Work Orders, Job Cards, Stock Entries, Warehouses, or Batches.
@@ -455,10 +458,13 @@ Workstations are returned; a task with no Workstation remains eligible because i
 workstation-specific. Responsibility, assignment, and Workstation access are applied before the
 panel's 200-task display limit, so other teams' tasks cannot displace an operator's eligible work.
 Every operator sees their own assigned tasks plus eligible unassigned tasks. A Supervisor also sees
-matching active tasks started by an Operator or Senior Operator as **Monitor only**, even when
+matching active tasks started by an Operator or Senior Operator as **Supervisor assist**, even when
 **View All Service Tasks** is unticked. Matching means the task passes both the Supervisor's
-Responsible Roles and Allowed Workstations. Monitor-only access exposes status and recorded
-progress but no operational action buttons. Another Supervisor's assigned task remains hidden.
+Responsible Roles and Allowed Workstations. If the Supervisor Profile has **Can Complete**, this
+scoped access exposes **Report Progress** and **Complete** so a Supervisor who joins the work or
+closes it after operator negligence can record the real outcome. The Assigned Employee remains the
+operator, while progress and completion attribution identify the Supervisor. Another Supervisor's
+assigned task remains hidden.
 **View All Service Tasks** grants controlled operation of other Employees' tasks, while Awaiting
 Verification remains available to a Supervisor authorized to verify it. Starting an unassigned task
 assigns it to the starting Employee. Ordinary assigned work cannot be started, progressed,
@@ -473,7 +479,7 @@ The scanner and active-operator identity form a sticky header and remain visible
 scrolls. Immediately below it, **Active Work** contains tasks already started and assigned to that
 Employee. Starting a task reloads the panel, moves the task from **Ready / Open Tasks** into Active
 Work, and scrolls to that section. Active tasks are ordered with the most recently updated first.
-A Supervisor sees monitor-only active operator work, authorized verification work, and—when
+A Supervisor sees active operator work available for Supervisor assistance, authorized verification work, and—when
 **View All Service Tasks** is enabled—other controllable assigned work separately under
 **Supervisor Attention**. They are not mixed into the Supervisor's own active work.
 The three behavioral sections use consistent visual meaning: a green-tinted block for Active Work,
@@ -1734,6 +1740,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.15 | 2 October 2026 | Extended scoped Supervisor access to report progress and complete active Operator/Senior Operator Service Tasks with full acting-Employee audit attribution, without granting Start, Cancel/Bypass, or cross-Supervisor control |
 | 1.14 | 2 October 2026 | Added scoped Supervisor monitoring of matching active Operator/Senior Operator Service Tasks, including live progress visibility, while preserving action isolation unless View All Service Tasks is enabled |
 | 1.13 | 2 October 2026 | Corrected Service Task eligibility ordering so responsibility/employee/Workstation access is applied before the 200-row display limit, and blank-Workstation tasks remain visible to eligible profiles |
 | 1.12 | 2 October 2026 | Corrected Dynamic Form interaction refresh so Check and Select controls remain clickable while dependent visibility still updates after each completed value change |
