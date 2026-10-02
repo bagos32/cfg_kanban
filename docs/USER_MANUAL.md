@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.11
+**Guide version:** 1.12
 
 **Updated:** 2 October 2026
 
@@ -1725,6 +1725,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.12 | 2 October 2026 | Corrected Dynamic Form interaction refresh so Check and Select controls remain clickable while dependent visibility still updates after each completed value change |
 | 1.11 | 2 October 2026 | Implemented reactive Dynamic Form Visible Conditions in Service, Process Task, and production-operation dialogs; added safe syntax validation and server-side exclusion of hidden mandatory fields/evidence |
 | 1.10 | 2 October 2026 | Required source Company/Warehouse on new Stock Tags, added controlled initial-Warehouse recovery for legacy blank tags, documented Manifest destination timing, and improved Operator Profile names and workstation/operation grids |
 | 1.9 | 2 October 2026 | Corrected Service Task isolation: an unticked Supervisor no longer sees or operates another Employee's ordinary assigned work; direct APIs, media, schedule requests, service-point scans, and verification access now apply the same server-side responsibility rules |

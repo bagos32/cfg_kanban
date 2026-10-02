@@ -89,6 +89,11 @@ class TestProcessTaskContract(TestCase):
         self.assertIn("visible_dynamic_definitions(definitions, values)", service_console)
         self.assertIn("configure_dynamic_visibility(dialog, definitions)", production_console)
         self.assertIn("visible_dynamic_definitions(definitions, values)", production_console)
+        for console in (service_console, production_console):
+            self.assertIn('"change.cfg_visible"', console)
+            self.assertNotIn('"change.cfg_visible input.cfg_visible"', console)
+            self.assertIn("Boolean(field.df.hidden) !== hidden", console)
+            self.assertIn("Boolean(field.df.reqd) !== required", console)
 
     def test_service_task_console_can_identify_operator_and_create_from_schedule(self):
         api = (ROOT / "api" / "task.py").read_text()

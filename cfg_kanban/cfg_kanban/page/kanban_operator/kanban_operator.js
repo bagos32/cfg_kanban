@@ -1191,13 +1191,16 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			const visible = new Set(visible_dynamic_definitions(definitions, values).map((row) => row.field_key));
 			definitions.forEach((definition) => {
 				const fieldname = `dynamic_${definition.field_key}`;
+				const field = dialog.get_field(fieldname);
 				const is_visible = visible.has(definition.field_key);
-				dialog.set_df_property(fieldname, "hidden", !is_visible);
-				dialog.set_df_property(fieldname, "reqd", is_visible && Boolean(Number(definition.mandatory)));
+				const hidden = !is_visible;
+				const required = is_visible && Boolean(Number(definition.mandatory));
+				if (Boolean(field.df.hidden) !== hidden) dialog.set_df_property(fieldname, "hidden", hidden);
+				if (Boolean(field.df.reqd) !== required) dialog.set_df_property(fieldname, "reqd", required);
 			});
 		};
 		dialog.$wrapper.off(".cfg_visible").on(
-			"change.cfg_visible input.cfg_visible",
+			"change.cfg_visible",
 			"[data-fieldname^='dynamic_'] :input",
 			refresh,
 		);
