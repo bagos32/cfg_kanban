@@ -321,6 +321,23 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Camera Scan Output Tag", operator_panel)
         self.assertIn("operator_session_token: state.session_token", operator_panel)
 
+    def test_same_company_tagged_warehouse_transfer_is_guided_by_erp_stock_entry(self):
+        service = (APP_ROOT / "services" / "production_trace.py").read_text()
+        stock_entry_form = (APP_ROOT / "public" / "js" / "stock_entry.js").read_text()
+        logistics_api = (APP_ROOT / "api" / "logistics.py").read_text()
+        logistics_panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
+                           "kanban_logistics.js").read_text()
+        install = (APP_ROOT / "install.py").read_text()
+        self.assertIn('"Material Transfer",', service)
+        self.assertIn('return _purpose(doc) in ("Material Transfer",', service)
+        self.assertIn('"Material Transfer",', stock_entry_form)
+        self.assertIn("INTERNAL_TRANSFER_RESPONSIBILITY", logistics_api)
+        self.assertIn("def _internal_transfer_summaries(", logistics_api)
+        self.assertIn('"internal_transfers": _internal_transfer_summaries(profile)', logistics_api)
+        self.assertIn("Same-Company Tagged Warehouse Transfers", logistics_panel)
+        self.assertIn("Tagged Warehouse Transfer", logistics_panel)
+        self.assertIn("Internal Warehouse Transfer", install)
+
     def test_handling_unit_replacement_print_encodes_visible_code(self):
         path = (APP_ROOT / "cfg_kanban" / "print_format" /
                 "cfg_kanban_handling_unit_tag" / "cfg_kanban_handling_unit_tag.json")

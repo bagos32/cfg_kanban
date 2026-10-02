@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import flt, now_datetime
+from frappe.utils import cint, flt, now_datetime
 
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key
@@ -10,6 +10,7 @@ from cfg_kanban.services.trace_policy import NO_TAG, effective_trace_policy
 
 SUPPORTED_PURPOSES = {
     "Manufacture",
+    "Material Transfer",
     "Material Transfer for Manufacture",
     "Material Consumption for Manufacture",
     "Repack",
@@ -114,7 +115,8 @@ def allocate_input_tag(stock_entry, item_row, scan_value, qty,
     line.reservation_ledger = ledger.name
     trace.save(ignore_permissions=True)
     record(
-        "Production Input Tag Reserved",
+        ("Warehouse Transfer Tag Reserved" if _purpose(doc) == "Material Transfer"
+         else "Production Input Tag Reserved"),
         cycle=doc.get("cfg_kanban_cycle"),
         handling_unit=unit.name,
         qty=qty,
@@ -239,7 +241,7 @@ def cancel_trace_line(stock_entry, trace_line, operator_session_token=None,
     line.status = "Cancelled"
     trace.save(ignore_permissions=True)
     record(
-        "Production Material Trace Line Cancelled",
+        "Material Trace Line Cancelled",
         cycle=doc.get("cfg_kanban_cycle"),
         handling_unit=line.handling_unit,
         qty=line.qty,
@@ -261,6 +263,8 @@ def abandon_draft_trace(stock_entry, reason, operator_session_token=None,
     operator_actor = _authorize_trace_access(
         doc, "write", operator_session_token=operator_session_token, kanban_card=kanban_card
     )
+    if operator_actor and not cint(operator_actor[0].get("can_override")):
+        frappe.throw("Operator override permission is required to abandon an entire Draft trace")
     _assert_editable(doc)
     trace = _get_trace(doc.name)
     if not trace or trace.status != "Draft":
@@ -292,7 +296,7 @@ def abandon_draft_trace(stock_entry, reason, operator_session_token=None,
     trace.stock_entry = None
     trace.save(ignore_permissions=True)
     record(
-        "Draft Production Material Trace Abandoned",
+        "Draft Material Trace Abandoned",
         cycle=doc.get("cfg_kanban_cycle"),
         reference_doctype="CFG Kanban Material Trace",
         reference_name=trace.name,
@@ -389,7 +393,7 @@ def confirm_stock_entry_trace(doc):
                     destination_warehouse=row.t_warehouse,
                     reference_doctype="Stock Entry",
                     reference_name=doc.name,
-                    reason="ERP material transfer for manufacture submitted",
+                    reason=f"ERP {_purpose(doc)} submitted",
                 )
                 frappe.db.set_value(
                     "CFG Kanban Handling Unit", line.handling_unit,
@@ -430,7 +434,8 @@ def confirm_stock_entry_trace(doc):
     trace.confirmed_by = frappe.session.user
     trace.save(ignore_permissions=True)
     record(
-        "Production Material Trace Confirmed",
+        ("Warehouse Transfer Trace Confirmed" if _purpose(doc) == "Material Transfer"
+         else "Production Material Trace Confirmed"),
         cycle=doc.get("cfg_kanban_cycle"),
         reference_doctype="Stock Entry",
         reference_name=doc.name,
@@ -526,7 +531,8 @@ def reverse_stock_entry_trace(doc):
     trace.reversed_by = frappe.session.user
     trace.save(ignore_permissions=True)
     record(
-        "Production Material Trace Reversed",
+        ("Warehouse Transfer Trace Reversed" if _purpose(doc) == "Material Transfer"
+         else "Production Material Trace Reversed"),
         cycle=doc.get("cfg_kanban_cycle"),
         reference_doctype="Stock Entry",
         reference_name=doc.name,
@@ -654,7 +660,7 @@ def _purpose(doc):
 
 
 def _is_transfer_purpose(doc):
-    return _purpose(doc) == "Material Transfer for Manufacture"
+    return _purpose(doc) in ("Material Transfer", "Material Transfer for Manufacture")
 
 
 def _is_output_row(doc, row):
@@ -664,8 +670,8 @@ def _is_output_row(doc, row):
 def _assert_supported(doc):
     if _purpose(doc) not in SUPPORTED_PURPOSES:
         frappe.throw(
-            "Material Trace supports Manufacture, Repack, Material Transfer for Manufacture, "
-            "and Material Consumption for Manufacture Stock Entries"
+            "Material Trace supports Manufacture, Repack, Material Transfer, Material Transfer "
+            "for Manufacture, and Material Consumption for Manufacture Stock Entries"
         )
 
 
@@ -691,7 +697,26 @@ def _authorize_trace_access(doc, permission_type, operator_session_token=None,
         return None
 
     if not kanban_card:
-        frappe.throw("Scan a Kanban card before opening Production Material Trace")
+        if _purpose(doc) != "Material Transfer":
+            frappe.throw("Scan a Kanban card before opening Production Material Trace")
+        from cfg_kanban.services.operator_auth import require_operator
+
+        profile, session = require_operator(
+            operator_session_token,
+            action="report_progress" if permission_type == "write" else None,
+        )
+        responsibilities = {
+            row.responsibility for row in profile.responsibilities if row.responsibility
+        }
+        can_view_all = (
+            profile.kanban_role == "Supervisor" and
+            cint(profile.get("view_all_responsibilities"))
+        )
+        if not can_view_all and "Internal Warehouse Transfer" not in responsibilities:
+            frappe.throw(
+                "Operator is not assigned to the Internal Warehouse Transfer responsibility"
+            )
+        return profile, session
     card = frappe.get_doc("CFG Kanban Card", kanban_card)
     if not card.active_cycle:
         frappe.throw("The scanned Kanban card has no active Cycle")

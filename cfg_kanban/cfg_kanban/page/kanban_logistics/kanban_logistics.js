@@ -3,7 +3,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	const session_key = "cfg_kanban_operator_session";
 	const last_manifest_key = "cfg_kanban_last_manifest";
 	const state = { token: localStorage.getItem(session_key), operator: null, routes: [],
-		manifests: [], recent_manifests: [], manifest: null, lookup: null, scan_mode: "lookup" };
+		manifests: [], recent_manifests: [], internal_transfers: [], manifest: null,
+		lookup: null, scan_mode: "lookup" };
 	const $sticky = $("<div class='cfg-logistics-sticky'></div>").appendTo(page.main);
 	const $scanner = $(`<div class="frappe-card cfg-logistics-scanner">
 		<div class="cfg-logistics-scanner-head"><div><strong>${__("Logistics Scanner")}</strong>
@@ -50,6 +51,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			state.routes = response.message.routes || [];
 			state.manifests = response.message.manifests || [];
 			state.recent_manifests = response.message.recent_manifests || [];
+			state.internal_transfers = response.message.internal_transfers || [];
 			state.scan_mode = "lookup";
 			render_identity();
 			const last_manifest = state.manifest?.name || state.manifest || localStorage.getItem(last_manifest_key);
@@ -74,6 +76,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.routes = [];
 		state.manifests = [];
 		state.recent_manifests = [];
+		state.internal_transfers = [];
 		state.manifest = null;
 		state.lookup = null;
 		state.scan_mode = "lookup";
@@ -197,9 +200,147 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			`<button class="frappe-card cfg-logistics-list-row recent-manifest-row" data-name="${e(m.name)}"><div><strong>${e(m.name)}</strong><small>${e(m.logistics_route)} · ${e(display_datetime(m.modified))}</small></div>
 			<div><span class="indicator-pill ${state_colour(m.state)}">${e(m.state)}</span><small>${format_number(m.total_quantity)} ${__("total quantity")}</small></div></button>`).join("") ||
 			`<div class="text-muted p-3">${__("No recently completed Manifests")}</div>`;
-		$list.html(`<section class="cfg-logistics-open-list"><h3>${__("Open Movement Manifests")}</h3>${open_rows}</section>
+		const transfer_rows = state.internal_transfers.map((row) => {
+			const from = (row.source_warehouses || []).join(", ") || "-";
+			const to = (row.destination_warehouses || []).join(", ") || "-";
+			const trace_colour = row.trace_status === "Confirmed" ? "green" :
+				row.trace_status === "Draft" ? "orange" : "grey";
+			return `<button class="frappe-card cfg-logistics-list-row internal-transfer-row" data-name="${e(row.name)}">
+				<div><strong>${e(row.name)}</strong><small>${e(row.company)} · ${e(from)} → ${e(to)}</small></div>
+				<div><span class="indicator-pill ${row.docstatus === 1 ? "green" : "orange"}">${e(row.erp_status)}</span>
+				<span class="indicator-pill ${trace_colour}">${e(row.trace_status)}</span>
+				<small>${e(row.item_count)} ${__("rows")} · ${format_number(row.total_quantity)} ${__("total quantity")}</small></div>
+			</button>`;
+		}).join("") || `<div class="text-muted p-4">${__("No Material Transfer Stock Entries are available, or this operator lacks Internal Warehouse Transfer responsibility.")}</div>`;
+		$list.html(`<section class="cfg-internal-transfer-list mb-4"><h3>${__("Same-Company Tagged Warehouse Transfers")}</h3>
+			<p class="text-muted">${__("A Stock/Manufacturing user prepares the Draft ERPNext Material Transfer. Scan its physical tags here; ERPNext submission confirms the Warehouse movement.")}</p>${transfer_rows}</section>
+			<section class="cfg-logistics-open-list"><h3>${__("Open Movement Manifests")}</h3>${open_rows}</section>
 			<details class="cfg-logistics-recent mt-4"><summary><strong>${__("Recently Completed")}</strong> <span class="text-muted">${__("Latest 10")}</span></summary><div class="mt-3">${recent_rows}</div></details>`);
 		$list.find(".cfg-logistics-list-row").on("click", function () { open_manifest($(this).data("name")); });
+		$list.find(".internal-transfer-row").off("click").on("click", function () {
+			internal_transfer_dialog($(this).data("name"));
+		});
+	}
+
+	async function internal_transfer_dialog(stock_entry) {
+		let plan = await load_internal_transfer_plan(stock_entry);
+		let dialog;
+		const reload = async () => {
+			plan = await load_internal_transfer_plan(stock_entry);
+			await refresh_internal_transfer_dialog(dialog, plan, reload);
+		};
+		dialog = new frappe.ui.Dialog({
+			title: __("Tagged Warehouse Transfer: {0}", [stock_entry]), size: "extra-large",
+			fields: [
+				{ fieldname: "summary", fieldtype: "HTML" },
+				{ fieldname: "input_section", label: __("Scan Physical Stock Tags"), fieldtype: "Section Break" },
+				{ fieldname: "input_row", label: __("ERP Transfer Row"), fieldtype: "Select" },
+				{ fieldname: "input_scan", label: __("Handling Unit Tag"), fieldtype: "Data",
+					description: __("Scan the active tag in the ERP source Warehouse. The entire physical Handling Unit moves together.") },
+				{ fieldname: "camera_scan", label: __("Scan Tag with Camera"), fieldtype: "Button",
+					click: () => camera_value((value) => {
+						dialog.set_value("input_scan", value);
+						dialog.get_field("allocate_input").$input.trigger("click");
+					}) },
+				{ fieldname: "input_qty", label: __("Stock Quantity (0 = complete tag)"), fieldtype: "Float", default: 0,
+					description: __("A general Warehouse transfer cannot split one physical tag across two locations.") },
+				{ fieldname: "allocate_input", label: __("Add Tag to Transfer"), fieldtype: "Button",
+					click: async () => {
+						await frappe.call({ method: "cfg_kanban.services.production_trace.allocate_input_tag", args: {
+							stock_entry, item_row: transfer_row_name(dialog.get_value("input_row")),
+							scan_value: dialog.get_value("input_scan"), qty: dialog.get_value("input_qty") || 0,
+							operator_session_token: state.token,
+						}, freeze: true, freeze_message: __("Reserving tag for Warehouse transfer...") });
+						frappe.show_alert({ message: __("Tag reserved for this Material Transfer"), indicator: "green" });
+						await dialog.set_value("input_scan", "");
+						await reload();
+					} },
+				{ fieldname: "line_section", label: __("Transfer Trace Lines"), fieldtype: "Section Break" },
+				{ fieldname: "lines", fieldtype: "HTML" },
+			],
+		});
+		dialog.onhide = async () => { await refresh_list(); focus_scanner(); };
+		dialog.show();
+		await refresh_internal_transfer_dialog(dialog, plan, reload);
+	}
+
+	async function load_internal_transfer_plan(stock_entry) {
+		const response = await frappe.call({
+			method: "cfg_kanban.services.production_trace.get_stock_entry_trace_plan",
+			args: { stock_entry, operator_session_token: state.token },
+		});
+		return response.message;
+	}
+
+	async function refresh_internal_transfer_dialog(dialog, plan, reload) {
+		const rows = (plan.rows || []).filter((row) => row.direction === "Input" &&
+			row.tagging_available && row.remaining_qty > 0.000001);
+		const options = rows.map(transfer_row_option);
+		dialog.set_df_property("input_row", "options", options.join("\n"));
+		dialog.fields_dict.summary.$wrapper.html(internal_transfer_summary(plan));
+		dialog.fields_dict.lines.$wrapper.html(internal_transfer_lines(plan));
+		const editable = plan.can_edit && options.length;
+		["input_section", "input_row", "input_scan", "camera_scan", "input_qty", "allocate_input"]
+			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(editable)));
+		if (editable) {
+			const selected = options.includes(dialog.get_value("input_row")) ?
+				dialog.get_value("input_row") : options[0];
+			await dialog.set_value("input_row", selected);
+			const field = dialog.get_field("input_scan");
+			field.$input.off("keydown.cfg_internal_transfer").on("keydown.cfg_internal_transfer", (event) => {
+				if (event.key !== "Enter" && event.key !== "Tab") return;
+				event.preventDefault();
+				dialog.get_field("allocate_input").$input.trigger("click");
+			});
+			window.setTimeout(() => field.set_focus(), 80);
+		}
+		dialog.fields_dict.lines.$wrapper.find("[data-cancel-transfer-line]").off("click").on("click", async (event) => {
+			await frappe.call({ method: "cfg_kanban.services.production_trace.cancel_trace_line", args: {
+				stock_entry: plan.stock_entry, trace_line: event.currentTarget.dataset.cancelTransferLine,
+				operator_session_token: state.token,
+			}, freeze: true, freeze_message: __("Releasing transfer reservation...") });
+			await reload();
+		});
+	}
+
+	function transfer_row_option(row) {
+		return `${row.row_name} :: ${row.item_code} :: ${row.remaining_qty} ${row.stock_uom} :: ${row.warehouse}`;
+	}
+
+	function transfer_row_name(value) {
+		return String(value || "").split(" :: ")[0];
+	}
+
+	function internal_transfer_summary(plan) {
+		const e = frappe.utils.escape_html;
+		const rows = (plan.rows || []).map((row) => `<tr><td>${e(row.item_code)}</td>
+			<td>${e(row.batch_no || "-")}</td><td>${e(row.warehouse || "-")}</td><td>${e(row.tag_policy)}</td>
+			<td>${e(row.traced_qty)} / ${e(row.stock_qty)} ${e(row.stock_uom)}</td></tr>`).join("");
+		return `<div class="alert alert-info"><strong>${e(plan.stock_entry)}</strong> · ${e(plan.company)} · ${e(plan.purpose)}
+			<a class="btn btn-default btn-xs ml-2" href="/app/stock-entry/${encodeURIComponent(plan.stock_entry)}">${__("Open ERP Stock Entry")}</a><br>
+			${__("Material Trace")}: ${e(plan.trace || __("Not created"))} · ${e(plan.trace_status)}</div>
+			<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>
+			<th>${__("Item")}</th><th>${__("Batch")}</th><th>${__("Source Warehouse")}</th><th>${__("Tag Policy")}</th>
+			<th>${__("Traced / ERP Qty")}</th></tr></thead><tbody>${rows}</tbody></table></div>
+			<p class="text-muted">${__("No Physical Tag rows need no scan. Submit the ERPNext Stock Entry to confirm the same-company Warehouse movement.")}</p>`;
+	}
+
+	function internal_transfer_lines(plan) {
+		if (!(plan.lines || []).length) return `<p class="text-muted">${__("No tagged Handling Units reserved yet.")}</p>`;
+		const e = frappe.utils.escape_html;
+		const rows = plan.lines.map((line) => `<tr><td>${e(line.item_code)}</td><td>${e(line.handling_unit || "-")}</td>
+			<td>${e(line.qty)} ${e(line.stock_uom)}</td><td>${e(line.status)}</td><td>${line.can_cancel ?
+				`<button class="btn btn-xs btn-danger" data-cancel-transfer-line="${e(line.name)}">${__("Remove")}</button>` : ""}</td></tr>`).join("");
+		return `<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>
+			<th>${__("Item")}</th><th>${__("Tag")}</th><th>${__("Quantity")}</th><th>${__("Status")}</th><th></th>
+			</tr></thead><tbody>${rows}</tbody></table></div>`;
+	}
+
+	function camera_value(callback) {
+		if (!(frappe.ui && frappe.ui.Scanner)) return frappe.msgprint(__("Camera scanning is unavailable. Use the scanner field."));
+		new frappe.ui.Scanner({ dialog: true, multiple: false, on_scan(data) {
+			callback(String(data.decodedText || "").trim());
+		} });
 	}
 
 	function render_lookup() {
@@ -459,6 +600,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			args: { operator_session_token: state.token } });
 		state.routes = response.message.routes || []; state.manifests = response.message.manifests || [];
 		state.recent_manifests = response.message.recent_manifests || [];
+		state.internal_transfers = response.message.internal_transfers || [];
 		render_list();
 	}
 
@@ -505,7 +647,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const stored_token = localStorage.getItem(session_key);
 		if (!expected_token || stored_token === expected_token) localStorage.removeItem(session_key);
 		state.token = null; state.operator = null;
-		state.routes = []; state.manifests = []; state.recent_manifests = [];
+		state.routes = []; state.manifests = []; state.recent_manifests = []; state.internal_transfers = [];
 		state.manifest = null; state.lookup = null; state.scan_mode = "lookup";
 	}
 

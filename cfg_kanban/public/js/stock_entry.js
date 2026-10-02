@@ -1,5 +1,6 @@
 const CFG_TRACE_PURPOSES = [
 	"Manufacture",
+	"Material Transfer",
 	"Material Transfer for Manufacture",
 	"Material Consumption for Manufacture",
 	"Repack",
@@ -9,7 +10,9 @@ frappe.ui.form.on("Stock Entry", {
 	refresh(frm) {
 		const purpose = frm.doc.purpose || frm.doc.stock_entry_type;
 		if (frm.is_new() || !CFG_TRACE_PURPOSES.includes(purpose) || frm.doc.docstatus > 1) return;
-		frm.add_custom_button(__("Production Material Trace"), () => production_trace_dialog(frm),
+		const label = purpose === "Material Transfer" ? __("Handling Unit Transfer Trace") :
+			__("Production Material Trace");
+		frm.add_custom_button(label, () => production_trace_dialog(frm),
 			__("CFG Kanban"));
 	},
 });
@@ -18,7 +21,8 @@ async function production_trace_dialog(frm) {
 	let plan = await load_production_trace_plan(frm.doc.name);
 	let dialog;
 	dialog = new frappe.ui.Dialog({
-		title: __("Production Material Trace"),
+		title: plan.purpose === "Material Transfer" ? __("Handling Unit Transfer Trace") :
+			__("Production Material Trace"),
 		size: "extra-large",
 		fields: [
 			{ fieldname: "summary", fieldtype: "HTML" },

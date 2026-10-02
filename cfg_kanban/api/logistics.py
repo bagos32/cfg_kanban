@@ -23,6 +23,7 @@ MANIFEST_LIST_FIELDS = [
     "total_received_quantity", "dispatch_delivery_note", "receipt_purchase_receipt",
     "modified",
 ]
+INTERNAL_TRANSFER_RESPONSIBILITY = "Internal Warehouse Transfer"
 
 
 @frappe.whitelist()
@@ -112,7 +113,8 @@ def get_logistics_console(operator_session_token):
         limit=10,
     )
     return {"operator": _operator_summary(profile, session), "routes": routes,
-            "manifests": manifests, "recent_manifests": recent_manifests}
+            "manifests": manifests, "recent_manifests": recent_manifests,
+            "internal_transfers": _internal_transfer_summaries(profile)}
 
 
 @frappe.whitelist()
@@ -697,6 +699,58 @@ def _price_list_rate(price_list, item_code, uom, batch_no, mode, party):
             f"Batch {batch_no or '-'}"
         )
     return flt(valid[0].price_list_rate)
+
+
+def _internal_transfer_summaries(profile):
+    responsibilities = _responsibilities(profile)
+    if not _can_view_all(profile) and INTERNAL_TRANSFER_RESPONSIBILITY not in responsibilities:
+        return []
+    fields = ["name", "company", "purpose", "docstatus", "posting_date", "posting_time",
+              "modified"]
+    drafts = frappe.get_all(
+        "Stock Entry", filters={"purpose": "Material Transfer", "docstatus": 0},
+        fields=fields, order_by="modified desc", limit_page_length=50,
+    )
+    submitted = frappe.get_all(
+        "Stock Entry", filters={"purpose": "Material Transfer", "docstatus": 1},
+        fields=fields, order_by="modified desc", limit_page_length=10,
+    )
+    rows = drafts + submitted
+    if not rows:
+        return []
+    names = [row.name for row in rows]
+    details = frappe.get_all(
+        "Stock Entry Detail", filters={"parent": ["in", names]},
+        fields=["parent", "item_code", "s_warehouse", "t_warehouse", "transfer_qty",
+                "stock_uom"],
+        order_by="parent asc, idx asc", limit_page_length=0,
+    )
+    details_by_parent = {}
+    for detail in details:
+        details_by_parent.setdefault(detail.parent, []).append(detail)
+    traces = frappe.get_all(
+        "CFG Kanban Material Trace", filters={"stock_entry": ["in", names]},
+        fields=["name", "stock_entry", "status"], limit_page_length=0,
+    )
+    trace_by_entry = {trace.stock_entry: trace for trace in traces}
+    for row in rows:
+        item_rows = details_by_parent.get(row.name, [])
+        sources = list(dict.fromkeys(
+            detail.s_warehouse for detail in item_rows if detail.s_warehouse
+        ))
+        destinations = list(dict.fromkeys(
+            detail.t_warehouse for detail in item_rows if detail.t_warehouse
+        ))
+        trace = trace_by_entry.get(row.name)
+        row["source_warehouses"] = sources
+        row["destination_warehouses"] = destinations
+        row["item_count"] = len(item_rows)
+        row["total_quantity"] = sum(flt(detail.transfer_qty) for detail in item_rows)
+        row["erp_status"] = "Draft" if row.docstatus == 0 else "Submitted"
+        row["trace"] = trace.name if trace else None
+        row["trace_status"] = trace.status if trace else "Not Started"
+        row["can_scan"] = row.docstatus == 0
+    return rows
 
 
 def _require_route_responsibility(profile, responsibility, action):

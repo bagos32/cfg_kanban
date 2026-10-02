@@ -28,6 +28,9 @@ def _ensure_responsibilities():
         "Logistics Dispatch": "Confirm approved stock dispatches.",
         "Logistics Receipt": "Confirm approved stock receipts.",
         "Vehicle Loading": "Load and unload company-specific vehicle warehouses.",
+        "Internal Warehouse Transfer": (
+            "Scan tagged stock against a same-company ERPNext Material Transfer."
+        ),
         "Customer Delivery": "Deliver stock to an identified Customer Site.",
         "Customer Invoice Trigger": "Trigger locked-price customer invoicing.",
         "Logistics Supervisor": "Approve logistics exceptions and controlled overrides.",

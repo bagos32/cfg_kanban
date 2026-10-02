@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.18
+**Guide version:** 1.19
 
 **Updated:** 3 October 2026
 
@@ -942,8 +942,8 @@ A later controlled pending-tag workflow will add enforcement without affecting E
 ### Production input, transfer, consumption, and output tags
 
 The Stock Entry form exposes **CFG Kanban → Production Material Trace** after a supported Stock Entry
-is saved. Supported exact Purpose values are `Manufacture`, `Repack`, `Material Transfer for
-Manufacture`, and `Material Consumption for Manufacture`.
+is saved. Supported exact Purpose values are `Manufacture`, `Repack`, `Material Transfer`,
+`Material Transfer for Manufacture`, and `Material Consumption for Manufacture`.
 
 For a Draft Stock Entry:
 
@@ -1004,6 +1004,32 @@ Stock Entry access:
 The server accepts this route only when the Stock Entry Company and Work Order match the scanned
 Card's active Cycle. Operator authorization, allowed Operation, allowed Workstation, and session
 expiry are enforced on every write. A submitted trace is view-only in the floor panel.
+
+### Same-company tagged Warehouse transfer
+
+Use this workflow to move tagged stock between two Warehouses belonging to the same Company without
+using an intercompany Movement Manifest:
+
+1. Create and save an ERPNext Stock Entry with Purpose exactly **Material Transfer**. Select the
+   Company and complete each row's source Warehouse, destination Warehouse, Item, Batch where
+   applicable, Stock UOM, and quantity. Leave it Draft.
+2. Assign the operator the Kanban Responsibility **Internal Warehouse Transfer** in **CFG Kanban
+   Operator Profile → Responsible Roles**. A Supervisor with **View All Service Tasks** can also
+   access this assistant.
+3. Open `/app/kanban-logistics`, identify the operator, and find the Draft under **Same-Company
+   Tagged Warehouse Transfers**.
+4. Select the entry and choose the matching ERP transfer row. Scan the active Handling Unit with the
+   fixed scanner or **Scan Tag with Camera**. Quantity zero means the complete physical tag.
+5. Repeat for all tagged rows. Rows whose policy is **No Physical Tag** require no Kanban scan.
+6. A Stock/Manufacturing user reviews and submits the ERPNext Stock Entry. Submission changes the
+   authoritative ERP stock location and confirms the Material Trace; the Handling Unit then shows
+   the destination Warehouse.
+
+One tag cannot be split across two Warehouses. If only part of the physical container moves,
+activate a detachable child tag for that physical portion before allocation. The logistics operator
+cannot submit the Stock Entry. Removing a Draft trace line releases its reservation. Cancelling a
+submitted untouched transfer reverses the tag location; later movement or reservations block unsafe
+reversal.
 
 ## 12. Scanner-first floor operation
 
@@ -1381,10 +1407,9 @@ The following are not complete in the current build:
 - Full Start/Complete dynamic-field capture and arbitrary Job Card field mapping.
 - Automated email alerts and complete command retry orchestration.
 - Supplier Kanban and Sales Order fulfillment allocation beyond the implemented demand controls.
-- A guided general same-company tagged Warehouse-transfer assistant, mixed reusable-container
-  genealogy, richer per-serial evidence, and the scan-any-tag genealogy explorer. Purchase Receipt
-  activation, Stock Entry-confirmed production tracing, and scoped scanner-first floor access to
-  production traces are implemented.
+- Mixed reusable-container genealogy, richer per-serial evidence, and the scan-any-tag genealogy
+  explorer. Purchase Receipt activation, Stock Entry-confirmed production tracing, scoped
+  scanner-first floor access, and same-company tagged Warehouse transfers are implemented.
 
 This file is the maintained manual source. Update its version, date, affected sections, and revision
 history whenever a user-visible workflow changes.
@@ -1844,6 +1869,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.19 | 3 October 2026 | Added the Logistics-panel same-company tagged Warehouse-transfer assistant backed by Draft/Submitted ERPNext Material Transfer Stock Entries, Internal Warehouse Transfer responsibility, full-tag movement enforcement, and ERP-confirmed Warehouse updates |
 | 1.18 | 3 October 2026 | Added scoped Operator-panel production material tracing for Stock Entries tied to the scanned Card's active Cycle Work Order, including fixed-scanner Enter handling, mobile camera scan buttons, automatic input-tag quantity, and submitted trace visibility |
 | 1.17 | 2 October 2026 | Added Stock Entry-confirmed production trace transactions, tagged input reservation/transfer/consumption, staged preprinted output activation, cancellation reversal guards, ERP-only coexistence, and ERPNext v15 Batch Bundle resolution |
 | 1.16 | 2 October 2026 | Added optional Item/Company mixed material-trace policies, ERP-only fallback, submitted Purchase Receipt tag activation, immutable ERP-origin references, and explicit first-slice limitations |
