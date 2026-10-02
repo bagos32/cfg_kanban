@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.13
+**Guide version:** 1.14
 
 **Updated:** 2 October 2026
 
@@ -126,12 +126,15 @@ Warehouse, or Safety in **CFG Kanban Responsibility**. Add one or more to the Op
 An occurrence assigned directly to the Employee remains visible. Blank-responsibility tasks remain
 generally available within workstation scope. A Supervisor can be scoped to several responsibilities
 or enable **View All Service Tasks** (`view_all_responsibilities`). When it is unticked, the
-Supervisor sees their own assigned tasks, eligible unassigned tasks, and Awaiting Verification work
-that they are authorized to verify; they do not see another Employee's ordinary assigned work. When
-enabled, the Supervisor can also see work assigned to other Employees and work across all Kanban
-Responsibilities. For backward compatibility, an Operator Profile with an empty Responsible Roles
-table remains unrestricted for unassigned tasks until responsibilities are deliberately assigned;
-it does not grant access to another Employee's assigned work.
+Supervisor sees their own assigned tasks, eligible unassigned tasks, Awaiting Verification work
+that they are authorized to verify, and matching active work started by an Operator or Senior
+Operator. The latter is marked **Monitor only**: the Supervisor can see its live status and progress
+history but cannot report, complete, cancel, bypass, or take over that task. Work assigned to another
+Supervisor remains hidden. When **View All Service Tasks** is enabled, the Supervisor can also
+control work assigned to other Employees and work across all Kanban Responsibilities. For backward
+compatibility, an Operator Profile with an empty Responsible Roles table remains unrestricted for
+unassigned tasks until responsibilities are deliberately assigned; it does not grant control over
+another Employee's assigned work.
 
 ERPNext permissions still apply. A Kanban role does not automatically grant permission to Items,
 BOMs, Work Orders, Job Cards, Stock Entries, Warehouses, or Batches.
@@ -451,12 +454,15 @@ and Bypassed occurrences. If the Operator Profile has Allowed Workstations, only
 Workstations are returned; a task with no Workstation remains eligible because it is not
 workstation-specific. Responsibility, assignment, and Workstation access are applied before the
 panel's 200-task display limit, so other teams' tasks cannot displace an operator's eligible work.
-Every operator sees their own assigned tasks plus eligible unassigned tasks. A Supervisor sees
-another Employee's assigned work only when **View All Service Tasks** is
-enabled, or when the task is Awaiting Verification and the Supervisor is authorized to verify it.
-Starting an unassigned task assigns it to the starting Employee. Ordinary assigned work cannot be
-started, progressed, completed, cancelled, or bypassed by another operator without the controlled
-Supervisor setting.
+Every operator sees their own assigned tasks plus eligible unassigned tasks. A Supervisor also sees
+matching active tasks started by an Operator or Senior Operator as **Monitor only**, even when
+**View All Service Tasks** is unticked. Matching means the task passes both the Supervisor's
+Responsible Roles and Allowed Workstations. Monitor-only access exposes status and recorded
+progress but no operational action buttons. Another Supervisor's assigned task remains hidden.
+**View All Service Tasks** grants controlled operation of other Employees' tasks, while Awaiting
+Verification remains available to a Supervisor authorized to verify it. Starting an unassigned task
+assigns it to the starting Employee. Ordinary assigned work cannot be started, progressed,
+completed, cancelled, or bypassed by another operator without the controlled Supervisor setting.
 
 The Service Tasks page is optimized for phones and tablets rather than a fixed barcode terminal.
 Both operator pages contain a prominent panel switch: **Open Service Task Panel** on the Production
@@ -467,9 +473,9 @@ The scanner and active-operator identity form a sticky header and remain visible
 scrolls. Immediately below it, **Active Work** contains tasks already started and assigned to that
 Employee. Starting a task reloads the panel, moves the task from **Ready / Open Tasks** into Active
 Work, and scrolls to that section. Active tasks are ordered with the most recently updated first.
-A Supervisor sees authorized verification work—and, when **View All Service Tasks** is enabled,
-tasks assigned to other Employees—separately under **Supervisor Attention**. They are not mixed into
-the Supervisor's own active work.
+A Supervisor sees monitor-only active operator work, authorized verification work, and—when
+**View All Service Tasks** is enabled—other controllable assigned work separately under
+**Supervisor Attention**. They are not mixed into the Supervisor's own active work.
 The three behavioral sections use consistent visual meaning: a green-tinted block for Active Work,
 a blue-tinted block for Ready / Open Tasks, and an amber-tinted block for Supervisor Attention.
 Each individual task card repeats that contrast with a matching border, surface tint, and an
@@ -1728,6 +1734,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.14 | 2 October 2026 | Added scoped Supervisor monitoring of matching active Operator/Senior Operator Service Tasks, including live progress visibility, while preserving action isolation unless View All Service Tasks is enabled |
 | 1.13 | 2 October 2026 | Corrected Service Task eligibility ordering so responsibility/employee/Workstation access is applied before the 200-row display limit, and blank-Workstation tasks remain visible to eligible profiles |
 | 1.12 | 2 October 2026 | Corrected Dynamic Form interaction refresh so Check and Select controls remain clickable while dependent visibility still updates after each completed value change |
 | 1.11 | 2 October 2026 | Implemented reactive Dynamic Form Visible Conditions in Service, Process Task, and production-operation dialogs; added safe syntax validation and server-side exclusion of hidden mandatory fields/evidence |

@@ -10,6 +10,7 @@ from cfg_kanban.services.task_access import (
     assert_responsibility,
     assert_service_task_access,
     can_access_service_task,
+    can_view_service_task,
     can_view_all_service_tasks,
     responsibility_names,
 )
@@ -29,7 +30,21 @@ def get_open_tasks(operator_session_token=None):
                 "verified_by", "verified_on", "modified"],
         order_by="priority desc, due_on asc, creation asc", limit_page_length=0,
     )
-    return [row for row in rows if can_access_service_task(row, profile)][:200]
+    assigned_employees = {row.assigned_employee for row in rows if row.assigned_employee}
+    assigned_roles = {
+        row.employee: row.kanban_role for row in frappe.get_all(
+            "CFG Kanban Operator Profile",
+            filters={"employee": ["in", list(assigned_employees)], "active": 1},
+            fields=["employee", "kanban_role"],
+        )
+    } if assigned_employees else {}
+    visible = []
+    for row in rows:
+        row["can_operate"] = can_access_service_task(row, profile)
+        row["monitor_only"] = not row.can_operate
+        if can_view_service_task(row, profile, assigned_roles.get(row.assigned_employee)):
+            visible.append(row)
+    return visible[:200]
 
 
 @frappe.whitelist()
@@ -100,7 +115,8 @@ def get_task_form(task_name, capture_on="Complete", operator_session_token=None)
 def get_task_progress(task_name, operator_session_token=None):
     task = frappe.get_doc("CFG Kanban Task", task_name)
     profile, _session = require_operator(operator_session_token, workstation=task.workstation)
-    assert_service_task_access(task, profile)
+    if not can_view_service_task(task, profile):
+        assert_service_task_access(task, profile)
     rows = [row.as_dict() for row in task.execution_values if row.capture_on == "Progress"]
     rows.sort(key=lambda row: str(row.get("captured_on") or ""), reverse=True)
     events = frappe.get_all(

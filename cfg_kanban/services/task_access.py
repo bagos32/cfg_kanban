@@ -46,6 +46,28 @@ def can_access_service_task(task, profile):
     )
 
 
+def can_view_service_task(task, profile, assigned_operator_role=None):
+    """Permit scoped monitoring without granting control of another operator's task."""
+    if can_access_service_task(task, profile):
+        return True
+    if (
+        profile.kanban_role not in ("Supervisor", "Development Proxy")
+        or not task.assigned_employee
+        or not task.started_on
+        or task.status not in ("In Progress", "Overdue", "Correction Required")
+        or not workstation_allowed(task.workstation, profile)
+        or not responsibility_allowed(task.responsible_role, profile)
+    ):
+        return False
+    if assigned_operator_role is None:
+        assigned_operator_role = frappe.db.get_value(
+            "CFG Kanban Operator Profile",
+            {"employee": task.assigned_employee, "active": 1},
+            "kanban_role",
+        )
+    return assigned_operator_role in ("Operator", "Senior Operator")
+
+
 def assert_service_task_access(task, profile):
     if can_access_service_task(task, profile):
         return

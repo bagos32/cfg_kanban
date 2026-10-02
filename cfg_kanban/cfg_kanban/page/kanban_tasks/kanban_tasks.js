@@ -320,7 +320,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		const active = tasks.filter((task) => task.assigned_employee === employee && task.started_on &&
 			active_statuses.includes(task.status)).sort((a, b) => String(b.modified || b.started_on || "")
 				.localeCompare(String(a.modified || a.started_on || "")));
-		const supervisor = tasks.filter((task) => state.operator && state.operator.kanban_role === "Supervisor" &&
+		const supervisor = tasks.filter((task) => state.operator && ["Supervisor", "Development Proxy"].includes(state.operator.kanban_role) &&
 			task.assigned_employee && task.assigned_employee !== employee && !active.includes(task));
 		const ready = tasks.filter((task) => !active.includes(task) && !supervisor.includes(task));
 		render_task_section($active_root, active, __("Active Work"),
@@ -328,7 +328,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		render_task_section($root, ready, __("Ready / Open Tasks"),
 			__("Start a task to move it immediately into Active Work."), "blue", false);
 		if (supervisor.length) render_task_section($root, supervisor, __("Supervisor Attention"),
-			__("Authorized verification work, or other employees' work when View All Service Tasks is enabled."), "orange", false);
+			__("Monitor active operator work, verify submitted tasks, or control other assigned work when View All Service Tasks is enabled."), "orange", false);
 		if (!tasks.length) {
 			$root.append(`<div class="frappe-card text-center p-5"><h4>${__("No open service tasks")}</h4>
 				<p class="text-muted">${__("A Senior Operator or Supervisor can select Create Task. Scheduled tasks appear automatically when due.")}</p></div>`);
@@ -352,7 +352,8 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			const e = frappe.utils.escape_html;
 			const $row = $(`<div class="frappe-card cfg-service-task-card ${priority_class(task.priority)} ${active_section ? "is-active" : ""}">
 				<div class="cfg-service-task-head"><div><h4><span class="cfg-task-state-chip">${chip_label}</span>${e(task.task_name)}</h4><small>${e(task.task_category)} · ${e(task.trigger_type)}</small></div>
-				<div class="text-right"><span class="indicator-pill ${indicator(task.status)}">${e(task.status)}</span><div class="cfg-priority">${e(task.priority)}</div></div></div>
+				<div class="text-right"><span class="indicator-pill ${indicator(task.status)}">${e(task.status)}</span>
+				${task.monitor_only ? `<span class="indicator-pill gray ml-1">${__("Monitor only")}</span>` : ""}<div class="cfg-priority">${e(task.priority)}</div></div></div>
 				<div class="cfg-service-task-meta">
 					${task.responsible_role ? `<div><small>${__("Responsible Role")}</small><strong>${e(task.responsible_role)}</strong></div>` : ""}
 					${task.assigned_employee ? `<div><small>${__("Assigned Employee")}</small><strong>${e(task.assigned_employee)}</strong></div>` : ""}
@@ -371,11 +372,11 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				<div class="actions cfg-service-task-actions"></div></div>`).appendTo($section);
 			const $actions = $row.find(".actions");
 			if (task.progress_count) button($actions, __("View Progress"), "btn-default", () => progress_history_dialog(task));
-			if (["Planned", "Due", "Assigned", "Overdue"].includes(task.status)) button($actions, __("Start"), "btn-primary", () => task_dialog(task, "Start"));
-			if (task.started_on && ["In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, __("Report Progress"), "btn-info", () => task_dialog(task, "Progress"));
-			if (["Due", "Assigned", "In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, task.status === "Correction Required" ? __("Correct and Resubmit") : __("Complete"), "btn-success", () => task_dialog(task, "Complete"));
-			if (task.status === "Awaiting Verification") button($actions, __("Verify"), "btn-warning", () => task_dialog(task, "Verify"));
-			if (state.operator && state.operator.permissions.task_verify && !["Completed", "Cancelled", "Bypassed"].includes(task.status)) {
+			if (task.can_operate && ["Planned", "Due", "Assigned", "Overdue"].includes(task.status)) button($actions, __("Start"), "btn-primary", () => task_dialog(task, "Start"));
+			if (task.can_operate && task.started_on && ["In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, __("Report Progress"), "btn-info", () => task_dialog(task, "Progress"));
+			if (task.can_operate && ["Due", "Assigned", "In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, task.status === "Correction Required" ? __("Correct and Resubmit") : __("Complete"), "btn-success", () => task_dialog(task, "Complete"));
+			if (task.can_operate && task.status === "Awaiting Verification") button($actions, __("Verify"), "btn-warning", () => task_dialog(task, "Verify"));
+			if (task.can_operate && state.operator && state.operator.permissions.task_verify && !["Completed", "Cancelled", "Bypassed"].includes(task.status)) {
 				button($actions, __("Cancel / Bypass"), "btn-default", () => disposition_dialog(task));
 			}
 		});
