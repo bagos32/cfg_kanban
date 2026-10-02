@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.10
+**Guide version:** 1.11
 
 **Updated:** 2 October 2026
 
@@ -1335,6 +1335,24 @@ Conditional Release.
 (`validation_message`). Generic arbitrary Job Card field mapping is not implemented; the two mapping
 fields are metadata for a controlled future mapping.
 
+**Visible Condition** is a safe dependency expression referring to another **Field Key** in the
+same task/operation scope and the same Capture On stage. Supported forms are:
+
+| Condition | Result |
+|---|---|
+| `damage_found` | Visible when `damage_found` is checked/truthy |
+| `damage_found == 1` | Visible when the Check field is checked |
+| `damage_found == Yes` | Same Check-field test in human-readable form |
+| `result == Fail` | Visible when a Select/Data field exactly equals `Fail` |
+| `result != Pass` | Visible when the value is not `Pass` |
+| `eval:doc.damage_found == 1` | Accepted compatibility form; behaves like `damage_found == 1` |
+
+Do not enter arbitrary JavaScript. When a condition evaluates false, the field is hidden, its
+Mandatory flag is disabled for that action, and it is excluded from submitted evidence. The form
+reacts immediately when the controlling value changes. Unknown Field Keys, cross-stage references,
+self-references, dependency cycles, and unsupported expressions are rejected when the Schedule or
+Master is saved.
+
 ### Sales-demand fields added to CFG Kanban Master
 
 These are Custom Fields installed by the app and therefore do not appear in the base Master JSON:
@@ -1707,6 +1725,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.11 | 2 October 2026 | Implemented reactive Dynamic Form Visible Conditions in Service, Process Task, and production-operation dialogs; added safe syntax validation and server-side exclusion of hidden mandatory fields/evidence |
 | 1.10 | 2 October 2026 | Required source Company/Warehouse on new Stock Tags, added controlled initial-Warehouse recovery for legacy blank tags, documented Manifest destination timing, and improved Operator Profile names and workstation/operation grids |
 | 1.9 | 2 October 2026 | Corrected Service Task isolation: an unticked Supervisor no longer sees or operates another Employee's ordinary assigned work; direct APIs, media, schedule requests, service-point scans, and verification access now apply the same server-side responsibility rules |
 | 1.8 | 2 October 2026 | Added serial Tag Range Registries, read-only candidate resolution, atomic lazy Tag Family/child materialization, range-aware Handling Unit activation and replacement, workspace access, and issuer-versus-inventory ownership guidance |

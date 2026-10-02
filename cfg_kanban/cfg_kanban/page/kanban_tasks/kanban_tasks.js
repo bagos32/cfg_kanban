@@ -454,7 +454,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		const dialog = new frappe.ui.Dialog({ title: __(`${action} Service Task`), fields,
 			primary_action_label: __(action), primary_action: async (values) => {
 				const args = { task_name: task.name, operator_session_token: state.token,
-					values: definitions.map((definition) => ({ field_key: definition.field_key,
+					values: visible_dynamic_definitions(definitions, values).map((definition) => ({ field_key: definition.field_key,
 						value: values[`dynamic_${definition.field_key}`] })), notes: values.notes };
 				if (action === "Complete") args.checklist_results = checklist.map((item, index) => ({ item, completed: values[`check_${index}`] ? 1 : 0 }));
 				await frappe.call({ method: `cfg_kanban.api.task.${method}`, args, freeze: true });
@@ -476,6 +476,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		}
 		dialog.$wrapper.addClass("cfg-service-task-dialog");
 		dialog.show();
+		configure_dynamic_visibility(dialog, definitions);
 		bind_media_evidence(dialog, task, action, existing_media);
 	}
 
@@ -682,6 +683,84 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			fieldtype: types[definition.field_type] || "Data", reqd: Boolean(Number(definition.mandatory)),
 			options: definition.options, default: previous ? previous.value : definition.default_value,
 			read_only: definition.read_only };
+	}
+
+	function configure_dynamic_visibility(dialog, definitions) {
+		if (!definitions.length) return;
+		const refresh = () => {
+			const values = {};
+			definitions.forEach((definition) => {
+				values[`dynamic_${definition.field_key}`] = dialog.get_value(`dynamic_${definition.field_key}`);
+			});
+			const visible = new Set(visible_dynamic_definitions(definitions, values).map((row) => row.field_key));
+			definitions.forEach((definition) => {
+				const fieldname = `dynamic_${definition.field_key}`;
+				const is_visible = visible.has(definition.field_key);
+				dialog.set_df_property(fieldname, "hidden", !is_visible);
+				dialog.set_df_property(fieldname, "reqd", is_visible && Boolean(Number(definition.mandatory)));
+			});
+		};
+		dialog.$wrapper.off(".cfg_visible").on(
+			"change.cfg_visible input.cfg_visible",
+			"[data-fieldname^='dynamic_'] :input",
+			refresh,
+		);
+		refresh();
+	}
+
+	function visible_dynamic_definitions(definitions, dialog_values) {
+		const rows = Object.fromEntries(definitions.map((row) => [row.field_key, row]));
+		const values = Object.fromEntries(definitions.map((row) => [row.field_key,
+			dialog_values[`dynamic_${row.field_key}`] ?? row.default_value]));
+		const memo = {};
+		const visible = (key, trail = []) => {
+			if (Object.prototype.hasOwnProperty.call(memo, key)) return memo[key];
+			if (trail.includes(key)) return false;
+			const parsed = parse_visible_condition(rows[key].visible_condition);
+			if (!parsed) return (memo[key] = true);
+			let actual = values[parsed.field_key];
+			if (rows[parsed.field_key] && !visible(parsed.field_key, [...trail, key])) actual = null;
+			return (memo[key] = evaluate_visible_condition(parsed, actual));
+		};
+		return definitions.filter((row) => visible(row.field_key));
+	}
+
+	function parse_visible_condition(condition) {
+		let expression = String(condition || "").trim();
+		if (!expression) return null;
+		expression = expression.replace(/^eval:\s*/i, "");
+		const match = expression.match(/^(?:doc\.)?([A-Za-z][A-Za-z0-9_]*)(?:\s*(==|!=|=)\s*(.+))?$/);
+		if (!match) return { invalid: true };
+		let field_key = match[1];
+		if (field_key.startsWith("dynamic_")) field_key = field_key.slice(8);
+		return { field_key, operator: match[2] === "=" ? "==" : match[2], expected: parse_condition_value(match[3]) };
+	}
+
+	function parse_condition_value(value) {
+		if (value === undefined) return undefined;
+		const text = String(value).trim(); const lower = text.toLowerCase();
+		if (["true", "yes", "on"].includes(lower)) return true;
+		if (["false", "no", "off"].includes(lower)) return false;
+		if (["none", "null"].includes(lower)) return null;
+		if (/^-?(?:\d+\.?\d*|\.\d+)$/.test(text)) return Number(text);
+		if ((text.startsWith("\"") && text.endsWith("\"")) || (text.startsWith("'") && text.endsWith("'"))) return text.slice(1, -1);
+		return text;
+	}
+
+	function evaluate_visible_condition(parsed, actual) {
+		if (!parsed || parsed.invalid) return false;
+		if (!parsed.operator) return condition_truthy(actual);
+		let equal;
+		if (typeof parsed.expected === "boolean") equal = condition_truthy(actual) === parsed.expected;
+		else if (typeof parsed.expected === "number") equal = Number(actual) === parsed.expected;
+		else if (parsed.expected === null) equal = actual === null || actual === undefined || actual === "";
+		else equal = String(actual ?? "") === String(parsed.expected);
+		return parsed.operator === "==" ? equal : !equal;
+	}
+
+	function condition_truthy(value) {
+		if (value === null || value === undefined || value === false || value === 0) return false;
+		return !["", "0", "false", "no", "off", "none", "null"].includes(String(value).trim().toLowerCase());
 	}
 
 	function button($parent, label, style, action) {

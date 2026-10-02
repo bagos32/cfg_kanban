@@ -20,7 +20,7 @@
   {"fieldname":"map_to_job_card","label":"Map to Job Card","fieldtype":"Check","depends_on":"eval:doc.definition_scope=='Operation'"},
   {"fieldname":"job_card_field","label":"Job Card Field","fieldtype":"Data","depends_on":"eval:doc.definition_scope=='Operation' && doc.map_to_job_card","mandatory_depends_on":"eval:doc.definition_scope=='Operation' && doc.map_to_job_card"},
   {"fieldname":"display_order","label":"Display Order","fieldtype":"Int","default":"10"},
-  {"fieldname":"visible_condition","label":"Visible Condition","fieldtype":"Data"},
+  {"fieldname":"visible_condition","label":"Visible Condition","fieldtype":"Data","description":"Optional dependency on another Field Key in the same capture stage. Examples: damage_found; damage_found == 1; result == Fail. An optional eval:doc. prefix is accepted. Arbitrary JavaScript is not supported."},
   {"fieldname":"validation_message","label":"Validation Message","fieldtype":"Small Text"}
  ]
 }

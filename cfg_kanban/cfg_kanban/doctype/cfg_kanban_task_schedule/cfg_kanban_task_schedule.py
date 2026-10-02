@@ -1,6 +1,8 @@
 import frappe
 from frappe.model.document import Document
 
+from cfg_kanban.services.dynamic_forms import validate_condition_definitions
+
 
 class CFGKanbanTaskSchedule(Document):
     def before_insert(self):
@@ -31,3 +33,4 @@ class CFGKanbanTaskSchedule(Document):
         if unusable:
             frappe.throw("Mandatory read-only dynamic fields require a Default Value: "
                          + ", ".join(unusable))
+        validate_condition_definitions(self.task_field_definitions)

@@ -1,6 +1,8 @@
 import frappe
 from frappe.model.document import Document
 
+from cfg_kanban.services.dynamic_forms import validate_condition_definitions
+
 
 class CFGKanbanMaster(Document):
     def validate(self):
@@ -72,6 +74,7 @@ class CFGKanbanMaster(Document):
         if unknown_tasks:
             frappe.throw("Dynamic operator fields reference unknown Process Tasks: "
                          + ", ".join(unknown_tasks))
+        validate_condition_definitions(self.operator_field_definitions)
         self._validate_sales_demand_configuration()
 
     def _validate_sales_demand_configuration(self):

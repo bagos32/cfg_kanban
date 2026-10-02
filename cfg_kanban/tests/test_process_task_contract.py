@@ -76,6 +76,20 @@ class TestProcessTaskContract(TestCase):
         self.assertIn("def before_validate", model)
         self.assertIn("not isinstance(row.value, str)", model)
 
+    def test_dynamic_visible_conditions_are_enforced_in_ui_and_server(self):
+        forms = (ROOT / "services" / "dynamic_forms.py").read_text()
+        service_console = (ROOT / "cfg_kanban" / "page" / "kanban_tasks" /
+                           "kanban_tasks.js").read_text()
+        production_console = (ROOT / "cfg_kanban" / "page" / "kanban_operator" /
+                              "kanban_operator.js").read_text()
+        self.assertIn('"visible_condition"', forms)
+        self.assertIn("_visible_rows(rows, supplied)", forms)
+        self.assertIn("validate_condition_definitions", forms)
+        self.assertIn("configure_dynamic_visibility(dialog, definitions)", service_console)
+        self.assertIn("visible_dynamic_definitions(definitions, values)", service_console)
+        self.assertIn("configure_dynamic_visibility(dialog, definitions)", production_console)
+        self.assertIn("visible_dynamic_definitions(definitions, values)", production_console)
+
     def test_service_task_console_can_identify_operator_and_create_from_schedule(self):
         api = (ROOT / "api" / "task.py").read_text()
         console = (ROOT / "cfg_kanban" / "page" / "kanban_tasks" /
