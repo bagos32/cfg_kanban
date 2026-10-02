@@ -69,9 +69,11 @@ class CFGKanbanHandlingUnit(Document):
             destination_company=self.inventory_company,
             source_warehouse=self.current_warehouse if self.parent_handling_unit else None,
             destination_warehouse=self.current_warehouse,
-            reference_doctype=self.doctype,
-            reference_name=self.name,
-            reason="Initial tag activation" if event_type == "Pack / Activate" else "Child tag split",
+            reference_doctype=self.origin_reference_doctype or self.doctype,
+            reference_name=self.origin_reference_name or self.name,
+            reason=(getattr(self.flags, "activation_reason", None)
+                    or ("Initial tag activation" if event_type == "Pack / Activate"
+                        else "Child tag split")),
         )
 
     def validate(self):
@@ -145,7 +147,8 @@ class CFGKanbanHandlingUnit(Document):
             "handling_unit_id", "opaque_token", "tag_kind", "tag_range_registry", "tag_family",
             "parent_handling_unit", "root_handling_unit", "child_index", "item_code",
             "batch_no", "stock_uom", "packed_on", "expiry_date", "original_qty", "qty",
-            "inventory_company", "current_warehouse",
+            "inventory_company", "current_warehouse", "origin_reference_doctype",
+            "origin_reference_name", "origin_reference_row", "activation_key",
         )
         for fieldname in immutable:
             if before.get(fieldname) != self.get(fieldname):

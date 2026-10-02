@@ -1,0 +1,23 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Material Trace Policy","module":"CFG Kanban","autoname":"MTP-.#####","title_field":"item_code","track_changes":1,
+ "search_fields":"item_code,company,trace_level","field_order":["enabled","company","item_code","trace_level","stage_section","receiving_tag_policy","production_input_tag_policy","production_output_tag_policy","control_section","require_batch","allow_partial_tag_quantity","notes"],
+ "fields":[
+  {"fieldname":"enabled","label":"Enabled","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"company","label":"Company","fieldtype":"Link","options":"Company","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"trace_level","label":"Trace Level","fieldtype":"Select","options":"ERP Document Only\nBatch Pool\nExact Handling Unit","default":"ERP Document Only","reqd":1,"in_list_view":1,"in_standard_filter":1,"description":"Controls genealogy detail. It does not replace ERPNext stock, Batch, or Serial records."},
+  {"fieldname":"stage_section","label":"Physical Tag Requirement by Stage","fieldtype":"Section Break","description":"No policy record, a disabled policy, or No Physical Tag preserves normal ERPNext warehouse-stock behavior."},
+  {"fieldname":"receiving_tag_policy","label":"Purchase Receiving Tags","fieldtype":"Select","options":"No Physical Tag\nOptional Physical Tag\nRequired Physical Tag","default":"No Physical Tag","reqd":1,"in_list_view":1},
+  {"fieldname":"production_input_tag_policy","label":"Production Input Tags","fieldtype":"Select","options":"No Physical Tag\nOptional Physical Tag\nRequired Physical Tag","default":"No Physical Tag","reqd":1},
+  {"fieldname":"production_output_tag_policy","label":"Production Output Tags","fieldtype":"Select","options":"No Physical Tag\nOptional Physical Tag\nRequired Physical Tag","default":"No Physical Tag","reqd":1},
+  {"fieldname":"control_section","label":"Quantity and Batch Controls","fieldtype":"Section Break"},
+  {"fieldname":"require_batch","label":"Require Batch on Tagged Quantity","fieldtype":"Check","default":"0","description":"Use only when the Item must carry a Batch before a physical tag can be activated."},
+  {"fieldname":"allow_partial_tag_quantity","label":"Allow Receipt Quantity Across Multiple Tags","fieldtype":"Check","default":"1","description":"Allows one ERP receipt/output row to be divided across several physical containers without exceeding its confirmed stock quantity."},
+  {"fieldname":"notes","label":"Policy Notes","fieldtype":"Text"}
+ ],
+ "permissions":[
+  {"role":"Stock Manager","read":1,"create":1,"write":1,"delete":1,"print":1},
+  {"role":"Manufacturing Manager","read":1,"create":1,"write":1,"delete":1,"print":1},
+  {"role":"System Manager","read":1,"create":1,"write":1,"delete":1,"print":1}
+ ]
+}

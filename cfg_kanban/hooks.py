@@ -27,6 +27,7 @@ doctype_js = {
     "CFG Kanban Task": "public/js/cfg_kanban_task.js",
     "CFG Kanban Process Task": "public/js/cfg_kanban_process_task.js",
     "CFG Kanban Media": "public/js/cfg_kanban_media.js",
+    "Purchase Receipt": "public/js/purchase_receipt.js",
 }
 
 jinja = {

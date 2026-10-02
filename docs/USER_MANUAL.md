@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.15
+**Guide version:** 1.16
 
 **Updated:** 2 October 2026
 
@@ -920,6 +920,25 @@ state without triggering production.
 Reprints require a reason. Replacement creates a new tag identity and revision, marks the old tag
 Replaced, and preserves the relationship between both records.
 
+### Mixed tagged and ERP-only materials
+
+Physical tags are optional per Item and Company. Open **CFG Kanban Material Trace Policy** only for
+an Item that needs more physical traceability than its ordinary ERPNext stock record. If no enabled
+policy exists, the Item defaults to **ERP Document Only** with **No Physical Tag** at receiving,
+production input, and production output. Its Warehouse quantity, Batch where applicable, Work
+Order, Job Card, Stock Entry, and virtual Kanban WIP continue to operate normally.
+
+For a submitted ERPNext Purchase Receipt, **CFG Kanban → Tag Received Material** displays every
+receipt row. Rows with **No Physical Tag** remain valid received stock and need no further action.
+Rows configured as Optional or Required can activate one or more unused preprinted main Stock Tags.
+The dialog derives Item, Company, accepted Warehouse, Stock UOM, Batch, Supplier, and expiry context
+from the submitted Purchase Receipt and prevents the total activated tag quantity from exceeding
+the confirmed receipt-row quantity.
+
+In this first receiving slice, **Required Physical Tag** makes the missing tagged balance visible
+but does not block native Purchase Receipt submission. Do not interpret it as an accounting hold.
+A later controlled pending-tag workflow will add enforcement without affecting ERP-only Items.
+
 ## 12. Scanner-first floor operation
 
 The Kanban Operator page supports both a fixed USB/Bluetooth keyboard-wedge scanner and the device
@@ -1296,6 +1315,9 @@ The following are not complete in the current build:
 - Full Start/Complete dynamic-field capture and arbitrary Job Card field mapping.
 - Automated email alerts and complete command retry orchestration.
 - Supplier Kanban and Sales Order fulfillment allocation beyond the implemented demand controls.
+- Production-input tag allocation, input-to-output transformation genealogy, manufacture-output tag
+  binding, same-company tagged Warehouse transfer, and the scan-any-tag genealogy explorer. Purchase
+  Receipt-confirmed tag activation is the implemented first material-genealogy slice.
 
 This file is the maintained manual source. Update its version, date, affected sections, and revision
 history whenever a user-visible workflow changes.
@@ -1419,6 +1441,20 @@ Tasks** (`view_all_responsibilities`), plus **Allowed Workstations** and **Allow
 tables. A profile role alone does not grant an action: the corresponding permission checkbox and
 scope must also allow it. The terminal ERPNext user separately needs the `Kanban Terminal` role (or
 manager/system-manager access).
+
+### CFG Kanban Material Trace Policy
+
+Create at most one record per **Company** (`company`) and **Item** (`item_code`). Exact controls are
+**Enabled** (`enabled`), **Trace Level** (`trace_level`: ERP Document Only, Batch Pool, Exact Handling
+Unit), **Purchase Receiving Tags** (`receiving_tag_policy`), **Production Input Tags**
+(`production_input_tag_policy`), **Production Output Tags** (`production_output_tag_policy`),
+**Require Batch on Tagged Quantity** (`require_batch`), and **Allow Receipt Quantity Across Multiple
+Tags** (`allow_partial_tag_quantity`). Each stage policy has exactly three choices: `No Physical
+Tag`, `Optional Physical Tag`, and `Required Physical Tag`.
+
+Do not create policies merely to confirm that tags are unnecessary. A missing or disabled policy is
+the intentional non-blocking default: ERP Document Only and No Physical Tag at all stages. Exact
+Handling Unit trace requires at least one stage to be Optional or Required.
 
 ### ERPNext Custom Fields owned by the app
 
@@ -1740,6 +1776,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.16 | 2 October 2026 | Added optional Item/Company mixed material-trace policies, ERP-only fallback, submitted Purchase Receipt tag activation, immutable ERP-origin references, and explicit first-slice limitations |
 | 1.15 | 2 October 2026 | Extended scoped Supervisor access to report progress and complete active Operator/Senior Operator Service Tasks with full acting-Employee audit attribution, without granting Start, Cancel/Bypass, or cross-Supervisor control |
 | 1.14 | 2 October 2026 | Added scoped Supervisor monitoring of matching active Operator/Senior Operator Service Tasks, including live progress visibility, while preserving action isolation unless View All Service Tasks is enabled |
 | 1.13 | 2 October 2026 | Corrected Service Task eligibility ordering so responsibility/employee/Workstation access is applied before the 200-row display limit, and blank-Workstation tasks remain visible to eligible profiles |

@@ -43,6 +43,10 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Handling Unit Quantity Ledger")
         self.assertEqual(links["Movement Manifests"],
                          "CFG Kanban Movement Manifest")
+        self.assertEqual(links["Material Trace Policies"],
+                         "CFG Kanban Material Trace Policy")
+        self.assertEqual(shortcuts["Material Trace Policies"],
+                         "CFG Kanban Material Trace Policy")
 
     def test_every_field_is_present_once_in_field_order(self):
         for path, schema in self._schemas():
@@ -211,6 +215,12 @@ class TestDocTypeSchema(TestCase):
                       handling["current_warehouse"]["mandatory_depends_on"])
         self.assertEqual(handling["current_warehouse"]["read_only_depends_on"],
                          "eval:!doc.__islocal")
+        self.assertTrue({"origin_reference_doctype", "origin_reference_name",
+                         "origin_reference_row", "activation_key"}.issubset(handling))
+        self.assertEqual(handling["origin_reference_name"]["fieldtype"], "Dynamic Link")
+        self.assertEqual(handling["origin_reference_name"]["options"],
+                         "origin_reference_doctype")
+        self.assertTrue(handling["activation_key"]["unique"])
 
         ledger = {row["fieldname"]: row for row in
                   schemas["CFG Kanban Handling Unit Quantity Ledger"]["fields"]}
@@ -224,6 +234,40 @@ class TestDocTypeSchema(TestCase):
             self.assertFalse(permission.get("create", 0))
             self.assertFalse(permission.get("write", 0))
             self.assertFalse(permission.get("delete", 0))
+
+    def test_material_trace_policy_keeps_physical_tags_optional(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        policy = {row["fieldname"]: row for row in
+                  schemas["CFG Kanban Material Trace Policy"]["fields"]}
+        self.assertEqual(
+            policy["trace_level"]["options"].splitlines(),
+            ["ERP Document Only", "Batch Pool", "Exact Handling Unit"],
+        )
+        for fieldname in ("receiving_tag_policy", "production_input_tag_policy",
+                          "production_output_tag_policy"):
+            self.assertEqual(
+                policy[fieldname]["options"].splitlines(),
+                ["No Physical Tag", "Optional Physical Tag", "Required Physical Tag"],
+            )
+            self.assertEqual(policy[fieldname]["default"], "No Physical Tag")
+
+        trace_service = (APP_ROOT / "services" / "trace_policy.py").read_text()
+        self.assertIn('"policy_source": "Default ERP-only behavior"', trace_service)
+        self.assertIn('"trace_level": "ERP Document Only"', trace_service)
+        self.assertIn('"receiving_tag_policy": NO_TAG', trace_service)
+
+    def test_purchase_receipt_tag_activation_is_erp_confirmed_and_bounded(self):
+        hooks = (APP_ROOT / "hooks.py").read_text()
+        api = (APP_ROOT / "api" / "receiving.py").read_text()
+        form = (APP_ROOT / "public" / "js" / "purchase_receipt.js").read_text()
+        self.assertIn('"Purchase Receipt": "public/js/purchase_receipt.js"', hooks)
+        self.assertIn("receipt.docstatus != 1", api)
+        self.assertIn("qty > remaining + 0.000001", api)
+        self.assertIn('"origin_reference_doctype": "Purchase Receipt"', api)
+        self.assertIn("activation_key = canonical_key", api)
+        self.assertIn("Tag Family {tag_family} is inactive", api)
+        self.assertIn("Tag Received Material", form)
+        self.assertIn("No Physical Tag remain valid ERPNext warehouse stock", form)
 
     def test_handling_unit_replacement_print_encodes_visible_code(self):
         path = (APP_ROOT / "cfg_kanban" / "print_format" /

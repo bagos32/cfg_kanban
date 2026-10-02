@@ -8,6 +8,10 @@ The approved multi-company stock-tag and customer-delivery extension is document
 [Multi-Company Logistics Architecture](docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md).
 Its Package A identity/configuration foundation is implemented; intercompany posting and driver
 delivery workflows remain Packages B-C.
+The additive tagged/untagged material-continuity model is documented in
+[Material Genealogy Architecture](docs/MATERIAL_GENEALOGY_ARCHITECTURE.md). Its mixed-trace policy
+and submitted Purchase Receipt tag-activation slice are implemented without making tags mandatory
+for ordinary ERPNext stock.
 
 `cfg_kanban` is a Frappe/ERPNext v15 process-control app for production Kanban. Kanban decides
 **when and why** replenishment or a process handoff is required; ERPNext remains the system of
@@ -52,6 +56,12 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
 - Optional 45 mm × 250 mm monochrome replacement Handling Unit tags with QR and Code 128
   identities, one per pallet/container, backed by a separate handling-unit transaction and
   lifecycle. Preprinted visible tag/waybill codes are the primary physical scan identity.
+- Optional Item/Company material-trace policies. Missing or disabled policies preserve ERP-only
+  stock behavior; explicit policies may allow or require physical tags independently at purchase
+  receipt, production input, and production output stages.
+- Submitted Purchase Receipt tag activation that derives Item, Batch, Company, Warehouse and UOM
+  from ERPNext, supports multiple physical containers without exceeding confirmed quantity, and
+  keeps an immutable ERP-origin reference on every activated Handling Unit.
 - Packages A-B of the approved multi-company logistics architecture: directional Logistics Routes,
   Customer Scan Points, pre-registered main/child Stock Tag families, extended Handling Units,
   immutable quantity ledger, scan-first Movement Manifests, and guarded intercompany Delivery Note
