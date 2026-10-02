@@ -47,6 +47,8 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Material Trace Policy")
         self.assertEqual(shortcuts["Material Trace Policies"],
                          "CFG Kanban Material Trace Policy")
+        self.assertEqual(links["Material Genealogy"],
+                         "CFG Kanban Material Trace")
 
     def test_every_field_is_present_once_in_field_order(self):
         for path, schema in self._schemas():
@@ -268,6 +270,44 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Tag Family {tag_family} is inactive", api)
         self.assertIn("Tag Received Material", form)
         self.assertIn("No Physical Tag remain valid ERPNext warehouse stock", form)
+
+    def test_production_material_trace_is_stock_entry_confirmed(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        self.assertIn("CFG Kanban Material Trace", schemas)
+        self.assertIn("CFG Kanban Material Trace Line", schemas)
+        trace = {row["fieldname"]: row for row in
+                 schemas["CFG Kanban Material Trace"]["fields"]}
+        self.assertEqual(trace["lines"]["options"], "CFG Kanban Material Trace Line")
+        self.assertTrue({"status", "company", "purpose", "stock_entry_reference",
+                         "stock_entry", "work_order",
+                         "kanban_cycle", "confirmed_on", "confirmed_by", "reversed_on",
+                         "reversed_by", "abandoned_on", "abandoned_by",
+                         "abandon_reason"}.issubset(trace))
+        self.assertTrue(trace["stock_entry"]["unique"])
+        self.assertEqual(schemas["CFG Kanban Material Trace Line"].get("istable"), 1)
+
+        line = {row["fieldname"]: row for row in
+                schemas["CFG Kanban Material Trace Line"]["fields"]}
+        self.assertTrue({"direction", "status", "stock_entry_detail", "item_code",
+                         "batch_no", "warehouse", "qty", "stock_uom", "trace_policy",
+                         "handling_unit", "pending_tag_code", "reservation_ledger",
+                         "confirmation_ledger", "reversal_ledger"}.issubset(line))
+
+        hooks = (APP_ROOT / "hooks.py").read_text()
+        feedback = (APP_ROOT / "integrations" / "erp_feedback.py").read_text()
+        service = (APP_ROOT / "services" / "production_trace.py").read_text()
+        form = (APP_ROOT / "public" / "js" / "stock_entry.js").read_text()
+        self.assertIn('"Stock Entry": "public/js/stock_entry.js"', hooks)
+        self.assertIn("validate_stock_entry_trace(doc)", feedback)
+        self.assertIn("confirm_stock_entry_trace(doc)", feedback)
+        self.assertIn("reverse_stock_entry_trace(doc)", feedback)
+        self.assertIn('event_type="Production Consume"', service)
+        self.assertIn('event_type="Production Output Reversal"', service)
+        self.assertIn("Serial and Batch Entry", service)
+        self.assertIn("A physical tag cannot be split across two Warehouses", service)
+        self.assertIn("def abandon_draft_trace(", service)
+        self.assertIn("Discard Entire Draft Trace", form)
+        self.assertIn("No Physical Tag rows remain normal ERPNext stock", form)
 
     def test_handling_unit_replacement_print_encodes_visible_code(self):
         path = (APP_ROOT / "cfg_kanban" / "print_format" /

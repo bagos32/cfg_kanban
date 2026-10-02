@@ -1,8 +1,9 @@
 # CFG Kanban Material Genealogy Architecture
 
-**Status:** Approved additive V1 architecture; mixed-trace policy and submitted Purchase Receipt
-tag activation are implemented. Production allocation, transformation genealogy, output binding,
-same-company transfer, and the trace explorer remain subsequent increments.
+**Status:** Approved additive V1 architecture; mixed-trace policy, submitted Purchase Receipt tag
+activation, and Stock Entry-confirmed production input/output tracing are implemented. A floor-panel
+scan workflow, broader Warehouse movement assistant, and the trace explorer remain subsequent
+increments.
 
 ## 1. System boundary
 
@@ -70,20 +71,50 @@ the existing Handling Unit rather than duplicating quantity.
 native Purchase Receipt submission. A future pre-submission/pending-tag increment will enforce that
 requirement without making tag scanning mandatory for ERP-only Items.
 
-## 4. Planned production genealogy
+## 4. Stock Entry-confirmed production genealogy
+
+Saved Draft Stock Entries with Purpose **Manufacture**, **Repack**, **Material Transfer for
+Manufacture**, or **Material Consumption for Manufacture** expose **CFG Kanban → Production
+Material Trace**.
+
+The workflow is:
+
+1. ERP-only rows remain visible and require no scan.
+2. For tag-enabled source rows, scan one or more active Handling Units and reserve the exact stock
+   quantity against the Draft Stock Entry.
+3. For tag-enabled finished/repacked target rows, scan unused preprinted main tags and stage their
+   quantities. No Handling Unit or output balance is created while the ERP document is Draft.
+   If the ERP draft will not be used, **Discard Entire Draft Trace** releases all reservations,
+   cancels pending output identities, and retains an Abandoned trace record before the draft is
+   deleted.
+4. An explicit Required policy blocks submission until its ERP row quantity is completely covered.
+   Optional policies allow partial tagged quantity; No Physical Tag never gates submission.
+5. ERPNext submission confirms the trace. Direct-consumption inputs are deducted, material-transfer
+   tags move to the ERP target Warehouse, and output tags are activated in the ERP target Warehouse.
+6. Cancelling a submitted Stock Entry reverses untouched trace balances. Cancellation is refused if
+   a produced tag has subsequently moved, split, reduced, or been reserved.
+
+Material Transfer for Manufacture and later consumption remain separate ERP confirmations. The same
+raw-material tag is scanned again from its WIP Warehouse when the Manufacture or Material
+Consumption entry consumes it. This keeps both WIP-transfer-enabled and skip-transfer workflows
+auditable without inventing stock movement outside ERPNext.
+
+ERPNext v15 direct Batch fields and single-Batch Serial and Batch Bundles are supported. A row that
+contains multiple Batches must be split by Batch before assigning a physical Handling Unit because
+one tag cannot represent multiple lots.
+
+### Subsequent increments
 
 The next increments add:
 
-1. raw-material Handling Unit allocation to Work Order and Stock Entry rows;
-2. support for WIP-transfer-enabled and direct-consumption Work Orders;
-3. a many-input/many-output Material Trace Transaction;
-4. pending preprinted output-tag binding confirmed by submitted Manufacture/Repack Stock Entries;
-5. stocked semi-finished tags while keeping non-stock WIP in the existing Cycle/WIP Ledger;
-6. same-company tagged Warehouse transfers;
-7. scan-any-tag upstream/downstream trace exploration.
+1. scanner-first production-panel access to the Stock Entry trace workflow;
+2. a guided general same-company tagged Warehouse-transfer assistant;
+3. scan-any-tag upstream/downstream genealogy exploration and printable trace reports;
+4. container-content genealogy for mixed reusable containers;
+5. richer serial-number evidence where one physical unit requires individual serial association.
 
-Job Cards may provide the operator/operation context, but raw-material stock consumption remains
-linked to the Work Order and submitted Stock Entry details.
+Job Cards provide operator/operation context, but raw-material stock consumption remains linked to
+the Work Order and submitted Stock Entry details.
 
 ## 5. Tag lifetime
 
@@ -102,4 +133,3 @@ linked to the Work Order and submitted Stock Entry details.
 5. Transformation input must reconcile to outputs, remaining quantity, scrap, and approved loss.
 6. ERP cancellation creates reversal, blocked, or reconciliation states; it never deletes lineage.
 7. Trace reports state whether evidence is exact Handling Unit, Batch Pool, or ERP Document Only.
-

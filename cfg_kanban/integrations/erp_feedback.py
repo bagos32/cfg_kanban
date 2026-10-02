@@ -190,6 +190,8 @@ def on_job_card_cancel(doc, method=None):
 
 
 def on_stock_entry_submit(doc, method=None):
+    from cfg_kanban.services.production_trace import confirm_stock_entry_trace
+    confirm_stock_entry_trace(doc)
     if not _cycle(doc):
         return
     cycle = frappe.get_doc("CFG Kanban Cycle", doc.cfg_kanban_cycle)
@@ -201,6 +203,8 @@ def on_stock_entry_submit(doc, method=None):
 
 
 def validate_stock_entry(doc, method=None):
+    from cfg_kanban.services.production_trace import validate_stock_entry_trace
+    validate_stock_entry_trace(doc)
     if not _cycle(doc) or doc.stock_entry_type != "Manufacture":
         return
     cycle = frappe.get_doc("CFG Kanban Cycle", doc.cfg_kanban_cycle)
@@ -255,6 +259,8 @@ def _submitted_mto_qty(cycle_name, item_code):
 
 
 def on_stock_entry_cancel(doc, method=None):
+    from cfg_kanban.services.production_trace import reverse_stock_entry_trace
+    reverse_stock_entry_trace(doc)
     _block(doc, "Stock Entry Cancelled")
 
 

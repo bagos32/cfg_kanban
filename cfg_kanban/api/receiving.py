@@ -33,7 +33,7 @@ def get_purchase_receipt_trace_plan(purchase_receipt):
             "item_code": item.item_code,
             "item_name": item.item_name,
             "warehouse": item.warehouse or receipt.set_warehouse,
-            "batch_no": item.batch_no,
+            "batch_no": _display_batch(item),
             "stock_uom": item.stock_uom,
             "confirmed_stock_qty": stock_qty,
             "tagged_stock_qty": tagged_qty,
@@ -94,7 +94,8 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
     warehouse = row.warehouse or receipt.set_warehouse
     if not warehouse:
         frappe.throw("The Purchase Receipt item has no accepted Warehouse")
-    if policy.require_batch and not row.batch_no:
+    batch_no = _tag_batch_no(row)
+    if policy.require_batch and not batch_no:
         frappe.throw(f"Item {row.item_code} requires a Batch before a tag can be activated")
 
     activation_key = canonical_key("purchase-receipt-tag", receipt.name, row.name, visible_code)
@@ -106,7 +107,7 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
 
     identity = resolve_logistics_scan(visible_code)
     if identity and identity.get("identity_type") == "Handling Unit":
-        unit = frappe.get_doc("CFG Kanban Handling Unit", identity.name)
+        unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
         if (unit.origin_reference_doctype == "Purchase Receipt"
                 and unit.origin_reference_name == receipt.name
                 and unit.origin_reference_row == row.name):
@@ -140,8 +141,8 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
             "to be activated on one tag"
         )
 
-    expiry_date = (frappe.db.get_value("Batch", row.batch_no, "expiry_date")
-                   if row.batch_no else None)
+    expiry_date = (frappe.db.get_value("Batch", batch_no, "expiry_date")
+                   if batch_no else None)
     unit = frappe.get_doc({
         "doctype": "CFG Kanban Handling Unit",
         "handling_unit_id": visible_code,
@@ -151,7 +152,7 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
         "short_description": row.item_name,
         "qty": qty,
         "stock_uom": row.stock_uom,
-        "batch_no": row.batch_no,
+        "batch_no": batch_no,
         "expiry_date": expiry_date,
         "inventory_company": receipt.company,
         "current_warehouse": warehouse,
@@ -172,7 +173,7 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
         qty=qty,
         reference_doctype="Purchase Receipt",
         reference_name=receipt.name,
-        notes=f"{row.item_code} / {row.batch_no or 'no Batch'} / {warehouse}",
+        notes=f"{row.item_code} / {batch_no or 'no Batch'} / {warehouse}",
         system_generated=True,
     )
     return _activation_result(unit.name, receipt, row)
@@ -206,3 +207,34 @@ def _tagged_origin_qty(purchase_receipt, item_row):
         """,
         (purchase_receipt, item_row),
     )[0][0])
+
+
+def _row_batch_numbers(row):
+    if row.get("batch_no"):
+        return [row.batch_no]
+    bundle = row.get("serial_and_batch_bundle")
+    if not bundle:
+        return []
+    values = frappe.get_all(
+        "Serial and Batch Entry",
+        filters={"parent": bundle, "parenttype": "Serial and Batch Bundle",
+                 "batch_no": ["is", "set"]},
+        pluck="batch_no",
+        order_by="idx asc",
+    )
+    return list(dict.fromkeys(value for value in values if value))
+
+
+def _tag_batch_no(row):
+    batches = _row_batch_numbers(row)
+    if len(batches) > 1:
+        frappe.throw(
+            f"Purchase Receipt row {row.idx} contains multiple Batches. Split it into one row or "
+            "Serial and Batch Bundle per Batch before assigning physical Handling Unit tags."
+        )
+    return batches[0] if batches else None
+
+
+def _display_batch(row):
+    batches = _row_batch_numbers(row)
+    return batches[0] if len(batches) == 1 else "Multiple batches" if batches else None

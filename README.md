@@ -62,6 +62,10 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
 - Submitted Purchase Receipt tag activation that derives Item, Batch, Company, Warehouse and UOM
   from ERPNext, supports multiple physical containers without exceeding confirmed quantity, and
   keeps an immutable ERP-origin reference on every activated Handling Unit.
+- Draft Stock Entry production tracing for Manufacture, Repack, Material Transfer for Manufacture,
+  and Material Consumption for Manufacture. Tagged inputs are reserved before submission;
+  submitted ERPNext entries confirm consumption/transfer and activate staged preprinted output
+  tags. Items configured with No Physical Tag remain ordinary ERP warehouse stock.
 - Packages A-B of the approved multi-company logistics architecture: directional Logistics Routes,
   Customer Scan Points, pre-registered main/child Stock Tag families, extended Handling Units,
   immutable quantity ledger, scan-first Movement Manifests, and guarded intercompany Delivery Note

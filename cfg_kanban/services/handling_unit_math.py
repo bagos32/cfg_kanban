@@ -52,6 +52,14 @@ def event_deltas(event_type, stock_qty, *, release_reserved=False):
         deltas["source_qty_delta"] = -qty
         if release_reserved:
             deltas["source_reserved_delta"] = -qty
+    elif event_type == "Production Consume":
+        deltas["source_qty_delta"] = -qty
+        if release_reserved:
+            deltas["source_reserved_delta"] = -qty
+    elif event_type == "Production Consume Reversal":
+        deltas["destination_qty_delta"] = qty
+    elif event_type == "Production Output Reversal":
+        deltas["source_qty_delta"] = -qty
     elif event_type in {"Damage", "Reconcile Decrease", "Empty"}:
         deltas["source_qty_delta"] = -qty
     elif event_type not in {"Location Transfer", "Return to Warehouse", "Quarantine", "Release"}:

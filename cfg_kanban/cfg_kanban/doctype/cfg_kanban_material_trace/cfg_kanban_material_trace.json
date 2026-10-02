@@ -1,0 +1,31 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Material Trace","module":"CFG Kanban","autoname":"MTR-.YYYY.-.#####","title_field":"stock_entry_reference","track_changes":1,
+ "search_fields":"stock_entry_reference,stock_entry,work_order,kanban_cycle,status","field_order":["status","company","purpose","stock_entry_reference","stock_entry","work_order","kanban_cycle","line_section","lines","audit_section","confirmed_on","confirmed_by","reversed_on","reversed_by","abandoned_on","abandoned_by","abandon_reason","notes"],
+ "fields":[
+  {"fieldname":"status","label":"Status","fieldtype":"Select","options":"Draft\nConfirmed\nReversed\nAbandoned","default":"Draft","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"company","label":"Company","fieldtype":"Link","options":"Company","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"purpose","label":"Stock Entry Purpose","fieldtype":"Data","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"stock_entry_reference","label":"Stock Entry Reference","fieldtype":"Data","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1,"description":"Immutable ERP document number retained even when an unsubmitted ERP draft is later deleted."},
+  {"fieldname":"stock_entry","label":"Active Stock Entry Link","fieldtype":"Link","options":"Stock Entry","unique":1,"read_only":1,"in_standard_filter":1},
+  {"fieldname":"work_order","label":"Work Order","fieldtype":"Link","options":"Work Order","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"kanban_cycle","label":"Kanban Cycle","fieldtype":"Link","options":"CFG Kanban Cycle","read_only":1,"in_standard_filter":1},
+  {"fieldname":"line_section","label":"Tagged Material Inputs and Outputs","fieldtype":"Section Break"},
+  {"fieldname":"lines","label":"Trace Lines","fieldtype":"Table","options":"CFG Kanban Material Trace Line","read_only":1},
+  {"fieldname":"audit_section","label":"ERP Confirmation Audit","fieldtype":"Section Break","collapsible":1},
+  {"fieldname":"confirmed_on","label":"Confirmed On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"confirmed_by","label":"Confirmed By","fieldtype":"Link","options":"User","read_only":1},
+  {"fieldname":"reversed_on","label":"Reversed On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"reversed_by","label":"Reversed By","fieldtype":"Link","options":"User","read_only":1},
+  {"fieldname":"abandoned_on","label":"Abandoned On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"abandoned_by","label":"Abandoned By","fieldtype":"Link","options":"User","read_only":1},
+  {"fieldname":"abandon_reason","label":"Abandon Reason","fieldtype":"Small Text","read_only":1},
+  {"fieldname":"notes","label":"Notes","fieldtype":"Text","read_only":1}
+ ],
+ "permissions":[
+  {"role":"Manufacturing User","read":1,"print":1},
+  {"role":"Stock User","read":1,"print":1},
+  {"role":"Manufacturing Manager","read":1,"print":1},
+  {"role":"Stock Manager","read":1,"print":1},
+  {"role":"System Manager","read":1,"print":1}
+ ]
+}

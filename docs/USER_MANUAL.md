@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.16
+**Guide version:** 1.17
 
 **Updated:** 2 October 2026
 
@@ -939,6 +939,50 @@ In this first receiving slice, **Required Physical Tag** makes the missing tagge
 but does not block native Purchase Receipt submission. Do not interpret it as an accounting hold.
 A later controlled pending-tag workflow will add enforcement without affecting ERP-only Items.
 
+### Production input, transfer, consumption, and output tags
+
+The Stock Entry form exposes **CFG Kanban → Production Material Trace** after a supported Stock Entry
+is saved. Supported exact Purpose values are `Manufacture`, `Repack`, `Material Transfer for
+Manufacture`, and `Material Consumption for Manufacture`.
+
+For a Draft Stock Entry:
+
+1. Open **Production Material Trace**. The summary lists every applicable source and target row,
+   including rows configured as No Physical Tag.
+2. Under **Allocate Tagged Material Input**, select a tag-enabled source row, scan an active
+   Handling Unit in that row's source Warehouse, and enter the Stock UOM quantity. The quantity is
+   reserved against the Draft entry but ERP stock does not move.
+3. Under **Stage Preprinted Production Output Tag**, select a tag-enabled finished/repacked target
+   row, scan an unused main tag, enter its Stock UOM quantity and Handling Unit Type. The identity
+   remains pending; no output stock tag is created while the entry is Draft.
+4. Use **Cancel** beside a staged line to release its reservation or discard the pending output tag
+   before submission.
+5. If the complete ERP draft will be discarded, select **Discard Entire Draft Trace**, enter the
+   reason, and only then delete the Draft Stock Entry. This releases all tag reservations and keeps
+   the Material Trace as Abandoned audit history without retaining a link that blocks ERP deletion.
+6. Submit the Stock Entry through ERPNext. Only then does the trace become Confirmed. Consumption
+   reduces input-tag balance; Material Transfer for Manufacture updates the tag's Warehouse; and
+   Manufacture/Repack activates output tags from the ERP-confirmed output.
+
+For WIP-transfer-enabled manufacturing, scan the input tag on the Material Transfer for Manufacture
+entry, then scan the same tag again from its WIP source Warehouse on the later Manufacture or
+Material Consumption entry. For skip-transfer production, allocate the tag directly on the
+Manufacture/Material Consumption entry.
+
+An explicit **Required Physical Tag** production policy blocks Stock Entry submission until the
+corresponding ERP row quantity is fully covered. Optional policies permit partial tagged quantities.
+No Physical Tag rows never require allocation and continue as normal ERP stock. One trace may have
+many input and output tags, so several raw-material containers can produce several semi-finished or
+finished containers.
+
+ERPNext v15 direct Batch values and single-Batch Serial and Batch Bundles are resolved. If one ERP
+row contains multiple Batches, split it into a row/bundle per Batch before physical tagging. One
+Handling Unit cannot represent several lots.
+
+When a submitted Stock Entry is cancelled, the app reverses untouched tagged input/output balances
+and marks produced tags Void. Cancellation is blocked if a produced tag has already moved, split,
+reduced, or been reserved; resolve downstream activity first rather than deleting trace history.
+
 ## 12. Scanner-first floor operation
 
 The Kanban Operator page supports both a fixed USB/Bluetooth keyboard-wedge scanner and the device
@@ -1315,9 +1359,10 @@ The following are not complete in the current build:
 - Full Start/Complete dynamic-field capture and arbitrary Job Card field mapping.
 - Automated email alerts and complete command retry orchestration.
 - Supplier Kanban and Sales Order fulfillment allocation beyond the implemented demand controls.
-- Production-input tag allocation, input-to-output transformation genealogy, manufacture-output tag
-  binding, same-company tagged Warehouse transfer, and the scan-any-tag genealogy explorer. Purchase
-  Receipt-confirmed tag activation is the implemented first material-genealogy slice.
+- Scanner-first production-panel access to material tracing, a guided general same-company tagged
+  Warehouse-transfer assistant, mixed reusable-container genealogy, richer per-serial evidence, and
+  the scan-any-tag genealogy explorer. Purchase Receipt activation and Stock Entry-confirmed
+  production input/output tracing are implemented.
 
 This file is the maintained manual source. Update its version, date, affected sections, and revision
 history whenever a user-visible workflow changes.
@@ -1476,7 +1521,8 @@ Profiles, Handling Units, Logistics Routes, Customer Scan Points, and Tag Famili
 creates Demands, Signals, Cycles, ERP Commands,
 Process Executions, Operation Summaries, Runtime Allocations, Process Tasks, service Task
 occurrences, Progress, WIP Ledger, Events, Sequence Changes, Operator Sessions, and Media registry
-records. Handling Unit Quantity Ledger rows are also system-created and immutable. Supervisors
+records. Material Trace records and Handling Unit Quantity Ledger rows are also system-created and
+immutable. Supervisors
 interact with those generated records only through their defined approval,
 verification, disposition, reconciliation, recovery, or exception actions.
 
@@ -1776,6 +1822,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.17 | 2 October 2026 | Added Stock Entry-confirmed production trace transactions, tagged input reservation/transfer/consumption, staged preprinted output activation, cancellation reversal guards, ERP-only coexistence, and ERPNext v15 Batch Bundle resolution |
 | 1.16 | 2 October 2026 | Added optional Item/Company mixed material-trace policies, ERP-only fallback, submitted Purchase Receipt tag activation, immutable ERP-origin references, and explicit first-slice limitations |
 | 1.15 | 2 October 2026 | Extended scoped Supervisor access to report progress and complete active Operator/Senior Operator Service Tasks with full acting-Employee audit attribution, without granting Start, Cancel/Bypass, or cross-Supervisor control |
 | 1.14 | 2 October 2026 | Added scoped Supervisor monitoring of matching active Operator/Senior Operator Service Tasks, including live progress visibility, while preserving action isolation unless View All Service Tasks is enabled |

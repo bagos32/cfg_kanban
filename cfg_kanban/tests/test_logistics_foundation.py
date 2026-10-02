@@ -105,6 +105,28 @@ class TestHandlingUnitQuantityMath(TestCase):
         )
         self.assertEqual((float(current), float(reserved), float(available)), (6, 0, 6))
 
+    def test_production_consumption_releases_reserved_input(self):
+        deltas = event_deltas("Production Consume", 4, release_reserved=True)
+        current, reserved, available = apply_balance_delta(
+            10,
+            4,
+            qty_delta=deltas["source_qty_delta"],
+            reserved_delta=deltas["source_reserved_delta"],
+        )
+        self.assertEqual((float(current), float(reserved), float(available)), (6, 0, 6))
+
+    def test_production_reversals_restore_input_and_remove_output(self):
+        restored = event_deltas("Production Consume Reversal", 4)
+        input_balance = apply_balance_delta(
+            6, 0, qty_delta=restored["destination_qty_delta"]
+        )
+        removed = event_deltas("Production Output Reversal", 4)
+        output_balance = apply_balance_delta(
+            4, 0, qty_delta=removed["source_qty_delta"]
+        )
+        self.assertEqual(float(input_balance[0]), 10)
+        self.assertEqual(float(output_balance[0]), 0)
+
     def test_negative_or_over_reserved_balance_is_rejected(self):
         with self.assertRaises(ValueError):
             validate_balance(-1, 0)
