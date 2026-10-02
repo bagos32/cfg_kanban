@@ -2,6 +2,7 @@ import frappe
 
 from cfg_kanban.services import media
 from cfg_kanban.services.operator_auth import require_operator
+from cfg_kanban.services.task_access import assert_service_task_access
 
 
 @frappe.whitelist()
@@ -165,9 +166,7 @@ def _authorize_task(task_name, operator_session_token, action=None):
     profile, session = require_operator(
         operator_session_token, action, workstation=task.workstation
     )
-    if (task.assigned_employee and task.assigned_employee != profile.employee and
-            profile.kanban_role != "Supervisor"):
-        frappe.throw(f"Task is assigned to Employee {task.assigned_employee}")
+    assert_service_task_access(task, profile)
     return task, profile, session
 
 

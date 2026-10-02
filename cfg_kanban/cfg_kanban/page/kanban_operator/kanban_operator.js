@@ -20,6 +20,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	page.add_inner_button(__("Open Service Task Panel"), () => frappe.set_route("kanban-tasks"));
 	page.add_inner_button(__("Open Logistics Panel"), () => frappe.set_route("kanban-logistics"));
 	page.add_inner_button(__("Clear / Next Card (F3)"), clear_for_next_card);
+	page.add_inner_button(__("Refresh Operator Session"), refresh_console);
 	const $sticky_header = $("<div class='cfg-operator-sticky-shell'></div>").appendTo(page.main);
 	const $scanner_status = $(`<div class="cfg-scanner-status" aria-live="polite"></div>`)
 		.appendTo($sticky_header);
@@ -56,6 +57,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		await restore_operator();
 	}
 
+	async function refresh_console() {
+		await load_console();
+		frappe.show_alert({ message: state.operator ? __("Operator session refreshed") : __("No active operator session"),
+			indicator: state.operator ? "green" : "orange" });
+		focus_scanner();
+	}
+
 	async function consume_deep_link() {
 		const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
 		const token = params.get("operator");
@@ -74,7 +82,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	}
 
 	async function restore_operator() {
+		sync_session_from_storage();
 		if (!state.session_token) return render();
+		const requested_token = state.session_token;
 		try {
 			const response = await frappe.call({
 				method: "cfg_kanban.api.operator.operator_session_status",
@@ -83,13 +93,27 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			state.operator = response.message;
 			render();
 		} catch (error) {
-			clear_operator();
+			const latest_token = localStorage.getItem(session_key);
+			if (latest_token && latest_token !== requested_token) return restore_operator();
+			clear_operator(requested_token);
 			show_operator_login(false);
 		}
 	}
 
-	function clear_operator() {
-		localStorage.removeItem(session_key);
+	function sync_session_from_storage() {
+		const stored_token = localStorage.getItem(session_key);
+		if (stored_token === state.session_token) return false;
+		state.session_token = stored_token;
+		state.operator = null;
+		state.context = null;
+		state.awaiting_operator_scan = false;
+		$operator_identity.empty();
+		return true;
+	}
+
+	function clear_operator(expected_token) {
+		const stored_token = localStorage.getItem(session_key);
+		if (!expected_token || stored_token === expected_token) localStorage.removeItem(session_key);
 		state.session_token = null;
 		state.operator = null;
 		state.context = null;
@@ -575,7 +599,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		$card_camera.toggle(Boolean(state.operator));
 		if (!state.operator) {
 			$operator_identity.html(`<div class="cfg-production-identity-empty">
-				<strong>${__("No active operator")}</strong><small>${__("Scan an operator credential to begin.")}</small></div>`);
+				<strong>${__("No active operator")}</strong><small>${__("Scan an operator credential to begin.")}</small></div>
+				<button class="btn btn-default btn-sm refresh-shared-session">${__("Refresh Session")}</button>`);
+			$operator_identity.find(".refresh-shared-session").on("click", refresh_console);
 			const setup = state.access && state.access.can_manage_operators
 				? `<p><a class="btn btn-default" href="/app/cfg-kanban-operator-profile">${__("Manage Operator Profiles")}</a></p>` : "";
 			const development_proxy = state.access && state.access.can_use_development_proxy
@@ -595,7 +621,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		$operator_identity.html(`<div><small>${__("Active operator")}</small><strong>${e(state.operator.employee_name)}</strong>
 			<span>${e(state.operator.employee)} · ${e(state.operator.kanban_role || "")}</span>
 			${state.operator.development_proxy ? `<span class="indicator-pill orange ml-2">${__("Administrator Proxy")}</span>` : ""}</div>
-			<div><small>${__("Station")}</small><strong>${e(state.operator.station || "-")}</strong></div>`);
+			<div><small>${__("Station")}</small><strong>${e(state.operator.station || "-")}</strong></div>
+			<button class="btn btn-default btn-sm refresh-shared-session">${__("Refresh Session")}</button>`);
+		$operator_identity.find(".refresh-shared-session").on("click", refresh_console);
 		if (state.access && state.access.can_use_development_proxy) {
 			$("<button class='btn btn-warning btn-sm mb-3'>" + __("Change Development Proxy Employee") + "</button>")
 				.appendTo($root).on("click", show_development_proxy_login);

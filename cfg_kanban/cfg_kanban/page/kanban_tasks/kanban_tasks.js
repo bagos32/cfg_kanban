@@ -43,7 +43,9 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	});
 
 	async function load() {
+		sync_session_from_storage();
 		if (!state.token) return show_login_required();
+		const requested_token = state.token;
 		$active_root.html(`<div class="text-muted p-4">${__("Loading active work...")}</div>`);
 		$root.html(`<div class="text-muted p-4">${__("Loading ready tasks...")}</div>`);
 		try {
@@ -58,9 +60,20 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			update_scanner_mode();
 			focus_scanner();
 		} catch (error) {
-			clear_session();
+			const latest_token = localStorage.getItem(session_key);
+			if (latest_token && latest_token !== requested_token) return load();
+			clear_session(requested_token);
 			show_login_required(__("The operator session expired. Identify the operator again on this page."));
 		}
+	}
+
+	function sync_session_from_storage() {
+		const stored_token = localStorage.getItem(session_key);
+		if (stored_token === state.token) return false;
+		state.token = stored_token;
+		state.operator = null;
+		state.tasks = [];
+		return true;
 	}
 
 	function render_identity() {
@@ -250,8 +263,10 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		catch (error) { return value; }
 	}
 
-	function clear_session() {
-		localStorage.removeItem(session_key); state.token = null; state.operator = null; state.tasks = [];
+	function clear_session(expected_token) {
+		const stored_token = localStorage.getItem(session_key);
+		if (!expected_token || stored_token === expected_token) localStorage.removeItem(session_key);
+		state.token = null; state.operator = null; state.tasks = [];
 		update_scanner_mode();
 	}
 
@@ -312,8 +327,8 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			__("Tasks currently started by this operator."), "green", true);
 		render_task_section($root, ready, __("Ready / Open Tasks"),
 			__("Start a task to move it immediately into Active Work."), "blue", false);
-		if (supervisor.length) render_task_section($root, supervisor, __("Other Supervisor Work"),
-			__("Tasks assigned to other employees within your responsibility scope."), "orange", false);
+		if (supervisor.length) render_task_section($root, supervisor, __("Supervisor Attention"),
+			__("Authorized verification work, or other employees' work when View All Service Tasks is enabled."), "orange", false);
 		if (!tasks.length) {
 			$root.append(`<div class="frappe-card text-center p-5"><h4>${__("No open service tasks")}</h4>
 				<p class="text-muted">${__("A Senior Operator or Supervisor can select Create Task. Scheduled tasks appear automatically when due.")}</p></div>`);

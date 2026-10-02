@@ -35,6 +35,10 @@ class TestDocTypeSchema(TestCase):
         self.assertEqual(links["Logistics Routes"], "CFG Kanban Logistics Route")
         self.assertEqual(links["Customer Scan Points"], "CFG Kanban Customer Scan Point")
         self.assertEqual(links["Stock Tag Families"], "CFG Kanban Tag Family")
+        self.assertEqual(links["Stock Tag Range Registries"],
+                         "CFG Kanban Tag Range Registry")
+        self.assertEqual(shortcuts["Stock Tag Range Registries"],
+                         "CFG Kanban Tag Range Registry")
         self.assertEqual(shortcuts["Handling Unit Quantity Ledger"],
                          "CFG Kanban Handling Unit Quantity Ledger")
         self.assertEqual(links["Movement Manifests"],
@@ -141,6 +145,7 @@ class TestDocTypeSchema(TestCase):
             "CFG Kanban Logistics Route",
             "CFG Kanban Customer Scan Point",
             "CFG Kanban Tag Family",
+            "CFG Kanban Tag Range Registry",
             "CFG Kanban Tag Identity",
             "CFG Kanban Handling Unit Quantity Ledger",
         }.issubset(schemas))
@@ -164,6 +169,19 @@ class TestDocTypeSchema(TestCase):
         self.assertEqual(family["identities"]["options"], "CFG Kanban Tag Identity")
         self.assertEqual(family["family_code"]["label"], "Preprinted Main Tag Code")
         self.assertEqual(family["issued_company"].get("reqd"), 1)
+        self.assertEqual(family["range_registry"]["options"],
+                         "CFG Kanban Tag Range Registry")
+        self.assertEqual(family["range_registry"].get("read_only"), 1)
+        self.assertIn("child_separator", family)
+        registry = {row["fieldname"]: row for row in
+                    schemas["CFG Kanban Tag Range Registry"]["fields"]}
+        self.assertTrue({"registry_code", "active", "issued_company", "prefix",
+                         "start_number", "end_number", "number_width",
+                         "child_separator", "child_count", "first_main_code",
+                         "last_main_code", "total_main_tags",
+                         "potential_identity_count", "materialized_count",
+                         "last_materialized_tag", "last_materialized_on"}
+                        .issubset(registry))
         self.assertEqual(schemas["CFG Kanban Tag Identity"].get("istable"), 1)
         identity = {row["fieldname"]: row for row in
                     schemas["CFG Kanban Tag Identity"]["fields"]}
@@ -175,6 +193,7 @@ class TestDocTypeSchema(TestCase):
         handling = {row["fieldname"]: row for row in
                     schemas["CFG Kanban Handling Unit"]["fields"]}
         self.assertTrue({"tag_kind", "tag_family", "parent_handling_unit",
+                         "tag_range_registry",
                          "root_handling_unit", "child_index", "inventory_company",
                          "current_warehouse", "physical_custodian", "packed_on",
                          "expiry_date", "original_qty", "current_qty", "reserved_qty",
@@ -215,6 +234,19 @@ class TestDocTypeSchema(TestCase):
         self.assertNotIn(
             '"CFG Kanban Handling Unit", {"opaque_token": token}', scan_source
         )
+
+    def test_tag_range_lookup_is_lazy_and_materialization_is_controlled(self):
+        resolver = (APP_ROOT / "services" / "logistics_foundation.py").read_text()
+        registry = (APP_ROOT / "services" / "tag_registry.py").read_text()
+        handling = (ROOT / "cfg_kanban_handling_unit" /
+                    "cfg_kanban_handling_unit.py").read_text()
+        form = (APP_ROOT / "public" / "js" /
+                "cfg_kanban_handling_unit.js").read_text()
+        self.assertIn("resolve_tag_range_candidate(code)", resolver)
+        self.assertIn('"identity_type": "Tag Range Candidate"', registry)
+        self.assertIn("for update", registry.lower())
+        self.assertIn("materialize_tag_family_for_code", handling)
+        self.assertIn('identity.identity_type === "Tag Range Candidate"', form)
 
     def test_intercompany_manifest_schema_and_commands_are_present(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}
@@ -271,6 +303,10 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Recently Completed", logistics_panel)
         self.assertIn('frappe.set_route("kanban-logistics")', operator_panel)
         self.assertIn('frappe.set_route("kanban-logistics")', task_panel)
+        for panel in (logistics_panel, operator_panel, task_panel):
+            self.assertIn("sync_session_from_storage", panel)
+            self.assertIn("stored_token ===", panel)
+        self.assertIn("Refresh Operator Session", operator_panel)
 
     def test_card_and_cycle_capture_company_snapshot(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}
@@ -338,6 +374,8 @@ class TestDocTypeSchema(TestCase):
                          "allowed_workstations", "allowed_operations"}.issubset(fields))
         self.assertEqual(fields["responsibilities"]["options"],
                          "CFG Kanban Operator Responsibility")
+        self.assertEqual(fields["view_all_responsibilities"]["label"],
+                         "View All Service Tasks")
 
     def test_service_responsibility_is_independent_from_erp_roles(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

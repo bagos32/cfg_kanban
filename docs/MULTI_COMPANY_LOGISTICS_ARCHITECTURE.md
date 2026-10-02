@@ -88,6 +88,14 @@ internal UUID alias second. Replacement revokes the old identity without reusing
 The printed code is an identifier, not an authentication secret: operator authorization, allowed
 routes, state transitions, idempotency, and ERP confirmation protect every consequential action.
 
+For high-volume preprinted series, `CFG Kanban Tag Range Registry` defines the issuer, exact prefix,
+fixed-width numeric interval, child separator, and detachable-child count once. An unused scan is a
+read-only range candidate and creates no stock or identity rows. On first controlled Handling Unit
+activation, the app locks the registry and lazily materializes only that exact Tag Family and its
+children. Exact Tag Families remain supported for exceptions and legacy tags. Once any family has
+materialized, the registry definition is immutable; the issuer remains permanent while the Handling
+Unit's inventory Company changes only through ERP-confirmed movement.
+
 ### 3.4 Reusable loose-stock container
 
 A reusable tag may be permanently fixed to a lorry compartment or designated box. The tag
@@ -462,6 +470,7 @@ constraint. Existing DocTypes are extended; they are not rebuilt.
 |---|---|
 | CFG Kanban Logistics Route | Directional company/warehouse/party/Price List/automation/billing policy |
 | CFG Kanban Customer Scan Point | Selling Company, Customer, exact Address, printed site code, internal UUID alias, route/site and proof policy |
+| CFG Kanban Tag Range Registry | Issuer-controlled prefix, fixed numeric interval, child format, lazy-materialization audit |
 | CFG Kanban Tag Family | Issuing Company namespace, main visible ID, detachable child identities, internal UUID aliases, issue/revocation state |
 
 ### 15.2 New transactional DocTypes
@@ -580,6 +589,7 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
 - Permit reusable-container identities that are not owned by one production Cycle while retaining
   existing Cycle links on historical production tags.
 - Add Tag Family and child identities.
+- Add range-backed lazy Tag Family registration for high-volume preprinted serial blocks.
 - Add immutable Handling Unit Quantity Ledger and reconciliation service.
 - Add Logistics Route and Customer Scan Point.
 - Add schema, migration patches, permissions, and unit tests.

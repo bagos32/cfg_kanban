@@ -9,14 +9,22 @@ from cfg_kanban.services.logistics_foundation import (
     validate_physical_code_namespace,
 )
 from cfg_kanban.services.physical_identity import normalize_physical_code
+from cfg_kanban.services.tag_registry import materialize_tag_family_for_code
 
 
 class CFGKanbanHandlingUnit(Document):
     def before_insert(self):
+        self.tag_kind = self.tag_kind or "Main Stock Tag"
         try:
             self.handling_unit_id = normalize_physical_code(self.handling_unit_id)
         except ValueError as exc:
             frappe.throw(str(exc))
+        self._materialize_range_family()
+        if self.tag_kind != "Reusable Container" and not self.tag_family:
+            frappe.throw(
+                "A Stock Tag must be registered in an exact Tag Family or covered by an "
+                "active Tag Range Registry"
+            )
         validate_physical_code_namespace(
             self.handling_unit_id, "Handling Unit", tag_family=self.tag_family
         )
@@ -26,7 +34,6 @@ class CFGKanbanHandlingUnit(Document):
             self.handling_unit_id = self.name
         self._copy_parent_context()
         self._copy_cycle_context()
-        self.tag_kind = self.tag_kind or "Main Stock Tag"
         self.identity_state = self.identity_state or "Active"
         self.movement_state = self.movement_state or "At Source"
         self.quality_state = self.quality_state or "Released"
@@ -128,7 +135,7 @@ class CFGKanbanHandlingUnit(Document):
         if not before:
             return
         immutable = (
-            "handling_unit_id", "opaque_token", "tag_kind", "tag_family",
+            "handling_unit_id", "opaque_token", "tag_kind", "tag_range_registry", "tag_family",
             "parent_handling_unit", "root_handling_unit", "child_index", "item_code",
             "batch_no", "stock_uom", "packed_on", "expiry_date", "original_qty", "qty",
         )
@@ -157,7 +164,31 @@ class CFGKanbanHandlingUnit(Document):
         self.inventory_company = self.inventory_company or frappe.db.get_value(
             "CFG Kanban Tag Family", self.tag_family, "issued_company"
         )
+        self.tag_range_registry = self.tag_range_registry or frappe.db.get_value(
+            "CFG Kanban Tag Family", self.tag_family, "range_registry"
+        )
         self.flags.tag_identity_row = identity.name
+
+    def _materialize_range_family(self):
+        if self.tag_kind == "Reusable Container":
+            return
+        if self.tag_family and frappe.db.exists("CFG Kanban Tag Family", self.tag_family):
+            self.tag_range_registry = self.tag_range_registry or frappe.db.get_value(
+                "CFG Kanban Tag Family", self.tag_family, "range_registry"
+            )
+            return
+        family = materialize_tag_family_for_code(
+            self.handling_unit_id, expected_registry=self.tag_range_registry or None
+        )
+        if not family:
+            return
+        if self.tag_family and self.tag_family != family.name:
+            frappe.throw(
+                f"Printed code {self.handling_unit_id} belongs to Tag Family {family.name}, "
+                f"not {self.tag_family}"
+            )
+        self.tag_family = family.name
+        self.tag_range_registry = family.range_registry
 
     def _copy_parent_context(self):
         if not self.parent_handling_unit:

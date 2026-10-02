@@ -1,0 +1,34 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Tag Range Registry","module":"CFG Kanban","autoname":"field:registry_code","title_field":"registry_code","track_changes":1,
+ "search_fields":"prefix,issued_company,first_main_code,last_main_code",
+ "field_order":["registry_code","active","issued_company","description","format_section","prefix","start_number","end_number","number_width","child_column","child_separator","child_count","preview_section","first_main_code","last_main_code","total_main_tags","potential_identity_count","usage_section","materialized_count","last_materialized_tag","last_materialized_on","notes"],
+ "fields":[
+  {"fieldname":"registry_code","label":"Range Registry Code","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1,"description":"Human-readable registry identifier, for example FZD-STK-1000-1999."},
+  {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1,"description":"Inactive ranges remain in audit history but no longer recognize unmaterialized tags."},
+  {"fieldname":"issued_company","label":"Issuing Company / Number Namespace","fieldtype":"Link","options":"Company","reqd":1,"in_list_view":1,"in_standard_filter":1,"description":"Permanent issuer of this printed number range. Inventory ownership may later move to another Company."},
+  {"fieldname":"description","label":"Description","fieldtype":"Small Text"},
+  {"fieldname":"format_section","label":"Printed Number Range","fieldtype":"Section Break"},
+  {"fieldname":"prefix","label":"Printed Prefix","fieldtype":"Data","reqd":1,"in_list_view":1,"in_standard_filter":1,"description":"Exact case-sensitive text before the running number, preferably with a globally unique issuer prefix."},
+  {"fieldname":"start_number","label":"Starting Number","fieldtype":"Int","reqd":1,"in_list_view":1},
+  {"fieldname":"end_number","label":"Ending Number","fieldtype":"Int","reqd":1,"in_list_view":1},
+  {"fieldname":"number_width","label":"Number Width","fieldtype":"Int","default":"4","reqd":1,"description":"Fixed digit count including leading zeroes. Example: width 4 formats serial 25 as 0025."},
+  {"fieldname":"child_column","fieldtype":"Column Break"},
+  {"fieldname":"child_separator","label":"Child Separator","fieldtype":"Data","default":"-","reqd":1,"description":"One to three non-numeric characters between the main number and child index."},
+  {"fieldname":"child_count","label":"Detachable Child Count","fieldtype":"Int","default":"5","reqd":1,"in_list_view":1},
+  {"fieldname":"preview_section","label":"Calculated Coverage","fieldtype":"Section Break"},
+  {"fieldname":"first_main_code","label":"First Main Tag","fieldtype":"Data","read_only":1},
+  {"fieldname":"last_main_code","label":"Last Main Tag","fieldtype":"Data","read_only":1},
+  {"fieldname":"total_main_tags","label":"Total Main Tags","fieldtype":"Int","read_only":1,"in_list_view":1},
+  {"fieldname":"potential_identity_count","label":"Potential Main + Child Identities","fieldtype":"Int","read_only":1},
+  {"fieldname":"usage_section","label":"Lazy Materialization Audit","fieldtype":"Section Break","collapsible":1},
+  {"fieldname":"materialized_count","label":"Materialized Tag Families","fieldtype":"Int","default":"0","read_only":1,"in_list_view":1,"description":"Individual Tag Families created only when tags enter controlled activation."},
+  {"fieldname":"last_materialized_tag","label":"Last Materialized Tag Family","fieldtype":"Link","options":"CFG Kanban Tag Family","read_only":1},
+  {"fieldname":"last_materialized_on","label":"Last Materialized On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"notes","label":"Notes","fieldtype":"Text"}
+ ],
+ "permissions":[
+  {"role":"Stock Manager","read":1,"create":1,"write":1,"print":1},
+  {"role":"Manufacturing Manager","read":1,"create":1,"write":1,"print":1},
+  {"role":"System Manager","read":1,"create":1,"write":1,"delete":1,"print":1}
+ ]
+}

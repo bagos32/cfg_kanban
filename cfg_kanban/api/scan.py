@@ -99,9 +99,9 @@ def scan_handling_unit(token, action, device_id=None, event_token=None, reason=N
     identity = resolve_logistics_scan(token)
     if not identity:
         frappe.throw("Unknown handling-unit tag or preprinted stock-tag code")
-    if identity["identity_type"] == "Registered Tag Identity":
+    if identity["identity_type"] in ("Registered Tag Identity", "Tag Range Candidate"):
         frappe.throw(
-            f"Preprinted tag {identity['visible_code']} is registered but not activated. "
+            f"Preprinted tag {identity['visible_code']} is recognized but not activated. "
             "Create its Handling Unit before using lifecycle scan actions."
         )
     if identity["identity_type"] != "Handling Unit":

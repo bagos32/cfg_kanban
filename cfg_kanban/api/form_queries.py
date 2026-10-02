@@ -51,10 +51,11 @@ def preprinted_tag_context(scan_value):
     result = resolve_logistics_scan(scan_value)
     if not result:
         return {"found": False, "visible_code": str(scan_value or "").strip()}
-    if result["identity_type"] == "Registered Tag Identity":
+    if result["identity_type"] in ("Registered Tag Identity", "Tag Range Candidate"):
         allowed = {
             "identity_type", "name", "visible_code", "matched_by", "tag_family",
             "tag_role", "child_index", "state", "handling_unit", "issued_company",
+            "range_registry", "serial_number", "child_count", "child_separator",
         }
     else:
         # The activation form only needs enough information to reject a duplicate

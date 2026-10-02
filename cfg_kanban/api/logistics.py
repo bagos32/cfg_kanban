@@ -208,6 +208,11 @@ def scan_dispatch_tag(manifest_name, scan_value, event_token, operator_session_t
         frappe.throw(
             f"Tag {identity['visible_code']} is registered but not activated as a Handling Unit"
         )
+    if identity["identity_type"] == "Tag Range Candidate":
+        frappe.throw(
+            f"Tag {identity['visible_code']} is covered by Range Registry "
+            f"{identity['range_registry']} but has not been activated as a Handling Unit"
+        )
     if identity["identity_type"] != "Handling Unit":
         frappe.throw(f"{identity['visible_code']} is not a Handling Unit tag")
     unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])

@@ -3,6 +3,7 @@ from frappe.utils import flt, now_datetime
 
 from cfg_kanban.services.handling_unit_math import apply_balance_delta, event_deltas
 from cfg_kanban.services.physical_identity import normalize_physical_code
+from cfg_kanban.services.tag_registry import resolve_tag_range_candidate
 
 
 def validate_warehouse_company(warehouse, company, label="Warehouse"):
@@ -72,6 +73,15 @@ def resolve_logistics_scan(scan_value):
     _add_customer_match(candidates, code, "site_code", "visible_code")
     _add_customer_match(candidates, code, "opaque_token", "internal_uuid_alias")
 
+    # Range recognition is deliberately read-only. The exact Tag Family and its
+    # child identities are materialized only during controlled Handling Unit activation.
+    if not candidates:
+        range_candidate = resolve_tag_range_candidate(code)
+        if range_candidate:
+            candidates[(range_candidate["identity_type"], range_candidate["name"])] = (
+                range_candidate
+            )
+
     # An activated registered identity and its Handling Unit represent the same
     # physical tag. Prefer the live Handling Unit rather than reporting ambiguity.
     for key, candidate in list(candidates.items()):
@@ -101,8 +111,8 @@ def _add_handling_unit_match(candidates, code, fieldname, matched_by):
     row = frappe.db.get_value(
         "CFG Kanban Handling Unit",
         {fieldname: code},
-        ["name", "handling_unit_id", "tag_kind", "tag_family", "identity_state",
-         "movement_state", "inventory_company", "current_warehouse"],
+        ["name", "handling_unit_id", "tag_kind", "tag_family", "tag_range_registry",
+         "identity_state", "movement_state", "inventory_company", "current_warehouse"],
         as_dict=True,
     )
     if not row:
@@ -114,6 +124,7 @@ def _add_handling_unit_match(candidates, code, fieldname, matched_by):
         "matched_by": matched_by,
         "tag_kind": row.tag_kind,
         "tag_family": row.tag_family,
+        "tag_range_registry": row.tag_range_registry,
         "identity_state": row.identity_state,
         "movement_state": row.movement_state,
         "inventory_company": row.inventory_company,
@@ -131,7 +142,9 @@ def _add_tag_identity_match(candidates, code, fieldname, matched_by):
     )
     if not row:
         return
-    issued_company = frappe.db.get_value("CFG Kanban Tag Family", row.parent, "issued_company")
+    family = frappe.db.get_value(
+        "CFG Kanban Tag Family", row.parent, ["issued_company", "range_registry"], as_dict=True
+    ) or {}
     candidates[("Registered Tag Identity", row.name)] = {
         "identity_type": "Registered Tag Identity",
         "name": row.visible_code,
@@ -142,7 +155,8 @@ def _add_tag_identity_match(candidates, code, fieldname, matched_by):
         "child_index": row.child_index,
         "state": row.state,
         "handling_unit": row.handling_unit,
-        "issued_company": issued_company,
+        "issued_company": family.get("issued_company"),
+        "range_registry": family.get("range_registry"),
     }
 
 

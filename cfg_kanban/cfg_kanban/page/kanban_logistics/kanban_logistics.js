@@ -40,7 +40,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	page.add_inner_button(__("Identify Operator"), identify_operator);
 
 	async function load() {
+		sync_session_from_storage();
 		if (!state.token) return show_login();
+		const requested_token = state.token;
 		try {
 			const response = await frappe.call({ method: "cfg_kanban.api.logistics.get_logistics_console",
 				args: { operator_session_token: state.token } });
@@ -57,9 +59,25 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			render_list();
 			focus_scanner();
 		} catch (error) {
-			clear_session();
+			const latest_token = localStorage.getItem(session_key);
+			if (latest_token && latest_token !== requested_token) return load();
+			clear_session(requested_token);
 			show_login(__("Operator session expired. Scan the operator credential again."));
 		}
+	}
+
+	function sync_session_from_storage() {
+		const stored_token = localStorage.getItem(session_key);
+		if (stored_token === state.token) return false;
+		state.token = stored_token;
+		state.operator = null;
+		state.routes = [];
+		state.manifests = [];
+		state.recent_manifests = [];
+		state.manifest = null;
+		state.lookup = null;
+		state.scan_mode = "lookup";
+		return true;
 	}
 
 	function show_login(message) {
@@ -188,12 +206,18 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (!state.lookup) return $lookup.empty();
 		if (!state.lookup.handling_unit) {
 			const identity = state.lookup.identity || {}; const e = frappe.utils.escape_html;
+			const is_range = identity.identity_type === "Tag Range Candidate";
+			const range_detail = is_range ?
+				`<p class="mb-2"><strong>${__("Range Registry")}:</strong> ${e(identity.range_registry || "-")}</p>` : "";
+			const status_message = is_range ?
+				__("This preprinted code is valid in an active serial range but has never been activated. Its exact Tag Family will be created only when a Handling Unit is saved for it; it cannot be dispatched or received before then.") :
+				__("This code is registered but is not an active stock Handling Unit. It cannot be dispatched or received until it is activated and assigned stock details.");
 			$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
 				<div class="cfg-logistics-tag-head"><div><small>${__("Scanned Identity Status")}</small>
 					<h3>${e(identity.visible_code || identity.name || "-")}</h3>
 					<strong>${e(identity.identity_type || __("Registered identity"))}</strong></div>
 					<button class="btn btn-default close-lookup">${__("Close")}</button></div>
-				<div class="alert alert-warning mt-3 mb-0">${__("This code is registered but is not an active stock Handling Unit. It cannot be dispatched or received until it is activated and assigned stock details.")}</div>
+				${range_detail}<div class="alert alert-warning mt-3 mb-0">${status_message}</div>
 			</div>`);
 			$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
 			return;
@@ -477,8 +501,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		clear_session(); show_login();
 	}
 
-	function clear_session() {
-		localStorage.removeItem(session_key); state.token = null; state.operator = null;
+	function clear_session(expected_token) {
+		const stored_token = localStorage.getItem(session_key);
+		if (!expected_token || stored_token === expected_token) localStorage.removeItem(session_key);
+		state.token = null; state.operator = null;
 		state.routes = []; state.manifests = []; state.recent_manifests = [];
 		state.manifest = null; state.lookup = null; state.scan_mode = "lookup";
 	}

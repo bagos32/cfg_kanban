@@ -15,4 +15,4 @@ class CFGKanbanOperatorProfile(Document):
         if len(responsibilities) != len(set(responsibilities)):
             frappe.throw("Responsible Roles must be unique")
         if self.view_all_responsibilities and self.kanban_role != "Supervisor":
-            frappe.throw("View All Responsibilities is available only to a Supervisor")
+            frappe.throw("View All Service Tasks is available only to a Supervisor")

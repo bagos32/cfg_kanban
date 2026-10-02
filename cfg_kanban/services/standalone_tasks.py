@@ -6,6 +6,10 @@ from cfg_kanban.services.dynamic_forms import (normalized_values, standalone_def
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key
 from cfg_kanban.services.operator_auth import require_operator
+from cfg_kanban.services.task_access import (
+    assert_responsibility,
+    assert_service_task_access,
+)
 
 
 def generate_due_tasks():
@@ -103,6 +107,7 @@ def resolve_service_point(scan_value, session_token):
     profile, _session = require_operator(
         session_token, "task_start", workstation=schedule.workstation
     )
+    assert_responsibility(schedule.responsible_role, profile)
     open_name = frappe.db.get_value(
         "CFG Kanban Task",
         {"task_schedule": schedule.name,
@@ -115,6 +120,8 @@ def resolve_service_point(scan_value, session_token):
             get_datetime(schedule.next_due_on) <= now_datetime():
         task = create_from_schedule(schedule.name, scheduled_for=schedule.next_due_on)
         generated = True
+    if task:
+        assert_service_task_access(task, profile)
     return {
         "schedule": schedule.as_dict(),
         "task": task.as_dict() if task else None,
@@ -130,6 +137,7 @@ def disposition_task(task_name, session_token, disposition, reason):
     profile, session = require_operator(session_token, "task_verify", workstation=task.workstation)
     if profile.kanban_role not in ("Supervisor", "Development Proxy"):
         frappe.throw("Only a Supervisor can cancel or bypass a Service Task occurrence")
+    assert_service_task_access(task, profile)
     if task.status in ("Completed", "Cancelled", "Bypassed"):
         frappe.throw(f"Task cannot be changed while it is {task.status}")
     if disposition not in ("Cancelled", "Bypassed"):
@@ -218,6 +226,7 @@ def complete_task(task_name, session_token, values=None, checklist_results=None,
 def verify_task(task_name, session_token, values=None, notes=None):
     task = frappe.get_doc("CFG Kanban Task", task_name)
     profile, session = require_operator(session_token, "task_verify", workstation=task.workstation)
+    assert_service_task_access(task, profile)
     if task.status == "Completed":
         return task
     if task.status != "Awaiting Verification":
@@ -238,6 +247,7 @@ def verify_task(task_name, session_token, values=None, notes=None):
 def reject_task(task_name, session_token, notes):
     task = frappe.get_doc("CFG Kanban Task", task_name)
     profile, session = require_operator(session_token, "task_verify", workstation=task.workstation)
+    assert_service_task_access(task, profile)
     if task.status != "Awaiting Verification":
         frappe.throw(f"Task cannot be rejected while it is {task.status}")
     if task.completed_by == profile.employee:
@@ -374,6 +384,4 @@ def _task_event(event_type, task, profile, session, notes=None):
 
 
 def _validate_assignment(task, profile):
-    if (task.assigned_employee and task.assigned_employee != profile.employee
-            and profile.kanban_role != "Supervisor"):
-        frappe.throw(f"Task is assigned to Employee {task.assigned_employee}")
+    assert_service_task_access(task, profile)

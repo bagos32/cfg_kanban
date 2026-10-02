@@ -6,6 +6,13 @@ from cfg_kanban.services.standalone_tasks import (complete_task, create_manual, 
                                                   disposition_task, reject_task, resolve_service_point,
                                                   progress_task, task_form, verify_task)
 from cfg_kanban.services.printing import get_qr_svg
+from cfg_kanban.services.task_access import (
+    assert_responsibility,
+    assert_service_task_access,
+    can_access_service_task,
+    can_view_all_service_tasks,
+    responsibility_names,
+)
 
 
 @frappe.whitelist()
@@ -26,24 +33,7 @@ def get_open_tasks(operator_session_token=None):
                 "verified_by", "verified_on", "modified"],
         order_by="priority desc, due_on asc, creation asc", limit_page_length=200,
     )
-    responsibilities = {row.responsibility for row in profile.responsibilities
-                        if row.responsibility}
-    unrestricted = not responsibilities or (
-        profile.kanban_role == "Supervisor" and profile.view_all_responsibilities
-    )
-    visible = []
-    for row in rows:
-        assigned_to_operator = row.assigned_employee == profile.employee
-        responsibility_allowed = (unrestricted or not row.responsible_role or
-                                  row.responsible_role in responsibilities)
-        if assigned_to_operator:
-            visible.append(row)
-        elif profile.kanban_role == "Supervisor" and responsibility_allowed:
-            visible.append(row)
-        elif not row.assigned_employee and responsibility_allowed:
-            visible.append(row)
-    rows = visible
-    return rows
+    return [row for row in rows if can_access_service_task(row, profile)]
 
 
 @frappe.whitelist()
@@ -51,12 +41,16 @@ def get_request_schedules(operator_session_token=None):
     profile, _session = require_operator(operator_session_token, "task_start")
     if profile.kanban_role not in ("Senior Operator", "Supervisor", "Development Proxy"):
         frappe.throw("Only a Senior Operator or Supervisor can create an unplanned Service Task")
-    return frappe.get_all(
+    rows = frappe.get_all(
         "CFG Kanban Task Schedule", filters={"active": 1},
         fields=["name", "schedule_name", "task_name", "task_category", "trigger_type",
-                "priority", "workstation", "asset", "location"],
+                "priority", "workstation", "asset", "location", "responsible_role"],
         order_by="task_name asc, schedule_name asc", limit_page_length=200,
     )
+    if can_view_all_service_tasks(profile) or not responsibility_names(profile):
+        return rows
+    return [row for row in rows
+            if not row.responsible_role or row.responsible_role in responsibility_names(profile)]
 
 
 @frappe.whitelist()
@@ -68,25 +62,38 @@ def supervisor_request_task(schedule_name, request_source, priority=None, event_
     )
     if profile.kanban_role not in ("Senior Operator", "Supervisor", "Development Proxy"):
         frappe.throw("Only a Senior Operator or Supervisor can create an unplanned Service Task")
-    return create_manual(schedule_name, request_source, priority, event_token).as_dict()
+    assert_responsibility(schedule.responsible_role, profile)
+    task = create_manual(schedule_name, request_source, priority, event_token)
+    assert_service_task_access(task, profile)
+    return task.as_dict()
 
 
 @frappe.whitelist()
 def request_task(schedule_name, request_source, priority=None, event_token=None,
                  operator_session_token=None):
     schedule = frappe.get_doc("CFG Kanban Task Schedule", schedule_name)
+    profile = None
     if operator_session_token:
-        require_operator(operator_session_token, "task_start", workstation=schedule.workstation)
+        profile, _session = require_operator(
+            operator_session_token, "task_start", workstation=schedule.workstation
+        )
+        assert_responsibility(schedule.responsible_role, profile)
     else:
         frappe.only_for(("Manufacturing Manager", "System Manager"))
-    return create_manual(schedule_name, request_source, priority, event_token).as_dict()
+    task = create_manual(schedule_name, request_source, priority, event_token)
+    if profile:
+        assert_service_task_access(task, profile)
+    return task.as_dict()
 
 
 @frappe.whitelist()
 def get_task_form(task_name, capture_on="Complete", operator_session_token=None):
     task = frappe.get_doc("CFG Kanban Task", task_name)
     action = {"Start": "task_start", "Verify": "task_verify"}.get(capture_on, "task_complete")
-    require_operator(operator_session_token, action, workstation=task.workstation)
+    profile, _session = require_operator(
+        operator_session_token, action, workstation=task.workstation
+    )
+    assert_service_task_access(task, profile)
     result = task_form(task_name, capture_on)
     result["media"] = list_reference_media("CFG Kanban Task", task.name,
                                            permission_checked=True)
@@ -97,15 +104,7 @@ def get_task_form(task_name, capture_on="Complete", operator_session_token=None)
 def get_task_progress(task_name, operator_session_token=None):
     task = frappe.get_doc("CFG Kanban Task", task_name)
     profile, _session = require_operator(operator_session_token, workstation=task.workstation)
-    if (task.assigned_employee and task.assigned_employee != profile.employee and
-            profile.kanban_role != "Supervisor"):
-        frappe.throw("Only the assigned operator or a Supervisor can view this Task progress")
-    responsibilities = {row.responsibility for row in profile.responsibilities
-                        if row.responsibility}
-    if (task.responsible_role and responsibilities and
-            task.responsible_role not in responsibilities and
-            not (profile.kanban_role == "Supervisor" and profile.view_all_responsibilities)):
-        frappe.throw("Operator is not assigned to this Task responsibility")
+    assert_service_task_access(task, profile)
     rows = [row.as_dict() for row in task.execution_values if row.capture_on == "Progress"]
     rows.sort(key=lambda row: str(row.get("captured_on") or ""), reverse=True)
     events = frappe.get_all(

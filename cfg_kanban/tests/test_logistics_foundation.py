@@ -5,10 +5,56 @@ from cfg_kanban.services.handling_unit_math import (
     event_deltas,
     validate_balance,
 )
-from cfg_kanban.services.physical_identity import normalize_physical_code
+from cfg_kanban.services.physical_identity import (
+    format_tag_family_code,
+    normalize_physical_code,
+    parse_tag_range_code,
+    validate_tag_range_definition,
+)
 
 
 class TestHandlingUnitQuantityMath(TestCase):
+    def test_preprinted_range_parses_main_and_detachable_children(self):
+        registry = {
+            "prefix": "FZD-STK",
+            "start_number": 1000,
+            "end_number": 1999,
+            "number_width": 4,
+            "child_separator": "-",
+            "child_count": 5,
+        }
+        main = parse_tag_range_code("FZD-STK1000", registry)
+        child = parse_tag_range_code("FZD-STK1000-5", registry)
+        self.assertEqual(main["tag_role"], "Main")
+        self.assertEqual(main["main_code"], "FZD-STK1000")
+        self.assertEqual(child["tag_role"], "Child")
+        self.assertEqual(child["child_index"], 5)
+        self.assertEqual(child["main_code"], "FZD-STK1000")
+
+    def test_preprinted_range_rejects_noncanonical_and_out_of_range_codes(self):
+        registry = {
+            "prefix": "STK",
+            "start_number": 1,
+            "end_number": 999,
+            "number_width": 4,
+            "child_separator": "-",
+            "child_count": 5,
+        }
+        for code in ("STK1", "STK0000", "STK1000", "STK0001-0",
+                     "STK0001-6", "STK0001-01", "stk0001"):
+            self.assertIsNone(parse_tag_range_code(code, registry), code)
+
+    def test_preprinted_range_validation_limits_registry_size_and_format(self):
+        controls = validate_tag_range_definition("STK", 1000, 1999, 4, "-", 5)
+        self.assertEqual(controls["child_count"], 5)
+        self.assertEqual(format_tag_family_code("STK", 25, 4), "STK0025")
+        with self.assertRaises(ValueError):
+            validate_tag_range_definition("STK", 0, 100000, 6, "-", 5)
+        with self.assertRaises(ValueError):
+            validate_tag_range_definition("STK", 1, 10, 2, "1", 5)
+        with self.assertRaises(ValueError):
+            validate_tag_range_definition("STK", 1, 10, 2, "-", 21)
+
     def test_preprinted_code_normalization_only_removes_scanner_whitespace(self):
         self.assertEqual(normalize_physical_code("  MFG-STK1000\r\n"), "MFG-STK1000")
         self.assertEqual(normalize_physical_code("mfg-stk1000"), "mfg-stk1000")

@@ -1,9 +1,9 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.0
+**Guide version:** 1.9
 
-**Updated:** 23 September 2026
+**Updated:** 2 October 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
@@ -125,9 +125,13 @@ Warehouse, or Safety in **CFG Kanban Responsibility**. Add one or more to the Op
 (`responsible_role`) then controls which scanner-only Employees can see an unassigned occurrence.
 An occurrence assigned directly to the Employee remains visible. Blank-responsibility tasks remain
 generally available within workstation scope. A Supervisor can be scoped to several responsibilities
-or use **View All Responsibilities** (`view_all_responsibilities`). For backward compatibility, an
-Operator Profile with an empty Responsible Roles table remains unrestricted until responsibilities
-are deliberately assigned.
+or enable **View All Service Tasks** (`view_all_responsibilities`). When it is unticked, the
+Supervisor sees their own assigned tasks, eligible unassigned tasks, and Awaiting Verification work
+that they are authorized to verify; they do not see another Employee's ordinary assigned work. When
+enabled, the Supervisor can also see work assigned to other Employees and work across all Kanban
+Responsibilities. For backward compatibility, an Operator Profile with an empty Responsible Roles
+table remains unrestricted for unassigned tasks until responsibilities are deliberately assigned;
+it does not grant access to another Employee's assigned work.
 
 ERPNext permissions still apply. A Kanban role does not automatically grant permission to Items,
 BOMs, Work Orders, Job Cards, Stock Entries, Warehouses, or Batches.
@@ -180,7 +184,11 @@ Standalone housekeeping, maintenance, inspection, safety, and emergency work is 
 
 The operator can identify themselves directly in either console by QR credential or credential/PIN.
 Both consoles reuse the same Employee-based operator session; the shared ERP terminal login is not
-changed.
+changed. The Production, Service Task, and Logistics panels also share that browser-stored operator
+session across parallel tabs. If an operator logs in or switches identity on one tab, select
+**Refresh Session** on Production or **Refresh** on Service/Logistics to deliberately adopt that
+latest identity. Refreshing operational data never signs the ERPNext terminal user out. A stale tab
+cannot delete a newer session created in another tab.
 
 ### Operation work, production Process Tasks, and maintenance Tasks
 
@@ -440,10 +448,12 @@ work. These tasks never create or update an ERPNext Work Order, Job Card, or Sto
 
 The Service Task Panel does not show every task indiscriminately. It excludes Completed, Cancelled,
 and Bypassed occurrences. If the Operator Profile has Allowed Workstations, only tasks at those
-Workstations are returned. A non-Supervisor sees unassigned tasks plus tasks assigned to that same
-Employee; a Supervisor may see all otherwise eligible tasks. Starting an unassigned task assigns it
-to the starting Employee. A task already assigned to someone else cannot be started or completed by
-another normal operator.
+Workstations are returned. Every operator sees their own assigned tasks plus eligible unassigned
+tasks. A Supervisor sees another Employee's assigned work only when **View All Service Tasks** is
+enabled, or when the task is Awaiting Verification and the Supervisor is authorized to verify it.
+Starting an unassigned task assigns it to the starting Employee. Ordinary assigned work cannot be
+started, progressed, completed, cancelled, or bypassed by another operator without the controlled
+Supervisor setting.
 
 The Service Tasks page is optimized for phones and tablets rather than a fixed barcode terminal.
 Both operator pages contain a prominent panel switch: **Open Service Task Panel** on the Production
@@ -454,10 +464,11 @@ The scanner and active-operator identity form a sticky header and remain visible
 scrolls. Immediately below it, **Active Work** contains tasks already started and assigned to that
 Employee. Starting a task reloads the panel, moves the task from **Ready / Open Tasks** into Active
 Work, and scrolls to that section. Active tasks are ordered with the most recently updated first.
-A Supervisor sees tasks assigned to other Employees separately under **Other Supervisor Work**;
-they are not mixed into the Supervisor's own active work.
+A Supervisor sees authorized verification work—and, when **View All Service Tasks** is enabled,
+tasks assigned to other Employees—separately under **Supervisor Attention**. They are not mixed into
+the Supervisor's own active work.
 The three behavioral sections use consistent visual meaning: a green-tinted block for Active Work,
-a blue-tinted block for Ready / Open Tasks, and an amber-tinted block for Other Supervisor Work.
+a blue-tinted block for Ready / Open Tasks, and an amber-tinted block for Supervisor Attention.
 Each individual task card repeats that contrast with a matching border, surface tint, and an
 **ACTIVE WORK**, **OPEN TASK**, or **SUPERVISOR VIEW** chip. This remains identifiable after the
 section heading scrolls away. Colors indicate operational state and do not replace written status.
@@ -850,8 +861,10 @@ quantity remains governed by ERPNext amendment and over-delivery controls.
 A Handling Unit identifies one physical pallet, mesh, tote, or container. It is different from a
 reusable Kanban Card and cannot trigger replenishment.
 
-For a preprinted Stock Tag, first register its exact visible number under **CFG Kanban Tag Family**.
-Then create **CFG Kanban Handling Unit → New** after a Cycle exists and enter:
+For a one-off preprinted Stock Tag, register its exact visible number under **CFG Kanban Tag
+Family**. For a large preprinted serial series, create one **CFG Kanban Tag Range Registry** instead;
+do not import thousands of unused Tag Families. Then create **CFG Kanban Handling Unit → New**
+after a Cycle exists and enter:
 
 - **Preprinted Tag / Handling Unit ID** (`handling_unit_id`) by scanning the barcode/QR or typing
   the exact visible value.
@@ -862,9 +875,13 @@ Then create **CFG Kanban Handling Unit → New** after a Cycle exists and enter:
 - Immediate Source and Immediate Destination.
 - Sequence No. and Total Units, for example `1 of 3`.
 
-When the scanned value belongs to a registered family, the form fills **Tag Family**, **Tag Kind**,
-**Child Index**, and initial issuing Company. Item, Batch, Work Order, reusable Card, and description
-are copied from the Cycle when available. **Internal UUID Alias** (`opaque_token`) is generated
+When the scanned value belongs to an exact family, the form fills **Tag Family**, **Tag Kind**,
+**Child Index**, and issuing Company. When it belongs to an active Range Registry, the form fills
+**Tag Range Registry**, **Tag Kind**, **Child Index**, and issuing Company. Saving then atomically
+creates only that exact Tag Family and its configured detachable child identities. Merely looking
+up or scanning an unused range number does not create database records. Item, Batch, Work Order,
+reusable Card, and description are copied from the Cycle when available. **Internal UUID Alias**
+(`opaque_token`) is generated
 automatically for compatibility and audit; users do not type it and it does not need to be printed.
 
 Existing preprinted stock tags are the normal operating method, so production does not depend on a
@@ -1361,8 +1378,8 @@ require a controlled manual/API event in the current implementation.
 Create one profile per Employee. Exact fields are **Employee** (`employee`), **Active** (`active`),
 **Kanban Role** (`kanban_role`: Operator, Senior Operator, Supervisor), optional PIN controls,
 permissions **Start**, **Complete**, **Verify Process Tasks**, **Report Reject**, **Partial Complete /
-Progress**, **Override**, **Reopen**, **Responsible Roles** (`responsibilities`), **View All
-Responsibilities** (`view_all_responsibilities`), plus **Allowed Workstations** and **Allowed Operations** child
+Progress**, **Override**, **Reopen**, **Responsible Roles** (`responsibilities`), **View All Service
+Tasks** (`view_all_responsibilities`), plus **Allowed Workstations** and **Allowed Operations** child
 tables. A profile role alone does not grant an action: the corresponding permission checkbox and
 scope must also allow it. The terminal ERPNext user separately needs the `Kanban Terminal` role (or
 manager/system-manager access).
@@ -1493,6 +1510,43 @@ Photograph**, **Require GPS**, and **Require Unattended-delivery Reason**. The p
 the primary scan value. **Internal UUID Alias** is generated automatically as a system fallback.
 Customer-site delivery scanning is Package C.
 
+### CFG Kanban Tag Range Registry
+
+Use this DocType for a controlled block of preprinted tags that already exists physically. One
+registry can cover thousands of labels without creating thousands of database rows.
+
+Example configuration:
+
+| Screen field | Example | Meaning |
+|---|---:|---|
+| **Range Registry Code** (`registry_code`) | `FZD-STK-1000-1999` | Human-readable registry name |
+| **Issuing Company / Number Namespace** (`issued_company`) | Manufacturing Company | Permanent issuer of the printed number series |
+| **Printed Prefix** (`prefix`) | `FZD-STK` | Exact, case-sensitive characters before the number |
+| **Starting Number** (`start_number`) | 1000 | First permitted main tag |
+| **Ending Number** (`end_number`) | 1999 | Last permitted main tag |
+| **Number Width** (`number_width`) | 4 | Required fixed number width, including leading zeroes |
+| **Child Separator** (`child_separator`) | `-` | Separator before a detachable child number |
+| **Detachable Child Count** (`child_count`) | 5 | Permits `FZD-STK1000-1` through `FZD-STK1000-5` |
+
+After Save, verify **First Main Tag**, **Last Main Tag**, **Total Main Tags**, and **Potential Main +
+Child Identities**. The app rejects overlapping or nested registry namespaces that could make one scan
+ambiguous. One registry is limited to 100,000 main tags and twenty children per family.
+
+An unused code inside an active range resolves as **Tag Range Candidate**. Lookup is read-only: it
+does not create a Tag Family, Handling Unit, stock, or ledger entry. The first controlled Handling
+Unit Save locks the registry row, creates that one exact **CFG Kanban Tag Family** plus its child
+identities, and activates only the scanned identity. This makes repeated scans and simultaneous
+activation idempotent while preserving the existing exact-family lifecycle.
+
+After the first family is materialized, the prefix, range, width, separator, child count, and issuing
+Company are immutable. Deactivate the old registry and create a new one for a changed print series.
+Do not delete a used registry. **Materialized Tag Families**, **Last Materialized Tag Family**, and
+**Last Materialized On** provide the audit summary; the form button opens the exact created records.
+
+The issuing Company is the permanent identity namespace. It does not change during intercompany
+handover. The Handling Unit's **Inventory Company** and **Current Warehouse** change only after
+submitted ERPNext Delivery Note/Purchase Receipt feedback confirms the movement.
+
 ### CFG Kanban Tag Family
 
 Enter **Preprinted Main Tag Code** (`family_code`), **Detachable Child Count** (`child_count`, zero
@@ -1503,9 +1557,10 @@ carry the same visible code. The UUID does not need to exist on the physical tag
 
 Visible codes are unique across the whole ERP site. Use a controlled issuer/company prefix for
 each number series, as logistics companies do with waybill numbers. The issuing Company remains
-fixed while **Inventory Company** may change through later intercompany handover. For a large
-preprinted range, import the Tag Family header rows through Frappe Data Import; child identities
-are generated automatically from `child_count`.
+fixed while **Inventory Company** may change through later intercompany handover. Use an exact Tag
+Family for a one-off or exceptional code. For a large serial block use **CFG Kanban Tag Range
+Registry**; do not import every unused family. Child identities are generated automatically from
+`child_count` in either workflow.
 
 The printed number is an identity, not a password. Scanning it never bypasses the active operator
 session, authorization, route/company validation, lifecycle rules, idempotency, or ERPNext stock
@@ -1634,6 +1689,9 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.9 | 2 October 2026 | Corrected Service Task isolation: an unticked Supervisor no longer sees or operates another Employee's ordinary assigned work; direct APIs, media, schedule requests, service-point scans, and verification access now apply the same server-side responsibility rules |
+| 1.8 | 2 October 2026 | Added serial Tag Range Registries, read-only candidate resolution, atomic lazy Tag Family/child materialization, range-aware Handling Unit activation and replacement, workspace access, and issuer-versus-inventory ownership guidance |
+| 1.7 | 2 October 2026 | Made Production, Service, and Logistics refresh actions safely adopt the latest shared operator credential across parallel tabs without allowing a stale tab to erase a newer login |
 | 1.6 | 1 October 2026 | Added safe default logistics Tag lookup, explicitly armed dispatch/receipt scan modes, mobile-first receipt progress, last-Manifest recovery, latest-10 completed history, mandatory ERP child-table capture, and cross-panel Logistics links |
 | 1.5 | 1 October 2026 | Fixed Service Task correction/resubmission for numeric and Check answers; added persistent progress count/latest audit fields and live supervisor progress history |
 | 1.4 | 1 October 2026 | Added Package B Movement Manifest dispatch/receipt, Logistics Operator Panel, guarded Delivery Note/Purchase Receipt commands, ERP feedback, cancellation, and exact operating prerequisites |

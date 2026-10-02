@@ -36,13 +36,20 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 		if (!frm.is_new() || frm._cfg_resolving_tag || !frm.doc.handling_unit_id) return;
 		frm._cfg_resolving_tag = true;
 		try {
+			await frm.set_value({
+				tag_family: null,
+				tag_range_registry: null,
+				parent_handling_unit: null,
+				root_handling_unit: null,
+				child_index: 0,
+			});
 			const response = await frappe.call({
 				method: "cfg_kanban.api.form_queries.preprinted_tag_context",
 				args: { scan_value: frm.doc.handling_unit_id },
 			});
 			const identity = response.message || {};
 			if (!identity.found) {
-				frappe.show_alert({ message: __("Code is not in a Tag Family registry. Register preprinted Stock Tags first; unregistered codes remain available for reusable containers."), indicator: "orange" }, 8);
+				frappe.show_alert({ message: __("Code is not covered by an exact Tag Family or active Tag Range Registry. Unregistered codes remain available only for reusable containers."), indicator: "orange" }, 8);
 				return;
 			}
 			if (identity.identity_type === "Handling Unit") {
@@ -54,13 +61,15 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 				});
 				return;
 			}
-			if (identity.identity_type !== "Registered Tag Identity") {
+			const is_registered = identity.identity_type === "Registered Tag Identity";
+			const is_range_candidate = identity.identity_type === "Tag Range Candidate";
+			if (!is_registered && !is_range_candidate) {
 				frappe.msgprint({ title: __("Wrong Scan Type"),
 					message: __("{0} is registered as {1}, not a Stock Tag.",
 						[identity.visible_code, identity.identity_type]), indicator: "red" });
 				return;
 			}
-			if (identity.state !== "Unused") {
+			if (is_registered && identity.state !== "Unused") {
 				frappe.msgprint({ title: __("Tag Not Available"),
 					message: __("Preprinted tag {0} is {1}.", [identity.visible_code, identity.state]),
 					indicator: "red" });
@@ -68,12 +77,20 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 			}
 			await frm.set_value({
 				handling_unit_id: identity.visible_code,
-				tag_family: identity.tag_family,
+				tag_family: is_registered ? identity.tag_family : null,
+				tag_range_registry: identity.range_registry || null,
 				tag_kind: identity.tag_role === "Main" ? "Main Stock Tag" : "Child Stock Tag",
 				child_index: identity.child_index || 0,
 				inventory_company: frm.doc.inventory_company || identity.issued_company,
 			});
-			frappe.show_alert({ message: __("Registered preprinted tag recognized"), indicator: "green" });
+			if (is_range_candidate) {
+				frappe.show_alert({
+					message: __("Tag is covered by Range Registry {0}. Its exact Tag Family will be created when this Handling Unit is saved.", [identity.range_registry]),
+					indicator: "blue",
+				}, 10);
+			} else {
+				frappe.show_alert({ message: __("Registered preprinted tag recognized"), indicator: "green" });
+			}
 			if (identity.tag_role === "Child") {
 				frappe.show_alert({ message: __("Select the active main Parent Handling Unit before saving this child split."), indicator: "blue" }, 8);
 			}

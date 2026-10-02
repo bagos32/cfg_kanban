@@ -122,12 +122,14 @@ Card. The Standard Card produces two A6 landscape pages; for economical A4 stock
 per sheet and duplex printing in the printer dialog, then verify front/back orientation on a test
 sheet. The Operational Card is a single A6 landscape page showing immediate movement only.
 
-Register existing preprinted stock-tag series as **CFG Kanban Tag Family** records, then scan the
-printed value (for example `MFG-STK1000`) into **Preprinted Tag / Handling Unit ID** when activating
-the physical pallet, mesh, tote, or other Handling Unit. QR and Code 128 may both encode that same
-human-readable value. The generated UUID is an internal fallback alias and is never required on a
-physical label. Use globally unique issuer/company prefixes because the same tag continues across
-ownership changes and must resolve unambiguously throughout the ERP site.
+Register a large preprinted serial block once in **CFG Kanban Tag Range Registry**, or use **CFG
+Kanban Tag Family** for a one-off code. Then scan the printed value (for example `MFG-STK1000`) into
+**Preprinted Tag / Handling Unit ID** when activating the physical pallet, mesh, tote, or other
+Handling Unit. A range lookup creates no records; the exact family and configured child identities
+are materialized atomically only on first Handling Unit activation. QR and Code 128 may both encode
+the same human-readable value. The generated UUID is an internal fallback alias and is never
+required on a physical label. Use globally unique issuer/company prefixes because the same tag
+continues across ownership changes and must resolve unambiguously throughout the ERP site.
 
 **Print Thermal Tag** is an optional replacement/emergency format, not an operational dependency.
 Reprints require a reason and increment the print counter. Replacement links old and new records

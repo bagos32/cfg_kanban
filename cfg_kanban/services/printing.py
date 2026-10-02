@@ -5,6 +5,7 @@ from frappe.utils import now_datetime
 
 from cfg_kanban.services.events import record
 from cfg_kanban.services.logistics_foundation import post_quantity_event
+from cfg_kanban.services.tag_registry import materialize_tag_family_for_code
 
 
 @frappe.whitelist()
@@ -74,6 +75,10 @@ def replace_handling_unit(unit_name, new_handling_unit_id, reason):
     new.name = None
     new.handling_unit_id = new_handling_unit_id
     new.opaque_token = None
+    if old.tag_kind == "Main Stock Tag" and not frappe.db.exists(
+        "CFG Kanban Tag Identity", {"visible_code": new_handling_unit_id}
+    ):
+        materialize_tag_family_for_code(new_handling_unit_id)
     registered = frappe.db.get_value(
         "CFG Kanban Tag Identity",
         {"visible_code": new_handling_unit_id, "state": "Unused"},
@@ -87,10 +92,14 @@ def replace_handling_unit(unit_name, new_handling_unit_id, reason):
         if old.tag_kind == "Child Stock Tag" and registered.parent != old.tag_family:
             frappe.throw("A Child Stock Tag replacement must use an unused identity from its Tag Family")
         new.tag_family = registered.parent
+        new.tag_range_registry = frappe.db.get_value(
+            "CFG Kanban Tag Family", registered.parent, "range_registry"
+        )
     elif old.tag_kind == "Child Stock Tag":
         frappe.throw("A Child Stock Tag must be replaced with an unused registered tag identity")
     else:
         new.tag_family = None
+        new.tag_range_registry = None
         new.parent_handling_unit = None
         new.root_handling_unit = None
         new.child_index = 0
