@@ -13,6 +13,11 @@ def can_view_all_service_tasks(profile):
     )
 
 
+def workstation_allowed(workstation, profile):
+    allowed = {row.workstation for row in profile.allowed_workstations if row.workstation}
+    return bool(not workstation or not allowed or workstation in allowed)
+
+
 def responsibility_allowed(responsible_role, profile):
     responsibilities = responsibility_names(profile)
     return bool(
@@ -24,6 +29,8 @@ def responsibility_allowed(responsible_role, profile):
 
 
 def can_access_service_task(task, profile):
+    if not workstation_allowed(task.workstation, profile):
+        return False
     if task.assigned_employee == profile.employee:
         return True
     if not responsibility_allowed(task.responsible_role, profile):

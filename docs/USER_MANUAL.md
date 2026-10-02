@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.12
+**Guide version:** 1.13
 
 **Updated:** 2 October 2026
 
@@ -448,8 +448,11 @@ work. These tasks never create or update an ERPNext Work Order, Job Card, or Sto
 
 The Service Task Panel does not show every task indiscriminately. It excludes Completed, Cancelled,
 and Bypassed occurrences. If the Operator Profile has Allowed Workstations, only tasks at those
-Workstations are returned. Every operator sees their own assigned tasks plus eligible unassigned
-tasks. A Supervisor sees another Employee's assigned work only when **View All Service Tasks** is
+Workstations are returned; a task with no Workstation remains eligible because it is not
+workstation-specific. Responsibility, assignment, and Workstation access are applied before the
+panel's 200-task display limit, so other teams' tasks cannot displace an operator's eligible work.
+Every operator sees their own assigned tasks plus eligible unassigned tasks. A Supervisor sees
+another Employee's assigned work only when **View All Service Tasks** is
 enabled, or when the task is Awaiting Verification and the Supervisor is authorized to verify it.
 Starting an unassigned task assigns it to the starting Employee. Ordinary assigned work cannot be
 started, progressed, completed, cancelled, or bypassed by another operator without the controlled
@@ -1725,6 +1728,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.13 | 2 October 2026 | Corrected Service Task eligibility ordering so responsibility/employee/Workstation access is applied before the 200-row display limit, and blank-Workstation tasks remain visible to eligible profiles |
 | 1.12 | 2 October 2026 | Corrected Dynamic Form interaction refresh so Check and Select controls remain clickable while dependent visibility still updates after each completed value change |
 | 1.11 | 2 October 2026 | Implemented reactive Dynamic Form Visible Conditions in Service, Process Task, and production-operation dialogs; added safe syntax validation and server-side exclusion of hidden mandatory fields/evidence |
 | 1.10 | 2 October 2026 | Required source Company/Warehouse on new Stock Tags, added controlled initial-Warehouse recovery for legacy blank tags, documented Manifest destination timing, and improved Operator Profile names and workstation/operation grids |

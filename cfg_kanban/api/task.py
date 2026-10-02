@@ -19,10 +19,6 @@ from cfg_kanban.services.task_access import (
 def get_open_tasks(operator_session_token=None):
     profile, _session = require_operator(operator_session_token)
     filters = {"status": ["not in", ("Completed", "Cancelled", "Bypassed")]}
-    allowed_workstations = [row.workstation for row in profile.allowed_workstations
-                            if row.workstation]
-    if allowed_workstations:
-        filters["workstation"] = ["in", allowed_workstations]
     rows = frappe.get_all(
         "CFG Kanban Task", filters=filters,
         fields=["name", "task_name", "task_category", "status", "priority", "requested_on",
@@ -31,9 +27,9 @@ def get_open_tasks(operator_session_token=None):
                 "responsible_role", "progress_count", "last_progress_by",
                 "last_progress_on", "last_progress_summary", "verification_notes",
                 "verified_by", "verified_on", "modified"],
-        order_by="priority desc, due_on asc, creation asc", limit_page_length=200,
+        order_by="priority desc, due_on asc, creation asc", limit_page_length=0,
     )
-    return [row for row in rows if can_access_service_task(row, profile)]
+    return [row for row in rows if can_access_service_task(row, profile)][:200]
 
 
 @frappe.whitelist()
