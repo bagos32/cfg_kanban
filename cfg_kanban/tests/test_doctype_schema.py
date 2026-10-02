@@ -205,6 +205,12 @@ class TestDocTypeSchema(TestCase):
             "Preprinted Tag / Handling Unit ID",
         )
         self.assertEqual(handling["opaque_token"]["label"], "Internal UUID Alias")
+        self.assertIn("tag_kind!='Reusable Container'",
+                      handling["inventory_company"]["mandatory_depends_on"])
+        self.assertIn("tag_kind!='Reusable Container'",
+                      handling["current_warehouse"]["mandatory_depends_on"])
+        self.assertEqual(handling["current_warehouse"]["read_only_depends_on"],
+                         "eval:!doc.__islocal")
 
         ledger = {row["fieldname"]: row for row in
                   schemas["CFG Kanban Handling Unit Quantity Ledger"]["fields"]}
@@ -234,6 +240,16 @@ class TestDocTypeSchema(TestCase):
         self.assertNotIn(
             '"CFG Kanban Handling Unit", {"opaque_token": token}', scan_source
         )
+
+    def test_legacy_blank_handling_unit_has_controlled_warehouse_recovery(self):
+        api = (APP_ROOT / "api" / "logistics.py").read_text()
+        form = (APP_ROOT / "public" / "js" /
+                "cfg_kanban_handling_unit.js").read_text()
+        self.assertIn("def assign_initial_warehouse(", api)
+        self.assertIn("validate_warehouse_company(warehouse, unit.inventory_company", api)
+        self.assertIn("_assert_erp_stock(unit, warehouse, unit.current_qty)", api)
+        self.assertIn('event_type="Location Transfer"', api)
+        self.assertIn("Assign Initial Warehouse", form)
 
     def test_tag_range_lookup_is_lazy_and_materialization_is_controlled(self):
         resolver = (APP_ROOT / "services" / "logistics_foundation.py").read_text()
@@ -367,6 +383,9 @@ class TestDocTypeSchema(TestCase):
         fields = {row["fieldname"]: row for row in profile["fields"]}
         self.assertEqual(fields["employee"]["options"], "Employee")
         self.assertTrue(fields["employee"]["unique"])
+        self.assertEqual(fields["employee_name"]["fetch_from"],
+                         "employee.employee_name")
+        self.assertTrue(fields["employee_name"]["in_list_view"])
         self.assertTrue({"qr_token_hash", "pin_required", "pin", "kanban_role",
                          "can_start", "can_complete", "can_report_reject",
                          "can_partial_complete", "can_override", "can_reopen",
@@ -376,6 +395,13 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Operator Responsibility")
         self.assertEqual(fields["view_all_responsibilities"]["label"],
                          "View All Service Tasks")
+
+        workstation = {row["fieldname"]: row for row in
+                       schemas["CFG Kanban Allowed Workstation"]["fields"]}
+        operation = {row["fieldname"]: row for row in
+                     schemas["CFG Kanban Allowed Operation"]["fields"]}
+        self.assertTrue(workstation["workstation"]["in_list_view"])
+        self.assertTrue(operation["operation"]["in_list_view"])
 
     def test_service_responsibility_is_independent_from_erp_roles(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

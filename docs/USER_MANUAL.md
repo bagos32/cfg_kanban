@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.9
+**Guide version:** 1.10
 
 **Updated:** 2 October 2026
 
@@ -871,6 +871,9 @@ after a Cycle exists and enter:
 - Handling Unit Type.
 - Kanban Cycle.
 - Quantity and UOM.
+- **Inventory Company** (`inventory_company`) and **Current Warehouse** (`current_warehouse`).
+  Current Warehouse is the ERPNext warehouse that physically holds the stock now; it is not the
+  future Manifest destination.
 - Carton/container count where applicable.
 - Immediate Source and Immediate Destination.
 - Sequence No. and Total Units, for example `1 of 3`.
@@ -1578,6 +1581,21 @@ fields include **Tag Family**, **Parent Handling Unit**, **Root Handling Unit**,
 Timestamp**, **Expiry Date Snapshot**, **Identity State**, **Movement State**, **Quality State**, and
 the read-only original/current/reserved/available quantity caches.
 
+A Stock Tag cannot be activated without Inventory Company and Current Warehouse. After activation,
+these fields are not ordinary editable planning fields: ERPNext stock feedback and controlled
+logistics movements own their changes. For a legacy Stock Tag that was saved with a blank warehouse,
+use **Kanban Actions → Assign Initial Warehouse**. The recovery requires a reason, validates that the
+Warehouse belongs to the Inventory Company, confirms sufficient ERPNext Item/Batch stock, and writes
+an auditable location ledger event. It cannot be used to relocate an already assigned or reserved
+tag.
+
+The future destination is deliberately not fixed on the Handling Unit. Select a directional
+**Logistics Route** when creating the Manifest; its source and destination Company/Warehouse values
+are snapshotted onto that Manifest. The destination may remain undecided before the Manifest is
+created, but it must be selected before dispatch is confirmed because ERPNext Delivery Note and
+Purchase Receipt construction requires an unambiguous destination. Do not wait until Manifest close
+to decide it.
+
 A Reusable Container may exist without a production Cycle, Item, or opening quantity. It must be
 loaded through controlled ledger events. Existing production Handling Units retain their internal
 UUID aliases and old scan state; migration adds the new identity/state fields and an opening ledger
@@ -1689,6 +1707,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.10 | 2 October 2026 | Required source Company/Warehouse on new Stock Tags, added controlled initial-Warehouse recovery for legacy blank tags, documented Manifest destination timing, and improved Operator Profile names and workstation/operation grids |
 | 1.9 | 2 October 2026 | Corrected Service Task isolation: an unticked Supervisor no longer sees or operates another Employee's ordinary assigned work; direct APIs, media, schedule requests, service-point scans, and verification access now apply the same server-side responsibility rules |
 | 1.8 | 2 October 2026 | Added serial Tag Range Registries, read-only candidate resolution, atomic lazy Tag Family/child materialization, range-aware Handling Unit activation and replacement, workspace access, and issuer-versus-inventory ownership guidance |
 | 1.7 | 2 October 2026 | Made Production, Service, and Logistics refresh actions safely adopt the latest shared operator credential across parallel tabs without allowing a stale tab to erase a newer login |

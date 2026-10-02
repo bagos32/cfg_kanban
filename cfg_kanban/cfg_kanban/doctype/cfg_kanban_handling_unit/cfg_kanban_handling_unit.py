@@ -84,6 +84,13 @@ class CFGKanbanHandlingUnit(Document):
         self._validate_immutable_identity()
         if self.tag_kind != "Reusable Container" and (not self.item_code or not self.stock_uom):
             frappe.throw("Item and Stock UOM are required for a Stock Tag")
+        if self.tag_kind != "Reusable Container" and (
+            not self.inventory_company or not self.current_warehouse
+        ):
+            frappe.throw(
+                "Inventory Company and Current Warehouse are required for a Stock Tag. "
+                "Current Warehouse is the present ERPNext source location, not its future destination."
+            )
         if self.tag_kind != "Reusable Container" and flt(self.qty) <= 0:
             frappe.throw("Handling-unit quantity must be positive")
         if self.tag_kind == "Reusable Container" and flt(self.qty):
@@ -138,6 +145,7 @@ class CFGKanbanHandlingUnit(Document):
             "handling_unit_id", "opaque_token", "tag_kind", "tag_range_registry", "tag_family",
             "parent_handling_unit", "root_handling_unit", "child_index", "item_code",
             "batch_no", "stock_uom", "packed_on", "expiry_date", "original_qty", "qty",
+            "inventory_company", "current_warehouse",
         )
         for fieldname in immutable:
             if before.get(fieldname) != self.get(fieldname):

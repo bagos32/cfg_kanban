@@ -4,6 +4,10 @@ from frappe.model.document import Document
 
 class CFGKanbanOperatorProfile(Document):
     def validate(self):
+        self.employee_name = (
+            frappe.db.get_value("Employee", self.employee, "employee_name")
+            if self.employee else None
+        )
         duplicate = frappe.db.get_value(
             self.doctype, {"employee": self.employee, "name": ["!=", self.name]}, "name"
         )

@@ -101,6 +101,11 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 	refresh(frm) {
 		if (frm.doc.kanban_cycle) frm.trigger("kanban_cycle");
 		if (frm.is_new()) return;
+		if (frm.doc.tag_kind !== "Reusable Container" && !frm.doc.current_warehouse) {
+			frm.add_custom_button(__("Assign Initial Warehouse"), () => {
+				assign_initial_warehouse(frm);
+			}, __("Kanban Actions"));
+		}
 		frm.add_custom_button(__("Print Thermal Tag"), () => audited_print(
 			frm, "CFG Kanban Handling Unit Tag"), __("Kanban Actions"));
 		if (!["Received", "Void", "Replaced"].includes(frm.doc.state)) {
@@ -108,6 +113,23 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 		}
 	},
 });
+
+function assign_initial_warehouse(frm) {
+	frappe.prompt([
+		{ fieldname: "warehouse", label: __("Current Warehouse"), fieldtype: "Link",
+			options: "Warehouse", reqd: 1,
+			get_query: () => ({ filters: { company: frm.doc.inventory_company || "", is_group: 0 } }) },
+		{ fieldname: "reason", label: __("Assignment Reason"), fieldtype: "Small Text", reqd: 1 },
+	], async (values) => {
+		await frappe.call({
+			method: "cfg_kanban.api.logistics.assign_initial_warehouse",
+			args: { unit_name: frm.doc.name, warehouse: values.warehouse, reason: values.reason },
+			freeze: true,
+			freeze_message: __("Validating ERPNext stock and assigning the initial warehouse..."),
+		});
+		await frm.reload_doc();
+	}, __("Assign Initial Warehouse"), __("Assign"));
+}
 
 async function audited_print(frm, format) {
 	const reason = frm.doc.print_count ? await ask_reason(__("Reason for reprint")) : null;

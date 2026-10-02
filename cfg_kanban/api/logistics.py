@@ -11,6 +11,7 @@ from cfg_kanban.services.idempotency import canonical_key, insert_once
 from cfg_kanban.services.logistics_foundation import (
     post_quantity_event,
     resolve_logistics_scan,
+    validate_warehouse_company,
 )
 from cfg_kanban.services.operator_auth import require_operator
 
@@ -22,6 +23,57 @@ MANIFEST_LIST_FIELDS = [
     "total_received_quantity", "dispatch_delivery_note", "receipt_purchase_receipt",
     "modified",
 ]
+
+
+@frappe.whitelist()
+def assign_initial_warehouse(unit_name, warehouse, reason):
+    frappe.only_for(("Manufacturing User", "Stock User", "Manufacturing Manager",
+                     "Stock Manager", "System Manager"))
+    if not (reason or "").strip():
+        frappe.throw("Assignment reason is required")
+    if not warehouse:
+        frappe.throw("Current Warehouse is required")
+    frappe.db.sql(
+        "select name from `tabCFG Kanban Handling Unit` where name=%s for update",
+        unit_name,
+    )
+    unit = frappe.get_doc("CFG Kanban Handling Unit", unit_name)
+    unit.check_permission("write")
+    if unit.tag_kind == "Reusable Container":
+        frappe.throw("Use controlled container movement for a Reusable Container")
+    if unit.current_warehouse:
+        if unit.current_warehouse == warehouse:
+            return unit.as_dict()
+        frappe.throw(
+            f"Handling Unit is already assigned to {unit.current_warehouse}. "
+            "Use a controlled stock movement instead of changing its current location."
+        )
+    if unit.identity_state != "Active" or unit.movement_state not in ("At Source", "Packed"):
+        frappe.throw("Initial Warehouse can be assigned only to an active source Stock Tag")
+    if not unit.inventory_company:
+        frappe.throw("Set the Handling Unit Inventory Company before assigning its Warehouse")
+    if flt(unit.reserved_qty):
+        frappe.throw("A reserved Handling Unit cannot receive an initial Warehouse assignment")
+    if flt(unit.current_qty) <= 0 or not unit.stock_uom:
+        frappe.throw("The Handling Unit must have a positive ledger balance before assignment")
+    validate_warehouse_company(warehouse, unit.inventory_company, "Current Warehouse")
+    _assert_erp_stock(unit, warehouse, unit.current_qty)
+    post_quantity_event(
+        event_type="Location Transfer", qty=unit.current_qty, stock_uom=unit.stock_uom,
+        idempotency_key=canonical_key("handling-unit-initial-warehouse", unit.name, warehouse),
+        source_handling_unit=unit.name, item_code=unit.item_code, batch_no=unit.batch_no,
+        source_company=unit.inventory_company, destination_company=unit.inventory_company,
+        destination_warehouse=warehouse, reference_doctype=unit.doctype,
+        reference_name=unit.name, reason=reason,
+    )
+    unit.db_set("current_warehouse", warehouse, update_modified=True)
+    record(
+        "Handling Unit Initial Warehouse Assigned", handling_unit=unit.name,
+        qty=unit.current_qty, reference_doctype=unit.doctype, reference_name=unit.name,
+        notes=f"{warehouse}: {reason}",
+    )
+    unit.current_warehouse = warehouse
+    return unit.as_dict()
 
 
 @frappe.whitelist()
