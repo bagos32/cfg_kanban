@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.29
+**Guide version:** 1.31
 
 **Updated:** 4 October 2026
 
@@ -1909,6 +1909,50 @@ ERP stock. Only afterward does a supervisor/accountant choose the exact Sales In
 historical substitute, or No Credit and use the controlled ERPNext/e-Invoice workflow. Driver and QC
 screens never choose or create accounting credit documents.
 
+### Accountant decision after Customer Return QC (Package D2B)
+
+After QC produces accepted quantity, an authorized **Accounts User**, **Accounts Manager**, **Sales
+Manager**, or **System Manager** opens the **CFG Kanban Return Case** in Desk. The positive credit
+path additionally requires Sales Invoice Create permission; No Credit does not. Select **Accounting
+→ Prepare Accounting Decision**. This action is intentionally not available in the floor
+Logistics/QC panel.
+
+The dialog shows the immutable QC-accepted Item quantities and recent submitted, non-return Sales
+Invoices filtered to the Return Case **Selling Company** (`selling_company`) and **Customer**
+(`customer`). Choose one of these exact values in **Accounting Source Basis**
+(`accounting_source_basis`):
+
+- `Exact Sales Invoice` when accounting identifies the intended source invoice;
+- `Substitute Historical Sales Invoice` when an older return cannot be traced and accounting
+  approves another invoice for the same Company, Customer and sufficient remaining Item quantity;
+- `No Credit` when the claim is rejected financially.
+
+**Accounting Decision Notes** (`accounting_decision_notes`) are mandatory. Exact/substitute choices
+also require **Source Sales Invoice** in the dialog. The server rejects a Draft, cancelled, return,
+wrong-Company, wrong-Customer, missing-Item, or insufficient-uncredited-quantity source.
+
+A credit decision creates one idempotent non-stock Draft ERPNext Sales Invoice Return. Its **Is
+Return** is enabled, **Return Against** is the approved source, **Update Stock** is disabled, and its
+negative quantities exactly equal the QC-accepted quantities. The Return Case records **Accounting
+Decision By**, **Accounting Decision On**, **Accounting Decision Notes**, **Final Credit Document**
+and **Credit Document Status**. Preparing the Draft creates no GL Entry, e-Invoice submission, or
+Stock Ledger Entry. The accountant must open that Draft, complete all native/custom tax, account,
+cost-centre and e-Invoice requirements, then submit it in ERPNext.
+
+On valid ERPNext submission, the Return Case becomes `Accounting Completed` / `Completed`. The
+submission hook blocks Company, Customer, source, Update Stock, Item or quantity divergence. If the
+submitted return is cancelled, the case reopens to `QC Completed - Accounting Pending`, records the
+cancellation and increments its internal accounting revision so one controlled replacement Draft
+can be prepared. `No Credit` creates no Sales Invoice Return and changes the case to `Accounting
+Completed` / `No Credit Approved`; an active credit Draft must be cancelled before No Credit can be
+chosen.
+
+Package D2B is an accounting handoff only. Accepted goods still remain in inspection custody; a
+later controlled stock-disposition function must post quarantine, rework, disposal or accepted-stock
+movement in ERPNext. CFG Kanban Core does not depend on the external `bagos_changes` custom **Credit
+Note** DocType. The driver-facing **CFG Temporary Return Note** remains the non-tax custody record,
+and the final credit is a standard ERPNext Sales Invoice Return.
+
 **Correct Wrong Delivery Note:** Retrieve the completed Delivery Session and select **Correct Wrong
 Delivery Note**. The exact submitted Delivery Note is mandatory and reversal quantities cannot exceed
 its remaining delivered rows. CFG Kanban creates only a Return Delivery Note against that DN. The
@@ -2103,19 +2147,22 @@ When using this file as context, an assistant must:
    code does not contain.
 10. Confirm the deployed Git revision/migration when the UI does not match this guide.
 
-11. Treat customer Sales Invoice posting, loose-container delivery, final accepted-return stock
-    posting/accounting credit, and billing grouping as later increments. Packages C1-C2B identify the Customer
+11. Treat customer Sales Invoice posting, loose-container delivery, accepted-return stock
+    disposition, and billing grouping as later increments. Packages C1-C2B identify the Customer
     Site, lock the Company-specific lorry Warehouse, reserve full/partial Stock Tag quantities, and
     confirm delivery only from submitted ERPNext Delivery Note feedback. Package B intercompany
     posting remains operational only through the Movement Manifest and submitted Delivery Note /
     Purchase Receipt feedback described above. D2A already covers Temporary Return Note custody,
     QC result handoff, and wrong-Delivery-Note physical correction; it never lets a floor operator
-    select or post a Sales Invoice Return/Credit Note.
+    select or post a Sales Invoice Return/Credit Note. D2B lets only an authorized Desk accounting
+    user prepare the standard non-stock Draft Sales Invoice Return or record No Credit; ERPNext still
+    owns tax/e-Invoice review and submission.
 
 ## 27. Revision history
 
 | Version | Date | Change |
 |---|---|---|
+| 1.31 | 4 October 2026 | Added accountant-only post-QC source/no-credit decisions, same-Company/Customer and remaining-quantity validation, idempotent non-stock Draft Sales Invoice Return preparation, ERPNext-owned tax/e-Invoice submission, submit/cancel feedback and controlled replacement revision |
 | 1.30 | 4 October 2026 | Replaced the draft return concept with two practical floor workflows: Customer Return for QC from a Customer Site without prior DN/invoice, optional customer acknowledgement, private timestamped/geotagged evidence, printable/scannable Temporary Return Note, QC receipt/disposition and accounting-pending handoff; plus exact submitted-DN correction through a controlled Return Delivery Note with invoiced-DN safety hold |
 | 1.29 | 4 October 2026 | Initial return-intake draft (superseded by 1.30 before deployment) |
 | 1.28 | 3 October 2026 | Added policy-controlled customer proof of delivery, attended/unattended/no-proof dispositions, private photo/signature/file evidence, server-time and GPS capture, supervisor thumbnail review, server-enforced closure, and safe post-proof cancellation blocking |

@@ -28,6 +28,7 @@ QC_DISPOSITIONS = (
     "Accept for Credit", "Reject Customer Claim", "Accept for Rework",
     "Accept for Disposal", "Hold for Investigation",
 )
+ACCOUNTING_ROLES = ("Accounts User", "Accounts Manager", "Sales Manager", "System Manager")
 
 
 @frappe.whitelist()
@@ -334,6 +335,165 @@ def complete_qc_inspection(return_case, lines, qc_notes, event_token,
 
 
 @frappe.whitelist()
+def get_accounting_context(return_case):
+    """Return the accountant-only decision context after QC is complete."""
+    _require_accounting_user()
+    case = frappe.get_doc("CFG Kanban Return Case", return_case)
+    case.check_permission("read")
+    _assert_accounting_ready(case, allow_selected=True)
+    accepted = _accepted_item_totals(case)
+    invoices = frappe.get_all(
+        "Sales Invoice",
+        filters={
+            "company": case.selling_company, "customer": case.customer,
+            "docstatus": 1, "is_return": 0,
+        },
+        fields=["name", "posting_date", "grand_total", "currency", "status"],
+        order_by="posting_date desc, creation desc", limit_page_length=50,
+    )
+    item_codes = set(accepted)
+    invoice_names = [row.name for row in invoices]
+    covered = {}
+    if invoice_names:
+        for row in frappe.get_all(
+            "Sales Invoice Item",
+            filters={"parent": ["in", invoice_names], "item_code": ["in", list(item_codes)]},
+            fields=["parent", "item_code", "stock_qty"], limit_page_length=500,
+        ):
+            invoice_items = covered.setdefault(row.parent, {})
+            invoice_items[row.item_code] = (
+                invoice_items.get(row.item_code, 0) + abs(flt(row.stock_qty))
+            )
+        returned = _submitted_credit_totals(invoice_names)
+        for invoice_name, items in covered.items():
+            for item_code in tuple(items):
+                items[item_code] = max(
+                    flt(items[item_code])
+                    - flt(returned.get(invoice_name, {}).get(item_code)),
+                    0,
+                )
+    for invoice in invoices:
+        coverage = covered.get(invoice.name, {})
+        invoice["covers_qc_items"] = all(
+            flt(coverage.get(item_code)) + 0.000001 >= qty
+            for item_code, qty in accepted.items()
+        )
+    return {
+        "return_case": case.name, "state": case.state,
+        "accounting_status": case.accounting_status,
+        "selling_company": case.selling_company, "customer": case.customer,
+        "accepted_items": [
+            {"item_code": item_code, "accepted_qty": qty,
+             "stock_uom": frappe.db.get_value("Item", item_code, "stock_uom")}
+            for item_code, qty in accepted.items()
+        ],
+        "candidate_invoices": invoices,
+        "selected_source": case.accounting_reference,
+        "credit_document": case.credit_document,
+        "credit_document_status": case.credit_document_status,
+    }
+
+
+@frappe.whitelist()
+def prepare_accounting_decision(return_case, source_basis, decision_notes,
+                                source_sales_invoice=None, event_token=None):
+    """Close as no-credit or prepare a Draft ERPNext Sales Invoice Return.
+
+    This Desk action is deliberately unavailable to floor operator sessions. The
+    generated accounting document remains Draft for tax/e-Invoice review.
+    """
+    _require_accounting_user()
+    frappe.db.sql(
+        "select name from `tabCFG Kanban Return Case` where name=%s for update",
+        return_case,
+    )
+    case = frappe.get_doc("CFG Kanban Return Case", return_case)
+    case.check_permission("read")
+    _assert_accounting_ready(case, allow_selected=True)
+    notes = (decision_notes or "").strip()
+    if not notes:
+        frappe.throw(_("Accounting decision notes are required"))
+    if source_basis == "No Credit":
+        if source_sales_invoice:
+            frappe.throw(_("No Credit decision must not select a Sales Invoice"))
+        if case.credit_document and frappe.db.get_value(
+            "Sales Invoice", case.credit_document, "docstatus"
+        ) in (0, 1):
+            frappe.throw(_("Cancel the existing Sales Invoice Return before choosing No Credit"))
+        previous_state = case.state
+        case.db_set({
+            "state": "Accounting Completed", "accounting_status": "No Credit Approved",
+            "accounting_source_basis": source_basis,
+            "accounting_reference_doctype": None, "accounting_reference": None,
+            "accounting_decided_by": frappe.session.user,
+            "accounting_decided_on": now_datetime(),
+            "accounting_decision_notes": notes,
+            "credit_document_doctype": None, "credit_document": None,
+            "credit_document_status": "Not Required",
+        }, update_modified=True)
+        record(
+            "Customer Return No Credit Approved", return_case=case.name,
+            previous_state=previous_state, new_state="Accounting Completed",
+            qty=case.accepted_total_qty, reference_doctype=case.doctype,
+            reference_name=case.name, device_id=event_token, notes=notes,
+        )
+        case.reload()
+        return case.as_dict()
+    if source_basis not in ("Exact Sales Invoice", "Substitute Historical Sales Invoice"):
+        frappe.throw(_("Select Exact Sales Invoice, Substitute Historical Sales Invoice, or No Credit"))
+    _require_sales_invoice_create()
+    source = _validate_accounting_source(case, source_sales_invoice)
+    if case.credit_document and frappe.db.get_value(
+        "Sales Invoice", case.credit_document, "docstatus"
+    ) in (0, 1):
+        return {
+            "return_case": case.name, "credit_document": case.credit_document,
+            "credit_document_status": case.credit_document_status,
+            "already_exists": True,
+        }
+    revision = int(case.accounting_revision or 0)
+    command_key = canonical_key("customer-credit-return", case.name, revision)
+    command_payload = frappe.as_json({
+        "source_sales_invoice": source.name,
+        "source_basis": source_basis,
+        "accepted_items": _accepted_item_totals(case),
+        "decision_notes": notes,
+        "accounting_revision": revision,
+    })
+    command, created = insert_once(frappe.get_doc({
+        "doctype": "CFG ERP Command",
+        "command_type": "Create Customer Credit Return",
+        "return_case": case.name,
+        "status": "Pending",
+        "target_doctype": "Sales Invoice",
+        "request_payload": command_payload,
+        "terminal_user": frappe.session.user,
+        "requested_on": now_datetime(), "created_by_system": 1,
+    }), command_key, ignore_permissions=True)
+    if not created and command.status == "Failed":
+        command.db_set({
+            "request_payload": command_payload,
+            "terminal_user": frappe.session.user,
+            "target_document": None,
+            "last_error": None,
+        }, update_modified=True)
+        command.reload()
+    credit = execute_command(command.name)
+    case.reload()
+    record(
+        "Customer Credit Return Draft Prepared", return_case=case.name,
+        previous_state=case.state, new_state=case.state,
+        qty=case.accepted_total_qty, reference_doctype="Sales Invoice",
+        reference_name=credit.name, device_id=command_key,
+        notes=f"{source_basis}: {source.name}. {notes}",
+    )
+    return {
+        "return_case": case.name, "credit_document": credit.name,
+        "credit_document_status": "Draft", "already_exists": False,
+    }
+
+
+@frappe.whitelist()
 def get_return_case(return_case, operator_session_token):
     profile, _session = require_operator(operator_session_token)
     if not (_intake_allowed(profile) or _qc_allowed(profile)):
@@ -489,6 +649,84 @@ def _submitted_invoices(delivery_note):
 def _validate_whole_number(uom, qty, item_code):
     if frappe.get_cached_value("UOM", uom, "must_be_whole_number") and abs(qty - round(qty)) > 0.000001:
         frappe.throw(_("Quantity for {0} must be a whole number in {1}").format(item_code, uom))
+
+
+def _require_accounting_user():
+    frappe.only_for(ACCOUNTING_ROLES)
+
+
+def _require_sales_invoice_create():
+    if not frappe.has_permission("Sales Invoice", ptype="create"):
+        frappe.throw(_("You need Create permission for Sales Invoice to prepare a credit return"),
+                     frappe.PermissionError)
+
+
+def _assert_accounting_ready(case, allow_selected=False):
+    if case.return_flow != "Customer Return for QC":
+        frappe.throw(_("Only QC-governed Customer Returns use accounting source selection"))
+    allowed_statuses = {"Pending Source Selection"}
+    if allow_selected:
+        allowed_statuses.update({"Source Selected", "Credit Pending"})
+    if case.state != "QC Completed - Accounting Pending" or \
+            case.accounting_status not in allowed_statuses or flt(case.accepted_total_qty) <= 0:
+        frappe.throw(_("Return Case is not ready for an accounting decision"))
+
+
+def _accepted_item_totals(case):
+    totals = {}
+    for row in case.lines:
+        qty = flt(row.accepted_qty)
+        if qty > 0:
+            totals[row.item_code] = totals.get(row.item_code, 0) + qty
+    if not totals:
+        frappe.throw(_("Return Case has no QC-accepted quantity"))
+    return totals
+
+
+def _validate_accounting_source(case, source_sales_invoice):
+    if not source_sales_invoice:
+        frappe.throw(_("Select the submitted Sales Invoice used as the credit source"))
+    source = frappe.get_doc("Sales Invoice", source_sales_invoice)
+    source.check_permission("read")
+    if source.docstatus != 1 or source.is_return:
+        frappe.throw(_("Credit source must be a submitted, non-return Sales Invoice"))
+    if source.company != case.selling_company or source.customer != case.customer:
+        frappe.throw(_("Credit source Company and Customer must match the Return Case"))
+    available = {}
+    for row in source.items:
+        available[row.item_code] = available.get(row.item_code, 0) + abs(flt(row.stock_qty))
+    returned = _submitted_credit_totals([source.name]).get(source.name, {})
+    for item_code in tuple(available):
+        available[item_code] = max(
+            flt(available[item_code]) - flt(returned.get(item_code)), 0
+        )
+    for item_code, qty in _accepted_item_totals(case).items():
+        if flt(available.get(item_code)) + 0.000001 < qty:
+            frappe.throw(_("Sales Invoice {0} does not contain enough {1} for QC-accepted quantity {2}").format(
+                source.name, item_code, qty
+            ))
+    return source
+
+
+def _submitted_credit_totals(source_invoices):
+    if not source_invoices:
+        return {}
+    placeholders = ", ".join(["%s"] * len(source_invoices))
+    rows = frappe.db.sql(
+        f"""
+        select invoice.return_against, item.item_code, sum(abs(item.stock_qty)) as returned_qty
+        from `tabSales Invoice` invoice
+        inner join `tabSales Invoice Item` item on item.parent=invoice.name
+        where invoice.docstatus=1 and invoice.is_return=1
+          and invoice.return_against in ({placeholders})
+        group by invoice.return_against, item.item_code
+        """,
+        tuple(source_invoices), as_dict=True,
+    )
+    totals = {}
+    for row in rows:
+        totals.setdefault(row.return_against, {})[row.item_code] = flt(row.returned_qty)
+    return totals
 
 
 def _condition(value):

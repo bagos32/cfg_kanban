@@ -17,6 +17,8 @@ The customer acceptance and private-evidence continuation is
 [Package D1 Customer Delivery Proof System Test](docs/TEST_PACKAGE_D1_DELIVERY_PROOF.md).
 The controlled post-delivery return and correction continuation is
 [Package D2A Customer Return Intake System Test](docs/TEST_PACKAGE_D2A_CUSTOMER_RETURN_INTAKE.md).
+The accountant-controlled post-QC continuation is
+[Package D2B Customer Return Accounting System Test](docs/TEST_PACKAGE_D2B_CUSTOMER_RETURN_ACCOUNTING.md).
 Package A identity/configuration, Package B intercompany handover, Package C1 customer/vehicle
 session foundation, Package C2A customer tagged-stock reservation, and Package C2B controlled
 customer Delivery Note posting are implemented. Package D1 adds policy-controlled proof of delivery,
@@ -24,7 +26,9 @@ private evidence, unattended delivery, and audited closure. Package D2A separate
 for QC from wrong-Delivery-Note correction: drivers issue a non-accounting Temporary Return Note at
 the Customer Site with optional customer acknowledgement and private timestamped/geotagged evidence,
 QC records accepted/rejected disposition, and only wrong-DN correction can create
-an ERPNext Return Delivery Note. Final accounting credit/e-Invoice posting remains accountant-owned.
+an ERPNext Return Delivery Note. Package D2B lets authorized accounting users select a valid source
+invoice or No Credit and prepares a non-stock Draft ERPNext Sales Invoice Return. ERPNext retains
+manual tax/e-Invoice review and submission; accepted-return stock disposition remains separate.
 The additive tagged/untagged material-continuity model is documented in
 [Material Genealogy Architecture](docs/MATERIAL_GENEALOGY_ARCHITECTURE.md). Its mixed-trace policy
 and submitted Purchase Receipt tag-activation slice are implemented without making tags mandatory
@@ -113,8 +117,9 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
   scannable Temporary Return Note without finding an old DN/invoice, keeps those goods in non-stock
   QC custody, records QC acceptance/rejection, and hands accepted results to accounting without
   creating credit. Its separate wrong-DN correction path requires the exact submitted DN and creates
-  only a controlled Return Delivery Note. Final accepted-return stock/accounting posting remains a
-  later controlled increment.
+  only a controlled Return Delivery Note. D2B adds an accountant-only source/no-credit decision and
+  an idempotent non-stock Draft Sales Invoice Return with ERP submit/cancel feedback. Physical
+  accepted-return stock disposition remains a later controlled increment.
 
 ## Control flow
 

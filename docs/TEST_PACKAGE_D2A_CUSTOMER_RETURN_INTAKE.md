@@ -71,9 +71,10 @@ Expected:
 - evidence becomes read-only after QC completion and remains available through temporary view URLs;
 - QC completion still creates no available ERP stock or accounting credit.
 
-The supervisor/accountant later selects the exact Sales Invoice, an approved substitute historical
-Sales Invoice, or No Credit in the ERP/accounting workflow. Driver and QC screens never make that
-choice and never create the custom `Credit Note` DocType.
+The supervisor/accountant next follows **Package D2B — Post-QC Customer Return Accounting System
+Test** to select the exact Sales Invoice, an approved substitute historical Sales Invoice, or No
+Credit. Driver and QC screens never make that choice and never create the custom `Credit Note`
+DocType.
 
 ## 4. Wrong Delivery Note correction
 

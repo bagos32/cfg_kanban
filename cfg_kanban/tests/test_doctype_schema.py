@@ -919,6 +919,8 @@ class TestDocTypeSchema(TestCase):
             "claimed_total_qty", "qc_operator", "qc_completed_on", "accounting_status",
             "accounting_source_basis", "correction_return_delivery_note", "idempotency_key",
             "customer_acknowledgement_name", "customer_acknowledged_on",
+            "accounting_decided_by", "accounting_decided_on", "accounting_decision_notes",
+            "credit_document_status", "accounting_revision",
         }.issubset(parent))
         self.assertEqual(parent["lines"]["options"], "CFG Kanban Return Line")
         self.assertTrue(parent["idempotency_key"].get("unique"))
@@ -950,4 +952,16 @@ class TestDocTypeSchema(TestCase):
 
         gateway = (APP_ROOT / "integrations" / "erp_gateway.py").read_text()
         self.assertIn('@handler("Create Correction Return Delivery Note")', gateway)
+        self.assertIn('@handler("Create Customer Credit Return")', gateway)
         self.assertIn("make_return_doc", gateway)
+
+        accounting = (APP_ROOT / "integrations" / "return_accounting_feedback.py").read_text()
+        self.assertIn("Customer Credit Return Submitted", accounting)
+        self.assertIn("must not update stock", accounting)
+        hooks = (APP_ROOT / "hooks.py").read_text()
+        self.assertIn('"CFG Kanban Return Case": "public/js/cfg_kanban_return_case.js"', hooks)
+        self.assertIn('"Sales Invoice": {', hooks)
+        self.assertIn("return_accounting_feedback.on_submit", hooks)
+        self.assertIn("return_accounting_feedback.on_cancel", hooks)
+        install = (APP_ROOT / "install.py").read_text()
+        self.assertIn('"cfg_return_case"', install)

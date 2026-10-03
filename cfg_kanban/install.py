@@ -132,6 +132,14 @@ def _custom_fields():
         "Purchase Order": purchase_common("terms"),
         "Delivery Note": purchase_common("terms") + logistics_common,
         "Delivery Note Item": logistics_item_fields,
+        "Sales Invoice": [
+            {"fieldname": "cfg_return_case", "label": "Customer Return Case",
+             "fieldtype": "Link", "options": "CFG Kanban Return Case", "read_only": 1,
+             "insert_after": "return_against", "module": "CFG Kanban"},
+            {"fieldname": "cfg_scan_event", "label": "Kanban Accounting Event Identity",
+             "fieldtype": "Data", "read_only": 1, "insert_after": "cfg_return_case",
+             "module": "CFG Kanban"},
+        ],
         "Purchase Receipt": purchase_common("terms") + logistics_common,
         "Purchase Receipt Item": logistics_item_fields,
         "Warehouse": [

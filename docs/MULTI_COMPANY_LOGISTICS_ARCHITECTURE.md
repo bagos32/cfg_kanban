@@ -3,7 +3,7 @@
 **Architecture version:** 1.0  
 **Decision status:** Locked baseline  
 **Decision date:** 30 September 2026  
-**Implementation status:** Package A, Package B intercompany handover, Packages C1-C2B customer delivery, Package D1 proof/closure, and Package D2A controlled return intake plus QC disposition are implemented; final accepted-quantity ERP/accounting posting, customer invoicing, reconciliation, and Package E remain approved future scope
+**Implementation status:** Package A, Package B intercompany handover, Packages C1-C2B customer delivery, Package D1 proof/closure, Package D2A controlled return intake plus QC disposition, and Package D2B accountant-controlled Draft Sales Invoice Return are implemented; accepted-return ERP stock disposition, customer invoicing, reconciliation, and Package E remain approved future scope
 
 This document is the source of truth for CFG Kanban stock-tag logistics across sister companies,
 company-specific vehicle warehouses, customer-site delivery, and delayed intercompany billing. It
@@ -638,8 +638,11 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
   an invoice or create a Credit Note/e-Invoice. A separate wrong-Delivery-Note workflow requires the
   exact submitted DN, limits reversal to its rows, and creates only an ERPNext Return Delivery Note.
   Already-invoiced DNs are visibly held as Draft for accounting attention.
-- Add final accepted-quantity ERP stock/accounting posting, quarantine execution, and accounting
-  source-selection interface for authorized supervisors/accountants.
+- **Implemented in D2B:** an authorized accounting user selects an exact/substitute submitted Sales
+  Invoice for the same Company, Customer and sufficient remaining Item quantities, or records No
+  Credit with a reason. CFG Kanban creates only a non-stock Draft Sales Invoice Return; ERPNext owns
+  tax/e-Invoice review and submission, while submit/cancel hooks update the Return Case audit state.
+- Add final accepted-quantity ERP stock disposition and quarantine/rework/disposal execution.
 - Add end-of-route reconciliation, variance Exceptions, and reports.
 
 ### Package E — Operational hardening

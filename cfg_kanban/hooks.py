@@ -27,6 +27,7 @@ doctype_js = {
     "CFG Kanban Task": "public/js/cfg_kanban_task.js",
     "CFG Kanban Process Task": "public/js/cfg_kanban_process_task.js",
     "CFG Kanban Delivery Proof": "public/js/cfg_kanban_delivery_proof.js",
+    "CFG Kanban Return Case": "public/js/cfg_kanban_return_case.js",
     "CFG Kanban Media": "public/js/cfg_kanban_media.js",
     "Purchase Receipt": "public/js/purchase_receipt.js",
     "Stock Entry": "public/js/stock_entry.js",
@@ -81,6 +82,10 @@ doc_events = {
     "Delivery Note": {
         "on_submit": "cfg_kanban.integrations.logistics_feedback.on_delivery_note_submit",
         "on_cancel": "cfg_kanban.integrations.logistics_feedback.on_delivery_note_cancel",
+    },
+    "Sales Invoice": {
+        "on_submit": "cfg_kanban.integrations.return_accounting_feedback.on_submit",
+        "on_cancel": "cfg_kanban.integrations.return_accounting_feedback.on_cancel",
     },
     "Purchase Order": {
         "on_submit": "cfg_kanban.integrations.purchase_feedback.on_purchase_order_submit",

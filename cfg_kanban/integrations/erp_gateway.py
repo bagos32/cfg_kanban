@@ -353,6 +353,125 @@ def create_correction_return_delivery_note(command, payload):
     return return_doc
 
 
+@handler("Create Customer Credit Return")
+def create_customer_credit_return(command, payload):
+    """Prepare a non-stock Draft Sales Invoice Return after controlled QC.
+
+    Submission and e-Invoice validation remain accountant-owned in ERPNext.
+    """
+    from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+    case = frappe.get_doc("CFG Kanban Return Case", command.return_case)
+    if case.return_flow != "Customer Return for QC" or \
+            case.state != "QC Completed - Accounting Pending":
+        frappe.throw("Customer Return Case is not ready for a credit return")
+    if case.credit_document:
+        existing_status = frappe.db.get_value("Sales Invoice", case.credit_document, "docstatus")
+        if existing_status in (0, 1):
+            return frappe.get_doc("Sales Invoice", case.credit_document)
+    source_name = payload["source_sales_invoice"]
+    source = frappe.get_doc("Sales Invoice", source_name)
+    if source.docstatus != 1 or source.is_return:
+        frappe.throw("Credit source must be a submitted non-return Sales Invoice")
+    if source.company != case.selling_company or source.customer != case.customer:
+        frappe.throw("Credit source Company and Customer do not match the Return Case")
+    remaining = {
+        item_code: flt(qty)
+        for item_code, qty in (payload.get("accepted_items") or {}).items()
+        if flt(qty) > 0
+    }
+    if not remaining:
+        frappe.throw("Customer Return Case has no accepted quantity to credit")
+    source_remaining = _remaining_sales_invoice_quantities(source)
+    source_shortage = {
+        item_code: qty - flt(source_remaining.get(item_code))
+        for item_code, qty in remaining.items()
+        if qty > flt(source_remaining.get(item_code)) + 0.000001
+    }
+    if source_shortage:
+        frappe.throw(
+            "Selected Sales Invoice has insufficient uncredited quantity: "
+            + ", ".join(f"{item} {qty}" for item, qty in source_shortage.items())
+        )
+    credit = make_return_doc("Sales Invoice", source_name)
+    kept = []
+    for row in credit.items:
+        required = flt(remaining.get(row.item_code))
+        if required <= 0:
+            continue
+        available = abs(flt(row.stock_qty or row.qty))
+        take = min(required, available)
+        if take <= 0:
+            continue
+        row.stock_qty = -take
+        row.qty = -(take / flt(row.conversion_factor or 1))
+        kept.append(row)
+        remaining[row.item_code] = required - take
+    shortage = {item: qty for item, qty in remaining.items() if qty > 0.000001}
+    if shortage:
+        frappe.throw(
+            "Selected Sales Invoice has insufficient remaining return quantity: "
+            + ", ".join(f"{item} {qty}" for item, qty in shortage.items())
+        )
+    credit.set("items", kept)
+    credit.update_stock = 0
+    credit.cfg_return_case = case.name
+    credit.cfg_scan_event = command.idempotency_key
+    if case.credit_document and frappe.db.get_value(
+        "Sales Invoice", case.credit_document, "docstatus"
+    ) == 2:
+        cancelled_source = frappe.db.get_value(
+            "Sales Invoice", case.credit_document, "return_against"
+        )
+        if cancelled_source == source.name:
+            credit.amended_from = case.credit_document
+    credit.remarks = (
+        f"CFG Kanban Customer Return {case.name}. QC accepted quantity only. "
+        f"Accounting source basis: {payload['source_basis']}. "
+        f"Decision: {payload['decision_notes']}"
+    )
+    credit.insert(ignore_permissions=True)
+    case.db_set({
+        "accounting_status": "Credit Pending",
+        "accounting_source_basis": payload["source_basis"],
+        "accounting_reference_doctype": "Sales Invoice",
+        "accounting_reference": source.name,
+        "accounting_decided_by": command.terminal_user or frappe.session.user,
+        "accounting_decided_on": now_datetime(),
+        "accounting_decision_notes": payload["decision_notes"],
+        "credit_document_doctype": "Sales Invoice",
+        "credit_document": credit.name,
+        "credit_document_status": "Draft",
+    }, update_modified=True)
+    credit._cfg_command_result = {
+        "doctype": credit.doctype, "name": credit.name, "docstatus": credit.docstatus,
+        "return_case": case.name, "return_against": source.name,
+        "update_stock": 0, "accounting_revision": payload.get("accounting_revision") or 0,
+    }
+    return credit
+
+
+def _remaining_sales_invoice_quantities(source):
+    totals = {}
+    for row in source.items:
+        totals[row.item_code] = totals.get(row.item_code, 0) + abs(flt(row.stock_qty))
+    returned = frappe.db.sql(
+        """
+        select item.item_code, sum(abs(item.stock_qty)) as returned_qty
+        from `tabSales Invoice` invoice
+        inner join `tabSales Invoice Item` item on item.parent=invoice.name
+        where invoice.docstatus=1 and invoice.is_return=1 and invoice.return_against=%s
+        group by item.item_code
+        """,
+        (source.name,), as_dict=True,
+    )
+    for row in returned:
+        totals[row.item_code] = max(
+            flt(totals.get(row.item_code)) - flt(row.returned_qty), 0
+        )
+    return totals
+
+
 def get_required_erp_inputs(doc):
     """Describe editable mandatory values still missing from an ERP document."""
     requirements = []
