@@ -303,17 +303,20 @@ def _on_customer_delivery_submit(doc, delivery_session):
         _resolve_delivery_exception(
             delivery.exception, f"Delivery Note {doc.name} submitted successfully"
         )
+    no_proof = delivery.proof_policy == "No Proof Required"
     delivery.db_set({
         "delivery_note": doc.name,
-        "state": "Delivered",
-        "completed_on": now,
+        "state": "Closed" if no_proof else "Delivered",
+        "completed_on": now if no_proof else None,
+        "proof_disposition": "No Proof Recorded" if no_proof else None,
+        "proof_submitted_on": now if no_proof else None,
         "exception": None,
     }, update_modified=True)
     record(
         "Customer Delivery Posted",
         delivery_session=delivery.name,
         previous_state="ERP Document Pending",
-        new_state="Delivered",
+        new_state="Closed" if no_proof else "Delivered",
         qty=sum(flt(row.allocated_qty) for row in allocations),
         reference_doctype="Delivery Note",
         reference_name=doc.name,
@@ -325,6 +328,14 @@ def _on_customer_delivery_submit(doc, delivery_session):
 
 def _on_customer_delivery_cancel(doc, delivery_session):
     delivery = frappe.get_doc("CFG Kanban Delivery Session", delivery_session)
+    previous_delivery_state = delivery.state
+    if delivery.delivery_proof and frappe.db.get_value(
+        "CFG Kanban Delivery Proof", delivery.delivery_proof, "state"
+    ) == "Submitted":
+        frappe.throw(
+            "Delivery Note cannot be cancelled after customer delivery proof was submitted. "
+            "Use the controlled customer return workflow."
+        )
     allocations = frappe.get_all(
         "CFG Kanban Delivery Allocation",
         filters={
@@ -438,13 +449,15 @@ def _on_customer_delivery_cancel(doc, delivery_session):
     delivery.db_set({
         "state": "Awaiting Confirmation",
         "completed_on": None,
+        "proof_disposition": None,
+        "proof_submitted_on": None,
         "delivery_revision": int(delivery.delivery_revision or 0) + 1,
         "exception": exception.name,
     }, update_modified=True)
     record(
         "Customer Delivery Note Cancelled",
         delivery_session=delivery.name,
-        previous_state="Delivered",
+        previous_state=previous_delivery_state,
         new_state="Awaiting Confirmation",
         qty=sum(flt(row.allocated_qty) for row in allocations),
         reference_doctype="Delivery Note",

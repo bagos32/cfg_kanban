@@ -22,6 +22,7 @@ MEDIA_CLASSES = {
     "process-task-evidence": {"CFG Kanban Process Task"},
     "incident-evidence": {"CFG Kanban Exception"},
     "production-evidence": {"CFG Kanban Cycle", "CFG Kanban Operation Progress"},
+    "delivery-proof-evidence": {"CFG Kanban Delivery Proof"},
 }
 STATUSES = {"pending", "available", "quarantined", "archived", "deleting", "deleted", "failed"}
 DEFAULT_MIME_TYPES = {"image/jpeg", "image/png", "image/webp", "video/mp4", "application/pdf"}
@@ -189,6 +190,7 @@ def list_reference_media(reference_doctype, reference_name, permission_checked=F
         row["capture_source"] = proof.get("capture_source")
         row["capture_timestamp"] = proof.get("capture_timestamp")
         row["geotag"] = proof.get("geotag")
+        row["evidence_kind"] = proof.get("evidence_kind")
     return rows
 
 

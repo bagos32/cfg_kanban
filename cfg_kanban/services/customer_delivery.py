@@ -24,7 +24,7 @@ from cfg_kanban.integrations.erp_gateway import (
 
 
 CUSTOMER_DELIVERY_RESPONSIBILITY = "Customer Delivery"
-DELIVERY_TERMINAL_STATES = {"Delivered", "Invoiced", "Closed", "Rejected", "Cancelled"}
+DELIVERY_TERMINAL_STATES = {"Invoiced", "Closed", "Rejected", "Cancelled"}
 ACTIVE_ALLOCATION_STATES = ("Reserved", "Delivery Pending", "Exception")
 
 
@@ -1004,6 +1004,14 @@ def _require_customer_delivery(profile):
 
 def _can_view_delivery(profile, delivery):
     return bool(_can_view_all(profile) or delivery.started_by_operator == profile.employee)
+
+
+def assert_delivery_access(delivery_session, profile):
+    """Return an authorised delivery session for related operator workflows."""
+    delivery = frappe.get_doc("CFG Kanban Delivery Session", delivery_session)
+    if not _can_view_delivery(profile, delivery):
+        frappe.throw(_("Operator cannot access this Delivery Session"), frappe.PermissionError)
+    return delivery
 
 
 def _can_view_all(profile):

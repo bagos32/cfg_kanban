@@ -514,6 +514,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<button class="btn btn-xs btn-default ml-2 open-customer-dn">${__("Open Delivery Note")}</button></div>` : "";
 		const delivery_action = ["Awaiting Confirmation", "Exception"].includes(delivery.state) ?
 			`<button class="btn btn-success prepare-customer-dn">${delivery.delivery_note_status?.docstatus === 2 ? __("Create Amended Delivery Note") : __("Create Delivery Note")}</button>` : "";
+		const proof_action = delivery.state === "Delivered" ?
+			`<button class="btn btn-success capture-delivery-proof">${__("Capture / Close Delivery")}</button>` : "";
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
 			<div class="cfg-logistics-tag-head"><div><small>${__("Active Customer Delivery")}</small>
 				<h3>${e(delivery.site_name)}</h3><strong>${e(delivery.name)} · ${e(delivery.state)}</strong></div>
@@ -536,10 +538,12 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				${can_scan ? (state.scan_mode === "delivery" ? `<button class="btn btn-warning stop-delivery-scan">${__("Stop Allocation Scanning")}</button>` : `<button class="btn btn-primary arm-delivery">${__("Start Allocation Scanning")}</button>`) : ""}
 				${delivery.state === "Allocating Stock" && active_allocations.length && state.scan_mode !== "delivery" ? `<button class="btn btn-success confirm-allocations">${__("Confirm Customer Allocation")}</button>` : ""}
 				${delivery_action}
+				${proof_action}
 			</div>
 			${delivery.state === "Awaiting Confirmation" ? `<div class="alert alert-success mt-3 mb-0">${__("Allocation confirmed. Stock remains reserved until the ERPNext Delivery Note is submitted.")}</div>` : ""}
 			${delivery.state === "ERP Document Pending" ? `<div class="alert alert-warning mt-3 mb-0">${__("The Delivery Note is Draft. An authorized ERPNext user must review and submit it; only submission posts Kanban delivery quantities.")}</div>` : ""}
-			${delivery.state === "Delivered" ? `<div class="alert alert-success mt-3 mb-0">${__("ERPNext submitted the Delivery Note and confirmed the physical allocations as delivered.")}</div>` : ""}
+			${delivery.state === "Delivered" ? `<div class="alert alert-warning mt-3 mb-0">${__("ERPNext confirmed the stock delivery. Record the customer proof required by this site before closing the session.")}</div>` : ""}
+			${delivery.state === "Closed" ? `<div class="alert alert-success mt-3 mb-0">${__("Delivery closed")} · ${e(delivery.proof_disposition || __("No Proof Recorded"))}${delivery.delivery_proof ? ` · <button class="btn btn-xs btn-default open-delivery-proof">${__("Open Proof")}</button>` : ""}</div>` : ""}
 			${delivery.exception ? `<div class="alert alert-danger mt-3 mb-0"><strong>${__("Supervisor attention required")}</strong> · ${e(delivery.exception)}</div>` : ""}
 			${delivery_note}
 		</div>`);
@@ -549,6 +553,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		$lookup.find(".release-allocation").on("click", function () { release_delivery_allocation($(this).data("name")); });
 		$lookup.find(".confirm-allocations").on("click", () => confirm_delivery_allocations(delivery));
 		$lookup.find(".prepare-customer-dn").on("click", () => prepare_customer_delivery_note(delivery));
+		$lookup.find(".capture-delivery-proof").on("click", () => open_delivery_proof(delivery));
+		$lookup.find(".open-delivery-proof").on("click", () => frappe.set_route("Form", "CFG Kanban Delivery Proof", delivery.delivery_proof));
 		$lookup.find(".open-customer-dn").on("click", () => frappe.set_route("Form", "Delivery Note", delivery.delivery_note));
 		$lookup.find(".cancel-delivery").on("click", () => frappe.prompt([
 			{ fieldname: "reason", label: __("Cancellation Reason"), fieldtype: "Small Text", reqd: 1 },
@@ -562,6 +568,177 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			state.lookup = { delivery_session: response.message };
 			render_lookup(); await refresh_list();
 		}, __("Cancel Empty Delivery Session"), __("Cancel Session")));
+	}
+
+	async function open_delivery_proof(delivery) {
+		const response = await frappe.call({
+			method: "cfg_kanban.services.delivery_proof.get_or_create_delivery_proof",
+			args: { delivery_session: delivery.name, operator_session_token: state.token },
+			freeze: true, freeze_message: __("Opening delivery proof..."),
+		});
+		const proof = response.message;
+		if (proof.state === "Submitted") {
+			frappe.set_route("Form", "CFG Kanban Delivery Proof", proof.name); return;
+		}
+		const dialog = new frappe.ui.Dialog({
+			title: __("Customer Delivery Proof: {0}", [proof.site_name]),
+			size: "large",
+			fields: [
+				{ fieldname: "policy", label: __("Proof Policy"), fieldtype: "Data", read_only: 1,
+					default: proof.proof_policy },
+				{ fieldname: "disposition", label: __("Delivery Disposition"), fieldtype: "Select",
+					options: (proof.allowed_dispositions || []).join("\n"), reqd: 1,
+					default: (proof.allowed_dispositions || [])[0] },
+				{ fieldname: "recipient_name", label: __("Recipient Name"), fieldtype: "Data" },
+				{ fieldname: "unattended_reason", label: __("Unattended Delivery Reason"), fieldtype: "Small Text" },
+				{ fieldname: "notes", label: __("Delivery Notes"), fieldtype: "Small Text" },
+				{ fieldname: "evidence", label: __("Private Delivery Evidence"), fieldtype: "HTML",
+					options: `<div class="cfg-delivery-proof-tools">
+					<label class="btn btn-primary cfg-proof-camera">${__("Take Delivery Photo")}<input type="file" accept="image/*" capture="environment" hidden></label>
+					<label class="btn btn-default cfg-proof-file">${__("Upload File")}<input type="file" accept="image/*,application/pdf,video/mp4" multiple hidden></label>
+					<div class="cfg-proof-status mt-2"></div><div class="cfg-proof-media mt-2"></div></div>` },
+				{ fieldname: "signature", label: __("Recipient Signature"), fieldtype: "HTML",
+					options: `<div class="cfg-signature-wrap"><canvas class="cfg-signature-pad" width="700" height="220" style="width:100%;height:180px;border:1px solid #aaa;background:#fff;touch-action:none"></canvas>
+					<div class="mt-2"><button type="button" class="btn btn-default cfg-clear-signature">${__("Clear")}</button>
+					<button type="button" class="btn btn-primary cfg-save-signature">${__("Save Signature")}</button></div></div>` },
+			],
+			primary_action_label: __("Submit Proof and Close"),
+			primary_action: async (values) => {
+				let location = null;
+				if (proof.require_gps && values.disposition !== "No Proof Recorded") {
+					location = await delivery_geotag();
+				}
+				await frappe.call({
+					method: "cfg_kanban.services.delivery_proof.submit_delivery_proof",
+					args: { proof_name: proof.name, disposition: values.disposition,
+						recipient_name: values.recipient_name, unattended_reason: values.unattended_reason,
+						notes: values.notes, latitude: location && location.latitude,
+						longitude: location && location.longitude, location_accuracy: location && location.accuracy,
+						event_token: unique_token(), operator_session_token: state.token },
+					freeze: true, freeze_message: __("Submitting delivery proof..."),
+				});
+				dialog.hide();
+				state.lookup = { delivery_session: await fetch_delivery(delivery.name) };
+				render_lookup(); await refresh_list();
+				frappe.show_alert({ message: __("Delivery proof submitted and session closed"), indicator: "green" });
+			},
+		});
+		dialog.show();
+		bind_delivery_proof_evidence(dialog, proof);
+	}
+
+	async function fetch_delivery(name) {
+		const response = await frappe.call({
+			method: "cfg_kanban.services.customer_delivery.get_delivery_session",
+			args: { delivery_session: name, operator_session_token: state.token },
+		});
+		return response.message;
+	}
+
+	function bind_delivery_proof_evidence(dialog, proof) {
+		const $evidence = dialog.get_field("evidence").$wrapper;
+		let rows = proof.media || [];
+		const render_rows = () => {
+			const e = frappe.utils.escape_html;
+			$evidence.find(".cfg-proof-media").html(rows.length ? rows.map((row) =>
+				`<div class="cfg-logistics-line" data-media-id="${e(row.media_id)}"><div><strong>${e(row.evidence_kind || "attachment")}</strong><small>${e(row.original_filename)}</small></div><div><button type="button" class="btn btn-xs btn-default cfg-view-proof">${__("Open")}</button> <button type="button" class="btn btn-xs btn-danger cfg-remove-proof">${__("Remove")}</button></div></div>`
+			).join("") : `<div class="text-muted">${__("No proof media uploaded yet")}</div>`);
+			$evidence.find(".cfg-view-proof").off("click").on("click", async function () {
+				const media_id = $(this).closest("[data-media-id]").data("media-id");
+				const view = await frappe.call({ method: "cfg_kanban.api.media.create_delivery_proof_view_url", args: {
+					proof_name: proof.name, media_id, operator_session_token: state.token,
+				} }); window.open(view.message.url, "_blank", "noopener");
+			});
+			$evidence.find(".cfg-remove-proof").off("click").on("click", async function () {
+				const media_id = $(this).closest("[data-media-id]").data("media-id");
+				await frappe.call({ method: "cfg_kanban.api.media.archive_delivery_proof_media", args: {
+					proof_name: proof.name, media_id, operator_session_token: state.token,
+				} }); rows = rows.filter((row) => row.media_id !== media_id); render_rows();
+			});
+		};
+		const refresh = async () => {
+			const response = await frappe.call({ method: "cfg_kanban.api.media.list_delivery_proof_media", args: {
+				proof_name: proof.name, operator_session_token: state.token,
+			} }); rows = response.message || []; render_rows();
+		};
+		const upload = async (files, kind, camera = false) => {
+			const $status = $evidence.find(".cfg-proof-status");
+			try {
+				let location = null; let captured_at = null; let selected = Array.from(files || []);
+				if (camera) {
+					location = await delivery_geotag();
+					const stamp = await frappe.call({ method: "cfg_kanban.api.media.get_delivery_proof_camera_stamp", args: {
+						proof_name: proof.name, operator_session_token: state.token,
+					} }); captured_at = stamp.message.captured_at;
+					selected = [await stamp_delivery_photo(selected[0], captured_at, proof.name, location)];
+				}
+				for (const file of selected) {
+					$status.html(`<div class="alert alert-info">${__("Uploading {0}", [frappe.utils.escape_html(file.name)])}</div>`);
+					const auth = await frappe.call({ method: "cfg_kanban.api.media.create_delivery_proof_upload_url", args: {
+						proof_name: proof.name, original_filename: file.name, content_type: file.type,
+						size_bytes: file.size, idempotency_key: unique_token(), operator_session_token: state.token,
+						evidence_kind: kind, capture_source: camera ? "timestamped-camera" : (kind === "signature" ? "signature-pad" : "file-upload"),
+						capture_timestamp: captured_at, latitude: location && location.latitude,
+						longitude: location && location.longitude, location_accuracy: location && location.accuracy,
+					} });
+					const data = auth.message; if (data.already_available) continue;
+					const form = new FormData(); Object.entries(data.fields || {}).forEach(([key, value]) => form.append(key, value)); form.append("file", file);
+					const result = await fetch(data.url, { method: data.method, body: form });
+					if (!result.ok) throw new Error(__("Private upload failed with HTTP {0}", [result.status]));
+					await frappe.call({ method: "cfg_kanban.api.media.confirm_delivery_proof_upload", args: {
+						proof_name: proof.name, media_id: data.media_id, confirmation_token: data.confirmation_token,
+						operator_session_token: state.token,
+					} });
+				}
+				await refresh(); $status.html(`<div class="alert alert-success">${__("Evidence uploaded")}</div>`);
+			} catch (error) { $status.html(`<div class="alert alert-danger">${frappe.utils.escape_html(error.message || __("Upload failed"))}</div>`); }
+		};
+		$evidence.find(".cfg-proof-camera input").on("change", function () { if (this.files.length) upload(this.files, "photo", true); this.value = ""; });
+		$evidence.find(".cfg-proof-file input").on("change", function () { if (this.files.length) upload(this.files, "attachment"); this.value = ""; });
+		bind_signature_pad(dialog, (file) => upload([file], "signature"));
+		render_rows();
+	}
+
+	function bind_signature_pad(dialog, save_signature) {
+		const canvas = dialog.get_field("signature").$wrapper.find("canvas")[0];
+		const ctx = canvas.getContext("2d"); ctx.strokeStyle = "#111"; ctx.lineWidth = 3; ctx.lineCap = "round";
+		let drawing = false; let has_ink = false;
+		const point = (event) => { const rect = canvas.getBoundingClientRect(); return { x: (event.clientX - rect.left) * canvas.width / rect.width, y: (event.clientY - rect.top) * canvas.height / rect.height }; };
+		canvas.addEventListener("pointerdown", (event) => { drawing = true; const p = point(event); ctx.beginPath(); ctx.moveTo(p.x, p.y); canvas.setPointerCapture(event.pointerId); });
+		canvas.addEventListener("pointermove", (event) => { if (!drawing) return; const p = point(event); ctx.lineTo(p.x, p.y); ctx.stroke(); has_ink = true; });
+		canvas.addEventListener("pointerup", () => { drawing = false; });
+		dialog.get_field("signature").$wrapper.find(".cfg-clear-signature").on("click", () => { ctx.clearRect(0, 0, canvas.width, canvas.height); has_ink = false; });
+		dialog.get_field("signature").$wrapper.find(".cfg-save-signature").on("click", () => {
+			if (!has_ink) return frappe.msgprint(__("Ask the recipient to sign before saving."));
+			canvas.toBlob((blob) => {
+			if (blob) save_signature(new File([blob], `recipient-signature-${Date.now()}.png`, { type: "image/png" }));
+		}, "image/png");
+		});
+	}
+
+	function delivery_geotag() {
+		if (!navigator.geolocation) return Promise.reject(new Error(__("This device does not provide geolocation.")));
+		return new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(
+			(position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy }),
+			() => reject(new Error(__("Location permission is required for delivery proof."))),
+			{ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+		));
+	}
+
+	async function stamp_delivery_photo(file, captured_at, proof_name, location) {
+		const bitmap = window.createImageBitmap ? await createImageBitmap(file) : await new Promise((resolve, reject) => {
+			const image = new Image(); const url = URL.createObjectURL(file);
+			image.onload = () => { URL.revokeObjectURL(url); resolve(image); }; image.onerror = reject; image.src = url;
+		});
+		const canvas = document.createElement("canvas"); canvas.width = bitmap.width; canvas.height = bitmap.height;
+		const ctx = canvas.getContext("2d"); ctx.drawImage(bitmap, 0, 0);
+		const font = Math.max(22, Math.round(canvas.width * 0.025)); ctx.fillStyle = "rgba(0,0,0,.72)"; ctx.fillRect(0, canvas.height - font * 3.2, canvas.width, font * 3.2);
+		ctx.fillStyle = "#fff"; ctx.font = `bold ${font}px Arial`; ctx.fillText(`${captured_at} · ${proof_name}`, font * .6, canvas.height - font * 1.45);
+		ctx.font = `${Math.round(font * .65)}px Arial`; ctx.fillText(`GPS ${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)} · ±${Math.round(location.accuracy)}m`, font * .6, canvas.height - font * .65);
+		ctx.fillText("CFG Kanban customer delivery proof", font * .6, canvas.height - font * .12);
+		const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", .9)); if (bitmap.close) bitmap.close();
+		if (!blob) throw new Error(__("The delivery photo could not be stamped."));
+		return new File([blob], `delivery-proof-${Date.now()}.jpg`, { type: "image/jpeg" });
 	}
 
 	async function delivery_allocation_scan(raw) {

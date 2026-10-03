@@ -44,6 +44,10 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Delivery Session")
         self.assertEqual(shortcuts["Customer Delivery Allocations"],
                          "CFG Kanban Delivery Allocation")
+        self.assertEqual(links["Customer Delivery Proofs"],
+                         "CFG Kanban Delivery Proof")
+        self.assertEqual(shortcuts["Customer Delivery Proofs"],
+                         "CFG Kanban Delivery Proof")
         self.assertEqual(links["Stock Tag Families"], "CFG Kanban Tag Family")
         self.assertEqual(links["Stock Tag Range Registries"],
                          "CFG Kanban Tag Range Registry")
@@ -554,8 +558,8 @@ class TestDocTypeSchema(TestCase):
 
     def test_customer_delivery_session_foundation_is_company_scoped(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}
-        self.assertTrue({"CFG Kanban Delivery Session",
-                         "CFG Kanban Delivery Allocation"}.issubset(schemas))
+        self.assertTrue({"CFG Kanban Delivery Session", "CFG Kanban Delivery Allocation",
+                         "CFG Kanban Delivery Proof"}.issubset(schemas))
 
         session = {row["fieldname"]: row for row in
                    schemas["CFG Kanban Delivery Session"]["fields"]}
@@ -566,6 +570,7 @@ class TestDocTypeSchema(TestCase):
             "proof_policy", "operator_session", "started_by_operator", "idempotency_key",
             "delivery_note", "delivery_command", "delivery_key", "delivery_revision",
             "delivery_confirmed_by", "delivery_operator_session", "exception",
+            "delivery_proof", "proof_disposition", "proof_submitted_on",
         }.issubset(session))
         self.assertEqual(session["idempotency_key"].get("unique"), 1)
 
@@ -581,6 +586,17 @@ class TestDocTypeSchema(TestCase):
         self.assertEqual(allocation["reservation_key"].get("unique"), 1)
         self.assertEqual(allocation["active_handling_unit_key"].get("unique"), 1)
         self.assertEqual(allocation["release_key"].get("unique"), 1)
+
+        proof = {row["fieldname"]: row for row in
+                 schemas["CFG Kanban Delivery Proof"]["fields"]}
+        self.assertTrue({
+            "delivery_session", "delivery_note", "proof_policy", "disposition",
+            "recipient_name", "unattended_reason", "latitude", "longitude",
+            "photo_count", "signature_count", "attachment_count", "submitted_on",
+            "submitted_by_operator", "idempotency_key", "media_evidence_html",
+        }.issubset(proof))
+        self.assertEqual(proof["delivery_session"].get("unique"), 1)
+        self.assertEqual(proof["idempotency_key"].get("unique"), 1)
 
         command = {row["fieldname"]: row for row in
                    schemas["CFG ERP Command"]["fields"]}
@@ -617,6 +633,13 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Confirm Customer Allocation", panel)
         self.assertIn("Create Delivery Note", panel)
         self.assertIn("Required Customer Delivery Note Details", panel)
+        self.assertIn("Capture / Close Delivery", panel)
+        self.assertIn("Submit Proof and Close", panel)
+
+        proof_service = (APP_ROOT / "services" / "delivery_proof.py").read_text()
+        self.assertIn("def get_or_create_delivery_proof", proof_service)
+        self.assertIn("def submit_delivery_proof", proof_service)
+        self.assertIn('"Unattended Delivery Allowed"', proof_service)
 
         container_service = (APP_ROOT / "services" / "container_contents.py").read_text()
         genealogy = (APP_ROOT / "services" / "genealogy.py").read_text()

@@ -165,6 +165,86 @@ def archive_process_task_media(task_name, media_id, operator_session_token):
     return media.delete_object(media_id, permission_checked=True)
 
 
+@frappe.whitelist()
+def create_delivery_proof_upload_url(proof_name, original_filename, content_type,
+                                     size_bytes, idempotency_key,
+                                     operator_session_token, evidence_kind,
+                                     capture_source="file-upload", capture_timestamp=None,
+                                     latitude=None, longitude=None, location_accuracy=None):
+    proof, profile, session = _authorize_delivery_proof(
+        proof_name, operator_session_token, "complete"
+    )
+    if proof.state != "Draft":
+        frappe.throw("Submitted delivery proof cannot accept more evidence")
+    if evidence_kind not in ("photo", "signature", "attachment"):
+        frappe.throw("Delivery evidence kind is not supported")
+    declared_type = (content_type or "").lower()
+    if evidence_kind == "photo" and not declared_type.startswith("image/"):
+        frappe.throw("Delivery photograph must be an image")
+    if evidence_kind == "photo" and capture_source != "timestamped-camera":
+        frappe.throw("Delivery photograph must use the timestamped camera workflow")
+    if evidence_kind == "signature" and declared_type != "image/png":
+        frappe.throw("Recipient signature must be a PNG image")
+    if evidence_kind == "signature" and capture_source != "signature-pad":
+        frappe.throw("Recipient signature must use the controlled signature pad")
+    extensions = _capture_extensions(
+        capture_source, capture_timestamp, latitude, longitude, location_accuracy
+    )
+    extensions["cfg_kanban"]["evidence_kind"] = evidence_kind
+    return media.create_upload_url(
+        proof.doctype, proof.name, original_filename, content_type, size_bytes,
+        "delivery-proof-evidence", idempotency_key, permission_checked=True,
+        extensions=extensions, operator_employee=profile.employee,
+        operator_session=session.name,
+    )
+
+
+@frappe.whitelist()
+def confirm_delivery_proof_upload(proof_name, media_id, confirmation_token,
+                                  operator_session_token):
+    _authorize_delivery_proof(proof_name, operator_session_token, "complete")
+    _assert_reference_media("CFG Kanban Delivery Proof", proof_name, media_id)
+    return media.confirm_upload(media_id, confirmation_token, permission_checked=True)
+
+
+@frappe.whitelist()
+def list_delivery_proof_media(proof_name, operator_session_token):
+    _authorize_delivery_proof(proof_name, operator_session_token)
+    return media.list_reference_media(
+        "CFG Kanban Delivery Proof", proof_name, permission_checked=True
+    )
+
+
+@frappe.whitelist()
+def create_delivery_proof_view_url(proof_name, media_id, operator_session_token,
+                                   disposition="inline"):
+    _authorize_delivery_proof(proof_name, operator_session_token)
+    _assert_reference_media("CFG Kanban Delivery Proof", proof_name, media_id)
+    return media.create_view_url(media_id, disposition, permission_checked=True)
+
+
+@frappe.whitelist()
+def archive_delivery_proof_media(proof_name, media_id, operator_session_token):
+    proof, _profile, _session = _authorize_delivery_proof(
+        proof_name, operator_session_token, "complete"
+    )
+    if proof.state != "Draft":
+        frappe.throw("Submitted delivery proof evidence cannot be removed")
+    _assert_reference_media("CFG Kanban Delivery Proof", proof_name, media_id)
+    return media.delete_object(media_id, permission_checked=True)
+
+
+@frappe.whitelist()
+def get_delivery_proof_camera_stamp(proof_name, operator_session_token):
+    proof, _profile, _session = _authorize_delivery_proof(
+        proof_name, operator_session_token, "complete"
+    )
+    if proof.state != "Draft":
+        frappe.throw("Delivery proof is already submitted")
+    return {"captured_at": str(frappe.utils.now_datetime()), "proof": proof.name,
+            "delivery_session": proof.delivery_session, "site": proof.site_name}
+
+
 def _authorize_task(task_name, operator_session_token, action=None):
     task = frappe.get_doc("CFG Kanban Task", task_name)
     profile, session = require_operator(
@@ -188,6 +268,26 @@ def _authorize_process_task(task_name, operator_session_token, action=None):
         workstation=task.workstation,
     )
     return task, profile, session
+
+
+def _authorize_delivery_proof(proof_name, operator_session_token, action=None):
+    from cfg_kanban.services.customer_delivery import (
+        CUSTOMER_DELIVERY_RESPONSIBILITY,
+        assert_delivery_access,
+    )
+
+    proof = frappe.get_doc("CFG Kanban Delivery Proof", proof_name)
+    profile, session = require_operator(operator_session_token, action)
+    responsibilities = {row.responsibility for row in profile.responsibilities
+                        if row.responsibility}
+    can_view_all = (
+        profile.kanban_role in ("Supervisor", "Development Proxy")
+        and profile.get("view_all_responsibilities")
+    )
+    if CUSTOMER_DELIVERY_RESPONSIBILITY not in responsibilities and not can_view_all:
+        frappe.throw("Operator is not assigned to Customer Delivery", frappe.PermissionError)
+    assert_delivery_access(proof.delivery_session, profile)
+    return proof, profile, session
 
 
 def _assert_reference_media(reference_doctype, reference_name, media_id):

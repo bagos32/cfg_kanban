@@ -13,9 +13,12 @@ The next independent procedure is
 [Package C2A Customer Stock Allocation System Test](docs/TEST_PACKAGE_C2A_CUSTOMER_STOCK_ALLOCATION.md).
 The ERP posting continuation is
 [Package C2B Customer Delivery Note System Test](docs/TEST_PACKAGE_C2B_CUSTOMER_DELIVERY_NOTE.md).
+The customer acceptance and private-evidence continuation is
+[Package D1 Customer Delivery Proof System Test](docs/TEST_PACKAGE_D1_DELIVERY_PROOF.md).
 Package A identity/configuration, Package B intercompany handover, Package C1 customer/vehicle
 session foundation, Package C2A customer tagged-stock reservation, and Package C2B controlled
-customer Delivery Note posting are implemented. Proof of delivery and customer billing remain later
+customer Delivery Note posting are implemented. Package D1 adds policy-controlled proof of delivery,
+private evidence, unattended delivery, and audited closure. Customer billing and returns remain later
 controlled increments.
 The additive tagged/untagged material-continuity model is documented in
 [Material Genealogy Architecture](docs/MATERIAL_GENEALOGY_ARCHITECTURE.md). Its mixed-trace policy
@@ -100,8 +103,9 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
   visibility without changing ERP stock. C2B converts a confirmed allocation into a locked-price
   ERPNext customer Delivery Note, supports per-site Draft/auto-submit policy and mandatory ERP child
   tables, posts tag consumption only on ERP submission, and safely restores reservations after an
-  allowed cancellation. Sales Invoice posting, proof-of-delivery, and Billing Batch functions remain
-  later increments.
+  allowed cancellation. D1 records recipient/signature/photo/GPS proof in private S3 storage and
+  closes the Delivery Session only after policy validation. Sales Invoice posting, returns, and
+  Billing Batch functions remain later increments.
 
 ## Control flow
 

@@ -3,7 +3,7 @@
 **Architecture version:** 1.0  
 **Decision status:** Locked baseline  
 **Decision date:** 30 September 2026  
-**Implementation status:** Package A, Package B intercompany handover, Package C1 Customer Site / Delivery Session foundation, Package C2A customer tagged-stock reservation, and Package C2B controlled customer Delivery Note posting are implemented; customer invoicing, proof, and Packages D-E remain approved future scope
+**Implementation status:** Package A, Package B intercompany handover, Package C1 Customer Site / Delivery Session foundation, Package C2A customer tagged-stock reservation, Package C2B controlled customer Delivery Note posting, and Package D1 customer proof/closure are implemented; customer invoicing, returns/reconciliation, and Package E remain approved future scope
 
 This document is the source of truth for CFG Kanban stock-tag logistics across sister companies,
 company-specific vehicle warehouses, customer-site delivery, and delayed intercompany billing. It
@@ -624,8 +624,12 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
 
 ### Package D — Proof, returns, and reconciliation
 
-- Add configurable proof-of-delivery rules and private media evidence.
-- Add unattended-delivery disposition.
+- **Implemented in D1:** configurable proof-of-delivery rules, server-validated closure, recipient
+  identity, signature/photo/attachment evidence in the shared private S3 media registry, GPS/time
+  capture, and an immutable supervisor-visible proof record.
+- **Implemented in D1:** attended, unattended, optional no-proof, and automatic no-proof-required
+  dispositions. A submitted proof blocks unsafe Delivery Note cancellation and directs later
+  correction to the controlled return workflow.
 - Add customer returns, warehouse returns, overnight stock, damage, and quarantine.
 - Add end-of-route reconciliation, variance Exceptions, and reports.
 

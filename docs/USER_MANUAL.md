@@ -1760,15 +1760,16 @@ Signal rollback cancels/deletes only activity-free ERP documents, marks Cycle an
 returns the Card to Available, clears Active Cycle, and records Events. A submitted Work Order can be
 cancelled only while ERPNext permits it and the code has found no production/material activity.
 
-## 25. Multi-company logistics and customer allocation (Packages A-B and C1-C2B)
+## 25. Multi-company logistics and customer allocation (Packages A-B, C1-C2B, and D1)
 
 Package A installs the configuration and physical-identity foundation. Package B adds the controlled
 intercompany Movement Manifest, source-company Delivery Note, destination-company Purchase Receipt,
 ERP feedback, and scan-first Logistics Operator Panel. Package C1 now adds Customer Site scanning,
 Company-specific vehicle Warehouse validation, and an immutable Delivery Session. Package C2A adds
 physical Stock Tag/customer allocation and reservation. Package C2B creates the controlled customer
-Delivery Note and waits for ERPNext submission before changing tag stock. Sales Invoice creation,
-proof of delivery, and Billing Batch grouping remain later increments. The locked design is in
+Delivery Note and waits for ERPNext submission before changing tag stock. Package D1 captures and
+validates customer proof before closing the session. Sales Invoice creation, returns, and Billing
+Batch grouping remain later increments. The locked design is in
 `docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md`.
 
 ### CFG Kanban Logistics Route
@@ -1851,17 +1852,37 @@ the primary scan value. **Internal UUID Alias** is generated automatically as a 
     delivered ordinary tag remains Active in the same lorry Warehouse with its balance. A zero-balance
     tag becomes Empty. Complete reusable-container contents are unloaded and the container becomes
     Empty for reuse.
-14. If ERPNext rejects creation or submission, the session becomes **Exception** without consuming
+14. If the site's Proof Policy is **No Proof Required**, submitted Delivery Note feedback closes the
+    session automatically as **No Proof Recorded**. For every other policy the session remains
+    **Delivered** and is still active until the proof step is completed.
+15. Select **Capture / Close Delivery**. The panel displays only dispositions allowed by the immutable
+    site-policy snapshot. **Required** permits Attended only; **Optional** permits Attended or No Proof
+    Recorded; **Unattended Delivery Allowed** permits Attended or Unattended.
+16. For an attended delivery, enter the recipient and capture signature/photo/GPS according to the
+    configured flags. **Take Delivery Photo** uses server time plus device geolocation, visibly stamps
+    both onto the image, and uploads the original evidence through the private S3 registry. The
+    signature pad is saved as separate PNG evidence. **Upload File** accepts supporting images, PDF,
+    or video but does not substitute for a required timestamped photograph or signature.
+17. For an unattended delivery, enter the reason when configured and supply required photo/GPS.
+    Recipient name and signature are waived for that disposition. Select **Submit Proof and Close**.
+    Server validation, not the browser, enforces every requirement. A successful submission creates
+    **CFG Kanban Delivery Proof**, links it to the session, and changes the session to **Closed**.
+18. Supervisors open **Customer Delivery Proofs** from the CFG Kanban workspace to see the immutable
+    policy snapshot, recipient/disposition, submitter, capture time/GPS, thumbnails, and temporary
+    **Open Original** links. Presigned URLs are generated on demand and are never stored.
+19. If ERPNext rejects creation or submission, the session becomes **Exception** without consuming
     tagged quantity. Correct the ERP prerequisite and retry **Create Delivery Note**.
-15. Cancel a submitted controlled Delivery Note only after the goods are physically returned to the
+20. Cancel a submitted controlled Delivery Note only after the goods are physically returned to the
     lorry. The cancellation restores the tag quantity and reservation, reopens the session as
     **Awaiting Confirmation**, raises a visible Exception, and increments the Delivery revision. The
     next **Create Amended Delivery Note** is linked to the cancelled document. Cancellation is blocked
-    if a partly remaining tag or reusable container has already entered a later transaction.
+    if a partly remaining tag or reusable container has already entered a later transaction. Once a
+    Delivery Proof has been submitted, cancellation is blocked; use the later controlled customer
+    return workflow so accepted-delivery evidence is never silently reversed.
 
-**Current C2B limit:** C2B confirms stock delivery through the ERPNext Delivery Note. It does not
-create the customer Sales Invoice, capture recipient/signature/photo/GPS proof, process returns after
-an accepted delivery, or reconcile an end-of-route variance. Those remain controlled later packages.
+**Current D1 limit:** D1 closes accepted delivery with policy-controlled proof. It does not create the
+customer Sales Invoice, process returns after an accepted delivery, or reconcile an end-of-route
+variance. Those remain controlled later packages.
 
 ### CFG Kanban Tag Range Registry
 
@@ -2061,6 +2082,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.28 | 3 October 2026 | Added policy-controlled customer proof of delivery, attended/unattended/no-proof dispositions, private photo/signature/file evidence, server-time and GPS capture, supervisor thumbnail review, server-enforced closure, and safe post-proof cancellation blocking |
 | 1.27 | 3 October 2026 | Added controlled customer Delivery Note creation from confirmed Stock Tag allocations, site-specific Draft/auto-submit policy, locked Item Price validation, mandatory ERP parent/child inputs, submission-only tag consumption, reusable-container completion, cancellation restoration, amendment revision, and Exception/idempotency audit |
 | 1.26 | 3 October 2026 | Added customer Stock Tag allocation, partial/full quantity reservation, complete reusable-container expansion, audited release/reconfirmation, ERP stock validation, container safeguards, and Delivery Allocation genealogy history without prematurely moving ERP stock |
 | 1.25 | 3 October 2026 | Added Customer Site scan resolution, Company-specific Vehicle Warehouse setup, immutable operator-scoped Delivery Sessions, idempotent start/cancel audit, workspace records, and the explicit no-stock-movement C1 boundary |

@@ -66,6 +66,23 @@ class TestSharedMediaContract(TestCase):
         self.assertIn("archive_process_task_media", operator)
         self.assertIn("confirm_process_task_upload", operator)
 
+    def test_customer_delivery_proof_reuses_private_media_contract(self):
+        api = (ROOT / "api" / "media.py").read_text()
+        service = (ROOT / "services" / "media.py").read_text()
+        proof_service = (ROOT / "services" / "delivery_proof.py").read_text()
+        panel = (ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
+                 "kanban_logistics.js").read_text()
+        self.assertIn('"delivery-proof-evidence"', service)
+        self.assertIn("create_delivery_proof_upload_url", api)
+        self.assertIn("confirm_delivery_proof_upload", api)
+        self.assertIn("archive_delivery_proof_media", api)
+        self.assertIn("submit_delivery_proof", proof_service)
+        self.assertIn("POLICY_DISPOSITIONS", proof_service)
+        self.assertIn("Take Delivery Photo", panel)
+        self.assertIn("Recipient Signature", panel)
+        self.assertIn("stamp_delivery_photo", panel)
+        self.assertIn("Submit Proof and Close", panel)
+
     def test_execution_camera_evidence_has_server_time_geotag_and_recoverable_remove(self):
         api = (ROOT / "api" / "media.py").read_text()
         service = (ROOT / "services" / "media.py").read_text()

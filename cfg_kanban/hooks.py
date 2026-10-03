@@ -26,6 +26,7 @@ doctype_js = {
     "CFG Kanban Task Schedule": "public/js/cfg_kanban_task_schedule.js",
     "CFG Kanban Task": "public/js/cfg_kanban_task.js",
     "CFG Kanban Process Task": "public/js/cfg_kanban_process_task.js",
+    "CFG Kanban Delivery Proof": "public/js/cfg_kanban_delivery_proof.js",
     "CFG Kanban Media": "public/js/cfg_kanban_media.js",
     "Purchase Receipt": "public/js/purchase_receipt.js",
     "Stock Entry": "public/js/stock_entry.js",
