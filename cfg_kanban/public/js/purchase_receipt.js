@@ -17,6 +17,8 @@ async function receiving_tag_dialog(frm) {
 			{ fieldname: "scan_value", label: __("Preprinted Main Tag"), fieldtype: "Data", reqd: 1,
 				description: __("Scan a still-unused main Stock Tag from an active Tag Range Registry.") },
 			{ fieldname: "qty", label: __("Quantity in Stock UOM"), fieldtype: "Float", reqd: 1 },
+			{ fieldname: "serial_numbers", label: __("Exact Serial Numbers"), fieldtype: "Small Text",
+				description: __("Serial-controlled Items only. Enter or scan one ERPNext Serial No per line. The field fills automatically when this tag takes every remaining serial.") },
 			{ fieldname: "handling_unit_type", label: __("Handling Unit Type"), fieldtype: "Select",
 				options: "Pallet\nMesh\nTote\nContainer\nReusable Box\nOther", default: "Container", reqd: 1 },
 		],
@@ -30,6 +32,7 @@ async function receiving_tag_dialog(frm) {
 					item_row: row_name,
 					scan_value: values.scan_value,
 					qty: values.qty,
+					serial_numbers: values.serial_numbers,
 					handling_unit_type: values.handling_unit_type,
 				},
 				freeze: true,
@@ -62,6 +65,7 @@ async function refresh_receiving_dialog(dialog, plan) {
 	if (!options.length) {
 		await dialog.set_value("item_row", "");
 		await dialog.set_value("qty", 0);
+		await dialog.set_value("serial_numbers", "");
 		dialog.disable_primary_action();
 		return;
 	}
@@ -70,12 +74,22 @@ async function refresh_receiving_dialog(dialog, plan) {
 	await dialog.set_value("item_row", current);
 	const selected = available.find((row) => row.row_name === current.split(" :: ")[0]);
 	await dialog.set_value("qty", selected ? selected.remaining_stock_qty : 0);
+	await update_receiving_serial_field(dialog, selected);
 	const $select = dialog.get_field("item_row").$input;
 	$select.off("change.cfg_receiving").on("change.cfg_receiving", () => {
 		const row_name = String(dialog.get_value("item_row") || "").split(" :: ")[0];
 		const row = available.find((candidate) => candidate.row_name === row_name);
-		if (row) dialog.set_value("qty", row.remaining_stock_qty);
+		if (row) {
+			dialog.set_value("qty", row.remaining_stock_qty);
+			update_receiving_serial_field(dialog, row);
+		}
 	});
+}
+
+async function update_receiving_serial_field(dialog, row) {
+	const visible = Boolean(row && row.serial_controlled);
+	dialog.get_field("serial_numbers").wrapper.toggle(visible);
+	await dialog.set_value("serial_numbers", visible ? (row.available_serial_numbers || []).join("\n") : "");
 }
 
 function receiving_summary(plan) {

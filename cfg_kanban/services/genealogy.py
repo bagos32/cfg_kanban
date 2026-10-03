@@ -28,6 +28,7 @@ def get_handling_unit_genealogy(scan_value=None, handling_unit=None, max_depth=8
             "timeline": [],
             "manifests": [],
             "container_history": [],
+            "serial_history": [],
             "truncated": False,
         }
 
@@ -66,6 +67,7 @@ def get_handling_unit_genealogy(scan_value=None, handling_unit=None, max_depth=8
         "timeline": _timeline(visible_nodes, summaries),
         "manifests": _manifest_history(visible_nodes),
         "container_history": _container_history(visible_nodes),
+        "serial_history": _serial_history(visible_nodes),
         "truncated": truncated,
     }
 
@@ -73,6 +75,11 @@ def get_handling_unit_genealogy(scan_value=None, handling_unit=None, max_depth=8
 def _container_history(visible_nodes):
     from cfg_kanban.services.container_contents import container_history_for_units
     return container_history_for_units(visible_nodes)
+
+
+def _serial_history(visible_nodes):
+    from cfg_kanban.services.serial_evidence import serial_history_for_units
+    return serial_history_for_units(visible_nodes)
 
 
 def get_genealogy_print_context(handling_unit):
@@ -291,7 +298,7 @@ def _unit_summaries(names):
         fields=[
             "name", "handling_unit_id", "tag_kind", "handling_unit_type", "item_code",
             "short_description", "batch_no", "stock_uom", "original_qty", "current_qty",
-            "reserved_qty", "available_qty", "inventory_company", "current_warehouse",
+            "reserved_qty", "available_qty", "serial_count", "inventory_company", "current_warehouse",
             "physical_custodian", "identity_state", "movement_state", "quality_state",
             "packed_on", "expiry_date", "work_order", "kanban_cycle", "kanban_card",
             "origin_reference_doctype", "origin_reference_name", "origin_reference_row",

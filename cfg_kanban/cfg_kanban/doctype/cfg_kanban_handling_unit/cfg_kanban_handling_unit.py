@@ -112,6 +112,14 @@ class CFGKanbanHandlingUnit(Document):
             if not self.tag_family or not self.parent_handling_unit or flt(self.child_index) <= 0:
                 frappe.throw("Child Stock Tags require a Tag Family, parent tag, and child index")
             self._validate_child_parent()
+            if frappe.db.exists(
+                "CFG Kanban Handling Unit Serial",
+                {"handling_unit": self.parent_handling_unit, "state": "Active"},
+            ):
+                frappe.throw(
+                    "Serial-controlled parent tags require a controlled serial split; "
+                    "generic detachable-child activation is blocked"
+                )
         elif self.parent_handling_unit:
             frappe.throw("Only a Child Stock Tag may have a Parent Handling Unit")
         if self.tag_kind == "Reusable Container" and (

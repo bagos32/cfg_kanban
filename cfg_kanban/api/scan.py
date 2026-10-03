@@ -161,6 +161,12 @@ def scan_handling_unit(token, action, device_id=None, event_token=None, reason=N
             )
         values["void_reason"] = reason or "Voided by scan"
         values.update({"identity_state": "Void", "movement_state": "Empty"})
+        if unit.serial_count:
+            from cfg_kanban.services.serial_evidence import release_unit_serials
+            release_unit_serials(
+                unit.name, reason or "Physical Stock Tag voided",
+                "CFG Kanban Handling Unit", unit.name,
+            )
     else:
         values["movement_state"] = {
             "Attached": "Packed", "Dispatched": "Loaded", "Received": "Received"

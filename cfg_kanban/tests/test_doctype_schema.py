@@ -47,6 +47,10 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Container Content")
         self.assertEqual(links["Container Content History"],
                          "CFG Kanban Container Content")
+        self.assertEqual(shortcuts["Handling Unit Serial History"],
+                         "CFG Kanban Handling Unit Serial")
+        self.assertEqual(links["Handling Unit Serial History"],
+                         "CFG Kanban Handling Unit Serial")
         self.assertEqual(links["Movement Manifests"],
                          "CFG Kanban Movement Manifest")
         self.assertEqual(links["Material Trace Policies"],
@@ -124,6 +128,45 @@ class TestDocTypeSchema(TestCase):
                 "assert_not_loaded_in_container" in source or
                 "assert_container_empty" in source
             )
+
+    def test_exact_serial_membership_is_erp_referenced_and_auditable(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        serial_schema = schemas["CFG Kanban Handling Unit Serial"]
+        fields = {row["fieldname"]: row for row in serial_schema["fields"]}
+        self.assertTrue({
+            "state", "handling_unit", "handling_unit_code", "serial_no",
+            "active_serial_key", "item_code", "batch_no", "assigned_on",
+            "assignment_reference_doctype", "assignment_reference_name",
+            "assignment_reference_row", "assignment_key", "released_on",
+            "release_reason", "release_reference_doctype", "release_reference_name",
+        }.issubset(fields))
+        self.assertEqual(fields["serial_no"]["options"], "Serial No")
+        self.assertEqual(fields["active_serial_key"].get("unique"), 1)
+        self.assertEqual(fields["assignment_key"].get("unique"), 1)
+        for permission in serial_schema["permissions"]:
+            self.assertFalse(permission.get("create", 0))
+            self.assertFalse(permission.get("write", 0))
+            self.assertFalse(permission.get("delete", 0))
+
+        handling = {row["fieldname"] for row in
+                    schemas["CFG Kanban Handling Unit"]["fields"]}
+        trace_line = {row["fieldname"] for row in
+                      schemas["CFG Kanban Material Trace Line"]["fields"]}
+        self.assertIn("serial_count", handling)
+        self.assertTrue({"serial_count", "serial_numbers_json"}.issubset(trace_line))
+
+        service = (APP_ROOT / "services" / "serial_evidence.py").read_text()
+        self.assertIn("def erp_row_serials", service)
+        self.assertIn('"Serial and Batch Entry"', service)
+        self.assertIn("def assign_serials", service)
+        self.assertIn("def release_unit_serials", service)
+        self.assertNotIn("post_quantity_event", service)
+
+        receiving = (APP_ROOT / "api" / "receiving.py").read_text()
+        feedback = (APP_ROOT / "integrations" / "purchase_feedback.py").read_text()
+        self.assertIn("def void_cancelled_purchase_receipt_tags", receiving)
+        self.assertIn("_assert_receipt_tag_untouched", receiving)
+        self.assertIn("void_cancelled_purchase_receipt_tags(doc)", feedback)
 
     def test_every_field_is_present_once_in_field_order(self):
         for path, schema in self._schemas():

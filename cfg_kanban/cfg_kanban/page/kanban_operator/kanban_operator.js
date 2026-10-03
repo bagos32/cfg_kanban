@@ -794,6 +794,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				{ fieldname: "output_camera", label: __("Camera Scan Output Tag"), fieldtype: "Button",
 					click: () => open_camera_scanner((value) => dialog.set_value("output_scan", value)) },
 				{ fieldname: "output_qty", label: __("Stock Quantity"), fieldtype: "Float" },
+				{ fieldname: "output_serial_numbers", label: __("Exact Output Serial Numbers"), fieldtype: "Small Text",
+					description: __("Serial-controlled output only. One ERPNext Serial No per line.") },
 				{ fieldname: "handling_unit_type", label: __("Handling Unit Type"), fieldtype: "Select",
 					options: "Pallet\nMesh\nTote\nContainer\nReusable Box\nOther", default: "Container" },
 				{ fieldname: "stage_output", label: __("Stage Output Tag"), fieldtype: "Button",
@@ -802,6 +804,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 							stock_entry, item_row: operator_trace_row_name(dialog.get_value("output_row")),
 							scan_value: dialog.get_value("output_scan"), qty: dialog.get_value("output_qty"),
 							handling_unit_type: dialog.get_value("handling_unit_type"),
+							serial_numbers: dialog.get_value("output_serial_numbers"),
 							operator_session_token: state.session_token, kanban_card: state.context.card.name,
 						}, freeze: true, freeze_message: __("Staging production output tag...") });
 						frappe.show_alert({ message: __("Output tag staged pending ERP submission"), indicator: "green" });
@@ -846,7 +849,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		["input_section", "input_row", "input_scan", "input_camera", "input_qty", "allocate_input"]
 			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(input_visible)));
 		["output_section", "output_row", "output_scan", "output_camera", "output_qty",
-			"handling_unit_type", "stage_output"]
+			"output_serial_numbers", "handling_unit_type", "stage_output"]
 			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(output_visible)));
 		if (input_visible) {
 			const selected = input_options.includes(dialog.get_value("input_row")) ?
@@ -862,6 +865,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			if (!dialog.get_value("output_qty") && selected_row) {
 				await dialog.set_value("output_qty", selected_row.remaining_qty);
 			}
+			await update_operator_output_serial_field(dialog, selected_row);
+			const $output_select = dialog.get_field("output_row").$input;
+			$output_select.off("change.cfg_serials").on("change.cfg_serials", () => {
+				update_operator_output_serial_field(
+					dialog, operator_trace_row(outputs, dialog.get_value("output_row"))
+				);
+			});
 			bind_operator_trace_enter(dialog, "output_scan", "stage_output");
 		}
 		dialog.fields_dict.lines.$wrapper.find("[data-cancel-operator-trace-line]").off("click").on("click", async (event) => {
@@ -876,6 +886,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				output_visible ? dialog.get_field("output_scan") : null;
 			if (field) field.set_focus();
 		}, 80);
+	}
+
+	async function update_operator_output_serial_field(dialog, row) {
+		const visible = Boolean(row && row.serial_controlled);
+		dialog.get_field("output_serial_numbers").wrapper.toggle(visible);
+		await dialog.set_value("output_serial_numbers",
+			visible ? (row.available_serial_numbers || []).join("\n") : "");
 	}
 
 	function bind_operator_trace_enter(dialog, scan_field, action_field) {
@@ -916,7 +933,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (!(plan.lines || []).length) return `<p class="text-muted">${__("No production tags staged.")}</p>`;
 		const e = frappe.utils.escape_html;
 		const rows = plan.lines.map((line) => `<tr><td>${e(line.direction)}</td><td>${e(line.item_code)}</td>
-			<td>${e(line.handling_unit || line.pending_tag_code || "-")}</td><td>${e(line.qty)} ${e(line.stock_uom)}</td>
+			<td>${e(line.handling_unit || line.pending_tag_code || "-")}</td><td>${e(line.qty)} ${e(line.stock_uom)}${line.serial_count ? `<br><small>${e(line.serial_count)} ${__("serials")}</small>` : ""}</td>
 			<td>${e(line.status)}</td><td>${line.can_cancel ? `<button class="btn btn-xs btn-danger" data-cancel-operator-trace-line="${e(line.name)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
 		return `<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>
 			<th>${__("Direction")}</th><th>${__("Item")}</th><th>${__("Tag")}</th><th>${__("Quantity")}</th>

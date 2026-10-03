@@ -1,0 +1,32 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Handling Unit Serial","module":"CFG Kanban","autoname":"HUS-.YYYY.-.#####","title_field":"serial_no","track_changes":0,
+ "search_fields":"serial_no,handling_unit,handling_unit_code,item_code,batch_no,state","field_order":["state","identity_section","handling_unit","handling_unit_code","serial_no","active_serial_key","item_code","batch_no","company","warehouse_at_assignment","assignment_section","assigned_on","assignment_reference_doctype","assignment_reference_name","assignment_reference_row","assignment_key","release_section","released_on","release_reason","release_reference_doctype","release_reference_name"],
+ "fields":[
+  {"fieldname":"state","label":"Association State","fieldtype":"Select","options":"Active\nReleased","default":"Active","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"identity_section","label":"Exact Serial Membership","fieldtype":"Section Break"},
+  {"fieldname":"handling_unit","label":"Handling Unit","fieldtype":"Link","options":"CFG Kanban Handling Unit","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"handling_unit_code","label":"Physical Tag Code","fieldtype":"Data","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"serial_no","label":"ERPNext Serial No","fieldtype":"Link","options":"Serial No","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"active_serial_key","label":"Active Serial Uniqueness Key","fieldtype":"Data","unique":1,"read_only":1,"hidden":1},
+  {"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"batch_no","label":"Batch","fieldtype":"Link","options":"Batch","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"company","label":"Company at Assignment","fieldtype":"Link","options":"Company","reqd":1,"read_only":1,"in_standard_filter":1},
+  {"fieldname":"warehouse_at_assignment","label":"Warehouse at Assignment","fieldtype":"Link","options":"Warehouse","reqd":1,"read_only":1,"in_standard_filter":1},
+  {"fieldname":"assignment_section","label":"Assignment Evidence","fieldtype":"Section Break"},
+  {"fieldname":"assigned_on","label":"Assigned On","fieldtype":"Datetime","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"assignment_reference_doctype","label":"Assignment ERP DocType","fieldtype":"Link","options":"DocType","reqd":1,"read_only":1},
+  {"fieldname":"assignment_reference_name","label":"Assignment ERP Document","fieldtype":"Dynamic Link","options":"assignment_reference_doctype","reqd":1,"read_only":1,"in_standard_filter":1},
+  {"fieldname":"assignment_reference_row","label":"Assignment ERP Row","fieldtype":"Data","read_only":1},
+  {"fieldname":"assignment_key","label":"Assignment Idempotency Key","fieldtype":"Data","reqd":1,"unique":1,"read_only":1,"hidden":1},
+  {"fieldname":"release_section","label":"Release / Transfer Evidence","fieldtype":"Section Break","collapsible":1},
+  {"fieldname":"released_on","label":"Released On","fieldtype":"Datetime","read_only":1,"in_list_view":1},
+  {"fieldname":"release_reason","label":"Release Reason","fieldtype":"Small Text","read_only":1},
+  {"fieldname":"release_reference_doctype","label":"Release Reference DocType","fieldtype":"Link","options":"DocType","read_only":1},
+  {"fieldname":"release_reference_name","label":"Release Reference Document","fieldtype":"Dynamic Link","options":"release_reference_doctype","read_only":1}
+ ],
+ "permissions":[
+  {"role":"Stock Manager","read":1,"print":1},
+  {"role":"Manufacturing Manager","read":1,"print":1},
+  {"role":"System Manager","read":1,"print":1}
+ ]
+}

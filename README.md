@@ -75,6 +75,9 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
 - Reusable-container content control in the Logistics panel, with complete-tag loading/unloading,
   optional mixed Item/Batch contents, immutable membership episodes, operator audit, movement
   safeguards, and separate genealogy history that never invents an ERP stock movement.
+- Exact ERPNext Serial Number membership for serial-controlled tagged stock, including receipt and
+  production assignment, whole-tag consumption validation, cancellation recovery, replacement
+  transfer, immutable history, and genealogy/Logistics-panel visibility.
 - Packages A-B of the approved multi-company logistics architecture: directional Logistics Routes,
   Customer Scan Points, pre-registered main/child Stock Tag families, extended Handling Units,
   immutable quantity ledger, scan-first Movement Manifests, and guarded intercompany Delivery Note

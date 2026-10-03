@@ -1,6 +1,6 @@
 {
  "doctype":"DocType","name":"CFG Kanban Material Trace Line","module":"CFG Kanban","istable":1,
- "field_order":["direction","status","stock_entry_detail","item_code","batch_no","warehouse","qty","stock_uom","trace_policy","handling_unit","pending_tag_code","handling_unit_type","reservation_ledger","confirmation_ledger","reversal_ledger"],
+ "field_order":["direction","status","stock_entry_detail","item_code","batch_no","warehouse","qty","stock_uom","trace_policy","handling_unit","pending_tag_code","handling_unit_type","serial_count","serial_numbers_json","reservation_ledger","confirmation_ledger","reversal_ledger"],
  "fields":[
   {"fieldname":"direction","label":"Direction","fieldtype":"Select","options":"Input\nOutput","reqd":1,"read_only":1,"in_list_view":1},
   {"fieldname":"status","label":"Status","fieldtype":"Select","options":"Reserved\nPending\nConfirmed\nCancelled\nReversed","reqd":1,"read_only":1,"in_list_view":1},
@@ -14,6 +14,8 @@
   {"fieldname":"handling_unit","label":"Handling Unit","fieldtype":"Link","options":"CFG Kanban Handling Unit","read_only":1,"in_list_view":1},
   {"fieldname":"pending_tag_code","label":"Pending Output Tag Code","fieldtype":"Data","read_only":1,"in_list_view":1},
   {"fieldname":"handling_unit_type","label":"Handling Unit Type","fieldtype":"Data","read_only":1},
+  {"fieldname":"serial_count","label":"Exact Serial Count","fieldtype":"Int","default":"0","read_only":1,"in_list_view":1},
+  {"fieldname":"serial_numbers_json","label":"Exact Serial Numbers Snapshot","fieldtype":"Long Text","read_only":1,"hidden":1},
   {"fieldname":"reservation_ledger","label":"Reservation Ledger","fieldtype":"Link","options":"CFG Kanban Handling Unit Quantity Ledger","read_only":1},
   {"fieldname":"confirmation_ledger","label":"Confirmation Ledger","fieldtype":"Link","options":"CFG Kanban Handling Unit Quantity Ledger","read_only":1},
   {"fieldname":"reversal_ledger","label":"Reversal Ledger","fieldtype":"Link","options":"CFG Kanban Handling Unit Quantity Ledger","read_only":1}

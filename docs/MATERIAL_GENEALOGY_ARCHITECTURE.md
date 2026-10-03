@@ -4,7 +4,7 @@
 activation, Stock Entry-confirmed production input/output tracing, scoped floor-panel access to
 those production traces, a same-company tagged Warehouse-transfer assistant, and the read-only
 upstream/downstream trace explorer with printable exact-tag reports, and time-bounded reusable-
-container content episodes are implemented.
+container content episodes, and ERP-referenced exact Serial Number membership are implemented.
 
 ## 1. System boundary
 
@@ -161,11 +161,35 @@ dispatched, received, replaced, or voided independently. A nonempty container ca
 voided, or moved through the generic lifecycle scan. Container episodes appear separately in the
 Genealogy Explorer so reuse over time does not create false upstream/downstream product lineage.
 
+### Exact serial-number membership
+
+For an ERPNext Item with **Has Serial No**, a physical Stock Tag must identify each exact Serial No,
+not merely a quantity. Purchase Receipt activation and production-output staging read the Serial
+Numbers from the ERP row or its Serial and Batch Bundle. If one tag takes every remaining serial,
+the UI fills them automatically; otherwise the user selects/scans exactly the serial count matching
+the tag quantity.
+
+**CFG Kanban Handling Unit Serial** stores an immutable, ERP-referenced membership episode. Only
+one active Stock Tag may claim a Serial No. Production input validation requires the tag's complete
+serial membership to match the ERP Stock Entry row and blocks partial consumption of a multi-serial
+tag. Submitted consumption releases the membership; ERP cancellation reactivates it. Warehouse and
+intercompany movements retain membership, while controlled tag replacement transfers it to the
+replacement identity. Output cancellation releases the serials and voids the produced tag.
+
+Cancelling a Purchase Receipt voids its untouched received tags and releases their serial
+memberships in the same transaction. Cancellation is blocked if any affected tag has already
+moved, split, entered a reusable container, been reserved, or been consumed.
+
+Serial membership is physical evidence, not serial ownership or stock accounting. ERPNext Serial
+No, Serial and Batch Bundle, and submitted stock documents remain authoritative. Generic child-tag
+splitting is deliberately blocked for a serial-controlled parent because serials must be explicitly
+selected; a dedicated controlled serial-split assistant remains a later increment.
+
 ### Subsequent increments
 
 The next increments add:
 
-1. richer serial-number evidence where one physical unit requires individual serial association;
+1. controlled serial selection when splitting a tagged parent into detachable child tags;
 2. controlled whole-container vehicle/customer movement while preserving each contained tag.
 
 Job Cards provide operator/operation context, but raw-material stock consumption remains linked to

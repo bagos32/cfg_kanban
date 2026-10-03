@@ -52,6 +52,8 @@ async function production_trace_dialog(frm) {
 			{ fieldname: "output_scan", label: __("Unused Preprinted Main Tag"), fieldtype: "Data",
 				description: __("The tag remains pending until ERPNext submits the Stock Entry.") },
 			{ fieldname: "output_qty", label: __("Stock Quantity"), fieldtype: "Float" },
+			{ fieldname: "output_serial_numbers", label: __("Exact Output Serial Numbers"), fieldtype: "Small Text",
+				description: __("Serial-controlled output only. One ERPNext Serial No per line; automatically filled when one tag takes every remaining serial.") },
 			{ fieldname: "handling_unit_type", label: __("Handling Unit Type"), fieldtype: "Select",
 				options: "Pallet\nMesh\nTote\nContainer\nReusable Box\nOther", default: "Container" },
 			{ fieldname: "stage_output", label: __("Stage Output Tag"), fieldtype: "Button",
@@ -61,7 +63,8 @@ async function production_trace_dialog(frm) {
 						method: "cfg_kanban.services.production_trace.stage_output_tag",
 						args: { stock_entry: frm.doc.name, item_row: row_name,
 							scan_value: dialog.get_value("output_scan"), qty: dialog.get_value("output_qty"),
-							handling_unit_type: dialog.get_value("handling_unit_type") },
+							handling_unit_type: dialog.get_value("handling_unit_type"),
+							serial_numbers: dialog.get_value("output_serial_numbers") },
 						freeze: true,
 						freeze_message: __("Validating and staging the production output tag..."),
 					});
@@ -122,6 +125,7 @@ async function refresh_production_trace_dialog(dialog, plan) {
 		dialog.get_field(fieldname).wrapper.toggle(Boolean(input_visible));
 	}
 	for (const fieldname of ["output_section", "output_row", "output_scan", "output_qty",
+		"output_serial_numbers",
 		"handling_unit_type", "stage_output"]) {
 		dialog.get_field(fieldname).wrapper.toggle(Boolean(output_visible));
 	}
@@ -137,7 +141,12 @@ async function refresh_production_trace_dialog(dialog, plan) {
 			dialog.get_value("output_row") : output_options[0];
 		await dialog.set_value("output_row", selected);
 		await dialog.set_value("output_qty", row_for_option(outputs, selected).remaining_qty);
+		await update_output_serial_field(dialog, row_for_option(outputs, selected));
 		bind_quantity_change(dialog, "output_row", "output_qty", outputs);
+		const $output_select = dialog.get_field("output_row").$input;
+		$output_select.off("change.cfg_serials").on("change.cfg_serials", () => {
+			update_output_serial_field(dialog, row_for_option(outputs, dialog.get_value("output_row")));
+		});
 	}
 	dialog.fields_dict.lines.$wrapper.find("[data-cancel-trace-line]").off("click").on("click", async (event) => {
 		const trace_line = event.currentTarget.dataset.cancelTraceLine;
@@ -150,6 +159,13 @@ async function refresh_production_trace_dialog(dialog, plan) {
 		plan = await load_production_trace_plan(plan.stock_entry);
 		await refresh_production_trace_dialog(dialog, plan);
 	});
+}
+
+async function update_output_serial_field(dialog, row) {
+	const visible = Boolean(row && row.serial_controlled);
+	dialog.get_field("output_serial_numbers").wrapper.toggle(visible);
+	await dialog.set_value("output_serial_numbers",
+		visible ? (row.available_serial_numbers || []).join("\n") : "");
 }
 
 function bind_quantity_change(dialog, select_field, qty_field, rows) {
@@ -194,7 +210,7 @@ function production_trace_lines(plan) {
 	const rows = plan.lines.map((line) => `<tr>
 		<td>${e(line.direction)}</td><td>${e(line.item_code)}</td>
 		<td>${e(line.handling_unit || line.pending_tag_code || "-")}</td>
-		<td>${e(line.qty)} ${e(line.stock_uom)}</td><td>${e(line.status)}</td>
+		<td>${e(line.qty)} ${e(line.stock_uom)}${line.serial_count ? `<br><small>${e(line.serial_count)} ${__("serials")}</small>` : ""}</td><td>${e(line.status)}</td>
 		<td>${line.can_cancel ? `<button class="btn btn-xs btn-danger" data-cancel-trace-line="${e(line.name)}">${__("Cancel")}</button>` : ""}</td>
 	</tr>`).join("");
 	return `<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>

@@ -85,6 +85,14 @@ def allocate_input_tag(stock_entry, item_row, scan_value, qty,
             "for the partial physical quantity first."
         )
 
+    from cfg_kanban.services.serial_evidence import (
+        active_serials_for_unit,
+        serials_to_json,
+        validate_unit_serials_for_row,
+    )
+    validate_unit_serials_for_row(unit, row, qty)
+    input_serials = active_serials_for_unit(unit.name)
+
     line = trace.append("lines", {
         "direction": "Input",
         "status": "Reserved",
@@ -96,6 +104,8 @@ def allocate_input_tag(stock_entry, item_row, scan_value, qty,
         "stock_uom": row.stock_uom,
         "trace_policy": policy.production_input_tag_policy,
         "handling_unit": unit.name,
+        "serial_count": len(input_serials),
+        "serial_numbers_json": serials_to_json(input_serials),
     })
     trace.save(ignore_permissions=True)
     ledger = post_quantity_event(
@@ -131,7 +141,7 @@ def allocate_input_tag(stock_entry, item_row, scan_value, qty,
 @frappe.whitelist()
 def stage_output_tag(stock_entry, item_row, scan_value, qty,
                      handling_unit_type="Container", operator_session_token=None,
-                     kanban_card=None):
+                     kanban_card=None, serial_numbers=None):
     qty = flt(qty)
     if qty <= 0:
         frappe.throw("Output tag quantity must be positive")
@@ -181,6 +191,14 @@ def stage_output_tag(stock_entry, item_row, scan_value, qty,
             "to be staged on one tag"
         )
 
+    from cfg_kanban.services.serial_evidence import (
+        select_serials_for_tag,
+        serials_to_json,
+    )
+    selected_serials = select_serials_for_tag(
+        row, qty, serial_numbers, exclude=_trace_row_serials(trace, row.name)
+    )
+
     trace.append("lines", {
         "direction": "Output",
         "status": "Pending",
@@ -193,6 +211,8 @@ def stage_output_tag(stock_entry, item_row, scan_value, qty,
         "trace_policy": policy.production_output_tag_policy,
         "pending_tag_code": visible_code,
         "handling_unit_type": handling_unit_type or "Container",
+        "serial_count": len(selected_serials),
+        "serial_numbers_json": serials_to_json(selected_serials),
     })
     trace.save(ignore_permissions=True)
     record(
@@ -417,11 +437,23 @@ def confirm_stock_entry_trace(doc):
                     release_reserved=True,
                 )
                 _mark_empty_if_needed(line.handling_unit)
+                if line.serial_count:
+                    from cfg_kanban.services.serial_evidence import release_unit_serials
+                    release_unit_serials(
+                        line.handling_unit, "Consumed by submitted ERP Stock Entry",
+                        "Stock Entry", doc.name,
+                    )
             line.confirmation_ledger = ledger.name
             line.status = "Confirmed"
         elif line.status == "Pending":
             row = rows[line.stock_entry_detail]
             unit = _activate_output_unit(doc, row, line)
+            if line.serial_count:
+                from cfg_kanban.services.serial_evidence import assign_serials, serials_from_json
+                assign_serials(
+                    unit, serials_from_json(line.serial_numbers_json),
+                    "Stock Entry", doc.name, row.name,
+                )
             line.handling_unit = unit.name
             line.confirmation_ledger = frappe.db.get_value(
                 "CFG Kanban Handling Unit Quantity Ledger",
@@ -456,6 +488,12 @@ def reverse_stock_entry_trace(doc):
             continue
         row = rows[line.stock_entry_detail]
         if line.direction == "Output":
+            if line.serial_count:
+                from cfg_kanban.services.serial_evidence import release_unit_serials
+                release_unit_serials(
+                    line.handling_unit, "Origin Stock Entry cancelled",
+                    "Stock Entry", doc.name,
+                )
             ledger = post_quantity_event(
                 event_type="Production Output Reversal",
                 qty=line.qty,
@@ -524,6 +562,9 @@ def reverse_stock_entry_trace(doc):
                 {"identity_state": "Active", "movement_state": "Received"},
                 update_modified=False,
             )
+            if line.serial_count:
+                from cfg_kanban.services.serial_evidence import reactivate_unit_serials
+                reactivate_unit_serials(line.handling_unit, doc.name)
         line.reversal_ledger = ledger.name
         line.status = "Reversed"
     trace.status = "Reversed"
@@ -568,6 +609,7 @@ def _trace_plan(doc, trace):
         "stock_uom": line.stock_uom,
         "handling_unit": line.handling_unit,
         "pending_tag_code": line.pending_tag_code,
+        "serial_count": line.serial_count,
         "can_cancel": doc.docstatus == 0 and line.status in ("Reserved", "Pending"),
     } for line in trace.lines]
     return {
@@ -587,7 +629,10 @@ def _trace_plan(doc, trace):
 
 
 def _plan_row(row, direction, warehouse, tag_policy, policy_source, allocated):
+    from cfg_kanban.services.serial_evidence import erp_row_serials, item_uses_serials
     total = _row_stock_qty(row)
+    serial_controlled = item_uses_serials(row.item_code)
+    row_serials = erp_row_serials(row) if serial_controlled else []
     return {
         "row_name": row.name,
         "direction": direction,
@@ -603,7 +648,30 @@ def _plan_row(row, direction, warehouse, tag_policy, policy_source, allocated):
         "policy_source": policy_source,
         "tagging_available": tag_policy != NO_TAG,
         "tag_required": tag_policy == "Required Physical Tag",
+        "serial_controlled": serial_controlled,
+        "available_serial_numbers": [value for value in row_serials
+                                     if value not in _trace_row_serials_by_document(
+                                         row.parent, row.name
+                                     )],
     }
+
+
+def _trace_row_serials(trace, item_row):
+    if not trace:
+        return []
+    from cfg_kanban.services.serial_evidence import serials_from_json
+    values = []
+    for line in trace.lines:
+        if line.stock_entry_detail == item_row and line.status in (
+            "Reserved", "Pending", "Confirmed"
+        ):
+            values.extend(serials_from_json(line.serial_numbers_json))
+    return list(dict.fromkeys(values))
+
+
+def _trace_row_serials_by_document(stock_entry, item_row):
+    trace = _get_trace(stock_entry)
+    return _trace_row_serials(trace, item_row)
 
 
 def _ensure_trace(doc):

@@ -1,10 +1,20 @@
 import frappe
-from frappe.utils import flt
+from frappe.utils import flt, now_datetime
 
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key
-from cfg_kanban.services.logistics_foundation import resolve_logistics_scan
+from cfg_kanban.services.logistics_foundation import (
+    post_quantity_event,
+    resolve_logistics_scan,
+)
 from cfg_kanban.services.physical_identity import normalize_physical_code
+from cfg_kanban.services.serial_evidence import (
+    assigned_serials_for_reference,
+    assign_serials,
+    erp_row_serials,
+    item_uses_serials,
+    select_serials_for_tag,
+)
 from cfg_kanban.services.trace_policy import NO_TAG, effective_trace_policy
 
 
@@ -28,6 +38,11 @@ def get_purchase_receipt_trace_plan(purchase_receipt):
         policy = effective_trace_policy(item.item_code, receipt.company)
         stock_qty = _row_stock_qty(item)
         tagged_qty = _tagged_origin_qty(receipt.name, item.name)
+        serial_controlled = item_uses_serials(item.item_code)
+        row_serials = erp_row_serials(item) if serial_controlled else []
+        assigned_serials = set(assigned_serials_for_reference(
+            "Purchase Receipt", receipt.name, item.name
+        ))
         rows.append({
             "row_name": item.name,
             "item_code": item.item_code,
@@ -45,6 +60,9 @@ def get_purchase_receipt_trace_plan(purchase_receipt):
             "tag_required": policy.receiving_tag_policy == "Required Physical Tag",
             "allow_partial_tag_quantity": bool(policy.allow_partial_tag_quantity),
             "require_batch": bool(policy.require_batch),
+            "serial_controlled": serial_controlled,
+            "available_serial_numbers": [value for value in row_serials
+                                         if value not in assigned_serials],
         })
     return {
         "purchase_receipt": receipt.name,
@@ -61,7 +79,7 @@ def get_purchase_receipt_trace_plan(purchase_receipt):
 
 @frappe.whitelist()
 def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
-                                  handling_unit_type="Container"):
+                                  handling_unit_type="Container", serial_numbers=None):
     frappe.only_for(ALLOWED_ROLES)
     try:
         visible_code = normalize_physical_code(scan_value)
@@ -141,6 +159,11 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
             "to be activated on one tag"
         )
 
+    selected_serials = select_serials_for_tag(
+        row, qty, serial_numbers,
+        exclude=assigned_serials_for_reference("Purchase Receipt", receipt.name, row.name),
+    )
+
     expiry_date = (frappe.db.get_value("Batch", batch_no, "expiry_date")
                    if batch_no else None)
     unit = frappe.get_doc({
@@ -167,6 +190,8 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
     })
     unit.flags.activation_reason = "Physical tag activated from submitted Purchase Receipt"
     unit.insert(ignore_permissions=True)
+    if selected_serials:
+        assign_serials(unit, selected_serials, "Purchase Receipt", receipt.name, row.name)
     record(
         "Purchase Receipt Material Tag Activated",
         handling_unit=unit.name,
@@ -177,6 +202,115 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
         system_generated=True,
     )
     return _activation_result(unit.name, receipt, row)
+
+
+def void_cancelled_purchase_receipt_tags(receipt):
+    """Void untouched tags whose ERP receipt has just been cancelled.
+
+    The ERP cancellation and this reconciliation run in one database transaction. If a
+    tag has already moved into a later physical process, throwing here also rolls back
+    the Purchase Receipt cancellation instead of leaving ERP stock and tag evidence out
+    of agreement.
+    """
+    units = frappe.get_all(
+        "CFG Kanban Handling Unit",
+        filters={
+            "origin_reference_doctype": "Purchase Receipt",
+            "origin_reference_name": receipt.name,
+            "identity_state": ["not in", ["Void", "Replaced"]],
+        },
+        pluck="name",
+        limit_page_length=10000,
+    )
+    if not units:
+        return 0
+    receipt_rows = {row.name: row for row in receipt.items}
+    for unit_name in units:
+        unit = frappe.get_doc("CFG Kanban Handling Unit", unit_name)
+        row = receipt_rows.get(unit.origin_reference_row)
+        expected_warehouse = ((row.warehouse or receipt.set_warehouse) if row else None)
+        _assert_receipt_tag_untouched(unit, expected_warehouse)
+
+    for unit_name in units:
+        unit = frappe.get_doc("CFG Kanban Handling Unit", unit_name)
+        post_quantity_event(
+            event_type="Reconcile Decrease",
+            qty=unit.current_qty,
+            stock_uom=unit.stock_uom,
+            idempotency_key=canonical_key(
+                "purchase-receipt-cancel-tag", receipt.name, unit.name
+            ),
+            source_handling_unit=unit.name,
+            item_code=unit.item_code,
+            batch_no=unit.batch_no,
+            source_company=unit.inventory_company,
+            source_warehouse=unit.current_warehouse,
+            reference_doctype="Purchase Receipt",
+            reference_name=receipt.name,
+            reason="Origin Purchase Receipt cancelled; received Stock Tag voided",
+        )
+        if unit.serial_count:
+            from cfg_kanban.services.serial_evidence import release_unit_serials
+            release_unit_serials(
+                unit.name, "Origin Purchase Receipt cancelled",
+                "Purchase Receipt", receipt.name,
+            )
+        frappe.db.set_value(
+            "CFG Kanban Handling Unit",
+            unit.name,
+            {
+                "state": "Void",
+                "identity_state": "Void",
+                "movement_state": "Empty",
+                "void_reason": f"Origin Purchase Receipt {receipt.name} cancelled",
+                "last_scan_time": now_datetime(),
+            },
+            update_modified=False,
+        )
+        record(
+            "Purchase Receipt Material Tag Voided",
+            handling_unit=unit.name,
+            qty=unit.current_qty,
+            reference_doctype="Purchase Receipt",
+            reference_name=receipt.name,
+            notes=f"{unit.item_code} / {unit.handling_unit_id}",
+            system_generated=True,
+        )
+    return len(units)
+
+
+def _assert_receipt_tag_untouched(unit, expected_warehouse):
+    from cfg_kanban.services.container_contents import active_container_membership
+
+    changed = (
+        unit.identity_state != "Active"
+        or abs(flt(unit.current_qty) - flt(unit.original_qty)) > 0.000001
+        or flt(unit.reserved_qty) > 0.000001
+        or not expected_warehouse
+        or unit.current_warehouse != expected_warehouse
+        or bool(active_container_membership(unit.name))
+        or bool(frappe.db.exists(
+            "CFG Kanban Handling Unit",
+            {"parent_handling_unit": unit.name,
+             "identity_state": ["not in", ["Void", "Replaced"]]},
+        ))
+    )
+    downstream_ledger = frappe.db.sql(
+        """
+        select name
+        from `tabCFG Kanban Handling Unit Quantity Ledger`
+        where (source_handling_unit=%s or destination_handling_unit=%s)
+          and idempotency_key != %s
+        limit 1
+        """,
+        (unit.name, unit.name, f"handling-unit-activation:{unit.name}"),
+    )
+    if changed or downstream_ledger:
+        frappe.throw(
+            f"Cannot cancel Purchase Receipt while Stock Tag {unit.handling_unit_id} has "
+            "moved, split, been loaded, reserved, or consumed. Reconcile the physical tag "
+            "and downstream stock activity first."
+        )
 
 
 def _activation_result(unit_name, receipt, row):

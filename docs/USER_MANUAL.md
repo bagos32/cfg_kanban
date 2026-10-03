@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.21
+**Guide version:** 1.22
 
 **Updated:** 3 October 2026
 
@@ -1086,6 +1086,32 @@ replaced, or voided independently while loaded, and a nonempty container cannot 
 voided. Managers can review **Container Content History** or **Reusable Container Episodes** in the
 Material Genealogy Explorer.
 
+### Exact Serial Numbers inside a Stock Tag
+
+When ERPNext Item **Has Serial No** is enabled, CFG Kanban requires exact serial membership for
+tag activation through the supported receipt and production workflows:
+
+1. Complete the ERPNext row's **Serial No** or **Serial and Batch Bundle** first.
+2. In **Tag Received Material** or **Production Material Trace**, choose the ERP row and tag
+   quantity.
+3. The **Exact Serial Numbers** field fills automatically when this tag takes all remaining serials.
+   For several tags, keep exactly the serials physically placed under the scanned tag, one per line.
+4. The number of serials must equal the whole-number tag quantity, and every serial must belong to
+   the selected ERP row, Item, and Batch.
+5. ERP submission activates production-output membership. A received tag is associated immediately
+   because its Purchase Receipt is already submitted.
+
+The Handling Unit shows **Active Serial Count** (`serial_count`). Managers can use **Exact Serial
+Membership**, **Handling Unit Serial History**, or the Genealogy Explorer. Production consumption
+must use the complete serial-controlled tag; partial consumption is blocked. Warehouse transfers,
+container membership, and intercompany movement preserve the serial association. Replacement
+transfers it to the new tag. Consumption or voiding releases it, while ERP cancellation restores
+the prior input association. Cancelling a Purchase Receipt automatically voids its untouched
+received tags and releases their serial memberships. The cancellation is blocked when a tag has
+already moved, split, been loaded, reserved, or consumed; reconcile that downstream activity
+first. Generic detachable-child splitting of a serial-controlled parent is blocked until the
+controlled serial-split assistant is implemented.
+
 ## 12. Scanner-first floor operation
 
 The Kanban Operator page supports both a fixed USB/Bluetooth keyboard-wedge scanner and the device
@@ -1462,7 +1488,7 @@ The following are not complete in the current build:
 - Full Start/Complete dynamic-field capture and arbitrary Job Card field mapping.
 - Automated email alerts and complete command retry orchestration.
 - Supplier Kanban and Sales Order fulfillment allocation beyond the implemented demand controls.
-- Richer per-serial evidence. Purchase Receipt activation, reusable-container content episodes,
+- Controlled detachable-child splitting for serial-controlled parent tags. Purchase Receipt activation, reusable-container content episodes, exact serial membership,
   Stock Entry-confirmed production tracing, scoped scanner-first floor access, same-company tagged
   Warehouse transfers, and scan-any-tag upstream/downstream genealogy exploration are implemented.
 
@@ -1924,6 +1950,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.22 | 3 October 2026 | Added ERPNext-referenced exact Serial Number membership for received and produced Stock Tags, whole-tag production validation, consumption/reversal/replacement lifecycle handling, serial history, and genealogy/logistics visibility |
 | 1.21 | 3 October 2026 | Added reusable-container content loading/unloading in the Logistics panel, immutable membership episodes, mixed-content policy, movement safeguards, workspace history, and genealogy visibility |
 | 1.20 | 3 October 2026 | Added the read-only scan-any-tag Material Genealogy Explorer, upstream/downstream Handling Unit lineage, ERP movement/Manifest evidence, related-tag navigation, Handling Unit and Logistics-panel entry points, and printable A4 exact-trace report |
 | 1.19 | 3 October 2026 | Added the Logistics-panel same-company tagged Warehouse-transfer assistant backed by Draft/Submitted ERPNext Material Transfer Stock Entries, Internal Warehouse Transfer responsibility, full-tag movement enforcement, and ERP-confirmed Warehouse updates |

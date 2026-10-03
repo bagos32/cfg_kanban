@@ -67,6 +67,7 @@ frappe.pages["material-genealogy"].on_page_load = function (wrapper) {
 				${generation_column(__("Downstream Products"), data.downstream, "downstream")}
 			</div>
 			${relationship_table(data.relationships)}
+			${serial_history_table(data.serial_history)}
 			${container_history_table(data.container_history)}
 			${manifest_table(data.manifests)}
 			${timeline_table(data.timeline)}
@@ -99,6 +100,7 @@ frappe.pages["material-genealogy"].on_page_load = function (wrapper) {
 				${fact(__("Company"), unit.inventory_company || "-")}
 				${fact(__("Current Location"), unit.current_warehouse || unit.physical_custodian || __("In Transit / Unassigned"))}
 				${fact(__("Current / Available"), `${number(unit.current_qty)} / ${number(unit.available_qty)} ${escape(unit.stock_uom || "")}`)}
+				${fact(__("Active Serials"), number(unit.serial_count))}
 				${fact(__("Lifecycle"), `${unit.identity_state} · ${unit.movement_state} · ${unit.quality_state}`)}
 				${fact(__("ERP Origin"), unit.origin_reference_name || __("No ERP origin recorded"))}
 			</div>
@@ -150,6 +152,17 @@ frappe.pages["material-genealogy"].on_page_load = function (wrapper) {
 		return table_section(__("Reusable Container Episodes"),
 			`<th>${__("Container")}</th><th>${__("Contained Stock Tag")}</th><th>${__("Quantity")}</th><th>${__("State")}</th><th>${__("Loaded")}</th><th>${__("Unloaded")}</th>`,
 			body, __("No reusable-container episode is linked to this trace"));
+	}
+
+	function serial_history_table(rows) {
+		const body = (rows || []).map((row) => `<tr>
+			<td><button class="btn btn-link open-unit" data-code="${attr(row.handling_unit_code)}">${escape(row.handling_unit_code)}</button></td>
+			<td><strong>${escape(row.serial_no)}</strong></td><td>${escape(row.item_code || "-")}<br><small>${escape(row.batch_no || __("No Batch"))}</small></td>
+			<td>${escape(row.state)}</td><td>${escape(date_time(row.assigned_on))}<br><small>${reference_button(row.assignment_reference_doctype, row.assignment_reference_name)}</small></td>
+			<td>${escape(date_time(row.released_on))}<br><small>${escape(row.release_reason || "-")}</small></td></tr>`).join("");
+		return table_section(__("Exact ERPNext Serial Membership"),
+			`<th>${__("Physical Tag")}</th><th>${__("Serial No")}</th><th>${__("Item / Batch")}</th><th>${__("State")}</th><th>${__("Assigned")}</th><th>${__("Released / Transferred")}</th>`,
+			body, __("No exact serial membership is recorded for this trace"));
 	}
 
 	function timeline_table(rows) {

@@ -367,6 +367,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const movement = state.lookup.last_movement;
 		const container_status = state.lookup.container_status || {};
 		const membership = container_status.active_membership;
+		const serials = state.lookup.active_serial_numbers || [];
 		const manifests = (state.lookup.manifests || []).map((manifest) =>
 			`<button class="btn btn-default lookup-manifest" data-name="${e(manifest.name)}"><strong>${e(manifest.name)}</strong> · ${e(manifest.state)}</button>`
 		).join("");
@@ -379,6 +380,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<strong>${__("Current contents")}: ${(container_status.current_contents || []).length} ${__("complete Stock Tags")}</strong><br>
 			<small>${__("Container membership is physical grouping only. ERP stock remains recorded against each Stock Tag.")}</small>
 			${state.lookup.can_manage_container ? "" : `<br><small>${__("Container Loading responsibility is required to change contents.")}</small>`}</div>` : "";
+		const serial_notice = serials.length ? `<div class="alert alert-success mt-3"><strong>${serials.length} ${__("exact ERPNext Serial Numbers")}</strong><br>
+			<small>${serials.map((value) => e(value)).join(", ")}</small></div>` : "";
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
 			<div class="cfg-logistics-tag-head"><div><small>${__("Scanned Tag Status")}</small><h3>${e(unit.visible_code)}</h3><strong>${e(unit.item_code || __("No item assigned"))}</strong></div>
 				<div>${container_action}<button class="btn btn-default explore-genealogy" data-code="${e(unit.visible_code)}">${__("Full Genealogy")}</button>
@@ -391,7 +394,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				<div><small>${__("Available / Reserved")}</small><strong>${format_number(unit.available_qty)} / ${format_number(unit.reserved_qty)}</strong></div>
 				<div><small>${__("Lifecycle")}</small><strong>${e(unit.identity_state)} · ${e(unit.movement_state)} · ${e(unit.quality_state)}</strong></div>
 			</div>
-			${membership_notice}${content_notice}
+			${membership_notice}${content_notice}${serial_notice}
 			<div class="cfg-logistics-last-movement"><small>${__("Last movement")}</small><strong>${movement ? `${e(movement.event_type)} · ${e(display_datetime(movement.posting_datetime))}` : __("No quantity movement recorded")}</strong></div>
 			<div class="cfg-logistics-related"><small>${__("Related Manifests")}</small><div>${manifests || `<span class="text-muted">${__("No Manifest history for this tag")}</span>`}</div></div>
 		</div>`);

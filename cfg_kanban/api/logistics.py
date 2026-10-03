@@ -197,6 +197,7 @@ def lookup_logistics_tag(scan_value, operator_session_token):
         "item_code": unit.item_code,
         "description": unit.short_description,
         "batch_no": unit.batch_no,
+        "serial_count": unit.serial_count,
         "stock_uom": unit.stock_uom,
         "current_qty": unit.current_qty,
         "reserved_qty": unit.reserved_qty,
@@ -216,6 +217,8 @@ def lookup_logistics_tag(scan_value, operator_session_token):
         and profile.can_start
         and (_can_view_all(profile) or "Container Loading" in _responsibilities(profile))
     )
+    from cfg_kanban.services.serial_evidence import active_serials_for_unit
+    result["active_serial_numbers"] = active_serials_for_unit(unit.name)
     last_movement = frappe.db.sql(
         """
         select name, event_type, posting_datetime, reference_doctype, reference_name

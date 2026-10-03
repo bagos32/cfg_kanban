@@ -126,6 +126,13 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 				`&format=${encodeURIComponent("CFG Kanban Genealogy Report")}&no_letterhead=1`;
 			window.open(url, "_blank");
 		}, __("Kanban Actions"));
+		if (frm.doc.serial_count) {
+			frm.add_custom_button(__("Exact Serial Membership"), () => {
+				frappe.set_route("List", "CFG Kanban Handling Unit Serial", {
+					handling_unit: frm.doc.name,
+				});
+			}, __("Kanban Actions"));
+		}
 		if (!["Received", "Void", "Replaced"].includes(frm.doc.state)) {
 			frm.add_custom_button(__("Replace Tag"), () => replace_tag(frm), __("Kanban Actions"));
 		}

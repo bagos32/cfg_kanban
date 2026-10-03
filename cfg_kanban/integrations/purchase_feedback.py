@@ -33,6 +33,8 @@ def on_purchase_receipt_submit(doc, method=None):
 
 
 def on_purchase_receipt_cancel(doc, method=None):
+    from cfg_kanban.api.receiving import void_cancelled_purchase_receipt_tags
+    void_cancelled_purchase_receipt_tags(doc)
     if doc.get("cfg_movement_manifest"):
         from cfg_kanban.integrations.logistics_feedback import on_purchase_receipt_cancel as logistics_cancel
         logistics_cancel(doc, method)
