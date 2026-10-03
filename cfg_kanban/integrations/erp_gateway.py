@@ -472,6 +472,76 @@ def _remaining_sales_invoice_quantities(source):
     return totals
 
 
+@handler("Create Customer Return Material Receipt")
+def create_customer_return_material_receipt(command, payload):
+    """Prepare a Draft Material Receipt for QC-accepted physical stock."""
+    case = frappe.get_doc("CFG Kanban Return Case", command.return_case)
+    if case.return_flow != "Customer Return for QC" or not case.qc_completed_on:
+        frappe.throw("Customer Return Case is not ready for physical stock disposition")
+    if case.stock_disposition_entry:
+        existing_status = frappe.db.get_value(
+            "Stock Entry", case.stock_disposition_entry, "docstatus"
+        )
+        if existing_status in (0, 1):
+            return frappe.get_doc("Stock Entry", case.stock_disposition_entry)
+    lines = payload.get("disposition_lines") or []
+    if not lines:
+        frappe.throw("Material Receipt requires at least one accepted return disposition row")
+    entry = frappe.get_doc({
+        "doctype": "Stock Entry",
+        "stock_entry_type": "Material Receipt",
+        "company": case.selling_company,
+        "cfg_kanban_controlled": 1,
+        "cfg_return_case": case.name,
+        "cfg_scan_event": command.idempotency_key,
+        "remarks": (
+            f"CFG Kanban accepted customer return {case.name}. "
+            f"Physical stock disposition only; accounting credit is controlled separately. "
+            f"Decision: {payload.get('decision_notes') or '-'}"
+        ),
+        "items": [{
+            "item_code": row["item_code"],
+            "qty": flt(row["qty"]),
+            "transfer_qty": flt(row["qty"]),
+            "uom": row["stock_uom"],
+            "stock_uom": row["stock_uom"],
+            "conversion_factor": 1,
+            "t_warehouse": row["target_warehouse"],
+            "basic_rate": flt(row["valuation_rate"]),
+            "allow_zero_valuation_rate": int(not flt(row["valuation_rate"])),
+            "batch_no": row.get("batch_no"),
+            "cfg_return_disposition_line": row["disposition_line"],
+        } for row in lines],
+    })
+    if case.stock_disposition_entry and frappe.db.get_value(
+        "Stock Entry", case.stock_disposition_entry, "docstatus"
+    ) == 2:
+        entry.amended_from = case.stock_disposition_entry
+    entry.insert(ignore_permissions=True)
+    for item in entry.items:
+        disposition_line = item.get("cfg_return_disposition_line")
+        if disposition_line:
+            frappe.db.set_value(
+                "CFG Kanban Return Disposition Line", disposition_line,
+                {"stock_entry_detail": item.name, "status": "Draft"},
+                update_modified=False,
+            )
+    case.db_set({
+        "disposition_status": "Stock Receipt Draft",
+        "stock_disposition_entry": entry.name,
+        "stock_disposition_entry_status": "Draft",
+    }, update_modified=True)
+    entry._cfg_command_result = {
+        "doctype": entry.doctype,
+        "name": entry.name,
+        "docstatus": entry.docstatus,
+        "return_case": case.name,
+        "stock_entry_type": entry.stock_entry_type,
+        "disposition_revision": payload.get("disposition_revision") or 0,
+    }
+    return entry
+
+
 def get_required_erp_inputs(doc):
     """Describe editable mandatory values still missing from an ERP document."""
     requirements = []

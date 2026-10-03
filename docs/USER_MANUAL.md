@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.31
+**Guide version:** 1.32
 
 **Updated:** 4 October 2026
 
@@ -1948,10 +1948,55 @@ Completed` / `No Credit Approved`; an active credit Draft must be cancelled befo
 chosen.
 
 Package D2B is an accounting handoff only. Accepted goods still remain in inspection custody; a
-later controlled stock-disposition function must post quarantine, rework, disposal or accepted-stock
-movement in ERPNext. CFG Kanban Core does not depend on the external `bagos_changes` custom **Credit
+separate controlled stock-disposition function posts quarantine, rework, disposal or accepted-stock
+movement in ERPNext as described below. CFG Kanban Core does not depend on the external `bagos_changes` custom **Credit
 Note** DocType. The driver-facing **CFG Temporary Return Note** remains the non-tax custody record,
 and the final credit is a standard ERPNext Sales Invoice Return.
+
+### Accepted return physical-stock disposition (Package D2C)
+
+After QC completion, a **Stock Manager**, **Quality Manager**, or **System Manager** opens the **CFG
+Kanban Return Case** and selects **Stock → Prepare Stock Disposition**. A Warehouse receipt also
+requires Stock Entry Create permission. Accounting may still be pending: the accounting and physical
+tracks are independent, and the case closes only after both are complete.
+
+Every **QC Accepted Qty** must be conserved across one or more rows in **Accepted Quantity
+Dispositions** (`disposition_lines`). Multiple rows may reference the same intake row to split its
+quantity. Select one exact **Physical Disposition** (`disposition`) per split:
+
+- `Receive to Quarantine` — receive into a non-group quarantine Warehouse;
+- `Receive for Rework` — receive into a non-group rework Warehouse;
+- `Return to Available Stock` — receive into an approved available-stock Warehouse;
+- `Dispose Without Stock Receipt` — record controlled physical disposal without adding ERP stock.
+
+Receipt choices require **Target Warehouse** (`target_warehouse`) in the Return Case **Selling
+Company**, an approved **Valuation Rate** (`valuation_rate`), and **Disposition Reason** (`reason`). A
+zero rate is allowed only when the ERPNext Item explicitly permits zero valuation. Disposal requires
+a reason and must not have a Warehouse. **Overall Disposition Decision Notes** are also mandatory.
+The server rejects missing/excess quantities, another case's row, wrong-Company/group Warehouses,
+invalid rates, or any split total that differs from the accepted quantity.
+
+When any split requires receipt, CFG Kanban creates one Draft `Material Receipt` Stock Entry. It
+contains only receipt splits; disposal splits are excluded. **Customer Return Case**
+(`cfg_return_case`) and the immutable disposition-row identities tie every Stock Entry Detail back to
+the decision. The Stock Manager completes any ERPNext v15 Serial/Batch Bundle requirements and
+submits the entry. Before submission, ERPNext stock does not change. The submit guard prevents
+changes to Company, Stock Entry Type, Item, controlled quantity, Warehouse or approved valuation
+rate. Submitted ERP feedback marks receipt rows `Posted`, disposal rows `Disposed`, and **Stock
+Disposition Status** (`disposition_status`) `Completed`.
+
+If every split is `Dispose Without Stock Receipt`, the decision completes without a Stock Entry or
+Stock Ledger Entry. A linked Draft Material Receipt can be removed only through **Stock → Discard
+Return Material Receipt Draft** with an audit reason; then a corrected decision may be prepared. A
+submitted Material Receipt cancellation uses ERPNext's normal cancellation control, reverses its
+stock effect, increments **Disposition Revision**, and reopens the physical track for one controlled
+replacement.
+
+The combined Return State is intentional:
+
+- stock complete while accounting is pending: `QC Completed - Accounting Pending`;
+- accounting complete while stock is pending: `Accounting Completed`;
+- accounting and stock complete: `Closed`.
 
 **Correct Wrong Delivery Note:** Retrieve the completed Delivery Session and select **Correct Wrong
 Delivery Note**. The exact submitted Delivery Note is mandatory and reversal quantities cannot exceed
@@ -2147,8 +2192,8 @@ When using this file as context, an assistant must:
    code does not contain.
 10. Confirm the deployed Git revision/migration when the UI does not match this guide.
 
-11. Treat customer Sales Invoice posting, loose-container delivery, accepted-return stock
-    disposition, and billing grouping as later increments. Packages C1-C2B identify the Customer
+11. Treat customer Sales Invoice posting, loose-container delivery, and billing grouping as later
+    increments. Packages C1-C2B identify the Customer
     Site, lock the Company-specific lorry Warehouse, reserve full/partial Stock Tag quantities, and
     confirm delivery only from submitted ERPNext Delivery Note feedback. Package B intercompany
     posting remains operational only through the Movement Manifest and submitted Delivery Note /
@@ -2156,12 +2201,15 @@ When using this file as context, an assistant must:
     QC result handoff, and wrong-Delivery-Note physical correction; it never lets a floor operator
     select or post a Sales Invoice Return/Credit Note. D2B lets only an authorized Desk accounting
     user prepare the standard non-stock Draft Sales Invoice Return or record No Credit; ERPNext still
-    owns tax/e-Invoice review and submission.
+    owns tax/e-Invoice review and submission. D2C separately conserves accepted quantities across
+    quarantine, rework, available-stock or disposal decisions; only submitted ERPNext Material
+    Receipts change stock.
 
 ## 27. Revision history
 
 | Version | Date | Change |
 |---|---|---|
+| 1.32 | 4 October 2026 | Added independent accepted-return physical disposition with quantity-conserving splits, Company/Warehouse/rate validation, controlled Draft Material Receipt, no-stock disposal, draft discard, ERP submit/cancel feedback, and combined accounting-plus-stock closure |
 | 1.31 | 4 October 2026 | Added accountant-only post-QC source/no-credit decisions, same-Company/Customer and remaining-quantity validation, idempotent non-stock Draft Sales Invoice Return preparation, ERPNext-owned tax/e-Invoice submission, submit/cancel feedback and controlled replacement revision |
 | 1.30 | 4 October 2026 | Replaced the draft return concept with two practical floor workflows: Customer Return for QC from a Customer Site without prior DN/invoice, optional customer acknowledgement, private timestamped/geotagged evidence, printable/scannable Temporary Return Note, QC receipt/disposition and accounting-pending handoff; plus exact submitted-DN correction through a controlled Return Delivery Note with invoiced-DN safety hold |
 | 1.29 | 4 October 2026 | Initial return-intake draft (superseded by 1.30 before deployment) |

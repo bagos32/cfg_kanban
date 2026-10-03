@@ -921,8 +921,13 @@ class TestDocTypeSchema(TestCase):
             "customer_acknowledgement_name", "customer_acknowledged_on",
             "accounting_decided_by", "accounting_decided_on", "accounting_decision_notes",
             "credit_document_status", "accounting_revision",
+            "disposition_status", "disposition_lines", "stock_disposition_entry",
+            "stock_disposition_entry_status", "disposition_decided_by",
+            "disposition_decided_on", "disposition_notes", "disposition_revision",
         }.issubset(parent))
         self.assertEqual(parent["lines"]["options"], "CFG Kanban Return Line")
+        self.assertEqual(parent["disposition_lines"]["options"],
+                         "CFG Kanban Return Disposition Line")
         self.assertTrue(parent["idempotency_key"].get("unique"))
         child = {row["fieldname"]: row for row in
                  schemas["CFG Kanban Return Line"]["fields"]}
@@ -965,3 +970,19 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("return_accounting_feedback.on_cancel", hooks)
         install = (APP_ROOT / "install.py").read_text()
         self.assertIn('"cfg_return_case"', install)
+        self.assertIn('"cfg_return_disposition_line"', install)
+
+        disposition = (APP_ROOT / "services" / "return_disposition.py").read_text()
+        self.assertIn("Dispose Without Stock Receipt", disposition)
+        self.assertIn("Create Customer Return Material Receipt", disposition)
+        stock_feedback = (APP_ROOT / "integrations" / "return_stock_feedback.py").read_text()
+        self.assertIn("Customer Return Stock Disposition Posted", stock_feedback)
+        self.assertIn("Material Receipt quantity cannot differ", stock_feedback)
+        self.assertIn('@handler("Create Customer Return Material Receipt")', gateway)
+
+        disposition_child = {row["fieldname"]: row for row in
+                             schemas["CFG Kanban Return Disposition Line"]["fields"]}
+        self.assertTrue({
+            "return_line", "item_code", "batch_no", "stock_uom", "qty", "disposition",
+            "target_warehouse", "valuation_rate", "reason", "status", "stock_entry_detail",
+        }.issubset(disposition_child))

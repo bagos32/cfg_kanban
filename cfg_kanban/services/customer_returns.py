@@ -421,8 +421,9 @@ def prepare_accounting_decision(return_case, source_basis, decision_notes,
         ) in (0, 1):
             frappe.throw(_("Cancel the existing Sales Invoice Return before choosing No Credit"))
         previous_state = case.state
+        new_state = "Closed" if case.disposition_status == "Completed" else "Accounting Completed"
         case.db_set({
-            "state": "Accounting Completed", "accounting_status": "No Credit Approved",
+            "state": new_state, "accounting_status": "No Credit Approved",
             "accounting_source_basis": source_basis,
             "accounting_reference_doctype": None, "accounting_reference": None,
             "accounting_decided_by": frappe.session.user,
@@ -433,7 +434,7 @@ def prepare_accounting_decision(return_case, source_basis, decision_notes,
         }, update_modified=True)
         record(
             "Customer Return No Credit Approved", return_case=case.name,
-            previous_state=previous_state, new_state="Accounting Completed",
+            previous_state=previous_state, new_state=new_state,
             qty=case.accepted_total_qty, reference_doctype=case.doctype,
             reference_name=case.name, device_id=event_token, notes=notes,
         )

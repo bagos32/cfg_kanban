@@ -19,6 +19,8 @@ The controlled post-delivery return and correction continuation is
 [Package D2A Customer Return Intake System Test](docs/TEST_PACKAGE_D2A_CUSTOMER_RETURN_INTAKE.md).
 The accountant-controlled post-QC continuation is
 [Package D2B Customer Return Accounting System Test](docs/TEST_PACKAGE_D2B_CUSTOMER_RETURN_ACCOUNTING.md).
+The accepted-return physical-stock continuation is
+[Package D2C Return Stock Disposition System Test](docs/TEST_PACKAGE_D2C_RETURN_STOCK_DISPOSITION.md).
 Package A identity/configuration, Package B intercompany handover, Package C1 customer/vehicle
 session foundation, Package C2A customer tagged-stock reservation, and Package C2B controlled
 customer Delivery Note posting are implemented. Package D1 adds policy-controlled proof of delivery,
@@ -28,7 +30,9 @@ the Customer Site with optional customer acknowledgement and private timestamped
 QC records accepted/rejected disposition, and only wrong-DN correction can create
 an ERPNext Return Delivery Note. Package D2B lets authorized accounting users select a valid source
 invoice or No Credit and prepares a non-stock Draft ERPNext Sales Invoice Return. ERPNext retains
-manual tax/e-Invoice review and submission; accepted-return stock disposition remains separate.
+manual tax/e-Invoice review and submission. Package D2C independently splits QC-accepted quantity
+between quarantine, rework, available stock, or controlled disposal; only a submitted ERPNext
+Material Receipt changes stock, and the Return Case closes after both tracks finish.
 The additive tagged/untagged material-continuity model is documented in
 [Material Genealogy Architecture](docs/MATERIAL_GENEALOGY_ARCHITECTURE.md). Its mixed-trace policy
 and submitted Purchase Receipt tag-activation slice are implemented without making tags mandatory
@@ -119,7 +123,9 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
   creating credit. Its separate wrong-DN correction path requires the exact submitted DN and creates
   only a controlled Return Delivery Note. D2B adds an accountant-only source/no-credit decision and
   an idempotent non-stock Draft Sales Invoice Return with ERP submit/cancel feedback. Physical
-  accepted-return stock disposition remains a later controlled increment.
+  accepted-return stock is handled separately by D2C through quantity-conserving disposition splits,
+  Draft ERPNext Material Receipt preparation, submission/cancellation feedback, and no-stock
+  controlled disposal.
 
 ## Control flow
 

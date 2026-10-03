@@ -1,0 +1,17 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Return Disposition Line","module":"CFG Kanban","istable":1,
+ "field_order":["return_line","item_code","batch_no","stock_uom","qty","disposition","target_warehouse","valuation_rate","reason","status","stock_entry_detail"],
+ "fields":[
+  {"fieldname":"return_line","label":"Return Intake Row","fieldtype":"Data","reqd":1,"read_only":1},
+  {"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"batch_no","label":"Batch","fieldtype":"Link","options":"Batch","read_only":1,"in_list_view":1},
+  {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM","reqd":1,"read_only":1},
+  {"fieldname":"qty","label":"Disposition Qty","fieldtype":"Float","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"disposition","label":"Physical Disposition","fieldtype":"Select","options":"Receive to Quarantine\nReceive for Rework\nReturn to Available Stock\nDispose Without Stock Receipt","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"target_warehouse","label":"Target Warehouse","fieldtype":"Link","options":"Warehouse","read_only":1,"in_list_view":1},
+  {"fieldname":"valuation_rate","label":"Valuation Rate","fieldtype":"Currency","read_only":1},
+  {"fieldname":"reason","label":"Disposition Reason","fieldtype":"Small Text","reqd":1,"read_only":1},
+  {"fieldname":"status","label":"Disposition Status","fieldtype":"Select","options":"Decision Recorded\nDraft\nPosted\nDisposed\nCancelled","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"stock_entry_detail","label":"Stock Entry Detail Row","fieldtype":"Data","read_only":1}
+ ]
+}

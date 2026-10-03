@@ -15,8 +15,9 @@ def on_submit(doc, method=None):
     if case.accounting_status == "Completed" and case.credit_document_status == "Submitted":
         return
     previous_state = case.state
+    new_state = "Closed" if case.disposition_status == "Completed" else "Accounting Completed"
     case.db_set({
-        "state": "Accounting Completed",
+        "state": new_state,
         "accounting_status": "Completed",
         "credit_document_doctype": "Sales Invoice",
         "credit_document": doc.name,
@@ -24,7 +25,7 @@ def on_submit(doc, method=None):
     }, update_modified=True)
     record(
         "Customer Credit Return Submitted", return_case=case.name,
-        previous_state=previous_state, new_state="Accounting Completed",
+        previous_state=previous_state, new_state=new_state,
         qty=case.accepted_total_qty, reference_doctype="Sales Invoice",
         reference_name=doc.name,
         notes="Accountant submitted the non-stock ERPNext Sales Invoice Return.",

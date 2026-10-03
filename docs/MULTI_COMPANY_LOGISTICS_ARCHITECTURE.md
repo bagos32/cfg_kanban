@@ -3,7 +3,7 @@
 **Architecture version:** 1.0  
 **Decision status:** Locked baseline  
 **Decision date:** 30 September 2026  
-**Implementation status:** Package A, Package B intercompany handover, Packages C1-C2B customer delivery, Package D1 proof/closure, Package D2A controlled return intake plus QC disposition, and Package D2B accountant-controlled Draft Sales Invoice Return are implemented; accepted-return ERP stock disposition, customer invoicing, reconciliation, and Package E remain approved future scope
+**Implementation status:** Package A, Package B intercompany handover, Packages C1-C2B customer delivery, Package D1 proof/closure, Package D2A controlled return intake plus QC disposition, Package D2B accountant-controlled Draft Sales Invoice Return, and Package D2C accepted-return ERP stock disposition are implemented; customer invoicing, reconciliation, and Package E remain approved future scope
 
 This document is the source of truth for CFG Kanban stock-tag logistics across sister companies,
 company-specific vehicle warehouses, customer-site delivery, and delayed intercompany billing. It
@@ -642,7 +642,11 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
   Invoice for the same Company, Customer and sufficient remaining Item quantities, or records No
   Credit with a reason. CFG Kanban creates only a non-stock Draft Sales Invoice Return; ERPNext owns
   tax/e-Invoice review and submission, while submit/cancel hooks update the Return Case audit state.
-- Add final accepted-quantity ERP stock disposition and quarantine/rework/disposal execution.
+- **Implemented in D2C:** authorized stock/quality supervision conserves every accepted quantity
+  across quarantine, rework, available-stock or disposal splits. Receipt choices prepare a controlled
+  Draft Material Receipt and become stock only after ERPNext submission; disposal creates no stock.
+  Accounting and physical disposition can finish independently, and the case closes only when both
+  controls are complete.
 - Add end-of-route reconciliation, variance Exceptions, and reports.
 
 ### Package E — Operational hardening

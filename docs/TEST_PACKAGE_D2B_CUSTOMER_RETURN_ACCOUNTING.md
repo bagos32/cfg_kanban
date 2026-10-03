@@ -16,8 +16,8 @@ The positive credit path creates a **Draft, non-stock ERPNext Sales Invoice Retu
 submit it. The accountant must review rates, taxes and all e-Invoice requirements in ERPNext. The
 driver and QC operator cannot select an invoice or create the credit document.
 
-D2B does not put accepted physical goods into available stock. They remain in inspection custody
-until a later stock-disposition function posts the applicable ERPNext stock transaction.
+D2B does not put accepted physical goods into available stock. Use Package D2C for the independent
+controlled stock-disposition and ERPNext Material Receipt workflow.
 
 ## 2. Required setup and sample data
 
@@ -80,7 +80,8 @@ Expected:
 
 - submission is rejected if Company, Customer, Return Against, Update Stock, Items or quantities no
   longer match the controlled Return Case;
-- a valid submission changes Return State to `Accounting Completed`;
+- a valid submission changes Return State to `Accounting Completed`, or `Closed` when Package D2C
+  stock disposition already completed;
 - Accounting Status becomes `Completed` and Credit Document Status becomes `Submitted`;
 - a `Customer Credit Return Submitted` event records the ERP document;
 - ERPNext owns GL/e-Invoice validation and posting;
@@ -106,7 +107,7 @@ Expected:
 
 - a Sales Invoice must not be selected;
 - no Sales Invoice Return is created;
-- Return State becomes `Accounting Completed`;
+- Return State becomes `Accounting Completed`, or `Closed` when stock disposition already completed;
 - Accounting Status becomes `No Credit Approved`;
 - deciding user, time and notes are retained in the audit record;
 - physical goods still remain under the separate inspection/disposition boundary.
