@@ -219,6 +219,80 @@ def build_intercompany_delivery_note(manifest, payload, command=None, validate_r
     return delivery_note
 
 
+@handler("Create Customer Delivery Note")
+def create_customer_delivery_note(command, payload):
+    delivery = frappe.get_doc("CFG Kanban Delivery Session", command.delivery_session)
+    existing = frappe.db.get_value(
+        "Delivery Note",
+        {"cfg_delivery_session": delivery.name, "docstatus": ["<", 2]},
+        "name",
+    )
+    if existing:
+        return frappe.get_doc("Delivery Note", existing)
+    delivery_note = build_customer_delivery_note(delivery, payload, command=command)
+    delivery_note.insert(ignore_permissions=True)
+    delivery.db_set("delivery_note", delivery_note.name, update_modified=True)
+    for row in delivery_note.items:
+        allocation = row.get("cfg_delivery_allocation")
+        if allocation:
+            frappe.db.set_value(
+                "CFG Kanban Delivery Allocation", allocation,
+                {"delivery_note": delivery_note.name, "delivery_note_item": row.name},
+                update_modified=False,
+            )
+    if payload.get("submit"):
+        delivery_note.submit()
+        delivery_note.reload()
+    delivery_note._cfg_command_result = {
+        "doctype": delivery_note.doctype,
+        "name": delivery_note.name,
+        "docstatus": delivery_note.docstatus,
+        "submitted": delivery_note.docstatus == 1,
+        "delivery_session": delivery.name,
+    }
+    return delivery_note
+
+
+def build_customer_delivery_note(delivery, payload, command=None, validate_required=True):
+    """Build one locked-price customer Delivery Note row per physical allocation."""
+    values = {
+        "doctype": "Delivery Note",
+        "company": payload["company"],
+        "customer": payload["customer"],
+        "posting_date": now_datetime().date(),
+        "set_warehouse": payload["warehouse"],
+        "selling_price_list": payload["price_list"],
+        "shipping_address_name": payload["customer_address"],
+        "cfg_kanban_controlled": 1,
+        "cfg_delivery_session": delivery.name,
+        "cfg_requested_operator": command.requested_by_operator if command else None,
+        "cfg_scan_event": command.idempotency_key if command else None,
+        "items": [{
+            "item_code": row["item_code"],
+            "qty": row["qty"],
+            "uom": row["uom"],
+            "warehouse": payload["warehouse"],
+            "batch_no": row.get("batch_no"),
+            "rate": row["rate"],
+            "price_list_rate": row["rate"],
+            "cfg_handling_unit": row["handling_unit"],
+            "cfg_delivery_allocation": row["delivery_allocation"],
+        } for row in payload["items"]],
+    }
+    if payload.get("amended_from"):
+        values["amended_from"] = payload["amended_from"]
+    delivery_note = frappe.get_doc(values)
+    delivery_note.set_missing_values()
+    apply_required_erp_inputs(delivery_note, payload.get("required_erp_inputs"))
+    missing = get_required_erp_inputs(delivery_note)
+    if validate_required and missing:
+        frappe.throw(
+            "Required Delivery Note details are missing: "
+            + ", ".join(row["label"] for row in missing)
+        )
+    return delivery_note
+
+
 def get_required_erp_inputs(doc):
     """Describe editable mandatory values still missing from an ERP document."""
     requirements = []

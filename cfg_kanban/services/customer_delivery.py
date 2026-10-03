@@ -1,25 +1,31 @@
 import frappe
 from frappe import _
-from frappe.utils import flt, now_datetime
+from frappe.utils import flt, getdate, now_datetime, today
 
 from cfg_kanban.services.container_contents import (
     active_container_contents,
     active_container_membership,
 )
 from cfg_kanban.services.events import record
-from cfg_kanban.services.idempotency import canonical_key
+from cfg_kanban.services.idempotency import canonical_key, insert_once
 from cfg_kanban.services.logistics_foundation import (
     assert_erp_stock,
+    price_list_rate,
     post_quantity_event,
     resolve_logistics_scan,
     validate_price_list_mode,
 )
 from cfg_kanban.services.operator_auth import require_operator
+from cfg_kanban.integrations.erp_gateway import (
+    build_customer_delivery_note,
+    execute_command,
+    get_required_erp_inputs,
+)
 
 
 CUSTOMER_DELIVERY_RESPONSIBILITY = "Customer Delivery"
 DELIVERY_TERMINAL_STATES = {"Delivered", "Invoiced", "Closed", "Rejected", "Cancelled"}
-ACTIVE_ALLOCATION_STATES = ("Reserved", "Delivery Pending", "Delivered", "Exception")
+ACTIVE_ALLOCATION_STATES = ("Reserved", "Delivery Pending", "Exception")
 
 
 @frappe.whitelist()
@@ -80,6 +86,7 @@ def start_delivery_session(customer_scan, source_warehouse, event_token,
         "source_warehouse": source_warehouse,
         "vehicle_reference": vehicle.vehicle_reference,
         "price_list": price_list,
+        "auto_submit_delivery_note": site.auto_submit_delivery_note,
         "proof_policy": site.proof_policy,
         "require_recipient_name": site.require_recipient_name,
         "require_signature": site.require_signature,
@@ -126,6 +133,12 @@ def get_delivery_session(delivery_session, operator_session_token):
         order_by="reserved_on asc",
         limit_page_length=500,
     )
+    result["delivery_note_status"] = None
+    if delivery.delivery_note and frappe.db.exists("Delivery Note", delivery.delivery_note):
+        result["delivery_note_status"] = frappe.db.get_value(
+            "Delivery Note", delivery.delivery_note,
+            ["docstatus", "status"], as_dict=True,
+        )
     return result
 
 
@@ -256,13 +269,16 @@ def confirm_delivery_allocations(delivery_session, event_token,
         return get_delivery_session(delivery.name, operator_session_token)
     if delivery.state != "Allocating Stock":
         frappe.throw(_("Only an Allocating Stock session can be confirmed"))
-    names = frappe.get_all(
+    allocation_rows = frappe.get_all(
         "CFG Kanban Delivery Allocation",
         filters={"delivery_session": delivery.name, "state": "Reserved"},
-        pluck="name", limit_page_length=500,
+        fields=["name", "handling_unit", "container_handling_unit"],
+        limit_page_length=500,
     )
+    names = [row.name for row in allocation_rows]
     if not names:
         frappe.throw(_("Allocate at least one Stock Tag before confirmation"))
+    _validate_confirmed_container_groups(allocation_rows)
     for name in names:
         frappe.db.set_value(
             "CFG Kanban Delivery Allocation", name,
@@ -288,6 +304,116 @@ def confirm_delivery_allocations(delivery_session, event_token,
 
 
 @frappe.whitelist()
+def get_customer_delivery_requirements(delivery_session, operator_session_token):
+    profile, _session = require_operator(operator_session_token, "complete")
+    _require_customer_delivery(profile)
+    delivery = _delivery_for_operator(delivery_session, profile)
+    if delivery.state not in ("Awaiting Confirmation", "ERP Document Pending", "Exception"):
+        frappe.throw(_("Confirm customer allocations before creating the Delivery Note"))
+    if delivery.delivery_note and frappe.db.get_value(
+        "Delivery Note", delivery.delivery_note, "docstatus"
+    ) == 0:
+        return {"doctype": "Delivery Note", "fields": [], "existing_draft": delivery.delivery_note}
+    payload = _customer_delivery_payload(delivery)
+    delivery_note = build_customer_delivery_note(
+        delivery, payload, validate_required=False
+    )
+    return {"doctype": "Delivery Note", "fields": get_required_erp_inputs(delivery_note)}
+
+
+@frappe.whitelist()
+def create_customer_delivery_document(delivery_session, event_token,
+                                      operator_session_token,
+                                      required_erp_inputs=None):
+    profile, operator_session = require_operator(operator_session_token, "complete")
+    _require_customer_delivery(profile)
+    if not event_token:
+        frappe.throw(_("A stable Delivery Note request token is required"))
+    delivery = _delivery_for_operator(delivery_session, profile)
+    if delivery.delivery_note and frappe.db.exists("Delivery Note", delivery.delivery_note):
+        status = frappe.db.get_value("Delivery Note", delivery.delivery_note, "docstatus")
+        if status in (0, 1):
+            return get_delivery_session(delivery.name, operator_session_token)
+    if delivery.state not in ("Awaiting Confirmation", "ERP Document Pending", "Exception"):
+        frappe.throw(_("Delivery Session cannot create a Delivery Note while it is {0}").format(
+            delivery.state
+        ))
+    previous_state = delivery.state
+    payload = _customer_delivery_payload(delivery, required_erp_inputs)
+    revision = int(delivery.delivery_revision or 0)
+    key = canonical_key("customer-delivery-note", delivery.name, revision)
+    command, created = insert_once(frappe.get_doc({
+        "doctype": "CFG ERP Command",
+        "command_type": "Create Customer Delivery Note",
+        "delivery_session": delivery.name,
+        "status": "Pending",
+        "target_doctype": "Delivery Note",
+        "request_payload": frappe.as_json(payload),
+        "requested_by_operator": profile.employee,
+        "operator_session": operator_session.name,
+        "terminal_user": operator_session.terminal_user,
+        "requested_on": now_datetime(),
+        "created_by_system": 1,
+    }), key, ignore_permissions=True)
+    if not created:
+        if command.status == "Completed" and command.target_document:
+            if frappe.db.exists("Delivery Note", command.target_document):
+                delivery.db_set("delivery_note", command.target_document,
+                                update_modified=False)
+                return get_delivery_session(delivery.name, operator_session_token)
+        if command.status != "Failed":
+            frappe.throw(_("Customer Delivery ERP Command is {0}; it cannot be retried").format(
+                command.status
+            ))
+        command.db_set({
+            "status": "Pending",
+            "request_payload": frappe.as_json(payload),
+            "last_error": None,
+            "requested_by_operator": profile.employee,
+            "operator_session": operator_session.name,
+            "terminal_user": operator_session.terminal_user,
+            "requested_on": now_datetime(),
+        }, update_modified=True)
+    delivery.db_set({
+        "delivery_key": key,
+        "delivery_command": command.name,
+        "delivery_confirmed_by": profile.employee,
+        "delivery_operator_session": operator_session.name,
+        "delivery_confirmed_on": now_datetime(),
+        "state": "ERP Document Pending",
+    }, update_modified=True)
+    try:
+        delivery_note = execute_command(command.name)
+    except Exception:
+        _delivery_exception(
+            delivery, "Customer Delivery Note Command Failed",
+            "Customer Delivery Note creation or submission failed", command.name,
+        )
+        raise
+    delivery.reload()
+    _resolve_delivery_exception(delivery, "Customer Delivery Note command succeeded")
+    if delivery_note.docstatus == 0:
+        delivery.db_set({"delivery_note": delivery_note.name,
+                         "state": "ERP Document Pending"}, update_modified=True)
+    record(
+        "Customer Delivery Note Requested",
+        delivery_session=delivery.name,
+        previous_state=previous_state,
+        new_state=delivery.state,
+        qty=sum(flt(row["qty"]) for row in payload["items"]),
+        reference_doctype="Delivery Note",
+        reference_name=delivery_note.name,
+        device_id=key,
+        notes=("Auto-submit enabled" if delivery.auto_submit_delivery_note
+               else "Draft retained for ERPNext review and manual submission"),
+        operator=profile.employee,
+        operator_session=operator_session.name,
+        terminal_user=operator_session.terminal_user,
+    )
+    return get_delivery_session(delivery.name, operator_session_token)
+
+
+@frappe.whitelist()
 def release_delivery_allocation(allocation, reason, event_token,
                                 operator_session_token):
     profile, operator_session = require_operator(operator_session_token, "complete")
@@ -298,34 +424,29 @@ def release_delivery_allocation(allocation, reason, event_token,
         frappe.throw(_("A stable release event token is required"))
     row = frappe.get_doc("CFG Kanban Delivery Allocation", allocation)
     delivery = _delivery_for_operator(row.delivery_session, profile)
-    release_key = canonical_key("customer-delivery-release", row.name, event_token)
     if row.state == "Released":
         return get_delivery_session(delivery.name, operator_session_token)
     if row.state not in ("Reserved", "Delivery Pending") or row.delivery_note:
         frappe.throw(_("Only an undelivered active allocation can be released"))
-    unit = frappe.get_doc("CFG Kanban Handling Unit", row.handling_unit)
-    ledger = post_quantity_event(
-        event_type="Unreserve", qty=row.allocated_qty, stock_uom=row.stock_uom,
-        idempotency_key=release_key, source_handling_unit=unit.name,
-        item_code=row.item_code, batch_no=row.batch_no,
-        source_company=delivery.selling_company,
-        source_warehouse=delivery.source_warehouse,
-        reference_doctype=row.doctype, reference_name=row.name,
-        operator=profile.employee, operator_session=operator_session.name,
-        device_id=event_token, reason=reason.strip(),
-    )
-    now = now_datetime()
-    frappe.db.set_value(row.doctype, row.name, {
-        "state": "Released", "active_handling_unit_key": None,
-        "released_on": now, "release_reason": reason.strip(),
-        "release_ledger": ledger.name, "release_key": release_key,
-    }, update_modified=True)
-    unit.reload()
-    if not flt(unit.reserved_qty):
-        unit.db_set({
-            "movement_state": row.movement_state_before_reservation or "At Source",
-            "last_scan_time": now,
-        }, update_modified=False)
+    rows = [row]
+    if row.container_handling_unit:
+        rows = [frappe.get_doc("CFG Kanban Delivery Allocation", name) for name in
+                frappe.get_all(
+                    "CFG Kanban Delivery Allocation",
+                    filters={
+                        "delivery_session": delivery.name,
+                        "container_handling_unit": row.container_handling_unit,
+                        "state": ["in", ["Reserved", "Delivery Pending"]],
+                    },
+                    pluck="name", limit_page_length=500,
+                )]
+    for release_row in rows:
+        if release_row.delivery_note:
+            frappe.throw(_("Container allocation is already linked to a Delivery Note"))
+        _release_allocation_row(
+            release_row, delivery, reason.strip(), event_token,
+            profile, operator_session,
+        )
 
     # Changing a confirmed reservation invalidates the confirmation snapshot.
     for name in frappe.get_all(
@@ -345,14 +466,45 @@ def release_delivery_allocation(allocation, reason, event_token,
     delivery.db_set({"state": new_state, "confirmed_on": None}, update_modified=True)
     record(
         "Customer Delivery Allocation Released",
-        delivery_session=delivery.name, handling_unit=unit.name,
-        qty=row.allocated_qty, previous_state=row.state, new_state="Released",
+        delivery_session=delivery.name, handling_unit=row.handling_unit,
+        qty=sum(flt(release_row.allocated_qty) for release_row in rows),
+        previous_state=row.state, new_state="Released",
         reference_doctype=row.doctype, reference_name=row.name,
-        device_id=release_key, notes=reason.strip(), operator=profile.employee,
+        device_id=canonical_key("customer-delivery-release", row.name, event_token),
+        notes=((f"Container {row.container_visible_code}: " if row.container_visible_code else "")
+               + reason.strip()), operator=profile.employee,
         operator_session=operator_session.name,
         terminal_user=operator_session.terminal_user,
     )
     return get_delivery_session(delivery.name, operator_session_token)
+
+
+def _release_allocation_row(row, delivery, reason, event_token,
+                            profile, operator_session):
+    release_key = canonical_key("customer-delivery-release", row.name, event_token)
+    unit = frappe.get_doc("CFG Kanban Handling Unit", row.handling_unit)
+    ledger = post_quantity_event(
+        event_type="Unreserve", qty=row.allocated_qty, stock_uom=row.stock_uom,
+        idempotency_key=release_key, source_handling_unit=unit.name,
+        item_code=row.item_code, batch_no=row.batch_no,
+        source_company=delivery.selling_company,
+        source_warehouse=delivery.source_warehouse,
+        reference_doctype=row.doctype, reference_name=row.name,
+        operator=profile.employee, operator_session=operator_session.name,
+        device_id=event_token, reason=reason,
+    )
+    now = now_datetime()
+    frappe.db.set_value(row.doctype, row.name, {
+        "state": "Released", "active_handling_unit_key": None,
+        "released_on": now, "release_reason": reason,
+        "release_ledger": ledger.name, "release_key": release_key,
+    }, update_modified=True)
+    unit.reload()
+    if not flt(unit.reserved_qty):
+        unit.db_set({
+            "movement_state": row.movement_state_before_reservation or "At Source",
+            "last_scan_time": now,
+        }, update_modified=False)
 
 
 @frappe.whitelist()
@@ -426,6 +578,130 @@ def _assert_allocation_session(delivery):
         frappe.throw(_("Delivery Session already has ERP Delivery Note {0}").format(
             delivery.delivery_note
         ))
+
+
+def _customer_delivery_payload(delivery, required_erp_inputs=None):
+    if frappe.db.get_value("Customer", delivery.customer, "disabled"):
+        frappe.throw(_("Customer {0} is disabled").format(delivery.customer))
+    allocations = frappe.get_all(
+        "CFG Kanban Delivery Allocation",
+        filters={"delivery_session": delivery.name, "state": "Delivery Pending"},
+        fields=[
+            "name", "handling_unit", "visible_code", "container_handling_unit",
+            "container_visible_code", "item_code", "batch_no", "stock_uom",
+            "allocated_qty", "source_warehouse",
+        ],
+        order_by="reserved_on asc, name asc",
+        limit_page_length=500,
+    )
+    if not allocations:
+        frappe.throw(_("Delivery Session has no confirmed stock allocations"))
+    _validate_confirmed_container_groups(allocations)
+    items = []
+    for row in allocations:
+        unit = frappe.get_doc("CFG Kanban Handling Unit", row.handling_unit)
+        if unit.inventory_company != delivery.selling_company:
+            frappe.throw(_("Stock Tag {0} no longer belongs to the Selling Company").format(
+                row.visible_code
+            ))
+        if unit.current_warehouse != delivery.source_warehouse:
+            frappe.throw(_("Stock Tag {0} is no longer in lorry Warehouse {1}").format(
+                row.visible_code, delivery.source_warehouse
+            ))
+        if unit.quality_state != "Released" or unit.identity_state != "Active":
+            frappe.throw(_("Stock Tag {0} is no longer Active and Released").format(
+                row.visible_code
+            ))
+        if flt(unit.reserved_qty) + 0.000001 < flt(row.allocated_qty):
+            frappe.throw(_("Stock Tag {0} reservation is below the confirmed quantity").format(
+                row.visible_code
+            ))
+        if row.batch_no:
+            expiry_date = frappe.db.get_value("Batch", row.batch_no, "expiry_date")
+            if expiry_date and getdate(expiry_date) < getdate(today()):
+                frappe.throw(_("Batch {0} for Stock Tag {1} is expired").format(
+                    row.batch_no, row.visible_code
+                ))
+        assert_erp_stock(unit, delivery.source_warehouse, row.allocated_qty)
+        items.append({
+            "delivery_allocation": row.name,
+            "handling_unit": row.handling_unit,
+            "item_code": row.item_code,
+            "batch_no": row.batch_no,
+            "uom": row.stock_uom,
+            "qty": row.allocated_qty,
+            "rate": price_list_rate(
+                delivery.price_list, row.item_code, row.stock_uom,
+                row.batch_no, "selling", delivery.customer,
+            ),
+        })
+    payload = {
+        "delivery_session": delivery.name,
+        "company": delivery.selling_company,
+        "warehouse": delivery.source_warehouse,
+        "customer": delivery.customer,
+        "customer_address": delivery.customer_address,
+        "price_list": delivery.price_list,
+        "submit": bool(delivery.auto_submit_delivery_note),
+        "items": items,
+    }
+    if delivery.delivery_note and frappe.db.get_value(
+        "Delivery Note", delivery.delivery_note, "docstatus"
+    ) == 2:
+        payload["amended_from"] = delivery.delivery_note
+    if required_erp_inputs:
+        payload["required_erp_inputs"] = frappe.parse_json(required_erp_inputs)
+    return payload
+
+
+def _validate_confirmed_container_groups(allocations):
+    grouped = {}
+    for row in allocations:
+        if row.container_handling_unit:
+            grouped.setdefault(row.container_handling_unit, set()).add(row.handling_unit)
+    for container_name, allocated_units in grouped.items():
+        current_units = {
+            row.content_handling_unit for row in active_container_contents(container_name)
+        }
+        if current_units != allocated_units:
+            container_code = frappe.db.get_value(
+                "CFG Kanban Handling Unit", container_name, "handling_unit_id"
+            )
+            frappe.throw(
+                _("Reusable container {0} allocation no longer matches its complete physical contents. "
+                  "Release the container allocation and scan it again.").format(container_code)
+            )
+
+
+def _delivery_exception(delivery, exception_type, message, reference_name):
+    exception = frappe.get_doc({
+        "doctype": "CFG Kanban Exception",
+        "exception_type": exception_type,
+        "severity": "Critical",
+        "status": "Open",
+        "delivery_session": delivery.name,
+        "message": message,
+        "reference_doctype": "CFG ERP Command",
+        "reference_name": reference_name,
+        "raised_on": now_datetime(),
+    }).insert(ignore_permissions=True)
+    delivery.db_set({"state": "Exception", "exception": exception.name},
+                    update_modified=True)
+    return exception
+
+
+def _resolve_delivery_exception(delivery, resolution):
+    if not delivery.exception or not frappe.db.exists(
+        "CFG Kanban Exception", delivery.exception
+    ):
+        return
+    frappe.db.set_value(
+        "CFG Kanban Exception", delivery.exception,
+        {"status": "Resolved", "resolved_on": now_datetime(),
+         "resolved_by": frappe.session.user, "resolution": resolution},
+        update_modified=True,
+    )
+    delivery.db_set("exception", None, update_modified=False)
 
 
 def _candidate_row(unit):
@@ -632,6 +908,7 @@ def customer_delivery_context(scan_value, profile):
         "territory": site.territory,
         "route_reference": site.route_reference,
         "default_price_list": site.default_price_list,
+        "auto_submit_delivery_note": bool(site.auto_submit_delivery_note),
         "proof_policy": site.proof_policy,
         "require_recipient_name": bool(site.require_recipient_name),
         "require_signature": bool(site.require_signature),

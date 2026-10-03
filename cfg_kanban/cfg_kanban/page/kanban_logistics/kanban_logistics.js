@@ -494,15 +494,26 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const allocations = delivery.allocations || [];
 		const active_allocations = allocations.filter((row) => ["Reserved", "Delivery Pending"].includes(row.state));
 		const active_qty = active_allocations.reduce((total, row) => total + Number(row.allocated_qty || 0), 0);
-		const allocation_rows = allocations.map((row) => `<div class="cfg-logistics-line">
+		const rendered_containers = new Set();
+		const allocation_rows = allocations.map((row) => {
+			const release_group = row.container_visible_code || row.name;
+			const show_release = !rendered_containers.has(release_group);
+			rendered_containers.add(release_group);
+			return `<div class="cfg-logistics-line">
 			<div><strong>${e(row.visible_code)}</strong><small>${e(row.item_code)} · ${e(row.batch_no || __("No Batch"))}
 				${row.container_visible_code ? ` · ${__("Container")}: ${e(row.container_visible_code)}` : ""}</small></div>
 			<div><strong>${format_number(row.allocated_qty)} ${e(row.stock_uom)}</strong><small>${e(row.state)}</small></div>
-			${["Reserved", "Delivery Pending"].includes(row.state) && !row.delivery_note ? `<button class="btn btn-xs btn-danger release-allocation" data-name="${e(row.name)}">${__("Release")}</button>` : ""}
-		</div>`).join("");
+			${show_release && ["Reserved", "Delivery Pending"].includes(row.state) && !row.delivery_note ? `<button class="btn btn-xs btn-danger release-allocation" data-name="${e(row.name)}">${row.container_visible_code ? __("Release Container") : __("Release")}</button>` : ""}
+		</div>`;
+		}).join("");
 		let mode_notice = `<div class="alert alert-info mt-3"><strong>${__("Customer stock reservation")}</strong> · ${__("Start allocation scanning, then scan a complete Stock Tag or reusable container in this lorry Warehouse.")}</div>`;
 		if (state.scan_mode === "delivery") mode_notice = `<div class="alert alert-warning mt-3"><strong>${__("CUSTOMER ALLOCATION SCANNING ARMED")}</strong> · ${e(delivery.name)} · ${__("Scanned stock will be reserved for this customer.")}</div>`;
 		const can_scan = ["Customer Identified", "Allocating Stock"].includes(delivery.state);
+		const delivery_note = delivery.delivery_note ? `<div class="alert ${delivery.delivery_note_status?.docstatus === 1 ? "alert-success" : delivery.delivery_note_status?.docstatus === 2 ? "alert-danger" : "alert-warning"} mt-3 mb-0">
+			<strong>${__("ERPNext Delivery Note")}: ${e(delivery.delivery_note)}</strong> · ${e(delivery.delivery_note_status?.status || __("Unknown"))}
+			<button class="btn btn-xs btn-default ml-2 open-customer-dn">${__("Open Delivery Note")}</button></div>` : "";
+		const delivery_action = ["Awaiting Confirmation", "Exception"].includes(delivery.state) ?
+			`<button class="btn btn-success prepare-customer-dn">${delivery.delivery_note_status?.docstatus === 2 ? __("Create Amended Delivery Note") : __("Create Delivery Note")}</button>` : "";
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
 			<div class="cfg-logistics-tag-head"><div><small>${__("Active Customer Delivery")}</small>
 				<h3>${e(delivery.site_name)}</h3><strong>${e(delivery.name)} · ${e(delivery.state)}</strong></div>
@@ -515,6 +526,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				<div><small>${__("Physical Vehicle")}</small><strong>${e(delivery.vehicle_reference)}</strong></div>
 				<div><small>${__("Lorry Warehouse")}</small><strong>${e(delivery.source_warehouse)}</strong></div>
 				<div><small>${__("Proof Policy")}</small><strong>${e(delivery.proof_policy)}</strong></div>
+				<div><small>${__("Delivery Note Policy")}</small><strong>${delivery.auto_submit_delivery_note ? __("Auto-submit") : __("Keep Draft for ERP review")}</strong></div>
 			</div>
 			${mode_notice}
 			<div class="cfg-logistics-receipt-progress"><strong>${__("Reserved for this customer")}: ${format_number(active_qty)}</strong>
@@ -523,14 +535,21 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<div class="cfg-logistics-actions">
 				${can_scan ? (state.scan_mode === "delivery" ? `<button class="btn btn-warning stop-delivery-scan">${__("Stop Allocation Scanning")}</button>` : `<button class="btn btn-primary arm-delivery">${__("Start Allocation Scanning")}</button>`) : ""}
 				${delivery.state === "Allocating Stock" && active_allocations.length && state.scan_mode !== "delivery" ? `<button class="btn btn-success confirm-allocations">${__("Confirm Customer Allocation")}</button>` : ""}
+				${delivery_action}
 			</div>
-			${delivery.state === "Awaiting Confirmation" ? `<div class="alert alert-success mt-3 mb-0">${__("Allocation confirmed. Stock remains reserved until the ERP Delivery Note package is implemented and confirmed.")}</div>` : ""}
+			${delivery.state === "Awaiting Confirmation" ? `<div class="alert alert-success mt-3 mb-0">${__("Allocation confirmed. Stock remains reserved until the ERPNext Delivery Note is submitted.")}</div>` : ""}
+			${delivery.state === "ERP Document Pending" ? `<div class="alert alert-warning mt-3 mb-0">${__("The Delivery Note is Draft. An authorized ERPNext user must review and submit it; only submission posts Kanban delivery quantities.")}</div>` : ""}
+			${delivery.state === "Delivered" ? `<div class="alert alert-success mt-3 mb-0">${__("ERPNext submitted the Delivery Note and confirmed the physical allocations as delivered.")}</div>` : ""}
+			${delivery.exception ? `<div class="alert alert-danger mt-3 mb-0"><strong>${__("Supervisor attention required")}</strong> · ${e(delivery.exception)}</div>` : ""}
+			${delivery_note}
 		</div>`);
 		$lookup.find(".close-lookup").on("click", () => { state.scan_mode = "lookup"; state.lookup = null; render_lookup(); update_scanner_state(); focus_scanner(); });
 		$lookup.find(".arm-delivery").on("click", () => { state.scan_mode = "delivery"; render_delivery_session(delivery); update_scanner_state(); focus_scanner(); });
 		$lookup.find(".stop-delivery-scan").on("click", () => { state.scan_mode = "lookup"; render_delivery_session(delivery); update_scanner_state(); focus_scanner(); });
 		$lookup.find(".release-allocation").on("click", function () { release_delivery_allocation($(this).data("name")); });
 		$lookup.find(".confirm-allocations").on("click", () => confirm_delivery_allocations(delivery));
+		$lookup.find(".prepare-customer-dn").on("click", () => prepare_customer_delivery_note(delivery));
+		$lookup.find(".open-customer-dn").on("click", () => frappe.set_route("Form", "Delivery Note", delivery.delivery_note));
 		$lookup.find(".cancel-delivery").on("click", () => frappe.prompt([
 			{ fieldname: "reason", label: __("Cancellation Reason"), fieldtype: "Small Text", reqd: 1 },
 		], async (values) => {
@@ -621,6 +640,84 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			});
 			state.lookup = { delivery_session: response.message }; render_lookup(); await refresh_list(); focus_scanner();
 		});
+	}
+
+	async function prepare_customer_delivery_note(delivery) {
+		const response = await frappe.call({
+			method: "cfg_kanban.services.customer_delivery.get_customer_delivery_requirements",
+			args: { delivery_session: delivery.name, operator_session_token: state.token },
+			freeze: true, freeze_message: __("Checking Delivery Note requirements..."),
+		});
+		if (response.message.existing_draft) {
+			frappe.set_route("Form", "Delivery Note", response.message.existing_draft);
+			return;
+		}
+		const requirements = response.message.fields || [];
+		if (!requirements.length) {
+			const action = delivery.auto_submit_delivery_note ?
+				__("Create and submit the ERPNext Delivery Note now?") :
+				__("Create the ERPNext Delivery Note as Draft for authorized review?");
+			return frappe.confirm(action, () => submit_customer_delivery_note(delivery));
+		}
+		const dialog = new frappe.ui.Dialog({
+			title: __("Required Customer Delivery Note Details"),
+			fields: required_erp_dialog_fields(requirements),
+			primary_action_label: delivery.auto_submit_delivery_note ? __("Create and Submit") : __("Create Draft"),
+			primary_action: async (values) => {
+				dialog.hide();
+				await submit_customer_delivery_note(
+					delivery, JSON.stringify(required_erp_values(requirements, values))
+				);
+			},
+		});
+		dialog.show();
+	}
+
+	function required_erp_dialog_fields(requirements) {
+		return requirements.map((row, index) => {
+			if (row.scope === "table") return {
+				fieldname: `customer_required_erp_${index}`, label: __(row.label),
+				fieldtype: "Table", options: row.options, reqd: 1,
+				data: row.default || [], in_place_edit: true,
+				fields: (row.fields || []).map((column) => ({
+					fieldname: column.fieldname, label: __(column.label),
+					fieldtype: column.fieldtype, options: column.options,
+					default: column.default, reqd: column.reqd ? 1 : 0,
+					in_list_view: 1, columns: 2,
+				})),
+				description: __("Add all mandatory ERP rows. Sales Team allocations must total 100%."),
+			};
+			return {
+				fieldname: `customer_required_erp_${index}`, label: __(row.label),
+				fieldtype: row.fieldtype, options: row.options, default: row.default,
+				reqd: 1, description: __("Required ERP document value"),
+			};
+		});
+	}
+
+	function required_erp_values(requirements, values) {
+		const result = { parent: {}, tables: {} };
+		requirements.forEach((row, index) => {
+			const value = values[`customer_required_erp_${index}`];
+			if (row.scope === "table") { result.tables[row.fieldname] = value || []; return; }
+			if (row.scope === "parent") { result.parent[row.fieldname] = value; return; }
+			if (!result.tables[row.table_field]) result.tables[row.table_field] = [];
+			if (!result.tables[row.table_field][row.row_index]) result.tables[row.table_field][row.row_index] = {};
+			result.tables[row.table_field][row.row_index][row.fieldname] = value;
+		});
+		return result;
+	}
+
+	async function submit_customer_delivery_note(delivery, required_erp_inputs) {
+		const response = await frappe.call({
+			method: "cfg_kanban.services.customer_delivery.create_customer_delivery_document",
+			args: { delivery_session: delivery.name, event_token: unique_token(),
+				operator_session_token: state.token, required_erp_inputs },
+			freeze: true,
+			freeze_message: delivery.auto_submit_delivery_note ? __("Creating and submitting Delivery Note...") : __("Creating Draft Delivery Note..."),
+		});
+		state.lookup = { delivery_session: response.message };
+		render_lookup(); await refresh_list(); focus_scanner();
 	}
 
 	async function open_delivery_session(name) {

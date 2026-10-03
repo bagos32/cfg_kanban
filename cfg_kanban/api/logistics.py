@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import flt, now_datetime, today
+from frappe.utils import flt, now_datetime
 
 from cfg_kanban.integrations.erp_gateway import (
     build_intercompany_delivery_note,
@@ -872,33 +872,9 @@ def _priced_line(manifest, row, mode):
 
 
 def _price_list_rate(price_list, item_code, uom, batch_no, mode, party):
-    party_field = "customer" if mode == "selling" else "supplier"
-    fields = ["name", "price_list_rate", "uom", "batch_no", "valid_from", "valid_upto"]
-    if frappe.get_meta("Item Price").has_field(party_field):
-        fields.append(party_field)
-    candidates = frappe.get_all(
-        "Item Price",
-        filters={"price_list": price_list, "item_code": item_code},
-        fields=fields,
-        order_by="valid_from desc, creation desc", limit_page_length=100,
-    )
-    current = today()
-    valid = [row for row in candidates if (
-        (not row.uom or row.uom == uom) and
-        (not row.batch_no or row.batch_no == batch_no) and
-        (party_field not in row or not row.get(party_field) or row.get(party_field) == party) and
-        (not row.valid_from or str(row.valid_from) <= current) and
-        (not row.valid_upto or str(row.valid_upto) >= current) and
-        flt(row.price_list_rate) > 0
-    )]
-    valid.sort(key=lambda row: (bool(row.get(party_field)), bool(row.batch_no), bool(row.uom)),
-               reverse=True)
-    if not valid:
-        frappe.throw(
-            f"No valid {price_list} Item Price for {item_code}, UOM {uom}, "
-            f"Batch {batch_no or '-'}"
-        )
-    return flt(valid[0].price_list_rate)
+    from cfg_kanban.services.logistics_foundation import price_list_rate
+
+    return price_list_rate(price_list, item_code, uom, batch_no, mode, party)
 
 
 def _internal_transfer_summaries(profile):

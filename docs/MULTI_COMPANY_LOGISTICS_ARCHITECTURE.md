@@ -3,7 +3,7 @@
 **Architecture version:** 1.0  
 **Decision status:** Locked baseline  
 **Decision date:** 30 September 2026  
-**Implementation status:** Package A, Package B intercompany handover, Package C1 Customer Site / Delivery Session foundation, and Package C2A customer tagged-stock reservation are implemented; customer ERP delivery posting and Packages D-E remain approved future scope
+**Implementation status:** Package A, Package B intercompany handover, Package C1 Customer Site / Delivery Session foundation, Package C2A customer tagged-stock reservation, and Package C2B controlled customer Delivery Note posting are implemented; customer invoicing, proof, and Packages D-E remain approved future scope
 
 This document is the source of truth for CFG Kanban stock-tag logistics across sister companies,
 company-specific vehicle warehouses, customer-site delivery, and delayed intercompany billing. It
@@ -613,10 +613,14 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
 - **Implemented in C2A:** scan-first Stock Tag allocation with full/partial quantity reservation,
   complete reusable-container expansion, concurrent-reservation protection, audited release and
   reconfirmation, ERP stock validation, and genealogy history. Reservation does not move ERP stock.
+- **Implemented in C2B:** locked-price customer Delivery Note creation from the exact confirmed
+  allocations, per-Customer-Site Draft/auto-submit policy, mandatory ERP parent/child input capture,
+  ERP-submission-only tag consumption, reusable-container unloading, cancellation reversal,
+  amendment revision, idempotent commands, and Exception audit.
 - Add loose-container loading/unloading.
 - Add Route Stops and untagged/loose reusable-container delivery quantities.
 - Add reserved and unassigned-stock delivery flows.
-- Add controlled Delivery Note and optional Sales Invoice commands.
+- Add optional customer Sales Invoice commands. The controlled Delivery Note command is implemented.
 
 ### Package D — Proof, returns, and reconciliation
 

@@ -1760,14 +1760,15 @@ Signal rollback cancels/deletes only activity-free ERP documents, marks Cycle an
 returns the Card to Available, clears Active Cycle, and records Events. A submitted Work Order can be
 cancelled only while ERPNext permits it and the code has found no production/material activity.
 
-## 25. Multi-company logistics and customer allocation (Packages A-B, C1 and C2A)
+## 25. Multi-company logistics and customer allocation (Packages A-B and C1-C2B)
 
 Package A installs the configuration and physical-identity foundation. Package B adds the controlled
 intercompany Movement Manifest, source-company Delivery Note, destination-company Purchase Receipt,
 ERP feedback, and scan-first Logistics Operator Panel. Package C1 now adds Customer Site scanning,
 Company-specific vehicle Warehouse validation, and an immutable Delivery Session. Package C2A adds
-physical Stock Tag/customer allocation and reservation. Customer Delivery Note/Sales Invoice
-creation, proof of delivery, and Billing Batch grouping remain later increments. The locked design is in
+physical Stock Tag/customer allocation and reservation. Package C2B creates the controlled customer
+Delivery Note and waits for ERPNext submission before changing tag stock. Sales Invoice creation,
+proof of delivery, and Billing Batch grouping remain later increments. The locked design is in
 `docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md`.
 
 ### CFG Kanban Logistics Route
@@ -1795,12 +1796,17 @@ Create one record per physical delivery address. Exact identity fields are **Pri
 **Territory** (`territory`), **Route Reference** (`route_reference`), and **Default Selling Price
 List** (`default_price_list`).
 
+Set **Auto-submit Customer Delivery Note** (`auto_submit_delivery_note`) separately for each site.
+When unticked, the floor action creates a Draft Delivery Note for ERP review. When ticked, the same
+action submits only after all native ERPNext mandatory values pass validation. Operators cannot edit
+Item rates; rates come from the locked Selling Price List and applicable Item Price.
+
 Proof settings are **Proof Policy** (`proof_policy`: Required, Optional, Unattended Delivery
 Allowed, No Proof Required), **Require Recipient Name**, **Require Signature**, **Require
 Photograph**, **Require GPS**, and **Require Unattended-delivery Reason**. The printed `site_code` is
 the primary scan value. **Internal UUID Alias** is generated automatically as a system fallback.
 
-### Customer Delivery Session and C2A stock allocation
+### Customer Delivery Session, stock allocation, and customer Delivery Note
 
 1. Open the ERPNext **Warehouse** representing the stock physically carried by the lorry. Set
    **Vehicle Warehouse** (`cfg_is_vehicle_warehouse`) and enter **Physical Vehicle Reference**
@@ -1833,11 +1839,29 @@ the primary scan value. **Internal UUID Alias** is generated automatically as a 
     Confirmation**. To correct it before ERP posting, select **Release**, enter a mandatory reason,
     adjust the allocation, and confirm again. Release creates an Unreserve ledger event and never
     deletes the historical allocation.
+11. Select **Create Delivery Note**. If ERPNext requires extra parent fields or a child table such as
+    **Sales Team**, the panel displays those exact mandatory inputs. Complete all rows; Sales Team
+    percentages must total 100%.
+12. With site auto-submit off, the session becomes **ERP Document Pending** and the panel links the
+    Draft Delivery Note. Current Qty and Reserved Qty do not change yet. An authorized ERPNext user
+    reviews and submits the Draft.
+13. With site auto-submit on, the command submits immediately after validation. In both modes, only
+    the submitted ERPNext Delivery Note changes the session to **Delivered**, changes each allocation
+    to **Delivered**, reduces the Handling Unit Current Qty, and releases its reservation. A partly
+    delivered ordinary tag remains Active in the same lorry Warehouse with its balance. A zero-balance
+    tag becomes Empty. Complete reusable-container contents are unloaded and the container becomes
+    Empty for reuse.
+14. If ERPNext rejects creation or submission, the session becomes **Exception** without consuming
+    tagged quantity. Correct the ERP prerequisite and retry **Create Delivery Note**.
+15. Cancel a submitted controlled Delivery Note only after the goods are physically returned to the
+    lorry. The cancellation restores the tag quantity and reservation, reopens the session as
+    **Awaiting Confirmation**, raises a visible Exception, and increments the Delivery revision. The
+    next **Create Amended Delivery Note** is linked to the cancelled document. Cancellation is blocked
+    if a partly remaining tag or reusable container has already entered a later transaction.
 
-**Current C2A limit:** allocation changes only the Kanban reservation ledger; it does not move ERP
-stock and does not create a customer Delivery Note or Sales Invoice. ERPNext remains the live stock
-authority and is checked at reservation time. The forthcoming C2B package will create/confirm the
-Delivery Note from the confirmed allocation.
+**Current C2B limit:** C2B confirms stock delivery through the ERPNext Delivery Note. It does not
+create the customer Sales Invoice, capture recipient/signature/photo/GPS proof, process returns after
+an accepted delivery, or reconcile an end-of-route variance. Those remain controlled later packages.
 
 ### CFG Kanban Tag Range Registry
 
@@ -2004,7 +2028,8 @@ scanning/entering the Manifest number, or using the normal Desk list.
 An unused **Draft** or **Prepared** Manifest can be cancelled by an override-authorized operator
 with a reason; prepared reservations are released. After an ERP document exists, use controlled
 ERP cancellation/recovery. Movement Manifests are audit records and cannot be deleted. Package B
-does not yet load a lorry, create a customer Delivery Note, or perform later intercompany billing.
+does not itself load a lorry or perform later intercompany billing. Customer Delivery Notes are
+created separately from a confirmed Package C2 Delivery Session as described above.
 
 ## 26. Guidance rules for another LLM
 
@@ -2025,16 +2050,18 @@ When using this file as context, an assistant must:
    code does not contain.
 10. Confirm the deployed Git revision/migration when the UI does not match this guide.
 
-11. Treat customer Delivery Note/Sales Invoice posting, proof capture, loose-container delivery,
-    and billing grouping as future increments. Packages C1-C2A identify the Customer Site, lock the
-    Company-specific lorry Warehouse, and reserve full/partial Stock Tag quantities in a Delivery
-    Session. Package B intercompany posting remains operational only through the Movement Manifest
-    and submitted Delivery Note / Purchase Receipt feedback described above.
+11. Treat customer Sales Invoice posting, proof capture, loose-container delivery, returns after
+    acceptance, and billing grouping as future increments. Packages C1-C2B identify the Customer
+    Site, lock the Company-specific lorry Warehouse, reserve full/partial Stock Tag quantities, and
+    confirm delivery only from submitted ERPNext Delivery Note feedback. Package B intercompany
+    posting remains operational only through the Movement Manifest and submitted Delivery Note /
+    Purchase Receipt feedback described above.
 
 ## 27. Revision history
 
 | Version | Date | Change |
 |---|---|---|
+| 1.27 | 3 October 2026 | Added controlled customer Delivery Note creation from confirmed Stock Tag allocations, site-specific Draft/auto-submit policy, locked Item Price validation, mandatory ERP parent/child inputs, submission-only tag consumption, reusable-container completion, cancellation restoration, amendment revision, and Exception/idempotency audit |
 | 1.26 | 3 October 2026 | Added customer Stock Tag allocation, partial/full quantity reservation, complete reusable-container expansion, audited release/reconfirmation, ERP stock validation, container safeguards, and Delivery Allocation genealogy history without prematurely moving ERP stock |
 | 1.25 | 3 October 2026 | Added Customer Site scan resolution, Company-specific Vehicle Warehouse setup, immutable operator-scoped Delivery Sessions, idempotent start/cancel audit, workspace records, and the explicit no-stock-movement C1 boundary |
 | 1.24 | 3 October 2026 | Added one-scan complete reusable-container dispatch and receipt through intercompany Movement Manifests while retaining every contained Stock Tag as the ERP-accounted Item/Batch/quantity identity |

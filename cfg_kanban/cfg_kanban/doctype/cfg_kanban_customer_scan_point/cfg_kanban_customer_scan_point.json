@@ -1,6 +1,6 @@
 {
  "doctype":"DocType","name":"CFG Kanban Customer Scan Point","module":"CFG Kanban","autoname":"field:site_code","title_field":"site_name","track_changes":1,
- "field_order":["site_code","site_name","active","opaque_token","customer_section","selling_company","customer","customer_address","territory","route_reference","default_price_list","proof_section","proof_policy","require_recipient_name","require_signature","require_photo","require_gps","unattended_reason_required","replacement_section","replacement_of","replaced_by","notes"],
+ "field_order":["site_code","site_name","active","opaque_token","customer_section","selling_company","customer","customer_address","territory","route_reference","default_price_list","auto_submit_delivery_note","proof_section","proof_policy","require_recipient_name","require_signature","require_photo","require_gps","unattended_reason_required","replacement_section","replacement_of","replaced_by","notes"],
  "fields":[
   {"fieldname":"site_code","label":"Printed Customer Site Code","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1,"description":"Primary physical scan code. Use a globally unique CUSTOMER/SITE prefix to avoid collision with stock-tag series."},
   {"fieldname":"site_name","label":"Site / Branch Name","fieldtype":"Data","reqd":1,"in_list_view":1},
@@ -13,6 +13,7 @@
   {"fieldname":"territory","label":"Territory","fieldtype":"Link","options":"Territory","in_standard_filter":1},
   {"fieldname":"route_reference","label":"Route Reference","fieldtype":"Data","description":"Optional operational route or external planning identifier."},
   {"fieldname":"default_price_list","label":"Default Selling Price List","fieldtype":"Link","options":"Price List"},
+  {"fieldname":"auto_submit_delivery_note","label":"Auto-submit Customer Delivery Note","fieldtype":"Check","default":"0","description":"When enabled, the customer Delivery Note is submitted after all ERPNext mandatory fields pass validation. When disabled, CFG Kanban creates a Draft for authorized ERP review and manual submission."},
   {"fieldname":"proof_section","label":"Proof of Delivery Policy","fieldtype":"Section Break"},
   {"fieldname":"proof_policy","label":"Proof Policy","fieldtype":"Select","options":"Required\nOptional\nUnattended Delivery Allowed\nNo Proof Required","default":"Required","reqd":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"require_recipient_name","label":"Require Recipient Name","fieldtype":"Check","default":"1"},

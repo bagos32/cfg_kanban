@@ -56,6 +56,43 @@ def assert_erp_stock(unit, warehouse, qty):
     return balance
 
 
+def price_list_rate(price_list, item_code, uom, batch_no, mode, party):
+    """Resolve a positive, currently valid Item Price without allowing floor-side edits."""
+    party_field = "customer" if mode == "selling" else "supplier"
+    fields = ["name", "price_list_rate", "uom", "batch_no", "valid_from", "valid_upto"]
+    if frappe.get_meta("Item Price").has_field(party_field):
+        fields.append(party_field)
+    candidates = frappe.get_all(
+        "Item Price",
+        filters={"price_list": price_list, "item_code": item_code},
+        fields=fields,
+        order_by="valid_from desc, creation desc",
+        limit_page_length=100,
+    )
+    current = today()
+    valid = [row for row in candidates if (
+        (not row.uom or row.uom == uom)
+        and (not row.batch_no or row.batch_no == batch_no)
+        and (party_field not in row or not row.get(party_field)
+             or row.get(party_field) == party)
+        and (not row.valid_from or str(row.valid_from) <= current)
+        and (not row.valid_upto or str(row.valid_upto) >= current)
+        and flt(row.price_list_rate) > 0
+    )]
+    valid.sort(
+        key=lambda row: (
+            bool(row.get(party_field)), bool(row.batch_no), bool(row.uom)
+        ),
+        reverse=True,
+    )
+    if not valid:
+        frappe.throw(
+            f"No valid {price_list} Item Price for {item_code}, UOM {uom}, "
+            f"Batch {batch_no or '-'}"
+        )
+    return flt(valid[0].price_list_rate)
+
+
 def validate_physical_code_namespace(code, identity_type, tag_family=None):
     """Prevent a visible code from resolving to unrelated physical identities."""
     if identity_type != "Customer Scan Point" and frappe.db.exists(

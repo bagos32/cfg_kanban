@@ -11,9 +11,12 @@ Session foundation is in
 [Package C1 Customer Delivery Session System Test](docs/TEST_PACKAGE_C1_CUSTOMER_DELIVERY_SESSION.md).
 The next independent procedure is
 [Package C2A Customer Stock Allocation System Test](docs/TEST_PACKAGE_C2A_CUSTOMER_STOCK_ALLOCATION.md).
+The ERP posting continuation is
+[Package C2B Customer Delivery Note System Test](docs/TEST_PACKAGE_C2B_CUSTOMER_DELIVERY_NOTE.md).
 Package A identity/configuration, Package B intercompany handover, Package C1 customer/vehicle
-session foundation, and Package C2A customer tagged-stock reservation are implemented. ERP customer
-delivery posting and proof remain later controlled increments.
+session foundation, Package C2A customer tagged-stock reservation, and Package C2B controlled
+customer Delivery Note posting are implemented. Proof of delivery and customer billing remain later
+controlled increments.
 The additive tagged/untagged material-continuity model is documented in
 [Material Genealogy Architecture](docs/MATERIAL_GENEALOGY_ARCHITECTURE.md). Its mixed-trace policy
 and submitted Purchase Receipt tag-activation slice are implemented without making tags mandatory
@@ -87,15 +90,18 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
   production assignment, controlled detachable-child split/untouched merge, whole-tag consumption
   validation, cancellation recovery, replacement transfer, immutable history, and
   genealogy/Logistics-panel visibility.
-- Packages A-B plus Packages C1-C2A of the approved multi-company logistics architecture: directional Logistics Routes,
+- Packages A-B plus Packages C1-C2B of the approved multi-company logistics architecture: directional Logistics Routes,
   Customer Scan Points, pre-registered main/child Stock Tag families, extended Handling Units,
   immutable quantity ledger, scan-first Movement Manifests, and guarded intercompany Delivery Note
   / Purchase Receipt posting with independent auto-submit policies. Customer Site scans now lock
   the Customer, address, selling Company, price list, proof policy, and Company-specific lorry
   Warehouse into an immutable Delivery Session. C2A adds scan-first full/partial customer stock
   reservation, complete reusable-container expansion, release/reconfirmation audit, and genealogy
-  visibility without changing ERP stock. Customer Delivery Note/Sales Invoice posting,
-  proof-of-delivery, and Billing Batch functions remain later increments.
+  visibility without changing ERP stock. C2B converts a confirmed allocation into a locked-price
+  ERPNext customer Delivery Note, supports per-site Draft/auto-submit policy and mandatory ERP child
+  tables, posts tag consumption only on ERP submission, and safely restores reservations after an
+  allowed cancellation. Sales Invoice posting, proof-of-delivery, and Billing Batch functions remain
+  later increments.
 
 ## Control flow
 

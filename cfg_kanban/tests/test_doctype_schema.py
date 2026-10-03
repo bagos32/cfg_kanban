@@ -562,8 +562,10 @@ class TestDocTypeSchema(TestCase):
         self.assertTrue({
             "state", "customer_scan_point", "site_code", "site_name",
             "selling_company", "customer", "customer_address", "source_warehouse",
-            "vehicle_reference", "price_list", "proof_policy", "operator_session",
-            "started_by_operator", "idempotency_key",
+            "vehicle_reference", "price_list", "auto_submit_delivery_note",
+            "proof_policy", "operator_session", "started_by_operator", "idempotency_key",
+            "delivery_note", "delivery_command", "delivery_key", "delivery_revision",
+            "delivery_confirmed_by", "delivery_operator_session", "exception",
         }.issubset(session))
         self.assertEqual(session["idempotency_key"].get("unique"), 1)
 
@@ -585,7 +587,7 @@ class TestDocTypeSchema(TestCase):
         self.assertEqual(command["delivery_session"]["options"],
                          "CFG Kanban Delivery Session")
         command_types = command["command_type"]["options"].splitlines()
-        self.assertNotIn("Create Customer Delivery Note", command_types)
+        self.assertIn("Create Customer Delivery Note", command_types)
         self.assertNotIn("Create Customer Sales Invoice", command_types)
 
         for doctype in ("CFG Kanban Event", "CFG Kanban Exception"):
@@ -605,12 +607,16 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def allocate_delivery_stock", service)
         self.assertIn("def confirm_delivery_allocations", service)
         self.assertIn("def release_delivery_allocation", service)
+        self.assertIn("def get_customer_delivery_requirements", service)
+        self.assertIn("def create_customer_delivery_document", service)
         self.assertIn('event_type="Reserve"', service)
         self.assertIn('event_type="Unreserve"', service)
         self.assertIn("state.lookup.customer_site", panel)
         self.assertIn("Lock Customer and Vehicle", panel)
         self.assertIn("Start Allocation Scanning", panel)
         self.assertIn("Confirm Customer Allocation", panel)
+        self.assertIn("Create Delivery Note", panel)
+        self.assertIn("Required Customer Delivery Note Details", panel)
 
         container_service = (APP_ROOT / "services" / "container_contents.py").read_text()
         genealogy = (APP_ROOT / "services" / "genealogy.py").read_text()
@@ -619,6 +625,15 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def assert_container_not_in_open_delivery", container_service)
         self.assertIn('"delivery_allocations": _delivery_allocation_history', genealogy)
         self.assertIn("Customer Delivery Allocation History", genealogy_panel)
+
+        gateway = (APP_ROOT / "integrations" / "erp_gateway.py").read_text()
+        feedback = (APP_ROOT / "integrations" / "logistics_feedback.py").read_text()
+        self.assertIn('@handler("Create Customer Delivery Note")', gateway)
+        self.assertIn("def build_customer_delivery_note", gateway)
+        self.assertIn("_on_customer_delivery_submit", feedback)
+        self.assertIn("_on_customer_delivery_cancel", feedback)
+        self.assertIn('event_type="Deliver"', feedback)
+        self.assertIn('event_type="Customer Return"', feedback)
 
     def test_intercompany_erp_feedback_and_trace_fields_are_registered(self):
         hooks = (APP_ROOT / "hooks.py").read_text()

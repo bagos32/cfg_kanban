@@ -242,7 +242,7 @@ def assert_container_not_in_open_delivery(container_handling_unit, action):
         "CFG Kanban Delivery Allocation",
         {
             "container_handling_unit": container_handling_unit,
-            "state": ["in", ["Reserved", "Delivery Pending", "Delivered", "Exception"]],
+            "state": ["in", ["Reserved", "Delivery Pending", "Exception"]],
         },
         ["delivery_session", "container_visible_code"],
         as_dict=True,
