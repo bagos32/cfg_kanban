@@ -370,7 +370,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		).join("");
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
 			<div class="cfg-logistics-tag-head"><div><small>${__("Scanned Tag Status")}</small><h3>${e(unit.visible_code)}</h3><strong>${e(unit.item_code || __("No item assigned"))}</strong></div>
-				<button class="btn btn-default close-lookup">${__("Close")}</button></div>
+				<div><button class="btn btn-primary explore-genealogy" data-code="${e(unit.visible_code)}">${__("Full Genealogy")}</button>
+				<button class="btn btn-default close-lookup">${__("Close")}</button></div></div>
 			<div class="cfg-logistics-tag-grid">
 				<div><small>${__("Batch")}</small><strong>${e(unit.batch_no || __("No Batch"))}</strong></div>
 				<div><small>${__("Company")}</small><strong>${e(unit.inventory_company || "-")}</strong></div>
@@ -384,6 +385,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		</div>`);
 		$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
 		$lookup.find(".lookup-manifest").on("click", function () { open_manifest($(this).data("name")); });
+		$lookup.find(".explore-genealogy").on("click", function () {
+			frappe.set_route("material-genealogy", $(this).data("code"));
+		});
 	}
 
 	async function process_scan(value) {

@@ -68,6 +68,10 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
   preprinted output tags. Items configured with No Physical Tag remain ordinary ERP warehouse
   stock. Scoped production operators use the Card panel, while Internal Warehouse Transfer
   operators use the mobile-friendly Logistics panel.
+- A read-only Material Genealogy Explorer that accepts any activated preprinted Stock Tag, follows
+  exact Handling Unit production/split/replacement relationships upstream and downstream, shows
+  ERP movement and Manifest evidence, and produces an A4 genealogy trace report without changing
+  ERPNext stock.
 - Packages A-B of the approved multi-company logistics architecture: directional Logistics Routes,
   Customer Scan Points, pre-registered main/child Stock Tag families, extended Handling Units,
   immutable quantity ledger, scan-first Movement Manifests, and guarded intercompany Delivery Note

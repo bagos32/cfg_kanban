@@ -2,8 +2,8 @@
 
 **Status:** Approved additive V1 architecture; mixed-trace policy, submitted Purchase Receipt tag
 activation, Stock Entry-confirmed production input/output tracing, scoped floor-panel access to
-those production traces, and a same-company tagged Warehouse-transfer assistant are implemented.
-The upstream/downstream trace explorer remains a subsequent increment.
+those production traces, a same-company tagged Warehouse-transfer assistant, and the read-only
+upstream/downstream trace explorer with printable exact-tag reports are implemented.
 
 ## 1. System boundary
 
@@ -127,13 +127,26 @@ quantity; ERPNext submission confirms the stock movement and changes the Handlin
 Warehouse. Cancelling an untouched submitted transfer returns the tag to the source Warehouse.
 Operators cannot submit the Stock Entry through this assistant.
 
+### Scan-any-tag genealogy exploration
+
+The Desk **Material Genealogy Explorer** resolves the same preprinted visible code used on the
+floor. An activated Handling Unit becomes the focus and the service walks confirmed or reversed
+production trace relationships, parent/child and replacement lineage, and immutable ledger
+source/destination relationships in both directions. It displays current stock identity, upstream
+materials, downstream products, ERP references, Movement Manifest history, and chronological
+quantity/location evidence. Selecting a related tag continues the investigation from that tag.
+
+The explorer is strictly read-only and requires Handling Unit read permission. It limits one graph
+to 100 Handling Units and 20 generations, reports truncation explicitly, and does not convert
+ERP-only or Batch-pool evidence into exact physical-unit evidence. The standard **CFG Kanban
+Genealogy Report** prints the same lineage and states **Exact Handling Unit** as its evidence level.
+
 ### Subsequent increments
 
 The next increments add:
 
-1. scan-any-tag upstream/downstream genealogy exploration and printable trace reports;
-2. container-content genealogy for mixed reusable containers;
-3. richer serial-number evidence where one physical unit requires individual serial association.
+1. container-content genealogy for mixed reusable containers;
+2. richer serial-number evidence where one physical unit requires individual serial association.
 
 Job Cards provide operator/operation context, but raw-material stock consumption remains linked to
 the Work Order and submitted Stock Entry details.

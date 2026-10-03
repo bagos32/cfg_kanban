@@ -38,6 +38,7 @@ jinja = {
         "cfg_kanban.services.printing.get_qr_svg",
         "cfg_kanban.services.printing.get_code128_svg",
         "cfg_kanban.services.media.get_print_media",
+        "cfg_kanban.services.genealogy.get_genealogy_print_context",
     ]
 }
 

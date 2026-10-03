@@ -28,6 +28,8 @@ class TestDocTypeSchema(TestCase):
         self.assertEqual(shortcuts["Production Operator Panel"], "kanban-operator")
         self.assertEqual(shortcuts["Service Task Panel"], "kanban-tasks")
         self.assertEqual(shortcuts["Logistics Operator Panel"], "kanban-logistics")
+        self.assertEqual(shortcuts["Material Genealogy Explorer"],
+                         "material-genealogy")
         self.assertEqual(shortcuts["Maintenance Register"],
                          "Kanban Maintenance Register")
         self.assertEqual(shortcuts["Private Media Evidence"], "CFG Kanban Media")
@@ -49,6 +51,39 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Material Trace Policy")
         self.assertEqual(links["Material Genealogy"],
                          "CFG Kanban Material Trace")
+        self.assertEqual(links["Material Genealogy Explorer"],
+                         "material-genealogy")
+
+    def test_material_genealogy_explorer_is_read_only_and_printable(self):
+        page = json.loads((
+            APP_ROOT / "cfg_kanban" / "page" / "material_genealogy" /
+            "material_genealogy.json"
+        ).read_text())
+        self.assertEqual(page["name"], "material-genealogy")
+        self.assertEqual({"Manufacturing Manager", "Stock Manager", "System Manager"},
+                         {row["role"] for row in page["roles"]})
+
+        print_format = json.loads((
+            APP_ROOT / "cfg_kanban" / "print_format" /
+            "cfg_kanban_genealogy_report" / "cfg_kanban_genealogy_report.json"
+        ).read_text())
+        self.assertEqual(print_format["doc_type"], "CFG Kanban Handling Unit")
+        self.assertEqual(print_format["name"], "CFG Kanban Genealogy Report")
+        self.assertIn("get_genealogy_print_context", print_format["html"])
+        self.assertIn("Exact Handling Unit", print_format["html"])
+
+        service = (APP_ROOT / "services" / "genealogy.py").read_text()
+        self.assertIn("def get_handling_unit_genealogy", service)
+        self.assertIn('"evidence_level": "Exact Handling Unit"', service)
+        self.assertIn("MAX_GRAPH_NODES = 100", service)
+        self.assertNotIn("post_quantity_event", service)
+
+        page_source = (
+            APP_ROOT / "cfg_kanban" / "page" / "material_genealogy" /
+            "material_genealogy.js"
+        ).read_text()
+        self.assertIn("Scan Any Physical Stock Tag", page_source)
+        self.assertIn("Print Trace Report", page_source)
 
     def test_every_field_is_present_once_in_field_order(self):
         for path, schema in self._schemas():

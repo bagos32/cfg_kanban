@@ -1,0 +1,15 @@
+{
+ "content": null,
+ "doctype": "Page",
+ "module": "CFG Kanban",
+ "name": "material-genealogy",
+ "page_name": "material-genealogy",
+ "roles": [
+  {"role":"Manufacturing Manager"},
+  {"role":"Stock Manager"},
+  {"role":"System Manager"}
+ ],
+ "standard": "Yes",
+ "system_page": 0,
+ "title": "Material Genealogy Explorer"
+}

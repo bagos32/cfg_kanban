@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.19
+**Guide version:** 1.20
 
 **Updated:** 3 October 2026
 
@@ -1031,6 +1031,37 @@ cannot submit the Stock Entry. Removing a Draft trace line releases its reservat
 submitted untouched transfer reverses the tag location; later movement or reservations block unsafe
 reversal.
 
+### Scan-any-tag Material Genealogy Explorer
+
+Open **CFG Kanban → Material Genealogy Explorer** or `/app/material-genealogy`. This is a read-only
+supervisor, stock, and manufacturing investigation page; it never reserves, moves, consumes, or
+creates ERP stock.
+
+1. Scan or enter any activated **Preprinted Tag / Handling Unit ID**. A mobile device can select
+   **Scan with Camera**. An unused registered/range-covered tag is recognized but correctly reports
+   that no material genealogy exists before activation.
+2. The blue focus block shows the exact current Item, Batch, Company, Warehouse/custodian,
+   quantity, availability, lifecycle, and immutable ERP origin.
+3. **Upstream Materials** follows confirmed production inputs, tag splits/replacements, and other
+   source-to-destination physical-identity relationships. **Downstream Products** follows the same
+   evidence forward. Selecting a related tag makes it the new focus.
+4. **Confirmed Lineage Relationships** states the transformation/split type and its Stock Entry or
+   other reference. Reversed traces remain visible as reversed audit history rather than being
+   silently removed.
+5. **Movement Manifest History** shows intercompany handovers and links to their Delivery Note and
+   Purchase Receipt. **Chronological Quantity and Movement Evidence** shows the immutable ledger
+   events for every displayed lineage tag.
+6. Select **Print Trace Report** for an A4 `CFG Kanban Genealogy Report`. The report explicitly
+   identifies its evidence as **Exact Handling Unit** and repeats the ERP references.
+
+The same explorer is available from an activated **CFG Kanban Handling Unit → Kanban Actions →
+Explore Material Genealogy** and from **Full Genealogy** after a read-only Logistics-panel tag
+lookup. The explorer follows a maximum of 20 generations and 100 Handling Units per request. If the
+safe display limit is reached, it warns the user to continue from a related tag rather than hiding
+the limitation. Untagged stock remains traceable through native ERPNext Item, Batch, Stock Entry,
+Work Order, Purchase Receipt, and Delivery Note records; it cannot appear as exact Handling Unit
+evidence.
+
 ## 12. Scanner-first floor operation
 
 The Kanban Operator page supports both a fixed USB/Bluetooth keyboard-wedge scanner and the device
@@ -1407,9 +1438,9 @@ The following are not complete in the current build:
 - Full Start/Complete dynamic-field capture and arbitrary Job Card field mapping.
 - Automated email alerts and complete command retry orchestration.
 - Supplier Kanban and Sales Order fulfillment allocation beyond the implemented demand controls.
-- Mixed reusable-container genealogy, richer per-serial evidence, and the scan-any-tag genealogy
-  explorer. Purchase Receipt activation, Stock Entry-confirmed production tracing, scoped
-  scanner-first floor access, and same-company tagged Warehouse transfers are implemented.
+- Mixed reusable-container genealogy and richer per-serial evidence. Purchase Receipt activation,
+  Stock Entry-confirmed production tracing, scoped scanner-first floor access, same-company tagged
+  Warehouse transfers, and scan-any-tag upstream/downstream genealogy exploration are implemented.
 
 This file is the maintained manual source. Update its version, date, affected sections, and revision
 history whenever a user-visible workflow changes.
@@ -1869,6 +1900,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.20 | 3 October 2026 | Added the read-only scan-any-tag Material Genealogy Explorer, upstream/downstream Handling Unit lineage, ERP movement/Manifest evidence, related-tag navigation, Handling Unit and Logistics-panel entry points, and printable A4 exact-trace report |
 | 1.19 | 3 October 2026 | Added the Logistics-panel same-company tagged Warehouse-transfer assistant backed by Draft/Submitted ERPNext Material Transfer Stock Entries, Internal Warehouse Transfer responsibility, full-tag movement enforcement, and ERP-confirmed Warehouse updates |
 | 1.18 | 3 October 2026 | Added scoped Operator-panel production material tracing for Stock Entries tied to the scanned Card's active Cycle Work Order, including fixed-scanner Enter handling, mobile camera scan buttons, automatic input-tag quantity, and submitted trace visibility |
 | 1.17 | 2 October 2026 | Added Stock Entry-confirmed production trace transactions, tagged input reservation/transfer/consumption, staged preprinted output activation, cancellation reversal guards, ERP-only coexistence, and ERPNext v15 Batch Bundle resolution |

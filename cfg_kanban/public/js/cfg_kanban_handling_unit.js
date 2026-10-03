@@ -108,6 +108,14 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 		}
 		frm.add_custom_button(__("Print Thermal Tag"), () => audited_print(
 			frm, "CFG Kanban Handling Unit Tag"), __("Kanban Actions"));
+		frm.add_custom_button(__("Explore Material Genealogy"), () => {
+			frappe.set_route("material-genealogy", frm.doc.handling_unit_id);
+		}, __("Kanban Actions"));
+		frm.add_custom_button(__("Print Genealogy Report"), () => {
+			const url = `/printview?doctype=${encodeURIComponent(frm.doctype)}&name=${encodeURIComponent(frm.doc.name)}` +
+				`&format=${encodeURIComponent("CFG Kanban Genealogy Report")}&no_letterhead=1`;
+			window.open(url, "_blank");
+		}, __("Kanban Actions"));
 		if (!["Received", "Void", "Replaced"].includes(frm.doc.state)) {
 			frm.add_custom_button(__("Replace Tag"), () => replace_tag(frm), __("Kanban Actions"));
 		}
