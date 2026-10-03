@@ -70,6 +70,7 @@ frappe.pages["material-genealogy"].on_page_load = function (wrapper) {
 			${serial_history_table(data.serial_history)}
 			${container_history_table(data.container_history)}
 			${manifest_table(data.manifests)}
+			${delivery_allocation_table(data.delivery_allocations)}
 			${timeline_table(data.timeline)}
 		`);
 		$result.find(".open-unit").on("click", function () { load_scan($(this).data("code")); });
@@ -152,6 +153,20 @@ frappe.pages["material-genealogy"].on_page_load = function (wrapper) {
 		return table_section(__("Reusable Container Episodes"),
 			`<th>${__("Container")}</th><th>${__("Contained Stock Tag")}</th><th>${__("Quantity")}</th><th>${__("State")}</th><th>${__("Loaded")}</th><th>${__("Unloaded")}</th>`,
 			body, __("No reusable-container episode is linked to this trace"));
+	}
+
+	function delivery_allocation_table(rows) {
+		const body = (rows || []).map((row) => `<tr>
+			<td>${reference_button("CFG Kanban Delivery Session", row.delivery_session)}<br><small>${escape(row.site_code || "-")} · ${escape(row.site_name || "-")}</small></td>
+			<td><strong>${escape(row.customer || "-")}</strong><br><small>${escape(row.selling_company || "-")}</small></td>
+			<td>${escape(row.visible_code)}${row.container_visible_code ? `<br><small>${__("Container")}: ${escape(row.container_visible_code)}</small>` : ""}</td>
+			<td>${number(row.allocated_qty)} ${escape(row.stock_uom || "")}</td>
+			<td>${escape(row.state)}<br><small>${escape(row.delivery_state || "-")}</small></td>
+			<td>${reference_button("Delivery Note", row.delivery_note)}<br><small>${escape(row.release_reason || "")}</small></td>
+		</tr>`).join("");
+		return table_section(__("Customer Delivery Allocation History"),
+			`<th>${__("Delivery Session / Site")}</th><th>${__("Customer / Company")}</th><th>${__("Physical Tag")}</th><th>${__("Quantity")}</th><th>${__("Allocation / Session")}</th><th>${__("ERP / Release")}</th>`,
+			body, __("No customer Delivery Session allocation is linked to this trace"));
 	}
 
 	function serial_history_table(rows) {

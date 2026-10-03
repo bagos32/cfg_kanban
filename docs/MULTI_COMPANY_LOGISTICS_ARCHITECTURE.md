@@ -3,7 +3,7 @@
 **Architecture version:** 1.0  
 **Decision status:** Locked baseline  
 **Decision date:** 30 September 2026  
-**Implementation status:** Package A, Package B intercompany handover, and Package C1 Customer Site / Delivery Session foundation are implemented; the remaining Package C functions and Packages D-E remain approved future scope
+**Implementation status:** Package A, Package B intercompany handover, Package C1 Customer Site / Delivery Session foundation, and Package C2A customer tagged-stock reservation are implemented; customer ERP delivery posting and Packages D-E remain approved future scope
 
 This document is the source of truth for CFG Kanban stock-tag logistics across sister companies,
 company-specific vehicle warehouses, customer-site delivery, and delayed intercompany billing. It
@@ -610,8 +610,11 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
 - **Implemented in C1:** Customer Site scan resolution and immutable Delivery Session snapshots.
 - **Implemented in C1:** operator-scoped active-session isolation, idempotent start, empty-session
   cancellation, and Event/Exception audit links.
+- **Implemented in C2A:** scan-first Stock Tag allocation with full/partial quantity reservation,
+  complete reusable-container expansion, concurrent-reservation protection, audited release and
+  reconfirmation, ERP stock validation, and genealogy history. Reservation does not move ERP stock.
 - Add loose-container loading/unloading.
-- Add Route Stops and Stock Tag/container allocations to the active Delivery Session.
+- Add Route Stops and untagged/loose reusable-container delivery quantities.
 - Add reserved and unassigned-stock delivery flows.
 - Add controlled Delivery Note and optional Sales Invoice commands.
 

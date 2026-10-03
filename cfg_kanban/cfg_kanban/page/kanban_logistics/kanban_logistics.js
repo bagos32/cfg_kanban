@@ -492,10 +492,21 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	function render_delivery_session(delivery) {
 		const e = frappe.utils.escape_html;
 		const allocations = delivery.allocations || [];
+		const active_allocations = allocations.filter((row) => ["Reserved", "Delivery Pending"].includes(row.state));
+		const active_qty = active_allocations.reduce((total, row) => total + Number(row.allocated_qty || 0), 0);
+		const allocation_rows = allocations.map((row) => `<div class="cfg-logistics-line">
+			<div><strong>${e(row.visible_code)}</strong><small>${e(row.item_code)} · ${e(row.batch_no || __("No Batch"))}
+				${row.container_visible_code ? ` · ${__("Container")}: ${e(row.container_visible_code)}` : ""}</small></div>
+			<div><strong>${format_number(row.allocated_qty)} ${e(row.stock_uom)}</strong><small>${e(row.state)}</small></div>
+			${["Reserved", "Delivery Pending"].includes(row.state) && !row.delivery_note ? `<button class="btn btn-xs btn-danger release-allocation" data-name="${e(row.name)}">${__("Release")}</button>` : ""}
+		</div>`).join("");
+		let mode_notice = `<div class="alert alert-info mt-3"><strong>${__("Customer stock reservation")}</strong> · ${__("Start allocation scanning, then scan a complete Stock Tag or reusable container in this lorry Warehouse.")}</div>`;
+		if (state.scan_mode === "delivery") mode_notice = `<div class="alert alert-warning mt-3"><strong>${__("CUSTOMER ALLOCATION SCANNING ARMED")}</strong> · ${e(delivery.name)} · ${__("Scanned stock will be reserved for this customer.")}</div>`;
+		const can_scan = ["Customer Identified", "Allocating Stock"].includes(delivery.state);
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
 			<div class="cfg-logistics-tag-head"><div><small>${__("Active Customer Delivery")}</small>
 				<h3>${e(delivery.site_name)}</h3><strong>${e(delivery.name)} · ${e(delivery.state)}</strong></div>
-				<div>${delivery.state === "Customer Identified" && !allocations.length ? `<button class="btn btn-danger cancel-delivery">${__("Cancel Empty Session")}</button>` : ""}
+				<div>${delivery.state === "Customer Identified" && !active_allocations.length ? `<button class="btn btn-danger cancel-delivery">${__("Cancel Empty Session")}</button>` : ""}
 				<button class="btn btn-default close-lookup">${__("Close")}</button></div></div>
 			<div class="cfg-logistics-tag-grid">
 				<div><small>${__("Customer")}</small><strong>${e(delivery.customer)}</strong></div>
@@ -505,9 +516,21 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				<div><small>${__("Lorry Warehouse")}</small><strong>${e(delivery.source_warehouse)}</strong></div>
 				<div><small>${__("Proof Policy")}</small><strong>${e(delivery.proof_policy)}</strong></div>
 			</div>
-			<div class="alert alert-info mt-3 mb-0">${__("Customer and vehicle context is locked. Stock Tag allocation and ERP Delivery Note creation are added in the next controlled increment.")}</div>
+			${mode_notice}
+			<div class="cfg-logistics-receipt-progress"><strong>${__("Reserved for this customer")}: ${format_number(active_qty)}</strong>
+				<span>${active_allocations.length} ${__("active Stock Tag allocation(s)")}</span></div>
+			<div class="cfg-logistics-lines">${allocation_rows || `<div class="text-muted p-3">${__("No stock allocated yet")}</div>`}</div>
+			<div class="cfg-logistics-actions">
+				${can_scan ? (state.scan_mode === "delivery" ? `<button class="btn btn-warning stop-delivery-scan">${__("Stop Allocation Scanning")}</button>` : `<button class="btn btn-primary arm-delivery">${__("Start Allocation Scanning")}</button>`) : ""}
+				${delivery.state === "Allocating Stock" && active_allocations.length && state.scan_mode !== "delivery" ? `<button class="btn btn-success confirm-allocations">${__("Confirm Customer Allocation")}</button>` : ""}
+			</div>
+			${delivery.state === "Awaiting Confirmation" ? `<div class="alert alert-success mt-3 mb-0">${__("Allocation confirmed. Stock remains reserved until the ERP Delivery Note package is implemented and confirmed.")}</div>` : ""}
 		</div>`);
-		$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
+		$lookup.find(".close-lookup").on("click", () => { state.scan_mode = "lookup"; state.lookup = null; render_lookup(); update_scanner_state(); focus_scanner(); });
+		$lookup.find(".arm-delivery").on("click", () => { state.scan_mode = "delivery"; render_delivery_session(delivery); update_scanner_state(); focus_scanner(); });
+		$lookup.find(".stop-delivery-scan").on("click", () => { state.scan_mode = "lookup"; render_delivery_session(delivery); update_scanner_state(); focus_scanner(); });
+		$lookup.find(".release-allocation").on("click", function () { release_delivery_allocation($(this).data("name")); });
+		$lookup.find(".confirm-allocations").on("click", () => confirm_delivery_allocations(delivery));
 		$lookup.find(".cancel-delivery").on("click", () => frappe.prompt([
 			{ fieldname: "reason", label: __("Cancellation Reason"), fieldtype: "Small Text", reqd: 1 },
 		], async (values) => {
@@ -522,12 +545,90 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		}, __("Cancel Empty Delivery Session"), __("Cancel Session")));
 	}
 
+	async function delivery_allocation_scan(raw) {
+		const delivery = state.lookup && state.lookup.delivery_session;
+		if (!delivery) return scanner_error(__("Open a Delivery Session before allocation scanning."));
+		try {
+			const response = await frappe.call({
+				method: "cfg_kanban.services.customer_delivery.get_delivery_allocation_candidate",
+				args: { delivery_session: delivery.name, scan_value: raw, operator_session_token: state.token },
+				freeze: true, freeze_message: __("Checking customer stock allocation..."),
+			});
+			const candidate = response.message;
+			if (candidate.mode === "container") return confirm_container_allocation(delivery, raw, candidate);
+			const row = candidate.contents[0];
+			const dialog = new frappe.ui.Dialog({
+				title: __("Allocate Stock Tag {0}", [row.visible_code]),
+				fields: [
+					{ fieldname: "item", label: __("Item / Batch"), fieldtype: "Data", read_only: 1,
+						default: `${row.item_code} · ${row.batch_no || __("No Batch")}` },
+					{ fieldname: "available", label: __("Available Quantity"), fieldtype: "Data", read_only: 1,
+						default: `${format_number(row.available_qty)} ${row.stock_uom}` },
+					{ fieldname: "qty", label: __("Customer Allocation Quantity"), fieldtype: "Float", reqd: 1,
+						default: row.available_qty, read_only: candidate.full_quantity_only ? 1 : 0,
+						description: candidate.full_quantity_only ? __("Serialized Stock Tags must remain complete.") : __("Enter a partial quantity only when the physical balance remains with this tag in the lorry.") },
+				],
+				primary_action_label: __("Reserve for Customer"),
+				primary_action: async (values) => {
+					dialog.hide(); await submit_delivery_allocation(delivery, raw, values.qty);
+				},
+			});
+			dialog.show();
+		} catch (error) { scanner_error(__("Stock Tag cannot be allocated. Review the validation message.")); }
+	}
+
+	function confirm_container_allocation(delivery, raw, candidate) {
+		const e = frappe.utils.escape_html;
+		const lines = candidate.contents.map((row) => `<li><strong>${e(row.visible_code)}</strong> · ${e(row.item_code)} · ${format_number(row.available_qty)} ${e(row.stock_uom)}</li>`).join("");
+		frappe.confirm(
+			`<strong>${__("Allocate complete container {0}?", [e(candidate.container_visible_code)])}</strong><ul class="mt-2">${lines}</ul><p>${__("Every contained Stock Tag will be reserved at full quantity. Individual partial allocation is not permitted while physically loaded.")}</p>`,
+			() => submit_delivery_allocation(delivery, raw, candidate.total_qty)
+		);
+	}
+
+	async function submit_delivery_allocation(delivery, raw, qty) {
+		const response = await frappe.call({
+			method: "cfg_kanban.services.customer_delivery.allocate_delivery_stock",
+			args: { delivery_session: delivery.name, scan_value: raw, allocated_qty: qty,
+				event_token: unique_token(), operator_session_token: state.token },
+			freeze: true, freeze_message: __("Reserving Stock Tag for customer..."),
+		});
+		state.lookup = { delivery_session: response.message };
+		render_lookup(); await refresh_list();
+		$scanner.find(".scanner-message").html(`<small class="text-success">${__("Customer stock reserved")}</small>`);
+		focus_scanner();
+	}
+
+	function release_delivery_allocation(name) {
+		frappe.prompt([{ fieldname: "reason", label: __("Release Reason"), fieldtype: "Small Text", reqd: 1 }],
+			async (values) => {
+				const response = await frappe.call({
+					method: "cfg_kanban.services.customer_delivery.release_delivery_allocation",
+					args: { allocation: name, reason: values.reason, event_token: unique_token(), operator_session_token: state.token },
+					freeze: true, freeze_message: __("Releasing customer reservation..."),
+				});
+				state.scan_mode = "lookup"; state.lookup = { delivery_session: response.message };
+				render_lookup(); await refresh_list(); focus_scanner();
+			}, __("Release Customer Stock Allocation"), __("Release Allocation"));
+	}
+
+	function confirm_delivery_allocations(delivery) {
+		frappe.confirm(__("Confirm these Stock Tags and quantities for this customer? They remain reserved while the ERP Delivery Note is pending."), async () => {
+			const response = await frappe.call({
+				method: "cfg_kanban.services.customer_delivery.confirm_delivery_allocations",
+				args: { delivery_session: delivery.name, event_token: unique_token(), operator_session_token: state.token },
+				freeze: true, freeze_message: __("Confirming customer allocation..."),
+			});
+			state.lookup = { delivery_session: response.message }; render_lookup(); await refresh_list(); focus_scanner();
+		});
+	}
+
 	async function open_delivery_session(name) {
 		const response = await frappe.call({
 			method: "cfg_kanban.services.customer_delivery.get_delivery_session",
 			args: { delivery_session: name, operator_session_token: state.token },
 		});
-		state.lookup = { delivery_session: response.message };
+		state.scan_mode = "lookup"; state.lookup = { delivery_session: response.message };
 		render_lookup(); focus_scanner();
 	}
 
@@ -606,6 +707,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const operator = operator_token(raw);
 		if (!state.token || operator) return login_operator(operator || raw);
 		if (/^KMF-/i.test(raw)) return open_manifest(raw);
+		if (state.scan_mode === "delivery") return delivery_allocation_scan(raw);
 		if (state.scan_mode === "lookup") return lookup_tag(raw);
 		if (!state.manifest) return scanner_error(__("No Manifest is armed for transaction scanning."));
 		const receipt_mode = state.scan_mode === "receipt";
@@ -887,6 +989,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (state.token) { label = __("Tag lookup ready"); colour = "blue"; }
 		if (state.scan_mode === "dispatch" && state.manifest) { label = `${__("Dispatch")} → ${state.manifest.name}`; colour = "orange"; }
 		if (state.scan_mode === "receipt" && state.manifest) { label = `${__("Receipt")} → ${state.manifest.name}`; colour = "green"; }
+		if (state.scan_mode === "delivery" && state.lookup?.delivery_session) { label = `${__("Customer Allocation")} → ${state.lookup.delivery_session.name}`; colour = "orange"; }
 		$scanner.find(".scanner-state").removeClass("orange blue green red").addClass(colour).text(label);
 	}
 

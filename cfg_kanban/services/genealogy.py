@@ -27,6 +27,7 @@ def get_handling_unit_genealogy(scan_value=None, handling_unit=None, max_depth=8
             "relationships": [],
             "timeline": [],
             "manifests": [],
+            "delivery_allocations": [],
             "container_history": [],
             "serial_history": [],
             "truncated": False,
@@ -66,6 +67,7 @@ def get_handling_unit_genealogy(scan_value=None, handling_unit=None, max_depth=8
         "relationships": _serialise_edges(edges, summaries),
         "timeline": _timeline(visible_nodes, summaries),
         "manifests": _manifest_history(visible_nodes),
+        "delivery_allocations": _delivery_allocation_history(visible_nodes),
         "container_history": _container_history(visible_nodes),
         "serial_history": _serial_history(visible_nodes),
         "truncated": truncated,
@@ -80,6 +82,50 @@ def _container_history(visible_nodes):
 def _serial_history(visible_nodes):
     from cfg_kanban.services.serial_evidence import serial_history_for_units
     return serial_history_for_units(visible_nodes)
+
+
+def _delivery_allocation_history(visible_nodes):
+    if not frappe.has_permission("CFG Kanban Delivery Allocation", ptype="read"):
+        return []
+    rows = frappe.get_list(
+        "CFG Kanban Delivery Allocation",
+        filters={"handling_unit": ["in", list(visible_nodes)]},
+        fields=[
+            "name", "state", "delivery_session", "handling_unit", "visible_code",
+            "container_visible_code", "allocated_qty", "delivered_qty", "stock_uom",
+            "delivery_note", "reserved_on", "released_on", "release_reason",
+        ],
+        order_by="reserved_on desc",
+        limit_page_length=250,
+    )
+    session_names = list({row.delivery_session for row in rows if row.delivery_session})
+    sessions = {
+        row.name: row for row in frappe.get_list(
+            "CFG Kanban Delivery Session",
+            filters={"name": ["in", session_names]},
+            fields=[
+                "name", "site_code", "site_name", "customer", "selling_company",
+                "source_warehouse", "vehicle_reference", "state",
+            ],
+            limit_page_length=250,
+        )
+    } if session_names else {}
+    result = []
+    for row in rows:
+        data = dict(row)
+        session = sessions.get(row.delivery_session)
+        if session:
+            data.update({
+                "site_code": session.site_code,
+                "site_name": session.site_name,
+                "customer": session.customer,
+                "selling_company": session.selling_company,
+                "source_warehouse": session.source_warehouse,
+                "vehicle_reference": session.vehicle_reference,
+                "delivery_state": session.state,
+            })
+        result.append(data)
+    return result
 
 
 def get_genealogy_print_context(handling_unit):

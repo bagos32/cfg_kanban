@@ -759,6 +759,9 @@ def _validate_dispatch_unit(unit, manifest, expected_container=None):
 
 
 def _validate_dispatch_container(container, manifest):
+    from cfg_kanban.services.container_contents import assert_container_not_in_open_delivery
+
+    assert_container_not_in_open_delivery(container.name, "dispatching it on a Movement Manifest")
     if container.identity_state != "Active" or container.quality_state != "Released":
         frappe.throw(
             f"Reusable Container {container.handling_unit_id} is "
@@ -818,31 +821,9 @@ def _assert_not_in_other_open_manifest(handling_unit, current_manifest):
 
 
 def _assert_erp_stock(unit, warehouse, qty):
-    if unit.batch_no:
-        # ERPNext v15 tracks batch availability through Serial and Batch
-        # Bundles.  get_stock_balance() only accepts inventory dimensions and
-        # no longer accepts the legacy batch_no keyword.
-        from erpnext.stock.doctype.batch.batch import get_batch_qty
+    from cfg_kanban.services.logistics_foundation import assert_erp_stock
 
-        balance = get_batch_qty(
-            batch_no=unit.batch_no,
-            warehouse=warehouse,
-            item_code=unit.item_code,
-            posting_date=today(),
-            for_stock_levels=True,
-            ignore_reserved_stock=True,
-        )
-    else:
-        from erpnext.stock.utils import get_stock_balance
-
-        balance = get_stock_balance(unit.item_code, warehouse, posting_date=today())
-
-    balance = flt(balance)
-    if flt(balance) + 0.000001 < flt(qty):
-        frappe.throw(
-            f"ERPNext stock for {unit.item_code} / {unit.batch_no or 'no batch'} in "
-            f"{warehouse} is {balance}, below tag quantity {qty}"
-        )
+    return assert_erp_stock(unit, warehouse, qty)
 
 
 def _dispatch_payload(manifest, required_erp_inputs=None):

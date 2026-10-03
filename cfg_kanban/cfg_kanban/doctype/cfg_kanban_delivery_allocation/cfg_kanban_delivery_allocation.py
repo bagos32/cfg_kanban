@@ -17,6 +17,7 @@ class CFGKanbanDeliveryAllocation(Document):
                     "container_handling_unit", "container_visible_code", "item_code",
                     "batch_no", "stock_uom", "allocated_qty", "source_warehouse",
                     "reserved_by_operator", "operator_session", "reserved_on",
+                    "movement_state_before_reservation", "reservation_ledger",
                     "reservation_key",
                 ):
                     if before.get(fieldname) != self.get(fieldname):

@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import flt, now_datetime
+from frappe.utils import flt, now_datetime, today
 
 from cfg_kanban.services.handling_unit_math import apply_balance_delta, event_deltas
 from cfg_kanban.services.physical_identity import normalize_physical_code
@@ -23,6 +23,37 @@ def validate_price_list_mode(price_list, mode, label):
     enabled = frappe.db.get_value("Price List", price_list, flag)
     if not enabled:
         frappe.throw(f"{label} {price_list} is not enabled for {mode.title()} transactions")
+
+
+def assert_erp_stock(unit, warehouse, qty):
+    """Confirm that ERPNext can support a tagged-stock reservation.
+
+    Handling Unit balances are the physical trace layer. ERPNext remains the
+    stock authority, so every operational reservation must pass both checks.
+    """
+    if unit.batch_no:
+        from erpnext.stock.doctype.batch.batch import get_batch_qty
+
+        balance = get_batch_qty(
+            batch_no=unit.batch_no,
+            warehouse=warehouse,
+            item_code=unit.item_code,
+            posting_date=today(),
+            for_stock_levels=True,
+            ignore_reserved_stock=True,
+        )
+    else:
+        from erpnext.stock.utils import get_stock_balance
+
+        balance = get_stock_balance(unit.item_code, warehouse, posting_date=today())
+
+    balance = flt(balance)
+    if balance + 0.000001 < flt(qty):
+        frappe.throw(
+            f"ERPNext stock for {unit.item_code} / {unit.batch_no or 'no batch'} in "
+            f"{warehouse} is {balance}, below requested quantity {qty}"
+        )
+    return balance
 
 
 def validate_physical_code_namespace(code, identity_type, tag_family=None):

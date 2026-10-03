@@ -30,6 +30,7 @@ def load_content_tag(container_scan, content_scan, event_token,
     container.reload()
     content.reload()
     assert_container_not_in_open_manifest(container.name, "changing its physical contents")
+    assert_container_not_in_open_delivery(container.name, "changing its physical contents")
     _validate_load(container, content)
 
     load_key = canonical_key("container-load", container.name, content.name, event_token)
@@ -101,6 +102,7 @@ def unload_content_tag(container_scan, content_scan, reason, event_token,
     content = _resolve_content(content_scan, require_active=False)
     _lock_units(container.name, content.name)
     assert_container_not_in_open_manifest(container.name, "changing its physical contents")
+    assert_container_not_in_open_delivery(container.name, "changing its physical contents")
     content.reload()
     if flt(content.reserved_qty):
         frappe.throw(
@@ -231,6 +233,27 @@ def assert_container_not_in_open_manifest(container_handling_unit, action):
         frappe.throw(
             _("Reusable container is assigned to open Manifest {0}; it cannot be used for {1}").format(
                 manifest[0][0], action
+            )
+        )
+
+
+def assert_container_not_in_open_delivery(container_handling_unit, action):
+    allocation = frappe.db.get_value(
+        "CFG Kanban Delivery Allocation",
+        {
+            "container_handling_unit": container_handling_unit,
+            "state": ["in", ["Reserved", "Delivery Pending", "Delivered", "Exception"]],
+        },
+        ["delivery_session", "container_visible_code"],
+        as_dict=True,
+    )
+    if allocation:
+        frappe.throw(
+            _("Reusable container {0} is assigned to Delivery Session {1}; "
+              "it cannot be used for {2}").format(
+                allocation.container_visible_code,
+                allocation.delivery_session,
+                action,
             )
         )
 

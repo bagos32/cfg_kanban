@@ -1760,14 +1760,14 @@ Signal rollback cancels/deletes only activity-free ERP documents, marks Cycle an
 returns the Card to Available, clears Active Cycle, and records Events. A submitted Work Order can be
 cancelled only while ERPNext permits it and the code has found no production/material activity.
 
-## 25. Multi-company logistics and customer-session foundation (Packages A-B and C1)
+## 25. Multi-company logistics and customer allocation (Packages A-B, C1 and C2A)
 
 Package A installs the configuration and physical-identity foundation. Package B adds the controlled
 intercompany Movement Manifest, source-company Delivery Note, destination-company Purchase Receipt,
 ERP feedback, and scan-first Logistics Operator Panel. Package C1 now adds Customer Site scanning,
-Company-specific vehicle Warehouse validation, and an immutable Delivery Session. Stock allocation,
-customer Delivery Note/Sales Invoice creation, proof of delivery, and Billing Batch grouping remain
-later increments. The locked design is in
+Company-specific vehicle Warehouse validation, and an immutable Delivery Session. Package C2A adds
+physical Stock Tag/customer allocation and reservation. Customer Delivery Note/Sales Invoice
+creation, proof of delivery, and Billing Batch grouping remain later increments. The locked design is in
 `docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md`.
 
 ### CFG Kanban Logistics Route
@@ -1800,7 +1800,7 @@ Allowed, No Proof Required), **Require Recipient Name**, **Require Signature**, 
 Photograph**, **Require GPS**, and **Require Unattended-delivery Reason**. The printed `site_code` is
 the primary scan value. **Internal UUID Alias** is generated automatically as a system fallback.
 
-### Customer Delivery Session setup and C1 test
+### Customer Delivery Session and C2A stock allocation
 
 1. Open the ERPNext **Warehouse** representing the stock physically carried by the lorry. Set
    **Vehicle Warehouse** (`cfg_is_vehicle_warehouse`) and enter **Physical Vehicle Reference**
@@ -1819,11 +1819,25 @@ the primary scan value. **Internal UUID Alias** is generated automatically as a 
    start a second active site session until the first is completed or cancelled.
 6. An empty session in **Customer Identified** state may be cancelled with a mandatory reason. The
    session and its Event history are preserved; they are never deleted.
+7. Select **Start Allocation Scanning**. Scan either one activated Stock Tag or one reusable
+   container. The Stock Tag must be Active/Released, belong to the locked Selling Company, be in
+   the selected lorry Warehouse, have matching ERPNext stock, and not be reserved by another open
+   transaction.
+8. For an ordinary non-serialized Stock Tag, accept the full available quantity or enter a partial
+   quantity. A serialized tag is always allocated as one complete physical unit. The unallocated
+   balance remains against the same physical tag in the same lorry Warehouse.
+9. Scanning a reusable container expands every currently loaded Stock Tag and reserves every one at
+   full quantity. A contained tag cannot be allocated separately; scan the container. Contents
+   cannot be changed while any container allocation is active.
+10. Stop scanning and select **Confirm Customer Allocation**. The session becomes **Awaiting
+    Confirmation**. To correct it before ERP posting, select **Release**, enter a mandatory reason,
+    adjust the allocation, and confirm again. Release creates an Unreserve ledger event and never
+    deletes the historical allocation.
 
-**Current C1 limit:** no stock is allocated or moved, and no customer Delivery Note or Sales Invoice
-is created. **CFG Kanban Delivery Allocation** is the audit schema reserved for the next controlled
-increment; operators must not create allocation records manually. C1 proves customer/site and lorry
-context isolation before stock or accounting actions are enabled.
+**Current C2A limit:** allocation changes only the Kanban reservation ledger; it does not move ERP
+stock and does not create a customer Delivery Note or Sales Invoice. ERPNext remains the live stock
+authority and is checked at reservation time. The forthcoming C2B package will create/confirm the
+Delivery Note from the confirmed allocation.
 
 ### CFG Kanban Tag Range Registry
 
@@ -2011,17 +2025,17 @@ When using this file as context, an assistant must:
    code does not contain.
 10. Confirm the deployed Git revision/migration when the UI does not match this guide.
 
-11. Treat Customer stock allocation, customer Delivery Note/Sales Invoice posting, proof capture,
-    loose-container customer delivery, and billing grouping as future increments. Package C1 only
-    identifies the Customer Site and locks the Company-specific lorry Warehouse in a Delivery
-    Session. Package B intercompany posting, including complete loaded reusable containers, remains
-    operational only through the Movement Manifest and submitted Delivery Note / Purchase Receipt
-    feedback described above.
+11. Treat customer Delivery Note/Sales Invoice posting, proof capture, loose-container delivery,
+    and billing grouping as future increments. Packages C1-C2A identify the Customer Site, lock the
+    Company-specific lorry Warehouse, and reserve full/partial Stock Tag quantities in a Delivery
+    Session. Package B intercompany posting remains operational only through the Movement Manifest
+    and submitted Delivery Note / Purchase Receipt feedback described above.
 
 ## 27. Revision history
 
 | Version | Date | Change |
 |---|---|---|
+| 1.26 | 3 October 2026 | Added customer Stock Tag allocation, partial/full quantity reservation, complete reusable-container expansion, audited release/reconfirmation, ERP stock validation, container safeguards, and Delivery Allocation genealogy history without prematurely moving ERP stock |
 | 1.25 | 3 October 2026 | Added Customer Site scan resolution, Company-specific Vehicle Warehouse setup, immutable operator-scoped Delivery Sessions, idempotent start/cancel audit, workspace records, and the explicit no-stock-movement C1 boundary |
 | 1.24 | 3 October 2026 | Added one-scan complete reusable-container dispatch and receipt through intercompany Movement Manifests while retaining every contained Stock Tag as the ERP-accounted Item/Batch/quantity identity |
 | 1.23 | 3 October 2026 | Added controlled exact-serial splitting from main Stock Tags to preprinted detachable child tags, quantity-preserving ledger evidence, and safe untouched-child merge back to the parent |

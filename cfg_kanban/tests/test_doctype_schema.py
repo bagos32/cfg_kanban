@@ -572,9 +572,13 @@ class TestDocTypeSchema(TestCase):
         self.assertTrue({
             "delivery_session", "handling_unit", "visible_code", "item_code",
             "batch_no", "stock_uom", "allocated_qty", "delivered_qty",
-            "source_warehouse", "reservation_key",
+            "source_warehouse", "reservation_key", "active_handling_unit_key",
+            "movement_state_before_reservation", "reservation_ledger",
+            "release_ledger", "release_key",
         }.issubset(allocation))
         self.assertEqual(allocation["reservation_key"].get("unique"), 1)
+        self.assertEqual(allocation["active_handling_unit_key"].get("unique"), 1)
+        self.assertEqual(allocation["release_key"].get("unique"), 1)
 
         command = {row["fieldname"]: row for row in
                    schemas["CFG ERP Command"]["fields"]}
@@ -598,8 +602,23 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('"Customer Delivery"', install)
         self.assertIn("def start_delivery_session", service)
         self.assertIn("def cancel_delivery_session", service)
+        self.assertIn("def allocate_delivery_stock", service)
+        self.assertIn("def confirm_delivery_allocations", service)
+        self.assertIn("def release_delivery_allocation", service)
+        self.assertIn('event_type="Reserve"', service)
+        self.assertIn('event_type="Unreserve"', service)
         self.assertIn("state.lookup.customer_site", panel)
         self.assertIn("Lock Customer and Vehicle", panel)
+        self.assertIn("Start Allocation Scanning", panel)
+        self.assertIn("Confirm Customer Allocation", panel)
+
+        container_service = (APP_ROOT / "services" / "container_contents.py").read_text()
+        genealogy = (APP_ROOT / "services" / "genealogy.py").read_text()
+        genealogy_panel = (APP_ROOT / "cfg_kanban" / "page" / "material_genealogy" /
+                           "material_genealogy.js").read_text()
+        self.assertIn("def assert_container_not_in_open_delivery", container_service)
+        self.assertIn('"delivery_allocations": _delivery_allocation_history', genealogy)
+        self.assertIn("Customer Delivery Allocation History", genealogy_panel)
 
     def test_intercompany_erp_feedback_and_trace_fields_are_registered(self):
         hooks = (APP_ROOT / "hooks.py").read_text()

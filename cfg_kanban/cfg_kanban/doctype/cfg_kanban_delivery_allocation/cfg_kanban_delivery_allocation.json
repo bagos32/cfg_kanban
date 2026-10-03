@@ -1,7 +1,7 @@
 {
  "doctype":"DocType","name":"CFG Kanban Delivery Allocation","module":"CFG Kanban","autoname":"KDA-.YYYY.-.#####","title_field":"visible_code","track_changes":0,
  "search_fields":"delivery_session,visible_code,item_code,batch_no,delivery_note",
- "field_order":["state","delivery_session","identity_section","handling_unit","visible_code","container_handling_unit","container_visible_code","item_code","batch_no","stock_uom","quantity_section","allocated_qty","delivered_qty","source_warehouse","erp_section","delivery_note","delivery_note_item","audit_section","reserved_by_operator","operator_session","reserved_on","reservation_key","released_on","release_reason"],
+ "field_order":["state","delivery_session","identity_section","handling_unit","visible_code","container_handling_unit","container_visible_code","item_code","batch_no","stock_uom","quantity_section","allocated_qty","delivered_qty","source_warehouse","erp_section","delivery_note","delivery_note_item","audit_section","reserved_by_operator","operator_session","reserved_on","movement_state_before_reservation","reservation_ledger","reservation_key","active_handling_unit_key","released_on","release_reason","release_ledger","release_key"],
  "fields":[
   {"fieldname":"state","label":"Allocation State","fieldtype":"Select","options":"Reserved\nDelivery Pending\nDelivered\nReleased\nCancelled\nException","default":"Reserved","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"delivery_session","label":"Delivery Session","fieldtype":"Link","options":"CFG Kanban Delivery Session","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
@@ -24,9 +24,14 @@
   {"fieldname":"reserved_by_operator","label":"Reserved by Operator","fieldtype":"Link","options":"Employee","read_only":1},
   {"fieldname":"operator_session","label":"Operator Session","fieldtype":"Link","options":"CFG Kanban Operator Session","read_only":1},
   {"fieldname":"reserved_on","label":"Reserved On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"movement_state_before_reservation","label":"Movement State Before Reservation","fieldtype":"Data","read_only":1},
+  {"fieldname":"reservation_ledger","label":"Reservation Quantity Ledger","fieldtype":"Link","options":"CFG Kanban Handling Unit Quantity Ledger","read_only":1},
   {"fieldname":"reservation_key","label":"Reservation Idempotency Key","fieldtype":"Data","unique":1,"read_only":1,"hidden":1},
+  {"fieldname":"active_handling_unit_key","label":"Active Handling Unit Reservation Key","fieldtype":"Data","unique":1,"read_only":1,"hidden":1},
   {"fieldname":"released_on","label":"Released On","fieldtype":"Datetime","read_only":1},
-  {"fieldname":"release_reason","label":"Release Reason","fieldtype":"Small Text","read_only":1}
+  {"fieldname":"release_reason","label":"Release Reason","fieldtype":"Small Text","read_only":1},
+  {"fieldname":"release_ledger","label":"Release Quantity Ledger","fieldtype":"Link","options":"CFG Kanban Handling Unit Quantity Ledger","read_only":1},
+  {"fieldname":"release_key","label":"Release Idempotency Key","fieldtype":"Data","unique":1,"read_only":1,"hidden":1}
  ],
  "permissions":[
   {"role":"Stock User","read":1,"print":1},
