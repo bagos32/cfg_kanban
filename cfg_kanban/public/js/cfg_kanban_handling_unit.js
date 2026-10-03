@@ -132,12 +132,105 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 					handling_unit: frm.doc.name,
 				});
 			}, __("Kanban Actions"));
+			if (frm.doc.tag_kind === "Main Stock Tag" && frm.doc.identity_state === "Active") {
+				frm.add_custom_button(__("Split Exact Serials to Child Tag"), () => {
+					serial_child_split(frm);
+				}, __("Kanban Actions"));
+			}
+			if (frm.doc.tag_kind === "Child Stock Tag" && frm.doc.identity_state === "Active" &&
+				frm.doc.parent_handling_unit) {
+				frm.add_custom_button(__("Merge Untouched Child Back to Parent"), () => {
+					merge_serial_child(frm);
+				}, __("Kanban Actions"));
+			}
 		}
 		if (!["Received", "Void", "Replaced"].includes(frm.doc.state)) {
 			frm.add_custom_button(__("Replace Tag"), () => replace_tag(frm), __("Kanban Actions"));
 		}
 	},
 });
+
+async function serial_child_split(frm) {
+	const response = await frappe.call({
+		method: "cfg_kanban.services.handling_unit_split.get_serial_split_plan",
+		args: { parent_handling_unit: frm.doc.name },
+	});
+	const plan = response.message || {};
+	if (plan.blocked_reason) {
+		frappe.msgprint({
+			title: __("Serial Split Not Available"),
+			message: plan.blocked_reason,
+			indicator: "orange",
+		});
+		return;
+	}
+	const child_codes = (plan.unused_child_tags || []).map((row) => row.visible_code);
+	if (!child_codes.length) {
+		frappe.msgprint(__("No unused detachable child tag remains in this Tag Family."));
+		return;
+	}
+	const e = frappe.utils.escape_html;
+	const dialog = new frappe.ui.Dialog({
+		title: __("Split Exact Serials to Child Tag"),
+		size: "large",
+		fields: [
+			{ fieldname: "summary", fieldtype: "HTML",
+				options: `<div class="alert alert-info"><strong>${e(plan.parent_code)}</strong> · ${e(plan.item_code)} · ${e(plan.current_qty)} ${e(plan.stock_uom)}<br>
+					<small>${__("This changes physical tag membership only. ERPNext Item, Batch, Warehouse, and stock quantity do not change.")}</small></div>` },
+			{ fieldname: "child_scan_value", label: __("Unused Detachable Child Tag"),
+				fieldtype: "Data", reqd: 1,
+				description: __("Scan one of the unused child tags: {0}", [child_codes.join(", ")]) },
+			{ fieldname: "serial_numbers", label: __("Serial Numbers Moving to Child"),
+				fieldtype: "Small Text", reqd: 1,
+				description: __("Scan or enter one exact ERPNext Serial No per line. Available on parent: {0}", [(plan.serial_numbers || []).join(", ")]) },
+			{ fieldname: "reason", label: __("Split Reason"), fieldtype: "Small Text", reqd: 1 },
+		],
+		primary_action_label: __("Create Controlled Child Tag"),
+		primary_action: async (values) => {
+			const result = await frappe.call({
+				method: "cfg_kanban.services.handling_unit_split.split_serials_to_child",
+				args: {
+					parent_handling_unit: frm.doc.name,
+					child_scan_value: values.child_scan_value,
+					serial_numbers: values.serial_numbers,
+					reason: values.reason,
+				},
+				freeze: true,
+				freeze_message: __("Splitting quantity and exact serial membership..."),
+			});
+			dialog.hide();
+			frappe.show_alert({
+				message: __("Child tag {0} activated with {1} serials", [
+					result.message.child.visible_code,
+					(result.message.child.serial_numbers || []).length,
+				]),
+				indicator: "green",
+			}, 8);
+			frappe.set_route("Form", "CFG Kanban Handling Unit", result.message.child.name);
+		},
+	});
+	dialog.show();
+	dialog.get_field("child_scan_value").$input.trigger("focus");
+}
+
+function merge_serial_child(frm) {
+	frappe.prompt([
+		{ fieldname: "reason", label: __("Merge Reason"), fieldtype: "Small Text", reqd: 1,
+			description: __("Only an untouched, unreserved child in the same Company and Warehouse can be merged.") },
+	], async (values) => {
+		const response = await frappe.call({
+			method: "cfg_kanban.services.handling_unit_split.merge_serial_child_to_parent",
+			args: { child_handling_unit: frm.doc.name, reason: values.reason },
+			freeze: true,
+			freeze_message: __("Returning quantity and exact serials to the parent tag..."),
+		});
+		frappe.show_alert({
+			message: __("Serials returned to parent tag {0}", [response.message.parent.visible_code]),
+			indicator: "green",
+		}, 8);
+		frappe.set_route("Form", "CFG Kanban Handling Unit", response.message.parent.name);
+	}, __("Merge Child Tag Back to Parent"), __("Confirm Controlled Merge"));
+}
 
 function assign_initial_warehouse(frm) {
 	frappe.prompt([

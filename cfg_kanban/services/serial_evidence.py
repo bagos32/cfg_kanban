@@ -95,6 +95,15 @@ def assign_serials(unit, serial_numbers, reference_doctype, reference_name,
         return []
     if len(serials) != int(round(flt(unit.original_qty or unit.current_qty))):
         frappe.throw(_("Serial count must equal the complete Handling Unit quantity"))
+    created = _insert_serial_assignments(
+        unit, serials, reference_doctype, reference_name, reference_row
+    )
+    unit.db_set("serial_count", len(serials), update_modified=False)
+    return created
+
+
+def _insert_serial_assignments(unit, serials, reference_doctype, reference_name,
+                               reference_row=None):
     created = []
     for serial_no in serials:
         serial = frappe.db.get_value(
@@ -135,7 +144,6 @@ def assign_serials(unit, serial_numbers, reference_doctype, reference_name,
             "assignment_key": assignment_key,
         }).insert(ignore_permissions=True)
         created.append(doc.name)
-    unit.db_set("serial_count", len(serials), update_modified=False)
     return created
 
 
@@ -215,6 +223,100 @@ def transfer_unit_serials(old_unit, new_unit, reason):
     assign_serials(
         new_unit, serials, "CFG Kanban Handling Unit", new_unit.name, old_unit.name
     )
+
+
+def transfer_selected_serials(parent_unit, child_unit, serial_numbers, reason):
+    """Move an explicitly selected serial subset from a parent tag to a child tag."""
+    selected = _parse_serial_values(serial_numbers)
+    expected = int(round(flt(child_unit.original_qty or child_unit.current_qty)))
+    if not selected or len(selected) != expected:
+        frappe.throw(_("Select exactly {0} Serial Numbers for the child tag").format(expected))
+    active_rows = frappe.get_all(
+        "CFG Kanban Handling Unit Serial",
+        filters={"handling_unit": parent_unit.name, "state": "Active"},
+        fields=["name", "serial_no"],
+        limit_page_length=10000,
+    )
+    active_by_serial = {row.serial_no: row.name for row in active_rows}
+    unavailable = [value for value in selected if value not in active_by_serial]
+    if unavailable:
+        frappe.throw(_("Serial Numbers are not active under parent tag {0}: {1}").format(
+            parent_unit.handling_unit_id, ", ".join(unavailable)
+        ))
+
+    released_on = now_datetime()
+    for serial_no in selected:
+        frappe.db.set_value(
+            "CFG Kanban Handling Unit Serial",
+            active_by_serial[serial_no],
+            {
+                "state": "Released",
+                "active_serial_key": None,
+                "released_on": released_on,
+                "release_reason": reason,
+                "release_reference_doctype": "CFG Kanban Handling Unit",
+                "release_reference_name": child_unit.name,
+            },
+            update_modified=False,
+        )
+    remaining = len(active_rows) - len(selected)
+    frappe.db.set_value(
+        "CFG Kanban Handling Unit", parent_unit.name, "serial_count", remaining,
+        update_modified=False,
+    )
+    assign_serials(
+        child_unit,
+        selected,
+        "CFG Kanban Handling Unit",
+        child_unit.name,
+        parent_unit.name,
+    )
+    return selected
+
+
+def merge_child_serials(child_unit, parent_unit, reason):
+    """Return every active child serial to its existing parent tag."""
+    active_rows = frappe.get_all(
+        "CFG Kanban Handling Unit Serial",
+        filters={"handling_unit": child_unit.name, "state": "Active"},
+        fields=["name", "serial_no"],
+        limit_page_length=10000,
+    )
+    serials = [row.serial_no for row in active_rows]
+    if not serials or len(serials) != int(round(flt(child_unit.current_qty))):
+        frappe.throw(_("Child tag quantity and active Serial Number membership do not match"))
+    released_on = now_datetime()
+    for row in active_rows:
+        frappe.db.set_value(
+            "CFG Kanban Handling Unit Serial",
+            row.name,
+            {
+                "state": "Released",
+                "active_serial_key": None,
+                "released_on": released_on,
+                "release_reason": reason,
+                "release_reference_doctype": "CFG Kanban Handling Unit",
+                "release_reference_name": parent_unit.name,
+            },
+            update_modified=False,
+        )
+    _insert_serial_assignments(
+        parent_unit,
+        serials,
+        "CFG Kanban Handling Unit",
+        parent_unit.name,
+        child_unit.name,
+    )
+    parent_total = len(active_serials_for_unit(parent_unit.name))
+    frappe.db.set_value(
+        "CFG Kanban Handling Unit", parent_unit.name, "serial_count", parent_total,
+        update_modified=False,
+    )
+    frappe.db.set_value(
+        "CFG Kanban Handling Unit", child_unit.name, "serial_count", 0,
+        update_modified=False,
+    )
+    return serials
 
 
 def serial_history_for_units(handling_units):

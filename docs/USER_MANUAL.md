@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.22
+**Guide version:** 1.23
 
 **Updated:** 3 October 2026
 
@@ -1109,8 +1109,28 @@ transfers it to the new tag. Consumption or voiding releases it, while ERP cance
 the prior input association. Cancelling a Purchase Receipt automatically voids its untouched
 received tags and releases their serial memberships. The cancellation is blocked when a tag has
 already moved, split, been loaded, reserved, or consumed; reconcile that downstream activity
-first. Generic detachable-child splitting of a serial-controlled parent is blocked until the
-controlled serial-split assistant is implemented.
+first. Generic detachable-child creation remains blocked for a serial-controlled parent. Use the
+controlled workflow below.
+
+#### Split exact serials to a detachable child tag
+
+1. Open the active main **CFG Kanban Handling Unit**.
+2. Select **Kanban Actions → Split Exact Serials to Child Tag**.
+3. Scan one unused, preprinted detachable child code from the same Tag Family.
+4. Scan or enter the exact ERPNext Serial Numbers physically moving to that child, one per line.
+5. Enter the operational reason and select **Create Controlled Child Tag**.
+
+The child quantity is derived from the number of selected serials; operators do not type a separate
+quantity. The app moves the same quantity in the Handling Unit ledger and moves only those exact
+serial memberships. ERPNext stock, Warehouse, Item, Batch, and Serial No ownership do not change.
+The parent must be Active, unreserved, unloaded from reusable containers, and its quantity must
+match its active serial count.
+
+If the split was a mistake and the child has not had any later activity, open the child Handling
+Unit and select **Kanban Actions → Merge Untouched Child Back to Parent**. Both tags must remain
+unreserved, unloaded, and in the same Company and Warehouse. The serials and quantity return to the
+parent, while the used child identity becomes **Empty** and is not reusable. Later movement,
+reservation, container loading, consumption, or other quantity activity blocks this shortcut.
 
 ## 12. Scanner-first floor operation
 
@@ -1488,8 +1508,9 @@ The following are not complete in the current build:
 - Full Start/Complete dynamic-field capture and arbitrary Job Card field mapping.
 - Automated email alerts and complete command retry orchestration.
 - Supplier Kanban and Sales Order fulfillment allocation beyond the implemented demand controls.
-- Controlled detachable-child splitting for serial-controlled parent tags. Purchase Receipt activation, reusable-container content episodes, exact serial membership,
-  Stock Entry-confirmed production tracing, scoped scanner-first floor access, same-company tagged
+- Controlled whole-container vehicle/customer movement while preserving each contained tag.
+  Purchase Receipt activation, reusable-container content episodes, exact serial membership and
+  controlled child split/merge, Stock Entry-confirmed production tracing, scoped scanner-first floor access, same-company tagged
   Warehouse transfers, and scan-any-tag upstream/downstream genealogy exploration are implemented.
 
 This file is the maintained manual source. Update its version, date, affected sections, and revision
@@ -1950,6 +1971,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.23 | 3 October 2026 | Added controlled exact-serial splitting from main Stock Tags to preprinted detachable child tags, quantity-preserving ledger evidence, and safe untouched-child merge back to the parent |
 | 1.22 | 3 October 2026 | Added ERPNext-referenced exact Serial Number membership for received and produced Stock Tags, whole-tag production validation, consumption/reversal/replacement lifecycle handling, serial history, and genealogy/logistics visibility |
 | 1.21 | 3 October 2026 | Added reusable-container content loading/unloading in the Logistics panel, immutable membership episodes, mixed-content policy, movement safeguards, workspace history, and genealogy visibility |
 | 1.20 | 3 October 2026 | Added the read-only scan-any-tag Material Genealogy Explorer, upstream/downstream Handling Unit lineage, ERP movement/Manifest evidence, related-tag navigation, Handling Unit and Logistics-panel entry points, and printable A4 exact-trace report |

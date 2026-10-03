@@ -73,6 +73,12 @@ class TestHandlingUnitQuantityMath(TestCase):
         self.assertEqual(float(child[0]), 5)
         self.assertEqual(float(source[0] + child[0]), 10)
 
+    def test_merge_returns_child_quantity_without_duplication(self):
+        deltas = event_deltas("Merge", 3)
+        child = apply_balance_delta(3, 0, qty_delta=deltas["source_qty_delta"])
+        parent = apply_balance_delta(7, 0, qty_delta=deltas["destination_qty_delta"])
+        self.assertEqual((float(child[0]), float(parent[0])), (0, 10))
+
     def test_container_load_moves_quantity_without_duplication(self):
         deltas = event_deltas("Load into Container", 2.5)
         source = apply_balance_delta(6, 0, qty_delta=deltas["source_qty_delta"])

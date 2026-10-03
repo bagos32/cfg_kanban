@@ -183,14 +183,20 @@ moved, split, entered a reusable container, been reserved, or been consumed.
 Serial membership is physical evidence, not serial ownership or stock accounting. ERPNext Serial
 No, Serial and Batch Bundle, and submitted stock documents remain authoritative. Generic child-tag
 splitting is deliberately blocked for a serial-controlled parent because serials must be explicitly
-selected; a dedicated controlled serial-split assistant remains a later increment.
+selected. **Split Exact Serials to Child Tag** moves the selected whole-number serial subset and the
+same quantity to one unused detachable child identity without posting ERP stock. The immutable
+membership history and quantity ledger record both sides of the split.
+
+An untouched, unreserved child in the same Company and Warehouse may be returned using **Merge
+Untouched Child Back to Parent**. The merge restores the exact serials and quantity to the parent,
+marks the used child identity Empty, and never makes its printed code reusable. Any later movement,
+reservation, container loading, consumption, replacement, or other quantity activity blocks the
+merge and requires normal reconciliation.
 
 ### Subsequent increments
 
-The next increments add:
-
-1. controlled serial selection when splitting a tagged parent into detachable child tags;
-2. controlled whole-container vehicle/customer movement while preserving each contained tag.
+The next increment adds controlled whole-container vehicle/customer movement while preserving each
+contained Stock Tag as the ERP-accounted identity.
 
 Job Cards provide operator/operation context, but raw-material stock consumption remains linked to
 the Work Order and submitted Stock Entry details.

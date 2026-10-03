@@ -168,6 +168,16 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("_assert_receipt_tag_untouched", receiving)
         self.assertIn("void_cancelled_purchase_receipt_tags(doc)", feedback)
 
+        split_service = (APP_ROOT / "services" / "handling_unit_split.py").read_text()
+        self.assertIn("def split_serials_to_child", split_service)
+        self.assertIn("def merge_serial_child_to_parent", split_service)
+        self.assertIn('event_type="Merge"', split_service)
+        self.assertIn("transfer_selected_serials", split_service)
+        self.assertIn("merge_child_serials", split_service)
+        ledger_fields = {row["fieldname"]: row for row in
+                         schemas["CFG Kanban Handling Unit Quantity Ledger"]["fields"]}
+        self.assertIn("Merge", ledger_fields["event_type"]["options"].splitlines())
+
     def test_every_field_is_present_once_in_field_order(self):
         for path, schema in self._schemas():
             fields = [row["fieldname"] for row in schema.get("fields", [])]

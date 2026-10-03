@@ -307,7 +307,7 @@ def _require_event_endpoints(event_type, deltas, source, destination):
     } and not source:
         frappe.throw("Source Handling Unit is required for this ledger event")
     if event_type in {
-        "Split", "Replace", "Load into Container", "Unload from Container"
+        "Split", "Merge", "Replace", "Load into Container", "Unload from Container"
     } and source == destination:
         frappe.throw("Source and Destination Handling Units must be different")
 

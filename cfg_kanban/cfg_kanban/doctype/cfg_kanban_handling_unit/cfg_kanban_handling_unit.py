@@ -115,10 +115,10 @@ class CFGKanbanHandlingUnit(Document):
             if frappe.db.exists(
                 "CFG Kanban Handling Unit Serial",
                 {"handling_unit": self.parent_handling_unit, "state": "Active"},
-            ):
+            ) and not getattr(self.flags, "controlled_serial_split", False):
                 frappe.throw(
                     "Serial-controlled parent tags require a controlled serial split; "
-                    "generic detachable-child activation is blocked"
+                    "use Split Exact Serials to Child Tag on the parent Handling Unit"
                 )
         elif self.parent_handling_unit:
             frappe.throw("Only a Child Stock Tag may have a Parent Handling Unit")
