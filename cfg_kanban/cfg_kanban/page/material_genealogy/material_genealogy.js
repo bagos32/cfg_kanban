@@ -67,6 +67,7 @@ frappe.pages["material-genealogy"].on_page_load = function (wrapper) {
 				${generation_column(__("Downstream Products"), data.downstream, "downstream")}
 			</div>
 			${relationship_table(data.relationships)}
+			${container_history_table(data.container_history)}
 			${manifest_table(data.manifests)}
 			${timeline_table(data.timeline)}
 		`);
@@ -137,6 +138,18 @@ frappe.pages["material-genealogy"].on_page_load = function (wrapper) {
 		return table_section(__("Movement Manifest History"),
 			`<th>${__("Manifest")}</th><th>${__("State")}</th><th>${__("From")}</th><th>${__("To")}</th><th>${__("ERP Documents")}</th>`,
 			body, __("No Movement Manifest is linked to this lineage"));
+	}
+
+	function container_history_table(rows) {
+		const body = (rows || []).map((row) => `<tr>
+			<td><button class="btn btn-link open-unit" data-code="${attr(row.container_visible_code)}">${escape(row.container_visible_code)}</button></td>
+			<td><button class="btn btn-link open-unit" data-code="${attr(row.content_visible_code)}">${escape(row.content_visible_code)}</button><br><small>${escape(row.item_code || "-")} · ${escape(row.batch_no || __("No Batch"))}</small></td>
+			<td>${number(row.qty)} ${escape(row.stock_uom || "")}</td><td>${escape(row.state)}</td>
+			<td>${escape(date_time(row.loaded_on))}<br><small>${escape(row.loaded_by || "-")}</small></td>
+			<td>${escape(date_time(row.unloaded_on))}<br><small>${escape(row.unload_reason || "-")}</small></td></tr>`).join("");
+		return table_section(__("Reusable Container Episodes"),
+			`<th>${__("Container")}</th><th>${__("Contained Stock Tag")}</th><th>${__("Quantity")}</th><th>${__("State")}</th><th>${__("Loaded")}</th><th>${__("Unloaded")}</th>`,
+			body, __("No reusable-container episode is linked to this trace"));
 	}
 
 	function timeline_table(rows) {

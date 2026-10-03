@@ -72,6 +72,9 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
   exact Handling Unit production/split/replacement relationships upstream and downstream, shows
   ERP movement and Manifest evidence, and produces an A4 genealogy trace report without changing
   ERPNext stock.
+- Reusable-container content control in the Logistics panel, with complete-tag loading/unloading,
+  optional mixed Item/Batch contents, immutable membership episodes, operator audit, movement
+  safeguards, and separate genealogy history that never invents an ERP stock movement.
 - Packages A-B of the approved multi-company logistics architecture: directional Logistics Routes,
   Customer Scan Points, pre-registered main/child Stock Tag families, extended Handling Units,
   immutable quantity ledger, scan-first Movement Manifests, and guarded intercompany Delivery Note

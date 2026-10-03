@@ -84,6 +84,7 @@ class CFGKanbanHandlingUnit(Document):
         if self.tag_kind == "Main Stock Tag" and not self.root_handling_unit:
             self.root_handling_unit = self.name
         self._validate_immutable_identity()
+        self._validate_reusable_policy_change()
         if self.tag_kind != "Reusable Container" and (not self.item_code or not self.stock_uom):
             frappe.throw("Item and Stock UOM are required for a Stock Tag")
         if self.tag_kind != "Reusable Container" and (
@@ -96,7 +97,10 @@ class CFGKanbanHandlingUnit(Document):
         if self.tag_kind != "Reusable Container" and flt(self.qty) <= 0:
             frappe.throw("Handling-unit quantity must be positive")
         if self.tag_kind == "Reusable Container" and flt(self.qty):
-            frappe.throw("Reusable containers start empty; load contents through the quantity ledger")
+            frappe.throw(
+                "Reusable containers have no combined Item quantity; load complete Stock Tags "
+                "through the Logistics panel"
+            )
         if (flt(self.sequence_no) <= 0 or flt(self.total_units) <= 0
                 or flt(self.sequence_no) > flt(self.total_units)):
             frappe.throw("Handling-unit sequence must be between 1 and the total number of units")
@@ -153,6 +157,18 @@ class CFGKanbanHandlingUnit(Document):
         for fieldname in immutable:
             if before.get(fieldname) != self.get(fieldname):
                 frappe.throw(f"{self.meta.get_label(fieldname)} is immutable after ledger activation")
+
+    def _validate_reusable_policy_change(self):
+        if self.is_new() or self.tag_kind != "Reusable Container":
+            return
+        before = self.get_doc_before_save()
+        if not before or before.allow_mixed_content == self.allow_mixed_content:
+            return
+        if frappe.db.exists(
+            "CFG Kanban Container Content",
+            {"container_handling_unit": self.name, "state": "Loaded"},
+        ):
+            frappe.throw("Allow Mixed Item / Batch Content cannot change while the container is loaded")
 
     def _bind_tag_identity(self):
         if not self.tag_family or not self.handling_unit_id:

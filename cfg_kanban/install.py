@@ -31,6 +31,9 @@ def _ensure_responsibilities():
         "Internal Warehouse Transfer": (
             "Scan tagged stock against a same-company ERPNext Material Transfer."
         ),
+        "Container Loading": (
+            "Load and unload complete physical Stock Tags in reusable containers."
+        ),
         "Customer Delivery": "Deliver stock to an identified Customer Site.",
         "Customer Invoice Trigger": "Trigger locked-price customer invoicing.",
         "Logistics Supervisor": "Approve logistics exceptions and controlled overrides.",

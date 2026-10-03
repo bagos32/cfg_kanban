@@ -119,6 +119,14 @@ def scan_handling_unit(token, action, device_id=None, event_token=None, reason=N
               "void": "Void"}.get(action)
     if not target:
         frappe.throw("Unsupported handling-unit scan action")
+    from cfg_kanban.services.container_contents import (
+        assert_container_empty,
+        assert_not_loaded_in_container,
+    )
+    if unit.tag_kind == "Reusable Container":
+        assert_container_empty(unit.name, f"changing its lifecycle to {target}")
+    else:
+        assert_not_loaded_in_container(unit.name, f"changing its lifecycle to {target}")
     allowed = {"Issued": {"Attached", "Void"}, "Attached": {"Dispatched", "Void"},
                "Dispatched": {"Received", "Void"}}
     if target not in allowed.get(unit.state, set()):

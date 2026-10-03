@@ -27,6 +27,7 @@ def get_handling_unit_genealogy(scan_value=None, handling_unit=None, max_depth=8
             "relationships": [],
             "timeline": [],
             "manifests": [],
+            "container_history": [],
             "truncated": False,
         }
 
@@ -64,8 +65,14 @@ def get_handling_unit_genealogy(scan_value=None, handling_unit=None, max_depth=8
         "relationships": _serialise_edges(edges, summaries),
         "timeline": _timeline(visible_nodes, summaries),
         "manifests": _manifest_history(visible_nodes),
+        "container_history": _container_history(visible_nodes),
         "truncated": truncated,
     }
+
+
+def _container_history(visible_nodes):
+    from cfg_kanban.services.container_contents import container_history_for_units
+    return container_history_for_units(visible_nodes)
 
 
 def get_genealogy_print_context(handling_unit):

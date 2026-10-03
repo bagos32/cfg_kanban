@@ -43,6 +43,10 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Tag Range Registry")
         self.assertEqual(shortcuts["Handling Unit Quantity Ledger"],
                          "CFG Kanban Handling Unit Quantity Ledger")
+        self.assertEqual(shortcuts["Container Content History"],
+                         "CFG Kanban Container Content")
+        self.assertEqual(links["Container Content History"],
+                         "CFG Kanban Container Content")
         self.assertEqual(links["Movement Manifests"],
                          "CFG Kanban Movement Manifest")
         self.assertEqual(links["Material Trace Policies"],
@@ -84,6 +88,42 @@ class TestDocTypeSchema(TestCase):
         ).read_text()
         self.assertIn("Scan Any Physical Stock Tag", page_source)
         self.assertIn("Print Trace Report", page_source)
+        self.assertIn("Reusable Container Episodes", page_source)
+
+    def test_reusable_container_contents_are_immutable_physical_memberships(self):
+        schema = json.loads((
+            ROOT / "cfg_kanban_container_content" /
+            "cfg_kanban_container_content.json"
+        ).read_text())
+        fields = {row["fieldname"]: row for row in schema["fields"]}
+        self.assertTrue({
+            "container_handling_unit", "content_handling_unit", "item_code",
+            "batch_no", "qty", "stock_uom", "company", "warehouse",
+            "loaded_on", "loaded_by", "load_event_key", "unloaded_on",
+            "unloaded_by", "unload_event_key", "unload_reason",
+        }.issubset(fields))
+        self.assertEqual(fields["load_event_key"].get("unique"), 1)
+        self.assertEqual(fields["unload_event_key"].get("unique"), 1)
+        for permission in schema["permissions"]:
+            self.assertFalse(permission.get("create", 0))
+            self.assertFalse(permission.get("write", 0))
+            self.assertFalse(permission.get("delete", 0))
+
+        service = (APP_ROOT / "services" / "container_contents.py").read_text()
+        self.assertIn("def load_content_tag", service)
+        self.assertIn("def unload_content_tag", service)
+        self.assertIn("def assert_not_loaded_in_container", service)
+        self.assertNotIn("post_quantity_event", service)
+
+        scan_api = (APP_ROOT / "api" / "scan.py").read_text()
+        logistics_api = (APP_ROOT / "api" / "logistics.py").read_text()
+        production_trace = (APP_ROOT / "services" / "production_trace.py").read_text()
+        printing = (APP_ROOT / "services" / "printing.py").read_text()
+        for source in (scan_api, logistics_api, production_trace, printing):
+            self.assertTrue(
+                "assert_not_loaded_in_container" in source or
+                "assert_container_empty" in source
+            )
 
     def test_every_field_is_present_once_in_field_order(self):
         for path, schema in self._schemas():

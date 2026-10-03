@@ -3,7 +3,8 @@
 **Status:** Approved additive V1 architecture; mixed-trace policy, submitted Purchase Receipt tag
 activation, Stock Entry-confirmed production input/output tracing, scoped floor-panel access to
 those production traces, a same-company tagged Warehouse-transfer assistant, and the read-only
-upstream/downstream trace explorer with printable exact-tag reports are implemented.
+upstream/downstream trace explorer with printable exact-tag reports, and time-bounded reusable-
+container content episodes are implemented.
 
 ## 1. System boundary
 
@@ -141,12 +142,31 @@ to 100 Handling Units and 20 generations, reports truncation explicitly, and doe
 ERP-only or Batch-pool evidence into exact physical-unit evidence. The standard **CFG Kanban
 Genealogy Report** prints the same lineage and states **Exact Handling Unit** as its evidence level.
 
+### Reusable-container contents
+
+A permanent **Reusable Container** tag can group several complete Stock Tags without pretending
+that unlike Items or UOMs form one scalar stock balance. In the Logistics panel, scan the container
+in normal lookup mode and select **Manage Contents**. Scan each complete Stock Tag to load it. To
+remove one, select **Unload** and record the reason.
+
+Each load creates an immutable **CFG Kanban Container Content** episode containing the container,
+Stock Tag, Item, Batch, quantity, Company, Warehouse, operator, session, and time. Unloading closes
+that episode rather than deleting it. When **Allow Mixed Item / Batch Content** is disabled, every
+simultaneously loaded tag must have the same Item and Batch. The first loaded tag assigns a blank
+container's Company and Warehouse; later tags must match both.
+
+Container loading is physical grouping only: it does not post an ERPNext stock movement or change
+the Stock Tag balance. A loaded Stock Tag must be unloaded before it can be consumed, transferred,
+dispatched, received, replaced, or voided independently. A nonempty container cannot be replaced,
+voided, or moved through the generic lifecycle scan. Container episodes appear separately in the
+Genealogy Explorer so reuse over time does not create false upstream/downstream product lineage.
+
 ### Subsequent increments
 
 The next increments add:
 
-1. container-content genealogy for mixed reusable containers;
-2. richer serial-number evidence where one physical unit requires individual serial association.
+1. richer serial-number evidence where one physical unit requires individual serial association;
+2. controlled whole-container vehicle/customer movement while preserving each contained tag.
 
 Job Cards provide operator/operation context, but raw-material stock consumption remains linked to
 the Work Order and submitted Stock Entry details.

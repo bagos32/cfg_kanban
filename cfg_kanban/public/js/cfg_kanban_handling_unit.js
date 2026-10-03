@@ -111,6 +111,16 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 		frm.add_custom_button(__("Explore Material Genealogy"), () => {
 			frappe.set_route("material-genealogy", frm.doc.handling_unit_id);
 		}, __("Kanban Actions"));
+		if (frm.doc.tag_kind === "Reusable Container") {
+			frm.add_custom_button(__("Manage Container Contents"), () => {
+				frappe.set_route("kanban-logistics", frm.doc.handling_unit_id);
+			}, __("Kanban Actions"));
+			frm.add_custom_button(__("Container Content History"), () => {
+				frappe.set_route("List", "CFG Kanban Container Content", {
+					container_handling_unit: frm.doc.name,
+				});
+			}, __("Kanban Actions"));
+		}
 		frm.add_custom_button(__("Print Genealogy Report"), () => {
 			const url = `/printview?doctype=${encodeURIComponent(frm.doctype)}&name=${encodeURIComponent(frm.doc.name)}` +
 				`&format=${encodeURIComponent("CFG Kanban Genealogy Report")}&no_letterhead=1`;

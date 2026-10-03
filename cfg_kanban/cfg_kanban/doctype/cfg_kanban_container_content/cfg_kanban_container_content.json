@@ -1,0 +1,35 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Container Content","module":"CFG Kanban","autoname":"KCC-.YYYY.-.#####","title_field":"content_visible_code","track_changes":0,
+ "search_fields":"container_visible_code,content_visible_code,item_code,batch_no,state","field_order":["state","container_section","container_handling_unit","container_visible_code","content_handling_unit","content_visible_code","content_section","item_code","batch_no","qty","stock_uom","company","warehouse","load_section","loaded_on","loaded_by","loaded_operator_session","load_event_key","unload_section","unloaded_on","unloaded_by","unloaded_operator_session","unload_event_key","unload_reason"],
+ "fields":[
+  {"fieldname":"state","label":"Content State","fieldtype":"Select","options":"Loaded\nUnloaded","default":"Loaded","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"container_section","label":"Permanent Container and Physical Stock Tag","fieldtype":"Section Break"},
+  {"fieldname":"container_handling_unit","label":"Reusable Container","fieldtype":"Link","options":"CFG Kanban Handling Unit","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"container_visible_code","label":"Container Scan Code","fieldtype":"Data","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"content_handling_unit","label":"Contained Stock Tag","fieldtype":"Link","options":"CFG Kanban Handling Unit","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"content_visible_code","label":"Contained Tag Scan Code","fieldtype":"Data","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"content_section","label":"Immutable Content Snapshot","fieldtype":"Section Break"},
+  {"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"batch_no","label":"Batch","fieldtype":"Link","options":"Batch","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"qty","label":"Complete Tag Quantity at Load","fieldtype":"Float","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM","reqd":1,"read_only":1},
+  {"fieldname":"company","label":"Inventory Company at Load","fieldtype":"Link","options":"Company","reqd":1,"read_only":1,"in_standard_filter":1},
+  {"fieldname":"warehouse","label":"ERP Warehouse at Load","fieldtype":"Link","options":"Warehouse","reqd":1,"read_only":1,"in_standard_filter":1},
+  {"fieldname":"load_section","label":"Load Audit","fieldtype":"Section Break"},
+  {"fieldname":"loaded_on","label":"Loaded On","fieldtype":"Datetime","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"loaded_by","label":"Loaded by Operator","fieldtype":"Link","options":"Employee","read_only":1,"in_standard_filter":1},
+  {"fieldname":"loaded_operator_session","label":"Load Operator Session","fieldtype":"Link","options":"CFG Kanban Operator Session","read_only":1},
+  {"fieldname":"load_event_key","label":"Load Idempotency Key","fieldtype":"Data","reqd":1,"unique":1,"read_only":1,"hidden":1},
+  {"fieldname":"unload_section","label":"Unload Audit","fieldtype":"Section Break","collapsible":1},
+  {"fieldname":"unloaded_on","label":"Unloaded On","fieldtype":"Datetime","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"unloaded_by","label":"Unloaded by Operator","fieldtype":"Link","options":"Employee","read_only":1,"in_standard_filter":1},
+  {"fieldname":"unloaded_operator_session","label":"Unload Operator Session","fieldtype":"Link","options":"CFG Kanban Operator Session","read_only":1},
+  {"fieldname":"unload_event_key","label":"Unload Idempotency Key","fieldtype":"Data","unique":1,"read_only":1,"hidden":1},
+  {"fieldname":"unload_reason","label":"Unload Reason","fieldtype":"Small Text","read_only":1}
+ ],
+ "permissions":[
+  {"role":"Stock Manager","read":1,"print":1},
+  {"role":"Manufacturing Manager","read":1,"print":1},
+  {"role":"System Manager","read":1,"print":1}
+ ]
+}

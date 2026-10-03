@@ -769,8 +769,11 @@ def _lock_stock_entry(name):
 
 
 def _validate_input_unit(unit, doc, row, policy, batch_no):
+    from cfg_kanban.services.container_contents import assert_not_loaded_in_container
+
     if unit.tag_kind == "Reusable Container":
         frappe.throw("Scan a Stock Tag, not an empty reusable-container identity")
+    assert_not_loaded_in_container(unit.name, "allocating it to a Stock Entry")
     if unit.identity_state != "Active" or unit.quality_state != "Released":
         frappe.throw(
             f"Handling Unit {unit.handling_unit_id} is {unit.identity_state} / {unit.quality_state}"

@@ -2,6 +2,21 @@
 	position: relative;
 }
 
+.cfg-container-summary {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 10px 12px;
+	margin-bottom: 14px;
+	border-radius: 8px;
+	background: var(--control-bg);
+}
+
+.cfg-container-summary strong,
+.cfg-container-summary span {
+	display: block;
+}
+
 /* Logistics terminal: compact scan-first layout for fixed scanners and mobile cameras. */
 .cfg-logistics-sticky {
 	position: sticky;

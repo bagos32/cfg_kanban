@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.20
+**Guide version:** 1.21
 
 **Updated:** 3 October 2026
 
@@ -1062,6 +1062,30 @@ the limitation. Untagged stock remains traceable through native ERPNext Item, Ba
 Work Order, Purchase Receipt, and Delivery Note records; it cannot appear as exact Handling Unit
 evidence.
 
+### Reusable containers with one or many Stock Tags
+
+Use **Tag Kind** (`tag_kind`) = **Reusable Container** for a permanent tote, basket, cage, or box
+identity. It is not an Item balance. Each Item or Batch inside remains represented by its own Main
+or Child Stock Tag and remains backed by ERPNext stock.
+
+1. Create and save the reusable-container Handling Unit. Enable **Allow Mixed Item / Batch Content**
+   (`allow_mixed_content`) only when the physical container may hold different Items or Batches.
+2. Give the operator **Container Loading** responsibility, or use a Supervisor/manager account.
+3. Open **CFG Kanban → Logistics Operator Panel** and identify the operator.
+4. Keep the scanner in normal **Tag lookup ready** mode and scan the reusable-container code.
+5. Select **Manage Contents**. Scan a complete active Stock Tag and select **Load Tag**. A fixed
+   scanner may submit with Enter; a phone or tablet can select **Scan Stock Tag with Camera**.
+6. Repeat for every complete Stock Tag physically placed in the container.
+7. Before physically removing a Stock Tag, select **Unload**, enter the reason, and then remove it.
+
+The first content tag assigns a blank container's **Inventory Company** and **Current Warehouse**.
+Every later content tag must match them. When mixed content is disabled, it must also match the Item
+and Batch already inside. Loading/unloading does not create Stock Entry quantity: it records a
+physical membership episode. A Stock Tag cannot be consumed, transferred, dispatched, received,
+replaced, or voided independently while loaded, and a nonempty container cannot be replaced or
+voided. Managers can review **Container Content History** or **Reusable Container Episodes** in the
+Material Genealogy Explorer.
+
 ## 12. Scanner-first floor operation
 
 The Kanban Operator page supports both a fixed USB/Bluetooth keyboard-wedge scanner and the device
@@ -1438,7 +1462,7 @@ The following are not complete in the current build:
 - Full Start/Complete dynamic-field capture and arbitrary Job Card field mapping.
 - Automated email alerts and complete command retry orchestration.
 - Supplier Kanban and Sales Order fulfillment allocation beyond the implemented demand controls.
-- Mixed reusable-container genealogy and richer per-serial evidence. Purchase Receipt activation,
+- Richer per-serial evidence. Purchase Receipt activation, reusable-container content episodes,
   Stock Entry-confirmed production tracing, scoped scanner-first floor access, same-company tagged
   Warehouse transfers, and scan-any-tag upstream/downstream genealogy exploration are implemented.
 
@@ -1900,6 +1924,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.21 | 3 October 2026 | Added reusable-container content loading/unloading in the Logistics panel, immutable membership episodes, mixed-content policy, movement safeguards, workspace history, and genealogy visibility |
 | 1.20 | 3 October 2026 | Added the read-only scan-any-tag Material Genealogy Explorer, upstream/downstream Handling Unit lineage, ERP movement/Manifest evidence, related-tag navigation, Handling Unit and Logistics-panel entry points, and printable A4 exact-trace report |
 | 1.19 | 3 October 2026 | Added the Logistics-panel same-company tagged Warehouse-transfer assistant backed by Draft/Submitted ERPNext Material Transfer Stock Entries, Internal Warehouse Transfer responsibility, full-tag movement enforcement, and ERP-confirmed Warehouse updates |
 | 1.18 | 3 October 2026 | Added scoped Operator-panel production material tracing for Stock Entries tied to the scanned Card's active Cycle Work Order, including fixed-scanner Enter handling, mobile camera scan buttons, automatic input-tag quantity, and submitted trace visibility |

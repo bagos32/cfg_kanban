@@ -189,6 +189,7 @@ def lookup_logistics_tag(scan_value, operator_session_token):
         return result
 
     unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
+    from cfg_kanban.services.container_contents import container_status_for_unit
     result["handling_unit"] = {
         "name": unit.name,
         "visible_code": unit.handling_unit_id,
@@ -209,6 +210,12 @@ def lookup_logistics_tag(scan_value, operator_session_token):
         "packed_on": unit.packed_on,
         "expiry_date": unit.expiry_date,
     }
+    result["container_status"] = container_status_for_unit(unit)
+    result["can_manage_container"] = bool(
+        unit.tag_kind == "Reusable Container"
+        and profile.can_start
+        and (_can_view_all(profile) or "Container Loading" in _responsibilities(profile))
+    )
     last_movement = frappe.db.sql(
         """
         select name, event_type, posting_datetime, reference_doctype, reference_name
@@ -559,6 +566,8 @@ def cancel_manifest(manifest_name, reason, operator_session_token, event_token=N
 
 
 def _validate_dispatch_unit(unit, manifest):
+    from cfg_kanban.services.container_contents import assert_not_loaded_in_container
+
     if unit.identity_state != "Active":
         frappe.throw(f"Tag {unit.handling_unit_id} is {unit.identity_state}, not Active")
     if unit.quality_state != "Released":
@@ -574,7 +583,8 @@ def _validate_dispatch_unit(unit, manifest):
             f"not route source Warehouse {manifest.source_warehouse}"
         )
     if unit.tag_kind == "Reusable Container" or not unit.item_code:
-        frappe.throw("Reusable/mixed container handover is reserved for Package C")
+        frappe.throw("Dispatch the contained Stock Tags, not the reusable-container identity")
+    assert_not_loaded_in_container(unit.name, "adding it to an intercompany Manifest")
     if flt(unit.available_qty) <= 0:
         frappe.throw(f"Tag {unit.handling_unit_id} has no available quantity")
     if flt(unit.reserved_qty):

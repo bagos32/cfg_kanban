@@ -61,6 +61,14 @@ def replace_card(card_name, new_card_number, reason):
 def replace_handling_unit(unit_name, new_handling_unit_id, reason):
     frappe.only_for(("Manufacturing Manager", "Stock Manager", "System Manager"))
     old = frappe.get_doc("CFG Kanban Handling Unit", unit_name)
+    from cfg_kanban.services.container_contents import (
+        assert_container_empty,
+        assert_not_loaded_in_container,
+    )
+    if old.tag_kind == "Reusable Container":
+        assert_container_empty(old.name, "replacing its permanent identity")
+    else:
+        assert_not_loaded_in_container(old.name, "replacing its physical identity")
     if old.state in ("Received", "Void", "Replaced"):
         frappe.throw(f"A {old.state.lower()} tag cannot be replaced")
     if not reason:

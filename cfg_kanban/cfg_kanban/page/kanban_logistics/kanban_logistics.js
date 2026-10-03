@@ -365,12 +365,23 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		}
 		const e = frappe.utils.escape_html; const unit = state.lookup.handling_unit;
 		const movement = state.lookup.last_movement;
+		const container_status = state.lookup.container_status || {};
+		const membership = container_status.active_membership;
 		const manifests = (state.lookup.manifests || []).map((manifest) =>
 			`<button class="btn btn-default lookup-manifest" data-name="${e(manifest.name)}"><strong>${e(manifest.name)}</strong> · ${e(manifest.state)}</button>`
 		).join("");
+		const container_action = container_status.mode === "container" && state.lookup.can_manage_container ?
+			`<button class="btn btn-primary manage-container">${__("Manage Contents")}</button>` : "";
+		const membership_notice = membership ? `<div class="alert alert-warning mt-3">
+			<strong>${__("Physically inside reusable container")}: ${e(membership.container_visible_code)}</strong><br>
+			<small>${__("Unload this Stock Tag from the container before moving, consuming, replacing, or voiding it independently.")}</small></div>` : "";
+		const content_notice = container_status.mode === "container" ? `<div class="alert alert-info mt-3">
+			<strong>${__("Current contents")}: ${(container_status.current_contents || []).length} ${__("complete Stock Tags")}</strong><br>
+			<small>${__("Container membership is physical grouping only. ERP stock remains recorded against each Stock Tag.")}</small>
+			${state.lookup.can_manage_container ? "" : `<br><small>${__("Container Loading responsibility is required to change contents.")}</small>`}</div>` : "";
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
 			<div class="cfg-logistics-tag-head"><div><small>${__("Scanned Tag Status")}</small><h3>${e(unit.visible_code)}</h3><strong>${e(unit.item_code || __("No item assigned"))}</strong></div>
-				<div><button class="btn btn-primary explore-genealogy" data-code="${e(unit.visible_code)}">${__("Full Genealogy")}</button>
+				<div>${container_action}<button class="btn btn-default explore-genealogy" data-code="${e(unit.visible_code)}">${__("Full Genealogy")}</button>
 				<button class="btn btn-default close-lookup">${__("Close")}</button></div></div>
 			<div class="cfg-logistics-tag-grid">
 				<div><small>${__("Batch")}</small><strong>${e(unit.batch_no || __("No Batch"))}</strong></div>
@@ -380,6 +391,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				<div><small>${__("Available / Reserved")}</small><strong>${format_number(unit.available_qty)} / ${format_number(unit.reserved_qty)}</strong></div>
 				<div><small>${__("Lifecycle")}</small><strong>${e(unit.identity_state)} · ${e(unit.movement_state)} · ${e(unit.quality_state)}</strong></div>
 			</div>
+			${membership_notice}${content_notice}
 			<div class="cfg-logistics-last-movement"><small>${__("Last movement")}</small><strong>${movement ? `${e(movement.event_type)} · ${e(display_datetime(movement.posting_datetime))}` : __("No quantity movement recorded")}</strong></div>
 			<div class="cfg-logistics-related"><small>${__("Related Manifests")}</small><div>${manifests || `<span class="text-muted">${__("No Manifest history for this tag")}</span>`}</div></div>
 		</div>`);
@@ -388,6 +400,75 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		$lookup.find(".explore-genealogy").on("click", function () {
 			frappe.set_route("material-genealogy", $(this).data("code"));
 		});
+		$lookup.find(".manage-container").on("click", manage_container_dialog);
+	}
+
+	function manage_container_dialog() {
+		const status = state.lookup && state.lookup.container_status;
+		if (!status || status.mode !== "container") return;
+		const container = status.container;
+		const dialog = new frappe.ui.Dialog({
+			title: __("Reusable Container {0}", [container.visible_code]),
+			size: "extra-large",
+			fields: [
+				{ fieldname: "content_scan", label: __("Stock Tag"), fieldtype: "Data",
+					description: __("Scan one complete physical Stock Tag, then select Load Tag.") },
+				{ fieldname: "scan_camera", fieldtype: "Button", label: __("Scan Stock Tag with Camera") },
+				{ fieldname: "content_html", fieldtype: "HTML" },
+			],
+			primary_action_label: __("Load Tag"),
+			primary_action: async (values) => {
+				const content_scan = String(values.content_scan || "").trim();
+				if (!content_scan) return frappe.msgprint(__("Scan or enter a Stock Tag first."));
+				await change_container_content("load_content_tag", {
+					container_scan: container.visible_code, content_scan,
+					event_token: unique_token(), operator_session_token: state.token,
+				}, dialog);
+			},
+		});
+		dialog.fields_dict.scan_camera.$input.on("click", () => camera_value((value) => {
+			dialog.set_value("content_scan", value);
+		}));
+		dialog.fields_dict.content_scan.$input.on("keydown", (event) => {
+			if (event.key === "Enter") { event.preventDefault(); dialog.get_primary_btn().trigger("click"); }
+		});
+		render_container_dialog(dialog, status);
+		dialog.show();
+	}
+
+	function render_container_dialog(dialog, status) {
+		const e = frappe.utils.escape_html;
+		const current = (status.current_contents || []).map((row) => `<tr>
+			<td><strong>${e(row.content_visible_code)}</strong></td><td>${e(row.item_code || "-")}</td>
+			<td>${e(row.batch_no || __("No Batch"))}</td><td>${format_number(row.qty)} ${e(row.stock_uom || "")}</td>
+			<td>${e(display_datetime(row.loaded_on))}</td><td><button class="btn btn-xs btn-danger unload-content" data-code="${e(row.content_visible_code)}">${__("Unload")}</button></td></tr>`).join("");
+		const history = (status.history || []).slice(0, 20).map((row) => `<tr>
+			<td>${e(row.content_visible_code)}</td><td>${e(row.item_code || "-")}</td><td>${format_number(row.qty)} ${e(row.stock_uom || "")}</td>
+			<td>${e(display_datetime(row.unloaded_on))}</td><td>${e(row.unload_reason || "-")}</td></tr>`).join("");
+		const html = `<div class="cfg-container-summary"><strong>${(status.current_contents || []).length} ${__("Stock Tags currently loaded")}</strong>
+			<span>${e(status.container.inventory_company || "-")} · ${e(status.container.current_warehouse || "-")}</span></div>
+			<h5>${__("Current Contents")}</h5><div class="table-responsive"><table class="table table-bordered"><thead><tr><th>${__("Tag")}</th><th>${__("Item")}</th><th>${__("Batch")}</th><th>${__("Quantity")}</th><th>${__("Loaded")}</th><th></th></tr></thead>
+			<tbody>${current || `<tr><td colspan="6" class="text-muted">${__("Container is empty")}</td></tr>`}</tbody></table></div>
+			<h5>${__("Recent Unloads")}</h5><div class="table-responsive"><table class="table table-bordered"><thead><tr><th>${__("Tag")}</th><th>${__("Item")}</th><th>${__("Quantity")}</th><th>${__("Unloaded")}</th><th>${__("Reason")}</th></tr></thead>
+			<tbody>${history || `<tr><td colspan="5" class="text-muted">${__("No unload history")}</td></tr>`}</tbody></table></div>`;
+		const $html = dialog.fields_dict.content_html.$wrapper.html(html);
+		$html.find(".unload-content").on("click", function () {
+			const content_scan = $(this).data("code");
+			frappe.prompt([{ fieldname: "reason", label: __("Unload Reason"), fieldtype: "Small Text", reqd: 1 }],
+				async (values) => change_container_content("unload_content_tag", {
+					container_scan: status.container.visible_code, content_scan, reason: values.reason,
+					event_token: unique_token(), operator_session_token: state.token,
+				}, dialog), __("Unload {0}", [content_scan]), __("Unload Tag"));
+		});
+	}
+
+	async function change_container_content(method, args, dialog) {
+		const response = await frappe.call({ method: `cfg_kanban.services.container_contents.${method}`,
+			args, freeze: true, freeze_message: method === "load_content_tag" ? __("Loading Stock Tag...") : __("Unloading Stock Tag...") });
+		state.lookup.container_status = { mode: "container", ...response.message };
+		render_container_dialog(dialog, state.lookup.container_status);
+		dialog.set_value("content_scan", "");
+		render_lookup();
 	}
 
 	async function process_scan(value) {
@@ -667,6 +748,11 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		catch (error) { return null; }
 	}
 
+	function route_scan_value() {
+		const route = frappe.get_route();
+		return route && route[0] === "kanban-logistics" && route[1] ? decodeURIComponent(route[1]) : null;
+	}
+
 	function update_scanner_state() {
 		let label = __("Operator required"); let colour = "orange";
 		if (state.token) { label = __("Tag lookup ready"); colour = "blue"; }
@@ -703,5 +789,6 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		catch (error) { return String(value); }
 	}
 
-	load();
+	const initial_scan = route_scan_value();
+	load().then(() => { if (initial_scan && state.token) lookup_tag(initial_scan); });
 };
