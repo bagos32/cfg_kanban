@@ -6,6 +6,9 @@ The consolidated model is documented in
 [Enhanced V1 Core Architecture](docs/ENHANCED_CORE_ARCHITECTURE.md).
 The approved multi-company stock-tag and customer-delivery extension is documented in
 [Multi-Company Logistics Architecture](docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md).
+The independent tester-facing acceptance procedure for the implemented Customer Site / Delivery
+Session foundation is in
+[Package C1 Customer Delivery Session System Test](docs/TEST_PACKAGE_C1_CUSTOMER_DELIVERY_SESSION.md).
 Its Package A identity/configuration foundation, Package B intercompany handover, and Package C1
 customer/vehicle session foundation are implemented. Customer stock allocation and ERP delivery
 posting remain later controlled increments.
