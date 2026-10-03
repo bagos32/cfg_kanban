@@ -4,7 +4,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	const last_manifest_key = "cfg_kanban_last_manifest";
 	const state = { token: localStorage.getItem(session_key), operator: null, routes: [],
 		manifests: [], recent_manifests: [], internal_transfers: [], manifest: null,
-		lookup: null, scan_mode: "lookup" };
+		delivery_sessions: [], lookup: null, scan_mode: "lookup" };
 	const $sticky = $("<div class='cfg-logistics-sticky'></div>").appendTo(page.main);
 	const $scanner = $(`<div class="frappe-card cfg-logistics-scanner">
 		<div class="cfg-logistics-scanner-head"><div><strong>${__("Logistics Scanner")}</strong>
@@ -52,6 +52,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			state.manifests = response.message.manifests || [];
 			state.recent_manifests = response.message.recent_manifests || [];
 			state.internal_transfers = response.message.internal_transfers || [];
+			state.delivery_sessions = response.message.delivery_sessions || [];
 			state.scan_mode = "lookup";
 			render_identity();
 			const last_manifest = state.manifest?.name || state.manifest || localStorage.getItem(last_manifest_key);
@@ -77,6 +78,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.manifests = [];
 		state.recent_manifests = [];
 		state.internal_transfers = [];
+		state.delivery_sessions = [];
 		state.manifest = null;
 		state.lookup = null;
 		state.scan_mode = "lookup";
@@ -219,13 +221,22 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				<small>${e(row.item_count)} ${__("rows")} · ${format_number(row.total_quantity)} ${__("total quantity")}</small></div>
 			</button>`;
 		}).join("") || `<div class="text-muted p-4">${__("No Material Transfer Stock Entries are available, or this operator lacks Internal Warehouse Transfer responsibility.")}</div>`;
-		$list.html(`<section class="cfg-internal-transfer-list mb-4"><h3>${__("Same-Company Tagged Warehouse Transfers")}</h3>
+		const delivery_rows = state.delivery_sessions.map((row) =>
+			`<button class="frappe-card cfg-logistics-list-row delivery-session-row" data-name="${e(row.name)}"><div><strong>${e(row.name)}</strong><small>${e(row.site_name)} · ${e(row.customer)}</small></div>
+			<div><span class="indicator-pill orange">${e(row.state)}</span><small>${e(row.vehicle_reference)} · ${e(row.source_warehouse)}</small></div></button>`
+		).join("") || `<div class="text-muted p-3">${__("No active Customer Delivery Sessions for this operator")}</div>`;
+		$list.html(`<section class="cfg-customer-delivery-list mb-4"><h3>${__("Customer Delivery Sessions")}</h3>
+			<p class="text-muted">${__("Scan a Customer Site code in normal lookup mode to start a controlled delivery context.")}</p>${delivery_rows}</section>
+			<section class="cfg-internal-transfer-list mb-4"><h3>${__("Same-Company Tagged Warehouse Transfers")}</h3>
 			<p class="text-muted">${__("A Stock/Manufacturing user prepares the Draft ERPNext Material Transfer. Scan its physical tags here; ERPNext submission confirms the Warehouse movement.")}</p>${transfer_rows}</section>
 			<section class="cfg-logistics-open-list"><h3>${__("Open Movement Manifests")}</h3>${open_rows}</section>
 			<details class="cfg-logistics-recent mt-4"><summary><strong>${__("Recently Completed")}</strong> <span class="text-muted">${__("Latest 10")}</span></summary><div class="mt-3">${recent_rows}</div></details>`);
 		$list.find(".cfg-logistics-list-row").on("click", function () { open_manifest($(this).data("name")); });
 		$list.find(".internal-transfer-row").off("click").on("click", function () {
 			internal_transfer_dialog($(this).data("name"));
+		});
+		$list.find(".delivery-session-row").off("click").on("click", function () {
+			open_delivery_session($(this).data("name"));
 		});
 	}
 
@@ -352,6 +363,14 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 
 	function render_lookup() {
 		if (!state.lookup) return $lookup.empty();
+		if (state.lookup.delivery_session) {
+			render_delivery_session(state.lookup.delivery_session);
+			return;
+		}
+		if (state.lookup.customer_site) {
+			render_customer_site(state.lookup.customer_site);
+			return;
+		}
 		if (!state.lookup.handling_unit) {
 			const identity = state.lookup.identity || {}; const e = frappe.utils.escape_html;
 			const is_range = identity.identity_type === "Tag Range Candidate";
@@ -411,6 +430,105 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			frappe.set_route("material-genealogy", $(this).data("code"));
 		});
 		$lookup.find(".manage-container").on("click", manage_container_dialog);
+	}
+
+	function render_customer_site(site) {
+		const e = frappe.utils.escape_html;
+		const warehouses = site.vehicle_warehouses || [];
+		const start_action = site.can_start_delivery && warehouses.length ?
+			`<button class="btn btn-primary start-delivery">${__("Start Customer Delivery")}</button>` : "";
+		const warning = !site.can_start_delivery ?
+			__("The active operator is not assigned to Customer Delivery.") :
+			(!warehouses.length ? __("No active Vehicle Warehouse is configured for this selling Company.") : "");
+		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
+			<div class="cfg-logistics-tag-head"><div><small>${__("Customer Site identified")}</small>
+				<h3>${e(site.site_name)}</h3><strong>${e(site.site_code)}</strong></div>
+				<div>${start_action}<button class="btn btn-default close-lookup">${__("Close")}</button></div></div>
+			<div class="cfg-logistics-tag-grid">
+				<div><small>${__("Selling Company")}</small><strong>${e(site.selling_company)}</strong></div>
+				<div><small>${__("Customer")}</small><strong>${e(site.customer)}</strong></div>
+				<div><small>${__("Delivery Address")}</small><strong>${e(site.customer_address)}</strong></div>
+				<div><small>${__("Route")}</small><strong>${e(site.route_reference || __("Not assigned"))}</strong></div>
+				<div><small>${__("Proof Policy")}</small><strong>${e(site.proof_policy)}</strong></div>
+				<div><small>${__("Available Vehicle Warehouses")}</small><strong>${warehouses.length}</strong></div>
+			</div>
+			${warning ? `<div class="alert alert-warning mt-3 mb-0">${e(warning)}</div>` :
+				`<div class="alert alert-info mt-3 mb-0">${__("Customer, address, Company, price policy and proof policy will be locked into the new Delivery Session.")}</div>`}
+		</div>`);
+		$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
+		$lookup.find(".start-delivery").on("click", () => start_delivery_dialog(site));
+	}
+
+	function start_delivery_dialog(site) {
+		const options = (site.vehicle_warehouses || []).map((row) =>
+			`${row.name} :: ${row.vehicle_reference}`).join("\n");
+		if (!options) return frappe.msgprint(__("No Vehicle Warehouse is configured for this Company."));
+		const dialog = new frappe.ui.Dialog({
+			title: __("Start Delivery: {0}", [site.site_name]),
+			fields: [
+				{ fieldname: "site", label: __("Customer Site"), fieldtype: "Data", read_only: 1,
+					default: `${site.site_code} · ${site.customer} · ${site.customer_address}` },
+				{ fieldname: "vehicle_warehouse", label: __("Selling-company Lorry Warehouse"),
+					fieldtype: "Select", options, reqd: 1,
+					description: __("Choose the logical Warehouse for the physical lorry currently carrying this Company's stock.") },
+			],
+			primary_action_label: __("Lock Customer and Vehicle"),
+			primary_action: async (values) => {
+				const source_warehouse = String(values.vehicle_warehouse || "").split(" :: ")[0];
+				const response = await frappe.call({
+					method: "cfg_kanban.services.customer_delivery.start_delivery_session",
+					args: { customer_scan: site.site_code, source_warehouse,
+						event_token: unique_token(), operator_session_token: state.token },
+					freeze: true, freeze_message: __("Starting Customer Delivery Session..."),
+				});
+				dialog.hide();
+				state.lookup = { delivery_session: response.message };
+				render_lookup(); await refresh_list(); focus_scanner();
+			},
+		});
+		dialog.show();
+	}
+
+	function render_delivery_session(delivery) {
+		const e = frappe.utils.escape_html;
+		const allocations = delivery.allocations || [];
+		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
+			<div class="cfg-logistics-tag-head"><div><small>${__("Active Customer Delivery")}</small>
+				<h3>${e(delivery.site_name)}</h3><strong>${e(delivery.name)} · ${e(delivery.state)}</strong></div>
+				<div>${delivery.state === "Customer Identified" && !allocations.length ? `<button class="btn btn-danger cancel-delivery">${__("Cancel Empty Session")}</button>` : ""}
+				<button class="btn btn-default close-lookup">${__("Close")}</button></div></div>
+			<div class="cfg-logistics-tag-grid">
+				<div><small>${__("Customer")}</small><strong>${e(delivery.customer)}</strong></div>
+				<div><small>${__("Delivery Address")}</small><strong>${e(delivery.customer_address)}</strong></div>
+				<div><small>${__("Selling Company")}</small><strong>${e(delivery.selling_company)}</strong></div>
+				<div><small>${__("Physical Vehicle")}</small><strong>${e(delivery.vehicle_reference)}</strong></div>
+				<div><small>${__("Lorry Warehouse")}</small><strong>${e(delivery.source_warehouse)}</strong></div>
+				<div><small>${__("Proof Policy")}</small><strong>${e(delivery.proof_policy)}</strong></div>
+			</div>
+			<div class="alert alert-info mt-3 mb-0">${__("Customer and vehicle context is locked. Stock Tag allocation and ERP Delivery Note creation are added in the next controlled increment.")}</div>
+		</div>`);
+		$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
+		$lookup.find(".cancel-delivery").on("click", () => frappe.prompt([
+			{ fieldname: "reason", label: __("Cancellation Reason"), fieldtype: "Small Text", reqd: 1 },
+		], async (values) => {
+			const response = await frappe.call({
+				method: "cfg_kanban.services.customer_delivery.cancel_delivery_session",
+				args: { delivery_session: delivery.name, reason: values.reason,
+					event_token: unique_token(), operator_session_token: state.token },
+				freeze: true, freeze_message: __("Cancelling Delivery Session..."),
+			});
+			state.lookup = { delivery_session: response.message };
+			render_lookup(); await refresh_list();
+		}, __("Cancel Empty Delivery Session"), __("Cancel Session")));
+	}
+
+	async function open_delivery_session(name) {
+		const response = await frappe.call({
+			method: "cfg_kanban.services.customer_delivery.get_delivery_session",
+			args: { delivery_session: name, operator_session_token: state.token },
+		});
+		state.lookup = { delivery_session: response.message };
+		render_lookup(); focus_scanner();
 	}
 
 	function manage_container_dialog() {
@@ -696,6 +814,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.routes = response.message.routes || []; state.manifests = response.message.manifests || [];
 		state.recent_manifests = response.message.recent_manifests || [];
 		state.internal_transfers = response.message.internal_transfers || [];
+		state.delivery_sessions = response.message.delivery_sessions || [];
 		render_list();
 	}
 

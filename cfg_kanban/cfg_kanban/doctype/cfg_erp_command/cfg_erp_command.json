@@ -11,6 +11,7 @@
   "kanban_cycle",
   "process_execution",
   "movement_manifest",
+  "delivery_session",
   "status",
   "target_doctype",
   "target_document",
@@ -65,6 +66,14 @@
    "label": "Movement Manifest",
    "fieldtype": "Link",
    "options": "CFG Kanban Movement Manifest",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "delivery_session",
+   "label": "Delivery Session",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Delivery Session",
    "in_list_view": 1,
    "in_standard_filter": 1
   },

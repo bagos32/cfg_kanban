@@ -6,8 +6,9 @@ The consolidated model is documented in
 [Enhanced V1 Core Architecture](docs/ENHANCED_CORE_ARCHITECTURE.md).
 The approved multi-company stock-tag and customer-delivery extension is documented in
 [Multi-Company Logistics Architecture](docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md).
-Its Package A identity/configuration foundation is implemented; intercompany posting and driver
-delivery workflows remain Packages B-C.
+Its Package A identity/configuration foundation, Package B intercompany handover, and Package C1
+customer/vehicle session foundation are implemented. Customer stock allocation and ERP delivery
+posting remain later controlled increments.
 The additive tagged/untagged material-continuity model is documented in
 [Material Genealogy Architecture](docs/MATERIAL_GENEALOGY_ARCHITECTURE.md). Its mixed-trace policy
 and submitted Purchase Receipt tag-activation slice are implemented without making tags mandatory
@@ -81,11 +82,13 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
   production assignment, controlled detachable-child split/untouched merge, whole-tag consumption
   validation, cancellation recovery, replacement transfer, immutable history, and
   genealogy/Logistics-panel visibility.
-- Packages A-B of the approved multi-company logistics architecture: directional Logistics Routes,
+- Packages A-B plus Package C1 of the approved multi-company logistics architecture: directional Logistics Routes,
   Customer Scan Points, pre-registered main/child Stock Tag families, extended Handling Units,
   immutable quantity ledger, scan-first Movement Manifests, and guarded intercompany Delivery Note
-  / Purchase Receipt posting with independent auto-submit policies. Vehicle/customer delivery,
-  proof-of-delivery, and Billing Batch functions remain later packages.
+  / Purchase Receipt posting with independent auto-submit policies. Customer Site scans now lock
+  the Customer, address, selling Company, price list, proof policy, and Company-specific lorry
+  Warehouse into an immutable Delivery Session. Stock allocation, customer Delivery Note/Sales
+  Invoice posting, proof-of-delivery, and Billing Batch functions remain later increments.
 
 ## Control flow
 

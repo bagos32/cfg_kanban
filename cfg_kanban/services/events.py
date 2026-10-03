@@ -3,7 +3,8 @@ from frappe.utils import now_datetime
 
 
 def record(event_type, *, card=None, cycle=None, execution=None, process_task=None,
-           standalone_task=None, movement_manifest=None, handling_unit=None,
+           standalone_task=None, movement_manifest=None, delivery_session=None,
+           handling_unit=None,
            qty=0, previous_state=None,
            new_state=None, reference_doctype=None, reference_name=None, device_id=None,
            notes=None, system_generated=True, operator=None, operator_session=None,
@@ -18,6 +19,7 @@ def record(event_type, *, card=None, cycle=None, execution=None, process_task=No
         "process_task": process_task,
         "standalone_task": standalone_task,
         "movement_manifest": movement_manifest,
+        "delivery_session": delivery_session,
         "handling_unit": handling_unit,
         "user": terminal_user or frappe.session.user,
         "operator": operator,

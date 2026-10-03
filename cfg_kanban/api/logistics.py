@@ -112,9 +112,11 @@ def get_logistics_console(operator_session_token):
         {"state": ["in", list(TERMINAL_STATES)]},
         limit=10,
     )
+    from cfg_kanban.services.customer_delivery import delivery_session_summaries
     return {"operator": _operator_summary(profile, session), "routes": routes,
             "manifests": manifests, "recent_manifests": recent_manifests,
-            "internal_transfers": _internal_transfer_summaries(profile)}
+            "internal_transfers": _internal_transfer_summaries(profile),
+            "delivery_sessions": delivery_session_summaries(profile)}
 
 
 @frappe.whitelist()
@@ -185,6 +187,10 @@ def lookup_logistics_tag(scan_value, operator_session_token):
     if not identity:
         frappe.throw("The scanned logistics identity was not found")
     result = {"identity": identity, "handling_unit": None, "manifests": []}
+    if identity["identity_type"] == "Customer Scan Point":
+        from cfg_kanban.services.customer_delivery import customer_delivery_context
+        result["customer_site"] = customer_delivery_context(scan_value, profile)
+        return result
     if identity["identity_type"] != "Handling Unit":
         return result
 

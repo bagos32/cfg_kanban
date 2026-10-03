@@ -36,6 +36,14 @@ class TestDocTypeSchema(TestCase):
         self.assertEqual(shortcuts["Operator Profiles"], "CFG Kanban Operator Profile")
         self.assertEqual(links["Logistics Routes"], "CFG Kanban Logistics Route")
         self.assertEqual(links["Customer Scan Points"], "CFG Kanban Customer Scan Point")
+        self.assertEqual(links["Customer Delivery Sessions"],
+                         "CFG Kanban Delivery Session")
+        self.assertEqual(links["Customer Delivery Allocations"],
+                         "CFG Kanban Delivery Allocation")
+        self.assertEqual(shortcuts["Customer Delivery Sessions"],
+                         "CFG Kanban Delivery Session")
+        self.assertEqual(shortcuts["Customer Delivery Allocations"],
+                         "CFG Kanban Delivery Allocation")
         self.assertEqual(links["Stock Tag Families"], "CFG Kanban Tag Family")
         self.assertEqual(links["Stock Tag Range Registries"],
                          "CFG Kanban Tag Range Registry")
@@ -543,6 +551,55 @@ class TestDocTypeSchema(TestCase):
                           schemas["CFG ERP Command"]["fields"]}
         self.assertEqual(command_fields["command_type"].get("reqd"), 1)
         self.assertFalse(command_fields["kanban_cycle"].get("reqd", 0))
+
+    def test_customer_delivery_session_foundation_is_company_scoped(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        self.assertTrue({"CFG Kanban Delivery Session",
+                         "CFG Kanban Delivery Allocation"}.issubset(schemas))
+
+        session = {row["fieldname"]: row for row in
+                   schemas["CFG Kanban Delivery Session"]["fields"]}
+        self.assertTrue({
+            "state", "customer_scan_point", "site_code", "site_name",
+            "selling_company", "customer", "customer_address", "source_warehouse",
+            "vehicle_reference", "price_list", "proof_policy", "operator_session",
+            "started_by_operator", "idempotency_key",
+        }.issubset(session))
+        self.assertEqual(session["idempotency_key"].get("unique"), 1)
+
+        allocation = {row["fieldname"]: row for row in
+                      schemas["CFG Kanban Delivery Allocation"]["fields"]}
+        self.assertTrue({
+            "delivery_session", "handling_unit", "visible_code", "item_code",
+            "batch_no", "stock_uom", "allocated_qty", "delivered_qty",
+            "source_warehouse", "reservation_key",
+        }.issubset(allocation))
+        self.assertEqual(allocation["reservation_key"].get("unique"), 1)
+
+        command = {row["fieldname"]: row for row in
+                   schemas["CFG ERP Command"]["fields"]}
+        self.assertEqual(command["delivery_session"]["options"],
+                         "CFG Kanban Delivery Session")
+        command_types = command["command_type"]["options"].splitlines()
+        self.assertNotIn("Create Customer Delivery Note", command_types)
+        self.assertNotIn("Create Customer Sales Invoice", command_types)
+
+        for doctype in ("CFG Kanban Event", "CFG Kanban Exception"):
+            fields = {row["fieldname"]: row for row in schemas[doctype]["fields"]}
+            self.assertEqual(fields["delivery_session"]["options"],
+                             "CFG Kanban Delivery Session")
+
+        install = (APP_ROOT / "install.py").read_text()
+        service = (APP_ROOT / "services" / "customer_delivery.py").read_text()
+        panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
+                 "kanban_logistics.js").read_text()
+        self.assertIn('"cfg_is_vehicle_warehouse"', install)
+        self.assertIn('"cfg_vehicle_reference"', install)
+        self.assertIn('"Customer Delivery"', install)
+        self.assertIn("def start_delivery_session", service)
+        self.assertIn("def cancel_delivery_session", service)
+        self.assertIn("state.lookup.customer_site", panel)
+        self.assertIn("Lock Customer and Vehicle", panel)
 
     def test_intercompany_erp_feedback_and_trace_fields_are_registered(self):
         hooks = (APP_ROOT / "hooks.py").read_text()

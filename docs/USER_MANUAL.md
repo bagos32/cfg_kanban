@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.24
+**Guide version:** 1.25
 
 **Updated:** 3 October 2026
 
@@ -1760,13 +1760,14 @@ Signal rollback cancels/deletes only activity-free ERP documents, marks Cycle an
 returns the Card to Available, clears Active Cycle, and records Events. A submitted Work Order can be
 cancelled only while ERPNext permits it and the code has found no production/material activity.
 
-## 25. Multi-company logistics and intercompany handover (Packages A-B)
+## 25. Multi-company logistics and customer-session foundation (Packages A-B and C1)
 
-Package A installs the configuration and physical-identity foundation. The Package B vertical slice
-adds the controlled intercompany Movement Manifest, source-company Delivery Note, destination-company
-Purchase Receipt, ERP feedback, and scan-first Logistics Operator Panel. Customer-site delivery,
-vehicle loading, loose reusable containers, proof of delivery, Sales Invoice creation, and Billing
-Batch grouping remain later packages. The locked design is in
+Package A installs the configuration and physical-identity foundation. Package B adds the controlled
+intercompany Movement Manifest, source-company Delivery Note, destination-company Purchase Receipt,
+ERP feedback, and scan-first Logistics Operator Panel. Package C1 now adds Customer Site scanning,
+Company-specific vehicle Warehouse validation, and an immutable Delivery Session. Stock allocation,
+customer Delivery Note/Sales Invoice creation, proof of delivery, and Billing Batch grouping remain
+later increments. The locked design is in
 `docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md`.
 
 ### CFG Kanban Logistics Route
@@ -1798,7 +1799,31 @@ Proof settings are **Proof Policy** (`proof_policy`: Required, Optional, Unatten
 Allowed, No Proof Required), **Require Recipient Name**, **Require Signature**, **Require
 Photograph**, **Require GPS**, and **Require Unattended-delivery Reason**. The printed `site_code` is
 the primary scan value. **Internal UUID Alias** is generated automatically as a system fallback.
-Customer-site delivery scanning is Package C.
+
+### Customer Delivery Session setup and C1 test
+
+1. Open the ERPNext **Warehouse** representing the stock physically carried by the lorry. Set
+   **Vehicle Warehouse** (`cfg_is_vehicle_warehouse`) and enter **Physical Vehicle Reference**
+   (`cfg_vehicle_reference`), for example `LORRY-01`. The Warehouse must be active, non-group, and
+   belong to the Customer Scan Point's **Selling Company**. When one physical lorry carries stock
+   for two Companies, create a separate Warehouse for each Company and give both the same physical
+   vehicle reference.
+2. On the driver's **CFG Kanban Operator Profile**, add the Kanban Responsibility **Customer
+   Delivery**. Migration creates this responsibility if it does not already exist.
+3. Open **Logistics Operator Panel**, identify the operator, and scan the Customer Site's printed
+   `site_code` in normal lookup mode.
+4. Confirm the displayed Customer, exact Delivery Address, Selling Company, route, and proof policy.
+   Select the correct Company-specific lorry Warehouse and choose **Lock Customer and Vehicle**.
+5. The panel creates **CFG Kanban Delivery Session** and displays the locked Customer/site/Company,
+   physical vehicle, lorry Warehouse, price list, and proof-policy snapshot. The operator cannot
+   start a second active site session until the first is completed or cancelled.
+6. An empty session in **Customer Identified** state may be cancelled with a mandatory reason. The
+   session and its Event history are preserved; they are never deleted.
+
+**Current C1 limit:** no stock is allocated or moved, and no customer Delivery Note or Sales Invoice
+is created. **CFG Kanban Delivery Allocation** is the audit schema reserved for the next controlled
+increment; operators must not create allocation records manually. C1 proves customer/site and lorry
+context isolation before stock or accounting actions are enabled.
 
 ### CFG Kanban Tag Range Registry
 
@@ -1986,15 +2011,18 @@ When using this file as context, an assistant must:
    code does not contain.
 10. Confirm the deployed Git revision/migration when the UI does not match this guide.
 
-11. Treat Customer-site delivery, vehicle loading, loose-container delivery, and billing grouping
-    as future packages. Package B intercompany posting, including complete loaded reusable
-    containers, is operational only through the Movement Manifest and submitted Delivery Note /
-    Purchase Receipt feedback described above.
+11. Treat Customer stock allocation, customer Delivery Note/Sales Invoice posting, proof capture,
+    loose-container customer delivery, and billing grouping as future increments. Package C1 only
+    identifies the Customer Site and locks the Company-specific lorry Warehouse in a Delivery
+    Session. Package B intercompany posting, including complete loaded reusable containers, remains
+    operational only through the Movement Manifest and submitted Delivery Note / Purchase Receipt
+    feedback described above.
 
 ## 27. Revision history
 
 | Version | Date | Change |
 |---|---|---|
+| 1.25 | 3 October 2026 | Added Customer Site scan resolution, Company-specific Vehicle Warehouse setup, immutable operator-scoped Delivery Sessions, idempotent start/cancel audit, workspace records, and the explicit no-stock-movement C1 boundary |
 | 1.24 | 3 October 2026 | Added one-scan complete reusable-container dispatch and receipt through intercompany Movement Manifests while retaining every contained Stock Tag as the ERP-accounted Item/Batch/quantity identity |
 | 1.23 | 3 October 2026 | Added controlled exact-serial splitting from main Stock Tags to preprinted detachable child tags, quantity-preserving ledger evidence, and safe untouched-child merge back to the parent |
 | 1.22 | 3 October 2026 | Added ERPNext-referenced exact Serial Number membership for received and produced Stock Tags, whole-tag production validation, consumption/reversal/replacement lifecycle handling, serial history, and genealogy/logistics visibility |

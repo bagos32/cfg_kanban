@@ -69,9 +69,12 @@ def _custom_fields():
         {"fieldname": "cfg_movement_manifest", "label": "Movement Manifest", "fieldtype": "Link",
          "options": "CFG Kanban Movement Manifest", "read_only": 1,
          "insert_after": "cfg_logistics_route"},
+        {"fieldname": "cfg_delivery_session", "label": "Customer Delivery Session",
+         "fieldtype": "Link", "options": "CFG Kanban Delivery Session", "read_only": 1,
+         "insert_after": "cfg_movement_manifest"},
         {"fieldname": "cfg_counterpart_company", "label": "Counterpart Company",
          "fieldtype": "Link", "options": "Company", "read_only": 1,
-         "insert_after": "cfg_movement_manifest"},
+         "insert_after": "cfg_delivery_session"},
         {"fieldname": "cfg_counterpart_document", "label": "Counterpart ERP Document",
          "fieldtype": "Data", "read_only": 1, "insert_after": "cfg_counterpart_company"},
         {"fieldname": "cfg_requested_operator", "label": "Requested by Kanban Operator",
@@ -87,6 +90,9 @@ def _custom_fields():
         {"fieldname": "cfg_manifest_line", "label": "Kanban Manifest Line",
          "fieldtype": "Data", "read_only": 1, "insert_after": "cfg_handling_unit",
          "module": "CFG Kanban"},
+        {"fieldname": "cfg_delivery_allocation", "label": "Kanban Delivery Allocation",
+         "fieldtype": "Link", "options": "CFG Kanban Delivery Allocation", "read_only": 1,
+         "insert_after": "cfg_manifest_line", "module": "CFG Kanban"},
     ]
     return {
         "Work Order": common + [
@@ -119,6 +125,19 @@ def _custom_fields():
         "Delivery Note Item": logistics_item_fields,
         "Purchase Receipt": purchase_common("terms") + logistics_common,
         "Purchase Receipt Item": logistics_item_fields,
+        "Warehouse": [
+            {"fieldname": "cfg_vehicle_section", "label": "CFG Kanban Vehicle Stock",
+             "fieldtype": "Section Break", "insert_after": "company", "module": "CFG Kanban",
+             "collapsible": 1},
+            {"fieldname": "cfg_is_vehicle_warehouse", "label": "Vehicle Warehouse",
+             "fieldtype": "Check", "default": "0", "insert_after": "cfg_vehicle_section",
+             "module": "CFG Kanban", "description": "Enable only for a Company-specific logical Warehouse representing stock physically carried by a vehicle."},
+            {"fieldname": "cfg_vehicle_reference", "label": "Physical Vehicle Reference",
+             "fieldtype": "Data", "insert_after": "cfg_is_vehicle_warehouse",
+             "depends_on": "cfg_is_vehicle_warehouse",
+             "mandatory_depends_on": "cfg_is_vehicle_warehouse", "module": "CFG Kanban",
+             "description": "Shared physical vehicle identity, for example LORRY-01. Each Company uses its own Warehouse row with the same reference."},
+        ],
         "CFG Kanban Master": [
             {"fieldname": "cfg_sales_demand_section", "label": "Sales Demand Trigger", "fieldtype": "Section Break", "insert_after": "remarks", "module": "CFG Kanban"},
             {"fieldname": "enable_sales_order_trigger", "label": "Enable Sales Order Trigger", "fieldtype": "Check", "insert_after": "cfg_sales_demand_section", "module": "CFG Kanban"},

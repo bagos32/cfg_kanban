@@ -3,7 +3,7 @@
 **Architecture version:** 1.0  
 **Decision status:** Locked baseline  
 **Decision date:** 30 September 2026  
-**Implementation status:** Package A and the Package B intercompany handover vertical slice are implemented; Packages C-E remain approved future scope
+**Implementation status:** Package A, Package B intercompany handover, and Package C1 Customer Site / Delivery Session foundation are implemented; the remaining Package C functions and Packages D-E remain approved future scope
 
 This document is the source of truth for CFG Kanban stock-tag logistics across sister companies,
 company-specific vehicle warehouses, customer-site delivery, and delayed intercompany billing. It
@@ -606,9 +606,12 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
 
 ### Package C — Vehicle loading and customer delivery
 
-- Add company-specific lorry Warehouse validation.
+- **Implemented in C1:** company-specific lorry Warehouse validation.
+- **Implemented in C1:** Customer Site scan resolution and immutable Delivery Session snapshots.
+- **Implemented in C1:** operator-scoped active-session isolation, idempotent start, empty-session
+  cancellation, and Event/Exception audit links.
 - Add loose-container loading/unloading.
-- Add Customer Site scanning, Route Stops, Delivery Sessions, and tag allocations.
+- Add Route Stops and Stock Tag/container allocations to the active Delivery Session.
 - Add reserved and unassigned-stock delivery flows.
 - Add controlled Delivery Note and optional Sales Invoice commands.
 

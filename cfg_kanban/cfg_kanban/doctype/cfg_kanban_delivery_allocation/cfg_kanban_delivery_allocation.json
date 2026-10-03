@@ -1,0 +1,38 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Delivery Allocation","module":"CFG Kanban","autoname":"KDA-.YYYY.-.#####","title_field":"visible_code","track_changes":0,
+ "search_fields":"delivery_session,visible_code,item_code,batch_no,delivery_note",
+ "field_order":["state","delivery_session","identity_section","handling_unit","visible_code","container_handling_unit","container_visible_code","item_code","batch_no","stock_uom","quantity_section","allocated_qty","delivered_qty","source_warehouse","erp_section","delivery_note","delivery_note_item","audit_section","reserved_by_operator","operator_session","reserved_on","reservation_key","released_on","release_reason"],
+ "fields":[
+  {"fieldname":"state","label":"Allocation State","fieldtype":"Select","options":"Reserved\nDelivery Pending\nDelivered\nReleased\nCancelled\nException","default":"Reserved","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"delivery_session","label":"Delivery Session","fieldtype":"Link","options":"CFG Kanban Delivery Session","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"identity_section","label":"Physical Stock Identity","fieldtype":"Section Break"},
+  {"fieldname":"handling_unit","label":"Stock Tag Handling Unit","fieldtype":"Link","options":"CFG Kanban Handling Unit","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"visible_code","label":"Stock Tag Code","fieldtype":"Data","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"container_handling_unit","label":"Reusable Container","fieldtype":"Link","options":"CFG Kanban Handling Unit","read_only":1},
+  {"fieldname":"container_visible_code","label":"Container Code","fieldtype":"Data","read_only":1,"in_list_view":1},
+  {"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"batch_no","label":"Batch","fieldtype":"Link","options":"Batch","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM","reqd":1,"read_only":1},
+  {"fieldname":"quantity_section","label":"Allocated Quantity","fieldtype":"Section Break"},
+  {"fieldname":"allocated_qty","label":"Allocated Qty","fieldtype":"Float","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"delivered_qty","label":"ERP-confirmed Delivered Qty","fieldtype":"Float","read_only":1,"in_list_view":1},
+  {"fieldname":"source_warehouse","label":"Lorry Warehouse","fieldtype":"Link","options":"Warehouse","reqd":1,"read_only":1,"in_standard_filter":1},
+  {"fieldname":"erp_section","label":"ERPNext Delivery Evidence","fieldtype":"Section Break"},
+  {"fieldname":"delivery_note","label":"Delivery Note","fieldtype":"Link","options":"Delivery Note","read_only":1,"in_standard_filter":1},
+  {"fieldname":"delivery_note_item","label":"Delivery Note Item Row","fieldtype":"Data","read_only":1},
+  {"fieldname":"audit_section","label":"Reservation and Release Audit","fieldtype":"Section Break","collapsible":1},
+  {"fieldname":"reserved_by_operator","label":"Reserved by Operator","fieldtype":"Link","options":"Employee","read_only":1},
+  {"fieldname":"operator_session","label":"Operator Session","fieldtype":"Link","options":"CFG Kanban Operator Session","read_only":1},
+  {"fieldname":"reserved_on","label":"Reserved On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"reservation_key","label":"Reservation Idempotency Key","fieldtype":"Data","unique":1,"read_only":1,"hidden":1},
+  {"fieldname":"released_on","label":"Released On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"release_reason","label":"Release Reason","fieldtype":"Small Text","read_only":1}
+ ],
+ "permissions":[
+  {"role":"Stock User","read":1,"print":1},
+  {"role":"Stock Manager","read":1,"print":1},
+  {"role":"Sales User","read":1,"print":1},
+  {"role":"Sales Manager","read":1,"print":1},
+  {"role":"System Manager","read":1,"print":1}
+ ]
+}
