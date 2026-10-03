@@ -74,7 +74,9 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
   ERPNext stock.
 - Reusable-container content control in the Logistics panel, with complete-tag loading/unloading,
   optional mixed Item/Batch contents, immutable membership episodes, operator audit, movement
-  safeguards, and separate genealogy history that never invents an ERP stock movement.
+  safeguards, one-scan complete-container intercompany dispatch/receipt, and separate genealogy
+  history that never invents an ERP stock movement. ERP rows remain tied to each contained Stock
+  Tag rather than to the reusable container.
 - Exact ERPNext Serial Number membership for serial-controlled tagged stock, including receipt and
   production assignment, controlled detachable-child split/untouched merge, whole-tag consumption
   validation, cancellation recovery, replacement transfer, immutable history, and

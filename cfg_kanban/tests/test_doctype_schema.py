@@ -117,6 +117,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def load_content_tag", service)
         self.assertIn("def unload_content_tag", service)
         self.assertIn("def assert_not_loaded_in_container", service)
+        self.assertIn("def active_container_contents", service)
+        self.assertIn("def assert_container_not_in_open_manifest", service)
         self.assertNotIn("post_quantity_event", service)
 
         scan_api = (APP_ROOT / "api" / "scan.py").read_text()
@@ -128,6 +130,19 @@ class TestDocTypeSchema(TestCase):
                 "assert_not_loaded_in_container" in source or
                 "assert_container_empty" in source
             )
+
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        manifest_line = {
+            row["fieldname"] for row in schemas["CFG Kanban Manifest Line"]["fields"]
+        }
+        self.assertTrue({"container_handling_unit", "container_visible_code"}.issubset(
+            manifest_line
+        ))
+        self.assertIn("def _scan_dispatch_container", logistics_api)
+        self.assertIn("def _scan_receipt_container", logistics_api)
+        self.assertIn("def _validate_manifest_container_groups", logistics_api)
+        feedback = (APP_ROOT / "integrations" / "logistics_feedback.py").read_text()
+        self.assertIn("def _update_manifest_containers", feedback)
 
     def test_exact_serial_membership_is_erp_referenced_and_auditable(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

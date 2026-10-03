@@ -118,12 +118,19 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		let mode_notice = `<div class="alert alert-info"><strong>${__("View-only lookup")}</strong> · ${__("Scanning a Stock Tag will show its status and will not change this Manifest.")}</div>`;
 		if (state.scan_mode === "dispatch") mode_notice = `<div class="alert alert-warning"><strong>${__("DISPATCH SCANNING ARMED")}</strong> · ${e(m.name)} · ${__("Scanned tags will be added to this Manifest.")}</div>`;
 		if (state.scan_mode === "receipt") mode_notice = `<div class="alert alert-success"><strong>${__("RECEIPT SCANNING ARMED")}</strong> · ${e(m.name)} · ${__("Only tags listed on this Manifest will be accepted.")}</div>`;
-		const lines = (m.lines || []).map((row) => `<div class="cfg-logistics-line">
-			<div><strong>${e(row.visible_code)}</strong><small>${e(row.item_code)} · ${e(row.batch_no || __("No Batch"))}</small></div>
+		const rendered_container_actions = new Set();
+		const lines = (m.lines || []).map((row) => {
+			const show_container_remove = row.container_handling_unit &&
+				!rendered_container_actions.has(row.container_handling_unit);
+			if (show_container_remove) rendered_container_actions.add(row.container_handling_unit);
+			return `<div class="cfg-logistics-line">
+			<div><strong>${e(row.visible_code)}</strong><small>${e(row.item_code)} · ${e(row.batch_no || __("No Batch"))}</small>
+				${row.container_visible_code ? `<small>${__("Inside container")}: <strong>${e(row.container_visible_code)}</strong></small>` : ""}</div>
 			<div><strong>${format_number(row.dispatch_qty)} ${e(row.stock_uom)}</strong>
 				<small>${row.receipt_scanned ? __("Receipt scan confirmed") : e(row.state)}</small></div>
-				${m.state === "Draft" && state.scan_mode === "dispatch" ? `<button class="btn btn-xs btn-danger remove-line" data-unit="${e(row.handling_unit)}">${__("Remove")}</button>` : ""}
-			</div>`).join("");
+				${m.state === "Draft" && state.scan_mode === "dispatch" && (!row.container_handling_unit || show_container_remove) ? `<button class="btn btn-xs btn-danger remove-line" data-unit="${e(row.handling_unit)}">${row.container_visible_code ? __("Remove Container") : __("Remove")}</button>` : ""}
+			</div>`;
+		}).join("");
 		$active.html(`<div class="frappe-card cfg-logistics-manifest">
 			<div class="cfg-logistics-manifest-head"><div><small>${__("Viewed Manifest")}</small><h2>${e(m.name)}</h2>
 				<strong>${e(m.logistics_route)}</strong></div><span class="indicator-pill ${state_colour(m.state)}">${e(m.state)}</span></div>

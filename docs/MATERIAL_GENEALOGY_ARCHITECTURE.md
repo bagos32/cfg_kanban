@@ -161,6 +161,15 @@ dispatched, received, replaced, or voided independently. A nonempty container ca
 voided, or moved through the generic lifecycle scan. Container episodes appear separately in the
 Genealogy Explorer so reuse over time does not create false upstream/downstream product lineage.
 
+A complete loaded reusable container can move through an intercompany **Movement Manifest**. One
+dispatch scan expands the current membership into one Manifest line per contained Stock Tag. The
+Delivery Note and Purchase Receipt therefore retain the actual Item, Batch, UOM, quantity, and tag
+identity; the container never becomes a synthetic stock row. Preparation verifies that the
+membership has not changed, then reservations prevent load/unload changes. One destination scan of
+the same container confirms all still-contained Manifest tags. Submitted ERPNext feedback moves
+each Stock Tag and updates the permanent container's custody location. Cancellation feedback keeps
+the container aligned with the same source/transit recovery state as its contents.
+
 ### Exact serial-number membership
 
 For an ERPNext Item with **Has Serial No**, a physical Stock Tag must identify each exact Serial No,
@@ -195,8 +204,8 @@ merge and requires normal reconciliation.
 
 ### Subsequent increments
 
-The next increment adds controlled whole-container vehicle/customer movement while preserving each
-contained Stock Tag as the ERP-accounted identity.
+The next logistics increment extends the same container-preserving principle to vehicle/customer
+delivery without weakening Delivery Note and customer-site controls.
 
 Job Cards provide operator/operation context, but raw-material stock consumption remains linked to
 the Work Order and submitted Stock Entry details.

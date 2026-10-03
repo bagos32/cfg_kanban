@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.23
+**Guide version:** 1.24
 
 **Updated:** 3 October 2026
 
@@ -1086,6 +1086,28 @@ replaced, or voided independently while loaded, and a nonempty container cannot 
 voided. Managers can review **Container Content History** or **Reusable Container Episodes** in the
 Material Genealogy Explorer.
 
+#### Dispatch and receive a complete reusable container
+
+When every Stock Tag currently inside the reusable container must travel together:
+
+1. Create or open the correct Draft **Movement Manifest** in the Logistics Operator Panel.
+2. Select **Start Dispatch Scanning** and scan the reusable-container code once.
+3. The app expands the container into one Manifest line per contained Stock Tag. The container is
+   physical grouping evidence only; ERPNext Delivery Note and Purchase Receipt rows continue to
+   use each Stock Tag's Item, Batch, UOM, and quantity.
+4. Review the expanded lines. Each line displays **Inside container** and the permanent container
+   code. **Remove Container** removes the complete group from a Draft Manifest.
+5. Select **Prepare and Reserve**, then confirm the dispatch. The container contents are locked
+   against load/unload changes while the Manifest remains open.
+6. At destination, open the same Manifest, select **Start Receipt Scanning**, and scan the
+   reusable-container code once. This confirms every listed tag still physically inside it.
+7. Confirm receipt. Only the submitted ERPNext Purchase Receipt changes destination stock and
+   updates the container and every contained Stock Tag to the destination Company/Warehouse.
+
+Preparation is rejected if a tag was added to or removed from the container after its dispatch
+scan. Scanning an individual loaded Stock Tag for dispatch remains blocked: either dispatch the
+complete container or unload the tag with an audited reason before handling it independently.
+
 ### Exact Serial Numbers inside a Stock Tag
 
 When ERPNext Item **Has Serial No** is enabled, CFG Kanban requires exact serial membership for
@@ -1508,9 +1530,10 @@ The following are not complete in the current build:
 - Full Start/Complete dynamic-field capture and arbitrary Job Card field mapping.
 - Automated email alerts and complete command retry orchestration.
 - Supplier Kanban and Sales Order fulfillment allocation beyond the implemented demand controls.
-- Controlled whole-container vehicle/customer movement while preserving each contained tag.
-  Purchase Receipt activation, reusable-container content episodes, exact serial membership and
-  controlled child split/merge, Stock Entry-confirmed production tracing, scoped scanner-first floor access, same-company tagged
+- Customer/vehicle delivery beyond the implemented intercompany Movement Manifest container flow.
+  Purchase Receipt activation, reusable-container content episodes, complete-container intercompany
+  dispatch/receipt, exact serial membership and controlled child split/merge, Stock Entry-confirmed
+  production tracing, scoped scanner-first floor access, same-company tagged
   Warehouse transfers, and scan-any-tag upstream/downstream genealogy exploration are implemented.
 
 This file is the maintained manual source. Update its version, date, affected sections, and revision
@@ -1963,14 +1986,16 @@ When using this file as context, an assistant must:
    code does not contain.
 10. Confirm the deployed Git revision/migration when the UI does not match this guide.
 
-11. Treat Customer-site delivery, vehicle loading, loose reusable-container movement, and billing
-    grouping as future packages. Package B intercompany posting is operational only through the
-    Movement Manifest and submitted Delivery Note/Purchase Receipt feedback described above.
+11. Treat Customer-site delivery, vehicle loading, loose-container delivery, and billing grouping
+    as future packages. Package B intercompany posting, including complete loaded reusable
+    containers, is operational only through the Movement Manifest and submitted Delivery Note /
+    Purchase Receipt feedback described above.
 
 ## 27. Revision history
 
 | Version | Date | Change |
 |---|---|---|
+| 1.24 | 3 October 2026 | Added one-scan complete reusable-container dispatch and receipt through intercompany Movement Manifests while retaining every contained Stock Tag as the ERP-accounted Item/Batch/quantity identity |
 | 1.23 | 3 October 2026 | Added controlled exact-serial splitting from main Stock Tags to preprinted detachable child tags, quantity-preserving ledger evidence, and safe untouched-child merge back to the parent |
 | 1.22 | 3 October 2026 | Added ERPNext-referenced exact Serial Number membership for received and produced Stock Tags, whole-tag production validation, consumption/reversal/replacement lifecycle handling, serial history, and genealogy/logistics visibility |
 | 1.21 | 3 October 2026 | Added reusable-container content loading/unloading in the Logistics panel, immutable membership episodes, mixed-content policy, movement safeguards, workspace history, and genealogy visibility |

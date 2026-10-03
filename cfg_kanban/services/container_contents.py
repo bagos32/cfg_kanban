@@ -29,6 +29,7 @@ def load_content_tag(container_scan, content_scan, event_token,
     _lock_units(container.name, content.name)
     container.reload()
     content.reload()
+    assert_container_not_in_open_manifest(container.name, "changing its physical contents")
     _validate_load(container, content)
 
     load_key = canonical_key("container-load", container.name, content.name, event_token)
@@ -99,6 +100,14 @@ def unload_content_tag(container_scan, content_scan, reason, event_token,
     container = _resolve_container(container_scan)
     content = _resolve_content(content_scan, require_active=False)
     _lock_units(container.name, content.name)
+    assert_container_not_in_open_manifest(container.name, "changing its physical contents")
+    content.reload()
+    if flt(content.reserved_qty):
+        frappe.throw(
+            _("Tag {0} is reserved for an open transaction and cannot be unloaded").format(
+                content.handling_unit_id
+            )
+        )
     unload_key = canonical_key("container-unload", container.name, content.name, event_token)
     existing = frappe.db.get_value(
         "CFG Kanban Container Content", {"unload_event_key": unload_key}, "name"
@@ -166,6 +175,21 @@ def active_container_membership(content_handling_unit):
     return frappe.get_doc("CFG Kanban Container Content", name) if name else None
 
 
+def active_container_contents(container_handling_unit):
+    """Return the immutable membership episodes currently loaded in a container."""
+    return frappe.get_all(
+        "CFG Kanban Container Content",
+        filters={"container_handling_unit": container_handling_unit, "state": "Loaded"},
+        fields=[
+            "name", "container_handling_unit", "container_visible_code",
+            "content_handling_unit", "content_visible_code", "item_code", "batch_no",
+            "qty", "stock_uom", "company", "warehouse", "loaded_on",
+        ],
+        order_by="loaded_on asc, name asc",
+        limit_page_length=500,
+    )
+
+
 def assert_not_loaded_in_container(content_handling_unit, action):
     active = active_container_membership(content_handling_unit)
     if active:
@@ -186,6 +210,27 @@ def assert_container_empty(container_handling_unit, action):
         frappe.throw(
             _("Reusable container still contains tag {0}. Unload all contents before {1}.").format(
                 active, action
+            )
+        )
+
+
+def assert_container_not_in_open_manifest(container_handling_unit, action):
+    manifest = frappe.db.sql(
+        """
+        select manifest.name
+        from `tabCFG Kanban Manifest Line` line
+        inner join `tabCFG Kanban Movement Manifest` manifest on manifest.name=line.parent
+        where line.container_handling_unit=%s
+          and manifest.state not in ('Received','Billing Pending','Partially Billed','Billed',
+                                     'Closed','Cancelled')
+        limit 1
+        """,
+        (container_handling_unit,),
+    )
+    if manifest:
+        frappe.throw(
+            _("Reusable container is assigned to open Manifest {0}; it cannot be used for {1}").format(
+                manifest[0][0], action
             )
         )
 

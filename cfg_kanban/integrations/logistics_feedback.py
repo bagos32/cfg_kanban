@@ -34,6 +34,10 @@ def on_delivery_note_submit(doc, method=None):
         }, update_modified=False)
         frappe.db.set_value("CFG Kanban Manifest Line", line.name, "state", "In Transit",
                             update_modified=False)
+    _update_manifest_containers(
+        manifest, inventory_company=manifest.source_company, current_warehouse=None,
+        movement_state="Intercompany Transit", state="Dispatched",
+    )
     record("Intercompany Dispatch Posted", movement_manifest=manifest.name,
            previous_state="Dispatch Document Pending", new_state="Awaiting Receipt",
            qty=manifest.total_quantity, reference_doctype="Delivery Note",
@@ -73,6 +77,10 @@ def on_delivery_note_cancel(doc, method=None):
         }, update_modified=False)
         frappe.db.set_value("CFG Kanban Manifest Line", line.name, "state", "Exception",
                             update_modified=False)
+    _update_manifest_containers(
+        manifest, inventory_company=manifest.source_company,
+        current_warehouse=manifest.source_warehouse, movement_state="Packed", state="Attached",
+    )
     _raise_manifest_exception(
         manifest, "Dispatch Delivery Note Cancelled",
         f"Delivery Note {doc.name} was cancelled; source stock was restored and supervisor review is required",
@@ -125,6 +133,11 @@ def on_purchase_receipt_submit(doc, method=None):
         frappe.db.set_value("CFG Kanban Manifest Line", line.name, {
             "state": "Received", "received_qty": line.dispatch_qty,
         }, update_modified=False)
+    _update_manifest_containers(
+        manifest, inventory_company=manifest.destination_company,
+        current_warehouse=manifest.destination_warehouse, movement_state="Received",
+        state="Received",
+    )
     manifest.db_set({"receipt_purchase_receipt": doc.name, "state": "Received",
                      "total_received_quantity": manifest.total_quantity}, update_modified=True)
     if manifest.dispatch_delivery_note:
@@ -163,6 +176,10 @@ def on_purchase_receipt_cancel(doc, method=None):
         frappe.db.set_value("CFG Kanban Manifest Line", line.name, {
             "state": "Exception", "received_qty": 0,
         }, update_modified=False)
+    _update_manifest_containers(
+        manifest, inventory_company=manifest.source_company, current_warehouse=None,
+        movement_state="Intercompany Transit", state="Dispatched",
+    )
     _raise_manifest_exception(
         manifest, "Receipt Purchase Receipt Cancelled",
         f"Purchase Receipt {doc.name} was cancelled; tags returned to transit control",
@@ -185,3 +202,14 @@ def _raise_manifest_exception(manifest, exception_type, message, reference_docty
     }).insert(ignore_permissions=True)
     manifest.db_set({"state": "Exception", "exception": exception.name}, update_modified=True)
     return exception
+
+
+def _update_manifest_containers(manifest, **values):
+    values["last_scan_time"] = now_datetime()
+    container_names = {
+        line.container_handling_unit for line in manifest.lines if line.container_handling_unit
+    }
+    for container_name in container_names:
+        frappe.db.set_value(
+            "CFG Kanban Handling Unit", container_name, values, update_modified=False
+        )

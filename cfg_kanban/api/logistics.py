@@ -280,6 +280,10 @@ def scan_dispatch_tag(manifest_name, scan_value, event_token, operator_session_t
     if identity["identity_type"] != "Handling Unit":
         frappe.throw(f"{identity['visible_code']} is not a Handling Unit tag")
     unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
+    if unit.tag_kind == "Reusable Container":
+        return _scan_dispatch_container(
+            manifest, unit, event_token, profile, session, operator_session_token
+        )
     _validate_dispatch_unit(unit, manifest)
     if any(row.handling_unit == unit.name for row in manifest.lines):
         return get_manifest(manifest.name, operator_session_token)
@@ -318,6 +322,79 @@ def scan_dispatch_tag(manifest_name, scan_value, event_token, operator_session_t
     return get_manifest(manifest.name, operator_session_token)
 
 
+def _scan_dispatch_container(manifest, container, event_token, profile, session,
+                             operator_session_token):
+    from cfg_kanban.services.container_contents import active_container_contents
+
+    _validate_dispatch_container(container, manifest)
+    if not event_token:
+        frappe.throw("A stable scan event token is required")
+    contents = active_container_contents(container.name)
+    if not contents:
+        frappe.throw(f"Reusable Container {container.handling_unit_id} is empty")
+    existing_container_lines = [
+        row for row in manifest.lines if row.container_handling_unit == container.name
+    ]
+    if existing_container_lines:
+        return get_manifest(manifest.name, operator_session_token)
+
+    units = []
+    for content in contents:
+        unit = frappe.get_doc("CFG Kanban Handling Unit", content.content_handling_unit)
+        _validate_dispatch_unit(unit, manifest, expected_container=container.name)
+        if any(row.handling_unit == unit.name for row in manifest.lines):
+            frappe.throw(
+                f"Contained tag {unit.handling_unit_id} is already listed separately on this Manifest"
+            )
+        _assert_not_in_other_open_manifest(unit.name, manifest.name)
+        _assert_erp_stock(unit, manifest.source_warehouse, unit.available_qty)
+        units.append(unit)
+
+    scan_key = canonical_key(
+        "manifest-container-dispatch-scan", manifest.name, container.name, event_token
+    )
+    if frappe.db.get_value("CFG Kanban Event", {"device_id": scan_key}, "name"):
+        return get_manifest(manifest.name, operator_session_token)
+    scanned_on = now_datetime()
+    for unit in units:
+        manifest.append("lines", {
+            "handling_unit": unit.name,
+            "visible_code": unit.handling_unit_id,
+            "tag_kind": unit.tag_kind,
+            "container_handling_unit": container.name,
+            "container_visible_code": container.handling_unit_id,
+            "item_code": unit.item_code,
+            "batch_no": unit.batch_no,
+            "stock_uom": unit.stock_uom,
+            "available_qty_at_scan": unit.available_qty,
+            "dispatch_qty": unit.available_qty,
+            "received_qty": 0,
+            "source_company": manifest.source_company,
+            "source_warehouse": manifest.source_warehouse,
+            "destination_company": manifest.destination_company,
+            "destination_warehouse": manifest.destination_warehouse,
+            "state": "Prepared",
+            "scan_event_key": canonical_key(scan_key, unit.name),
+            "scanned_by": profile.employee,
+            "scanned_on": scanned_on,
+        })
+    manifest.save(ignore_permissions=True)
+    record(
+        "Manifest Container Scanned",
+        movement_manifest=manifest.name,
+        handling_unit=container.name,
+        qty=sum(flt(unit.available_qty) for unit in units),
+        reference_doctype=container.doctype,
+        reference_name=container.name,
+        device_id=scan_key,
+        notes=f"Expanded {container.handling_unit_id} into {len(units)} contained Stock Tags",
+        operator=profile.employee,
+        operator_session=session.name,
+        terminal_user=session.terminal_user,
+    )
+    return get_manifest(manifest.name, operator_session_token)
+
+
 @frappe.whitelist()
 def remove_dispatch_tag(manifest_name, handling_unit, operator_session_token):
     profile, session = require_operator(operator_session_token, "start")
@@ -329,7 +406,12 @@ def remove_dispatch_tag(manifest_name, handling_unit, operator_session_token):
     row = next((row for row in manifest.lines if row.handling_unit == handling_unit), None)
     if not row:
         return get_manifest(manifest.name, operator_session_token)
-    manifest.remove(row)
+    if row.container_handling_unit:
+        for grouped_row in list(manifest.lines):
+            if grouped_row.container_handling_unit == row.container_handling_unit:
+                manifest.remove(grouped_row)
+    else:
+        manifest.remove(row)
     manifest.save(ignore_permissions=True)
     record("Manifest Dispatch Tag Removed", movement_manifest=manifest.name,
            handling_unit=handling_unit, reference_doctype=manifest.doctype,
@@ -348,9 +430,12 @@ def prepare_manifest(manifest_name, event_token, operator_session_token):
         return get_manifest(manifest.name, operator_session_token)
     if manifest.state != "Draft" or not manifest.lines:
         frappe.throw("A Draft Manifest with at least one scanned tag is required")
+    _validate_manifest_container_groups(manifest)
     for row in manifest.lines:
         unit = frappe.get_doc("CFG Kanban Handling Unit", row.handling_unit)
-        _validate_dispatch_unit(unit, manifest)
+        _validate_dispatch_unit(
+            unit, manifest, expected_container=row.container_handling_unit or None
+        )
         if abs(flt(row.dispatch_qty) - flt(unit.available_qty)) > 0.000001:
             frappe.throw(
                 f"Tag {unit.handling_unit_id} quantity changed. Rescan it before preparation."
@@ -464,6 +549,11 @@ def scan_receipt_tag(manifest_name, scan_value, event_token, operator_session_to
     identity = resolve_logistics_scan(scan_value)
     if not identity or identity["identity_type"] != "Handling Unit":
         frappe.throw("The scanned code is not an active Handling Unit")
+    scanned_unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
+    if scanned_unit.tag_kind == "Reusable Container":
+        return _scan_receipt_container(
+            manifest, scanned_unit, event_token, profile, session, operator_session_token
+        )
     row = next((row for row in manifest.lines if row.handling_unit == identity["name"]), None)
     if not row:
         frappe.throw("This Handling Unit is not listed on the selected Manifest")
@@ -484,6 +574,64 @@ def scan_receipt_tag(manifest_name, scan_value, event_token, operator_session_to
                                    row.handling_unit, event_token),
            operator=profile.employee, operator_session=session.name,
            terminal_user=session.terminal_user)
+    return get_manifest(manifest.name, operator_session_token)
+
+
+def _scan_receipt_container(manifest, container, event_token, profile, session,
+                            operator_session_token):
+    if not event_token:
+        frappe.throw("A stable receipt scan event token is required")
+    if container.identity_state != "Active" or container.quality_state != "Released":
+        frappe.throw(
+            f"Reusable Container {container.handling_unit_id} is "
+            f"{container.identity_state} / {container.quality_state}"
+        )
+    if (
+        container.inventory_company != manifest.source_company
+        or container.current_warehouse
+        or container.movement_state != "Intercompany Transit"
+    ):
+        frappe.throw(
+            f"Reusable Container {container.handling_unit_id} is not in the expected "
+            "intercompany transit state"
+        )
+    rows = [row for row in manifest.lines if row.container_handling_unit == container.name]
+    if not rows:
+        frappe.throw("This reusable container is not listed on the selected Manifest")
+    from cfg_kanban.services.container_contents import active_container_membership
+
+    for row in rows:
+        membership = active_container_membership(row.handling_unit)
+        if not membership or membership.container_handling_unit != container.name:
+            frappe.throw(
+                f"Container contents changed: tag {row.visible_code} is no longer inside "
+                f"{container.handling_unit_id}"
+            )
+    if all(row.receipt_scanned for row in rows):
+        return get_manifest(manifest.name, operator_session_token)
+    scanned_on = now_datetime()
+    for row in rows:
+        row.receipt_scanned = 1
+        row.received_qty = row.dispatch_qty
+        row.receipt_scanned_by = profile.employee
+        row.receipt_scanned_on = scanned_on
+        row.state = "Receipt Pending"
+    manifest.save(ignore_permissions=True)
+    record(
+        "Manifest Container Receipt Scanned",
+        movement_manifest=manifest.name,
+        handling_unit=container.name,
+        qty=sum(flt(row.dispatch_qty) for row in rows),
+        reference_doctype=manifest.doctype,
+        reference_name=manifest.name,
+        device_id=canonical_key(
+            "manifest-container-receipt-scan", manifest.name, container.name, event_token
+        ),
+        notes=f"Confirmed {len(rows)} contained Stock Tags with one container scan",
+        operator=profile.employee,
+        operator_session=session.name,
+        terminal_user=session.terminal_user,
+    )
     return get_manifest(manifest.name, operator_session_token)
 
 
@@ -568,8 +716,11 @@ def cancel_manifest(manifest_name, reason, operator_session_token, event_token=N
     return get_manifest(manifest.name, operator_session_token)
 
 
-def _validate_dispatch_unit(unit, manifest):
-    from cfg_kanban.services.container_contents import assert_not_loaded_in_container
+def _validate_dispatch_unit(unit, manifest, expected_container=None):
+    from cfg_kanban.services.container_contents import (
+        active_container_membership,
+        assert_not_loaded_in_container,
+    )
 
     if unit.identity_state != "Active":
         frappe.throw(f"Tag {unit.handling_unit_id} is {unit.identity_state}, not Active")
@@ -587,11 +738,60 @@ def _validate_dispatch_unit(unit, manifest):
         )
     if unit.tag_kind == "Reusable Container" or not unit.item_code:
         frappe.throw("Dispatch the contained Stock Tags, not the reusable-container identity")
-    assert_not_loaded_in_container(unit.name, "adding it to an intercompany Manifest")
+    if expected_container:
+        membership = active_container_membership(unit.name)
+        if not membership or membership.container_handling_unit != expected_container:
+            frappe.throw(
+                f"Tag {unit.handling_unit_id} is no longer inside the scanned reusable container"
+            )
+    else:
+        assert_not_loaded_in_container(unit.name, "adding it to an intercompany Manifest")
     if flt(unit.available_qty) <= 0:
         frappe.throw(f"Tag {unit.handling_unit_id} has no available quantity")
     if flt(unit.reserved_qty):
         frappe.throw(f"Tag {unit.handling_unit_id} already has reserved quantity")
+
+
+def _validate_dispatch_container(container, manifest):
+    if container.identity_state != "Active" or container.quality_state != "Released":
+        frappe.throw(
+            f"Reusable Container {container.handling_unit_id} is "
+            f"{container.identity_state} / {container.quality_state}"
+        )
+    if container.inventory_company != manifest.source_company:
+        frappe.throw(
+            f"Reusable Container belongs to {container.inventory_company}, "
+            f"not route source {manifest.source_company}"
+        )
+    if container.current_warehouse != manifest.source_warehouse:
+        frappe.throw(
+            f"Reusable Container is in {container.current_warehouse}, "
+            f"not route source Warehouse {manifest.source_warehouse}"
+        )
+
+
+def _validate_manifest_container_groups(manifest):
+    from cfg_kanban.services.container_contents import active_container_contents
+
+    container_names = {
+        row.container_handling_unit for row in manifest.lines if row.container_handling_unit
+    }
+    for container_name in container_names:
+        container = frappe.get_doc("CFG Kanban Handling Unit", container_name)
+        _validate_dispatch_container(container, manifest)
+        expected = {
+            row.content_handling_unit for row in active_container_contents(container_name)
+        }
+        listed = {
+            row.handling_unit
+            for row in manifest.lines
+            if row.container_handling_unit == container_name
+        }
+        if expected != listed:
+            frappe.throw(
+                f"Reusable Container {container.handling_unit_id} contents changed after its "
+                "dispatch scan. Remove and rescan the container."
+            )
 
 
 def _assert_not_in_other_open_manifest(handling_unit, current_manifest):
