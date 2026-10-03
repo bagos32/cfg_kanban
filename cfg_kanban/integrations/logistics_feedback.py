@@ -7,6 +7,10 @@ from cfg_kanban.services.logistics_foundation import post_quantity_event
 
 
 def on_delivery_note_submit(doc, method=None):
+    return_case = doc.get("cfg_return_case")
+    if return_case:
+        _on_correction_return_submit(doc, return_case)
+        return
     delivery_session = doc.get("cfg_delivery_session")
     if delivery_session:
         _on_customer_delivery_submit(doc, delivery_session)
@@ -49,6 +53,10 @@ def on_delivery_note_submit(doc, method=None):
 
 
 def on_delivery_note_cancel(doc, method=None):
+    return_case = doc.get("cfg_return_case")
+    if return_case:
+        _on_correction_return_cancel(doc, return_case)
+        return
     delivery_session = doc.get("cfg_delivery_session")
     if delivery_session:
         _on_customer_delivery_cancel(doc, delivery_session)
@@ -221,6 +229,93 @@ def _update_manifest_containers(manifest, **values):
         frappe.db.set_value(
             "CFG Kanban Handling Unit", container_name, values, update_modified=False
         )
+
+
+def _on_correction_return_submit(doc, return_case):
+    case = frappe.get_doc("CFG Kanban Return Case", return_case)
+    previous_state = case.state
+    if case.return_flow != "Delivery Note Correction" or doc.return_against != case.original_delivery_note:
+        frappe.throw("Return Delivery Note does not match its controlled correction case")
+    by_source_row = {row.original_delivery_note_item: row for row in case.lines}
+    seen = set()
+    for item in doc.items:
+        line = by_source_row.get(item.dn_detail)
+        if not line or item.dn_detail in seen:
+            frappe.throw("Return Delivery Note contains a row outside the correction case")
+        seen.add(item.dn_detail)
+        expected = flt(line.claimed_qty)
+        if abs(abs(flt(item.stock_qty or item.qty)) - expected) > 0.000001:
+            frappe.throw(f"Return quantity for {line.item_code} must remain {expected}")
+        post_quantity_event(
+            event_type="Customer Return", qty=expected, stock_uom=line.stock_uom,
+            idempotency_key=canonical_key("delivery-correction-posted", case.name, line.name),
+            destination_handling_unit=line.original_handling_unit,
+            item_code=line.item_code, batch_no=line.batch_no,
+            destination_company=case.selling_company,
+            destination_warehouse=case.correction_return_warehouse,
+            reference_doctype="Delivery Note", reference_name=doc.name,
+            operator=case.created_by_operator, operator_session=case.created_operator_session,
+            reason="Submitted wrong-Delivery-Note stock correction",
+        )
+        frappe.db.set_value("CFG Kanban Handling Unit", line.original_handling_unit, {
+            "identity_state": "Active", "movement_state": "Returned",
+            "current_warehouse": case.correction_return_warehouse,
+            "state": "Attached", "last_scan_time": now_datetime(),
+        }, update_modified=False)
+    if seen != set(by_source_row):
+        frappe.throw("Return Delivery Note must retain every controlled correction row")
+    case.db_set({
+        "state": "Delivery Correction Posted", "correction_return_delivery_note": doc.name,
+        "correction_document_status": "Submitted",
+    }, update_modified=True)
+    record(
+        "Delivery Note Correction Posted", return_case=case.name,
+        delivery_session=case.original_delivery_session,
+        previous_state=previous_state, new_state="Delivery Correction Posted",
+        qty=case.claimed_total_qty, reference_doctype="Delivery Note", reference_name=doc.name,
+    )
+
+
+def _on_correction_return_cancel(doc, return_case):
+    case = frappe.get_doc("CFG Kanban Return Case", return_case)
+    for line in case.lines:
+        unit = frappe.get_doc("CFG Kanban Handling Unit", line.original_handling_unit)
+        if unit.current_warehouse != case.correction_return_warehouse:
+            frappe.throw(
+                f"Cannot cancel correction after Stock Tag {unit.handling_unit_id} moved from "
+                f"{case.correction_return_warehouse}"
+            )
+        if flt(unit.available_qty) + 0.000001 < flt(line.claimed_qty):
+            frappe.throw(
+                f"Cannot cancel correction after returned quantity from {unit.handling_unit_id} was used"
+            )
+        post_quantity_event(
+            event_type="Reconcile Decrease", qty=line.claimed_qty, stock_uom=line.stock_uom,
+            idempotency_key=canonical_key("delivery-correction-cancelled", case.name, line.name),
+            source_handling_unit=line.original_handling_unit,
+            item_code=line.item_code, batch_no=line.batch_no,
+            source_company=case.selling_company,
+            source_warehouse=case.correction_return_warehouse,
+            reference_doctype="Delivery Note", reference_name=doc.name,
+            reason="Cancelled wrong-Delivery-Note stock correction",
+        )
+        unit.reload()
+        empty = flt(unit.current_qty) <= 0.000001
+        unit.db_set({
+            "identity_state": "Empty" if empty else "Active",
+            "movement_state": "Empty" if empty else "Returned",
+            "current_warehouse": None if empty else case.correction_return_warehouse,
+            "state": "Dispatched" if empty else "Attached",
+            "last_scan_time": now_datetime(),
+        }, update_modified=False)
+    case.db_set({"state": "Exception", "correction_document_status": "Cancelled"},
+                update_modified=True)
+    record(
+        "Delivery Note Correction Cancelled", return_case=case.name,
+        delivery_session=case.original_delivery_session,
+        previous_state="Delivery Correction Posted", new_state="Exception",
+        qty=case.claimed_total_qty, reference_doctype="Delivery Note", reference_name=doc.name,
+    )
 
 
 def _on_customer_delivery_submit(doc, delivery_session):

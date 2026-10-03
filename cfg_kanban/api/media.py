@@ -245,6 +245,77 @@ def get_delivery_proof_camera_stamp(proof_name, operator_session_token):
             "delivery_session": proof.delivery_session, "site": proof.site_name}
 
 
+@frappe.whitelist()
+def create_return_case_upload_url(return_case, original_filename, content_type,
+                                  size_bytes, idempotency_key,
+                                  operator_session_token, evidence_kind,
+                                  capture_source="file-upload", capture_timestamp=None,
+                                  latitude=None, longitude=None, location_accuracy=None):
+    case, profile, session = _authorize_return_case(
+        return_case, operator_session_token, write=True
+    )
+    if evidence_kind not in ("photo", "attachment"):
+        frappe.throw("Return evidence kind is not supported")
+    declared_type = (content_type or "").lower()
+    if evidence_kind == "photo":
+        if not declared_type.startswith("image/"):
+            frappe.throw("Return photograph must be an image")
+        if capture_source != "timestamped-camera":
+            frappe.throw("Return photograph must use the timestamped camera workflow")
+    extensions = _capture_extensions(
+        capture_source, capture_timestamp, latitude, longitude, location_accuracy
+    )
+    extensions["cfg_kanban"]["evidence_kind"] = evidence_kind
+    return media.create_upload_url(
+        case.doctype, case.name, original_filename, content_type, size_bytes,
+        "customer-return-evidence", idempotency_key, permission_checked=True,
+        extensions=extensions, operator_employee=profile.employee,
+        operator_session=session.name,
+    )
+
+
+@frappe.whitelist()
+def confirm_return_case_upload(return_case, media_id, confirmation_token,
+                               operator_session_token):
+    _authorize_return_case(return_case, operator_session_token, write=True)
+    _assert_reference_media("CFG Kanban Return Case", return_case, media_id)
+    return media.confirm_upload(media_id, confirmation_token, permission_checked=True)
+
+
+@frappe.whitelist()
+def list_return_case_media(return_case, operator_session_token):
+    _authorize_return_case(return_case, operator_session_token)
+    return media.list_reference_media(
+        "CFG Kanban Return Case", return_case, permission_checked=True
+    )
+
+
+@frappe.whitelist()
+def create_return_case_view_url(return_case, media_id, operator_session_token,
+                                disposition="inline"):
+    _authorize_return_case(return_case, operator_session_token)
+    _assert_reference_media("CFG Kanban Return Case", return_case, media_id)
+    return media.create_view_url(media_id, disposition, permission_checked=True)
+
+
+@frappe.whitelist()
+def archive_return_case_media(return_case, media_id, operator_session_token):
+    _authorize_return_case(return_case, operator_session_token, write=True)
+    _assert_reference_media("CFG Kanban Return Case", return_case, media_id)
+    return media.delete_object(media_id, permission_checked=True)
+
+
+@frappe.whitelist()
+def get_return_case_camera_stamp(return_case, operator_session_token):
+    case, _profile, _session = _authorize_return_case(
+        return_case, operator_session_token, write=True
+    )
+    return {
+        "captured_at": str(frappe.utils.now_datetime()), "return_case": case.name,
+        "customer": case.customer, "site": case.site_name,
+    }
+
+
 def _authorize_task(task_name, operator_session_token, action=None):
     task = frappe.get_doc("CFG Kanban Task", task_name)
     profile, session = require_operator(
@@ -288,6 +359,38 @@ def _authorize_delivery_proof(proof_name, operator_session_token, action=None):
         frappe.throw("Operator is not assigned to Customer Delivery", frappe.PermissionError)
     assert_delivery_access(proof.delivery_session, profile)
     return proof, profile, session
+
+
+def _authorize_return_case(return_case, operator_session_token, write=False):
+    from cfg_kanban.services.customer_returns import (
+        CUSTOMER_RETURN_QC_RESPONSIBILITY,
+        CUSTOMER_RETURN_RESPONSIBILITY,
+    )
+
+    case = frappe.get_doc("CFG Kanban Return Case", return_case)
+    profile, session = require_operator(operator_session_token)
+    responsibilities = {
+        row.responsibility for row in profile.responsibilities if row.responsibility
+    }
+    can_view_all = (
+        profile.kanban_role in ("Supervisor", "Development Proxy")
+        and profile.get("view_all_responsibilities")
+    )
+    can_intake = CUSTOMER_RETURN_RESPONSIBILITY in responsibilities
+    can_qc = CUSTOMER_RETURN_QC_RESPONSIBILITY in responsibilities
+    if not (can_view_all or can_intake or can_qc):
+        frappe.throw("Operator is not assigned to Customer Return", frappe.PermissionError)
+    if not can_view_all and not can_qc and case.created_by_operator != profile.employee:
+        frappe.throw("Operator cannot access this Return Case", frappe.PermissionError)
+    if write:
+        allowed = (
+            case.return_flow == "Customer Return for QC"
+            and case.state in ("Awaiting QC Receipt", "QC In Progress")
+            and (can_view_all or can_qc or case.created_by_operator == profile.employee)
+        )
+        if not allowed:
+            frappe.throw("Return evidence is locked after QC completion")
+    return case, profile, session
 
 
 def _assert_reference_media(reference_doctype, reference_name, media_id):

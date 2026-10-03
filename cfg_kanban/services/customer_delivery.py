@@ -914,6 +914,13 @@ def customer_delivery_context(scan_value, profile):
         "require_signature": bool(site.require_signature),
         "require_photo": bool(site.require_photo),
         "require_gps": bool(site.require_gps),
+        "can_start_return": bool(
+            site.enable_customer_return_qc
+            and (_can_view_all(profile) or "Customer Return" in {
+                row.responsibility for row in profile.responsibilities if row.responsibility
+            })
+        ),
+        "return_inspection_location": site.return_inspection_location,
         "can_start_delivery": bool(_customer_delivery_allowed(profile)),
         "vehicle_warehouses": warehouses,
     }

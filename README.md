@@ -15,11 +15,16 @@ The ERP posting continuation is
 [Package C2B Customer Delivery Note System Test](docs/TEST_PACKAGE_C2B_CUSTOMER_DELIVERY_NOTE.md).
 The customer acceptance and private-evidence continuation is
 [Package D1 Customer Delivery Proof System Test](docs/TEST_PACKAGE_D1_DELIVERY_PROOF.md).
+The controlled post-delivery return and correction continuation is
+[Package D2A Customer Return Intake System Test](docs/TEST_PACKAGE_D2A_CUSTOMER_RETURN_INTAKE.md).
 Package A identity/configuration, Package B intercompany handover, Package C1 customer/vehicle
 session foundation, Package C2A customer tagged-stock reservation, and Package C2B controlled
 customer Delivery Note posting are implemented. Package D1 adds policy-controlled proof of delivery,
-private evidence, unattended delivery, and audited closure. Customer billing and returns remain later
-controlled increments.
+private evidence, unattended delivery, and audited closure. Package D2A separates Customer Return
+for QC from wrong-Delivery-Note correction: drivers issue a non-accounting Temporary Return Note at
+the Customer Site with optional customer acknowledgement and private timestamped/geotagged evidence,
+QC records accepted/rejected disposition, and only wrong-DN correction can create
+an ERPNext Return Delivery Note. Final accounting credit/e-Invoice posting remains accountant-owned.
 The additive tagged/untagged material-continuity model is documented in
 [Material Genealogy Architecture](docs/MATERIAL_GENEALOGY_ARCHITECTURE.md). Its mixed-trace policy
 and submitted Purchase Receipt tag-activation slice are implemented without making tags mandatory
@@ -104,8 +109,12 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
   ERPNext customer Delivery Note, supports per-site Draft/auto-submit policy and mandatory ERP child
   tables, posts tag consumption only on ERP submission, and safely restores reservations after an
   allowed cancellation. D1 records recipient/signature/photo/GPS proof in private S3 storage and
-  closes the Delivery Session only after policy validation. Sales Invoice posting, returns, and
-  Billing Batch functions remain later increments.
+  closes the Delivery Session only after policy validation. D2A lets drivers issue a printable and
+  scannable Temporary Return Note without finding an old DN/invoice, keeps those goods in non-stock
+  QC custody, records QC acceptance/rejection, and hands accepted results to accounting without
+  creating credit. Its separate wrong-DN correction path requires the exact submitted DN and creates
+  only a controlled Return Delivery Note. Final accepted-return stock/accounting posting remains a
+  later controlled increment.
 
 ## Control flow
 

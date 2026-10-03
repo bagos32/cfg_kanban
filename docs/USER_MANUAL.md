@@ -1,9 +1,9 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.25
+**Guide version:** 1.29
 
-**Updated:** 3 October 2026
+**Updated:** 4 October 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
@@ -1760,7 +1760,7 @@ Signal rollback cancels/deletes only activity-free ERP documents, marks Cycle an
 returns the Card to Available, clears Active Cycle, and records Events. A submitted Work Order can be
 cancelled only while ERPNext permits it and the code has found no production/material activity.
 
-## 25. Multi-company logistics and customer allocation (Packages A-B, C1-C2B, and D1)
+## 25. Multi-company logistics and customer allocation (Packages A-B, C1-C2B, D1, and D2A)
 
 Package A installs the configuration and physical-identity foundation. Package B adds the controlled
 intercompany Movement Manifest, source-company Delivery Note, destination-company Purchase Receipt,
@@ -1768,7 +1768,8 @@ ERP feedback, and scan-first Logistics Operator Panel. Package C1 now adds Custo
 Company-specific vehicle Warehouse validation, and an immutable Delivery Session. Package C2A adds
 physical Stock Tag/customer allocation and reservation. Package C2B creates the controlled customer
 Delivery Note and waits for ERPNext submission before changing tag stock. Package D1 captures and
-validates customer proof before closing the session. Sales Invoice creation, returns, and Billing
+validates customer proof before closing the session. Package D2A records a controlled post-delivery
+return claim and inspection custody without adding available stock. Final return posting and Billing
 Batch grouping remain later increments. The locked design is in
 `docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md`.
 
@@ -1806,6 +1807,13 @@ Proof settings are **Proof Policy** (`proof_policy`: Required, Optional, Unatten
 Allowed, No Proof Required), **Require Recipient Name**, **Require Signature**, **Require
 Photograph**, **Require GPS**, and **Require Unattended-delivery Reason**. The printed `site_code` is
 the primary scan value. **Internal UUID Alias** is generated automatically as a system fallback.
+
+Return settings are **Enable Customer Return for QC** (`enable_customer_return_qc`), **Enable Wrong
+Delivery Note Correction** (`enable_delivery_note_correction`), **Default Inspection Custody
+Location** (`return_inspection_location`), **Delivery Correction Return Warehouse**
+(`correction_return_warehouse`), and **Auto-submit Correction Return Delivery Note**
+(`auto_submit_correction_return_dn`). The inspection Location is physical non-stock custody. Only
+the separate wrong-DN correction workflow can post stock through an ERPNext Return Delivery Note.
 
 ### Customer Delivery Session, stock allocation, and customer Delivery Note
 
@@ -1880,9 +1888,33 @@ the primary scan value. **Internal UUID Alias** is generated automatically as a 
     Delivery Proof has been submitted, cancellation is blocked; use the later controlled customer
     return workflow so accepted-delivery evidence is never silently reversed.
 
-**Current D1 limit:** D1 closes accepted delivery with policy-controlled proof. It does not create the
-customer Sales Invoice, process returns after an accepted delivery, or reconcile an end-of-route
-variance. Those remain controlled later packages.
+### Customer Return and wrong Delivery Note correction (Package D2A)
+
+There are only two floor choices. They must not be mixed.
+
+**Customer Return for QC:** Enable Customer Return Workflows globally, enable the site workflow, set
+the inspection Location, assign drivers **Customer Return**, and assign inspectors **Customer Return
+QC**. The driver scans the Customer Site, selects **Customer Return for QC**, records Item, optional
+Batch/expiry/tag, physical quantity, condition, details, reason and optional customer representative,
+then issues the printable **CFG Temporary Return Note**. The open Return Case accepts multiple
+timestamped/geotagged camera photographs and supporting files/PDFs through the private S3 registry;
+files can be removed and replaced until QC completion, after which the evidence is read-only. No
+previous Delivery Note or Sales Invoice is required. The note explicitly
+says it is not a tax Credit Note, e-Invoice, or stock receipt. Its QR contains the Return Case number.
+
+QC scans that QR, selects **Receive and Start QC**, then **Complete QC Result**. Received quantity
+cannot exceed intake; Accepted plus Rejected must equal Received; every row needs a disposition.
+Accepted quantity changes the case to **QC Completed - Accounting Pending**, but remains unavailable
+ERP stock. Only afterward does a supervisor/accountant choose the exact Sales Invoice, approved
+historical substitute, or No Credit and use the controlled ERPNext/e-Invoice workflow. Driver and QC
+screens never choose or create accounting credit documents.
+
+**Correct Wrong Delivery Note:** Retrieve the completed Delivery Session and select **Correct Wrong
+Delivery Note**. The exact submitted Delivery Note is mandatory and reversal quantities cannot exceed
+its remaining delivered rows. CFG Kanban creates only a Return Delivery Note against that DN. The
+site controls Draft versus auto-submit and the selling-company return Warehouse. If a submitted Sales
+Invoice already references the DN, the panel raises Accounting Attention and forcibly retains the
+Return DN as Draft; accounting must be corrected separately before ERPNext permits final posting.
 
 ### CFG Kanban Tag Range Registry
 
@@ -2071,17 +2103,21 @@ When using this file as context, an assistant must:
    code does not contain.
 10. Confirm the deployed Git revision/migration when the UI does not match this guide.
 
-11. Treat customer Sales Invoice posting, proof capture, loose-container delivery, returns after
-    acceptance, and billing grouping as future increments. Packages C1-C2B identify the Customer
+11. Treat customer Sales Invoice posting, loose-container delivery, final accepted-return stock
+    posting/accounting credit, and billing grouping as later increments. Packages C1-C2B identify the Customer
     Site, lock the Company-specific lorry Warehouse, reserve full/partial Stock Tag quantities, and
     confirm delivery only from submitted ERPNext Delivery Note feedback. Package B intercompany
     posting remains operational only through the Movement Manifest and submitted Delivery Note /
-    Purchase Receipt feedback described above.
+    Purchase Receipt feedback described above. D2A already covers Temporary Return Note custody,
+    QC result handoff, and wrong-Delivery-Note physical correction; it never lets a floor operator
+    select or post a Sales Invoice Return/Credit Note.
 
 ## 27. Revision history
 
 | Version | Date | Change |
 |---|---|---|
+| 1.30 | 4 October 2026 | Replaced the draft return concept with two practical floor workflows: Customer Return for QC from a Customer Site without prior DN/invoice, optional customer acknowledgement, private timestamped/geotagged evidence, printable/scannable Temporary Return Note, QC receipt/disposition and accounting-pending handoff; plus exact submitted-DN correction through a controlled Return Delivery Note with invoiced-DN safety hold |
+| 1.29 | 4 October 2026 | Initial return-intake draft (superseded by 1.30 before deployment) |
 | 1.28 | 3 October 2026 | Added policy-controlled customer proof of delivery, attended/unattended/no-proof dispositions, private photo/signature/file evidence, server-time and GPS capture, supervisor thumbnail review, server-enforced closure, and safe post-proof cancellation blocking |
 | 1.27 | 3 October 2026 | Added controlled customer Delivery Note creation from confirmed Stock Tag allocations, site-specific Draft/auto-submit policy, locked Item Price validation, mandatory ERP parent/child inputs, submission-only tag consumption, reusable-container completion, cancellation restoration, amendment revision, and Exception/idempotency audit |
 | 1.26 | 3 October 2026 | Added customer Stock Tag allocation, partial/full quantity reservation, complete reusable-container expansion, audited release/reconfirmation, ERP stock validation, container safeguards, and Delivery Allocation genealogy history without prematurely moving ERP stock |

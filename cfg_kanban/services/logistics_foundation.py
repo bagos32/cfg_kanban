@@ -140,6 +140,8 @@ def resolve_logistics_scan(scan_value):
     _add_tag_identity_match(candidates, code, "opaque_token", "internal_uuid_alias")
     _add_customer_match(candidates, code, "site_code", "visible_code")
     _add_customer_match(candidates, code, "opaque_token", "internal_uuid_alias")
+    _add_return_case_match(candidates, code, "name", "visible_case_number")
+    _add_return_case_match(candidates, code, "scan_token", "internal_uuid_alias")
 
     # Range recognition is deliberately read-only. The exact Tag Family and its
     # child identities are materialized only during controlled Handling Unit activation.
@@ -248,6 +250,24 @@ def _add_customer_match(candidates, code, fieldname, matched_by):
         "selling_company": row.selling_company,
         "customer": row.customer,
         "customer_address": row.customer_address,
+    }
+
+
+def _add_return_case_match(candidates, code, fieldname, matched_by):
+    if not frappe.db.table_exists("CFG Kanban Return Case"):
+        return
+    row = frappe.db.get_value(
+        "CFG Kanban Return Case", {fieldname: code},
+        ["name", "scan_token", "state", "return_flow", "site_name", "customer"],
+        as_dict=True,
+    )
+    if not row:
+        return
+    candidates[("Customer Return Case", row.name)] = {
+        "identity_type": "Customer Return Case", "name": row.name,
+        "visible_code": row.name, "matched_by": matched_by, "state": row.state,
+        "return_flow": row.return_flow, "site_name": row.site_name,
+        "customer": row.customer,
     }
 
 

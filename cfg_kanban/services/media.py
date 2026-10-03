@@ -23,6 +23,7 @@ MEDIA_CLASSES = {
     "incident-evidence": {"CFG Kanban Exception"},
     "production-evidence": {"CFG Kanban Cycle", "CFG Kanban Operation Progress"},
     "delivery-proof-evidence": {"CFG Kanban Delivery Proof"},
+    "customer-return-evidence": {"CFG Kanban Return Case"},
 }
 STATUSES = {"pending", "available", "quarantined", "archived", "deleting", "deleted", "failed"}
 DEFAULT_MIME_TYPES = {"image/jpeg", "image/png", "image/webp", "video/mp4", "application/pdf"}

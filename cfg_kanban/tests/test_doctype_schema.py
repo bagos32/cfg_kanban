@@ -48,6 +48,10 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Delivery Proof")
         self.assertEqual(shortcuts["Customer Delivery Proofs"],
                          "CFG Kanban Delivery Proof")
+        self.assertEqual(links["Customer Return Cases"],
+                         "CFG Kanban Return Case")
+        self.assertEqual(shortcuts["Customer Return Cases"],
+                         "CFG Kanban Return Case")
         self.assertEqual(links["Stock Tag Families"], "CFG Kanban Tag Family")
         self.assertEqual(links["Stock Tag Range Registries"],
                          "CFG Kanban Tag Range Registry")
@@ -903,3 +907,47 @@ class TestDocTypeSchema(TestCase):
             fields = {row["fieldname"]: row for row in schemas[doctype]["fields"]}
             self.assertEqual(fields["process_task"]["options"], "CFG Kanban Process Task")
             self.assertEqual(fields["standalone_task"]["options"], "CFG Kanban Task")
+
+    def test_customer_return_workflows_separate_qc_custody_from_dn_correction(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        parent = {row["fieldname"]: row for row in
+                  schemas["CFG Kanban Return Case"]["fields"]}
+        self.assertTrue({
+            "customer_scan_point", "original_delivery_session", "original_delivery_note",
+            "delivery_proof", "selling_company", "customer", "site_code", "return_flow",
+            "scan_token", "inspection_location", "correction_return_warehouse", "lines",
+            "claimed_total_qty", "qc_operator", "qc_completed_on", "accounting_status",
+            "accounting_source_basis", "correction_return_delivery_note", "idempotency_key",
+            "customer_acknowledgement_name", "customer_acknowledged_on",
+        }.issubset(parent))
+        self.assertEqual(parent["lines"]["options"], "CFG Kanban Return Line")
+        self.assertTrue(parent["idempotency_key"].get("unique"))
+        child = {row["fieldname"]: row for row in
+                 schemas["CFG Kanban Return Line"]["fields"]}
+        self.assertTrue({
+            "original_delivery_allocation", "original_delivery_note_item", "original_handling_unit",
+            "original_visible_code", "item_code", "batch_no", "expiry_date", "stock_uom",
+            "delivered_qty", "claimed_qty", "received_qty", "accepted_qty",
+            "rejected_qty", "condition", "qc_disposition", "qc_reason",
+        }.issubset(child))
+        event = {row["fieldname"]: row for row in schemas["CFG Kanban Event"]["fields"]}
+        self.assertEqual(event["return_case"]["options"], "CFG Kanban Return Case")
+
+        service = (APP_ROOT / "services" / "customer_returns.py").read_text()
+        self.assertIn('"Customer Return for QC"', service)
+        self.assertIn('"Delivery Note Correction"', service)
+        self.assertIn("inspection custody", service.lower())
+        self.assertNotIn("temporary_credit_note", service)
+        self.assertIn("complete_qc_inspection", service)
+        self.assertNotIn("bagos_changes", service)
+
+        media_service = (APP_ROOT / "services" / "media.py").read_text()
+        self.assertIn('"customer-return-evidence": {"CFG Kanban Return Case"}',
+                      media_service)
+        media_api = (APP_ROOT / "api" / "media.py").read_text()
+        self.assertIn("create_return_case_upload_url", media_api)
+        self.assertIn("archive_return_case_media", media_api)
+
+        gateway = (APP_ROOT / "integrations" / "erp_gateway.py").read_text()
+        self.assertIn('@handler("Create Correction Return Delivery Note")', gateway)
+        self.assertIn("make_return_doc", gateway)

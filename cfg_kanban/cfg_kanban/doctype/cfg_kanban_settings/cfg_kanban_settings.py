@@ -7,7 +7,13 @@ from frappe.utils import cint
 
 class CFGKanbanSettings(Document):
     def validate(self):
+        self._validate_customer_returns()
         self._validate_media_storage()
+
+    def _validate_customer_returns(self):
+        # Invoice source, Credit Note, and e-Invoice decisions are intentionally
+        # excluded from operator intake and selected only after QC disposition.
+        self.enable_customer_returns = cint(self.enable_customer_returns)
 
     def _validate_media_storage(self):
         self.media_app_id = "cfg_kanban"

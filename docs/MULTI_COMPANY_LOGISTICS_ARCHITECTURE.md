@@ -3,7 +3,7 @@
 **Architecture version:** 1.0  
 **Decision status:** Locked baseline  
 **Decision date:** 30 September 2026  
-**Implementation status:** Package A, Package B intercompany handover, Package C1 Customer Site / Delivery Session foundation, Package C2A customer tagged-stock reservation, Package C2B controlled customer Delivery Note posting, and Package D1 customer proof/closure are implemented; customer invoicing, returns/reconciliation, and Package E remain approved future scope
+**Implementation status:** Package A, Package B intercompany handover, Packages C1-C2B customer delivery, Package D1 proof/closure, and Package D2A controlled return intake plus QC disposition are implemented; final accepted-quantity ERP/accounting posting, customer invoicing, reconciliation, and Package E remain approved future scope
 
 This document is the source of truth for CFG Kanban stock-tag logistics across sister companies,
 company-specific vehicle warehouses, customer-site delivery, and delayed intercompany billing. It
@@ -630,7 +630,16 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
 - **Implemented in D1:** attended, unattended, optional no-proof, and automatic no-proof-required
   dispositions. A submitted proof blocks unsafe Delivery Note cancellation and directs later
   correction to the controlled return workflow.
-- Add customer returns, warehouse returns, overnight stock, damage, and quarantine.
+- **Implemented in D2A:** Customer Return for QC starts from the identified Customer Site without
+  requiring the driver to find an old Delivery Note or Sales Invoice. The printable/scannable
+  Temporary Return Note snapshots physical Item/Batch/expiry/tag/quantity/condition and non-stock
+  custody. QC records received, accepted, rejected, disposition, operator, and time.
+- **Implemented in D2A:** accepted QC quantity becomes Accounting Pending; the floor does not select
+  an invoice or create a Credit Note/e-Invoice. A separate wrong-Delivery-Note workflow requires the
+  exact submitted DN, limits reversal to its rows, and creates only an ERPNext Return Delivery Note.
+  Already-invoiced DNs are visibly held as Draft for accounting attention.
+- Add final accepted-quantity ERP stock/accounting posting, quarantine execution, and accounting
+  source-selection interface for authorized supervisors/accountants.
 - Add end-of-route reconciliation, variance Exceptions, and reports.
 
 ### Package E — Operational hardening

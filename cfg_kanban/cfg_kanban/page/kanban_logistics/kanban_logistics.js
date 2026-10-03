@@ -4,7 +4,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	const last_manifest_key = "cfg_kanban_last_manifest";
 	const state = { token: localStorage.getItem(session_key), operator: null, routes: [],
 		manifests: [], recent_manifests: [], internal_transfers: [], manifest: null,
-		delivery_sessions: [], lookup: null, scan_mode: "lookup" };
+		delivery_sessions: [], return_cases: [], lookup: null, scan_mode: "lookup" };
 	const $sticky = $("<div class='cfg-logistics-sticky'></div>").appendTo(page.main);
 	const $scanner = $(`<div class="frappe-card cfg-logistics-scanner">
 		<div class="cfg-logistics-scanner-head"><div><strong>${__("Logistics Scanner")}</strong>
@@ -53,6 +53,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			state.recent_manifests = response.message.recent_manifests || [];
 			state.internal_transfers = response.message.internal_transfers || [];
 			state.delivery_sessions = response.message.delivery_sessions || [];
+			state.return_cases = response.message.return_cases || [];
 			state.scan_mode = "lookup";
 			render_identity();
 			const last_manifest = state.manifest?.name || state.manifest || localStorage.getItem(last_manifest_key);
@@ -79,6 +80,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.recent_manifests = [];
 		state.internal_transfers = [];
 		state.delivery_sessions = [];
+		state.return_cases = [];
 		state.manifest = null;
 		state.lookup = null;
 		state.scan_mode = "lookup";
@@ -225,8 +227,14 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			`<button class="frappe-card cfg-logistics-list-row delivery-session-row" data-name="${e(row.name)}"><div><strong>${e(row.name)}</strong><small>${e(row.site_name)} · ${e(row.customer)}</small></div>
 			<div><span class="indicator-pill orange">${e(row.state)}</span><small>${e(row.vehicle_reference)} · ${e(row.source_warehouse)}</small></div></button>`
 		).join("") || `<div class="text-muted p-3">${__("No active Customer Delivery Sessions for this operator")}</div>`;
+		const return_rows = state.return_cases.map((row) =>
+			`<button class="frappe-card cfg-logistics-list-row return-case-row" data-name="${e(row.name)}"><div><strong>${e(row.name)}</strong><small>${e(row.site_name)} · ${e(row.return_flow)}</small></div>
+			<div><span class="indicator-pill orange">${e(row.state)}</span><small>${__("Claim quantity recorded")}</small></div></button>`
+		).join("") || `<div class="text-muted p-3">${__("No open Customer Return Cases for this operator")}</div>`;
 		$list.html(`<section class="cfg-customer-delivery-list mb-4"><h3>${__("Customer Delivery Sessions")}</h3>
 			<p class="text-muted">${__("Scan a Customer Site code in normal lookup mode to start a controlled delivery context.")}</p>${delivery_rows}</section>
+			<section class="cfg-customer-return-list mb-4"><h3>${__("Customer Return Intake")}</h3>
+			<p class="text-muted">${__("Returned goods under inspection are physical custody only and are not ERPNext available stock.")}</p>${return_rows}</section>
 			<section class="cfg-internal-transfer-list mb-4"><h3>${__("Same-Company Tagged Warehouse Transfers")}</h3>
 			<p class="text-muted">${__("A Stock/Manufacturing user prepares the Draft ERPNext Material Transfer. Scan its physical tags here; ERPNext submission confirms the Warehouse movement.")}</p>${transfer_rows}</section>
 			<section class="cfg-logistics-open-list"><h3>${__("Open Movement Manifests")}</h3>${open_rows}</section>
@@ -237,6 +245,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		});
 		$list.find(".delivery-session-row").off("click").on("click", function () {
 			open_delivery_session($(this).data("name"));
+		});
+		$list.find(".return-case-row").off("click").on("click", function () {
+			open_return_case($(this).data("name"));
 		});
 	}
 
@@ -363,6 +374,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 
 	function render_lookup() {
 		if (!state.lookup) return $lookup.empty();
+		if (state.lookup.return_case) {
+			render_return_case(state.lookup.return_case);
+			return;
+		}
 		if (state.lookup.delivery_session) {
 			render_delivery_session(state.lookup.delivery_session);
 			return;
@@ -397,6 +412,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const manifests = (state.lookup.manifests || []).map((manifest) =>
 			`<button class="btn btn-default lookup-manifest" data-name="${e(manifest.name)}"><strong>${e(manifest.name)}</strong> · ${e(manifest.state)}</button>`
 		).join("");
+		const customer_deliveries = (state.lookup.customer_deliveries || []).map((row) =>
+			`<span><button class="btn btn-default lookup-delivery" data-name="${e(row.delivery_session)}"><strong>${e(row.delivery_session)}</strong> · ${e(row.delivery_note)}</button>
+			<button class="btn btn-warning lookup-return" data-name="${e(row.delivery_session)}">${__("Record Return")} · ${format_number(row.delivered_qty)}</button></span>`
+		).join("");
 		const container_action = container_status.mode === "container" && state.lookup.can_manage_container ?
 			`<button class="btn btn-primary manage-container">${__("Manage Contents")}</button>` : "";
 		const membership_notice = membership ? `<div class="alert alert-warning mt-3">
@@ -423,9 +442,12 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			${membership_notice}${content_notice}${serial_notice}
 			<div class="cfg-logistics-last-movement"><small>${__("Last movement")}</small><strong>${movement ? `${e(movement.event_type)} · ${e(display_datetime(movement.posting_datetime))}` : __("No quantity movement recorded")}</strong></div>
 			<div class="cfg-logistics-related"><small>${__("Related Manifests")}</small><div>${manifests || `<span class="text-muted">${__("No Manifest history for this tag")}</span>`}</div></div>
+			<div class="cfg-logistics-related"><small>${__("Customer Delivery History")}</small><div>${customer_deliveries || `<span class="text-muted">${__("No delivered customer allocation for this tag")}</span>`}</div></div>
 		</div>`);
 		$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
 		$lookup.find(".lookup-manifest").on("click", function () { open_manifest($(this).data("name")); });
+		$lookup.find(".lookup-delivery").on("click", function () { open_delivery_session($(this).data("name")); });
+		$lookup.find(".lookup-return").on("click", function () { open_customer_return({ name: $(this).data("name") }); });
 		$lookup.find(".explore-genealogy").on("click", function () {
 			frappe.set_route("material-genealogy", $(this).data("code"));
 		});
@@ -437,13 +459,15 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const warehouses = site.vehicle_warehouses || [];
 		const start_action = site.can_start_delivery && warehouses.length ?
 			`<button class="btn btn-primary start-delivery">${__("Start Customer Delivery")}</button>` : "";
+		const return_action = site.can_start_return ?
+			`<button class="btn btn-warning start-qc-return">${__("Customer Return for QC")}</button>` : "";
 		const warning = !site.can_start_delivery ?
 			__("The active operator is not assigned to Customer Delivery.") :
 			(!warehouses.length ? __("No active Vehicle Warehouse is configured for this selling Company.") : "");
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
 			<div class="cfg-logistics-tag-head"><div><small>${__("Customer Site identified")}</small>
 				<h3>${e(site.site_name)}</h3><strong>${e(site.site_code)}</strong></div>
-				<div>${start_action}<button class="btn btn-default close-lookup">${__("Close")}</button></div></div>
+				<div>${start_action}${return_action}<button class="btn btn-default close-lookup">${__("Close")}</button></div></div>
 			<div class="cfg-logistics-tag-grid">
 				<div><small>${__("Selling Company")}</small><strong>${e(site.selling_company)}</strong></div>
 				<div><small>${__("Customer")}</small><strong>${e(site.customer)}</strong></div>
@@ -457,6 +481,51 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		</div>`);
 		$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
 		$lookup.find(".start-delivery").on("click", () => start_delivery_dialog(site));
+		$lookup.find(".start-qc-return").on("click", () => open_qc_return_intake(site));
+	}
+
+	async function open_qc_return_intake(site) {
+		const response = await frappe.call({
+			method: "cfg_kanban.services.customer_returns.get_return_intake_context",
+			args: { customer_scan: site.site_code, operator_session_token: state.token },
+		});
+		const context = response.message;
+		const dialog = new frappe.ui.Dialog({
+			title: __("Temporary Return Note: {0}", [context.site_name]), size: "extra-large",
+			fields: [
+				{ fieldname: "warning", fieldtype: "HTML", options: `<div class="alert alert-warning"><strong>${__("NOT A TAX CREDIT NOTE OR E-INVOICE")}</strong><br>${__("This note records physical return custody for QC only. It does not add available stock or approve customer credit.")}</div>` },
+				{ fieldname: "customer_return_reason", label: __("Customer Return Reason"), fieldtype: "Small Text", reqd: 1 },
+				{ fieldname: "customer_acknowledgement_name", label: __("Customer Representative (Optional)"), fieldtype: "Data",
+					description: __("Record the name of the customer representative acknowledging physical handover. This is not credit approval.") },
+				{ fieldname: "inspection_location", label: __("Inspection Custody Location"), fieldtype: "Data", read_only: 1, default: context.inspection_location },
+				{ fieldname: "lines", label: __("Physical Items Received from Customer"), fieldtype: "Table",
+					cannot_add_rows: false, cannot_delete_rows: false, in_place_edit: true,
+					fields: [
+						{ fieldname: "original_visible_code", label: __("Stock Tag / Reference"), fieldtype: "Data", in_list_view: 1, columns: 2 },
+						{ fieldname: "item_code", label: __("Item"), fieldtype: "Link", options: "Item", reqd: 1, in_list_view: 1, columns: 2 },
+						{ fieldname: "batch_no", label: __("Batch"), fieldtype: "Link", options: "Batch", in_list_view: 1, columns: 2 },
+						{ fieldname: "expiry_date", label: __("Expiry"), fieldtype: "Date", in_list_view: 1, columns: 1 },
+						{ fieldname: "claimed_qty", label: __("Physical Qty"), fieldtype: "Float", reqd: 1, in_list_view: 1, columns: 1 },
+						{ fieldname: "condition", label: __("Reported Condition"), fieldtype: "Select", options: "Unknown\nGood / Unwanted\nDamaged\nExpired\nPest or Contamination\nCustomer Handling Damage\nWrong Item or Quantity\nOther", default: "Unknown", in_list_view: 1, columns: 2 },
+						{ fieldname: "details", label: __("Details"), fieldtype: "Small Text", in_list_view: 1, columns: 2 },
+					] },
+			],
+			primary_action_label: __("Issue Temporary Return Note"),
+			primary_action: async (values) => {
+				const rows = values.lines || dialog.fields_dict.lines.df.data || [];
+				if (!rows.length) return frappe.msgprint(__("Add at least one returned Item."));
+				const created = await frappe.call({
+					method: "cfg_kanban.services.customer_returns.create_qc_return_case",
+					args: { customer_scan: site.site_code, customer_return_reason: values.customer_return_reason,
+						customer_acknowledgement_name: values.customer_acknowledgement_name,
+						lines: JSON.stringify(rows), event_token: unique_token(), operator_session_token: state.token },
+					freeze: true, freeze_message: __("Issuing controlled Temporary Return Note..."),
+				});
+				dialog.hide(); state.lookup = { return_case: created.message };
+				render_lookup(); await refresh_list();
+			},
+		});
+		dialog.show();
 	}
 
 	function start_delivery_dialog(site) {
@@ -516,6 +585,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			`<button class="btn btn-success prepare-customer-dn">${delivery.delivery_note_status?.docstatus === 2 ? __("Create Amended Delivery Note") : __("Create Delivery Note")}</button>` : "";
 		const proof_action = delivery.state === "Delivered" ?
 			`<button class="btn btn-success capture-delivery-proof">${__("Capture / Close Delivery")}</button>` : "";
+		const return_action = ["Delivered", "Closed", "Invoiced"].includes(delivery.state) ?
+			`<button class="btn btn-warning start-customer-return">${__("Correct Wrong Delivery Note")}</button>` : "";
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
 			<div class="cfg-logistics-tag-head"><div><small>${__("Active Customer Delivery")}</small>
 				<h3>${e(delivery.site_name)}</h3><strong>${e(delivery.name)} · ${e(delivery.state)}</strong></div>
@@ -539,6 +610,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				${delivery.state === "Allocating Stock" && active_allocations.length && state.scan_mode !== "delivery" ? `<button class="btn btn-success confirm-allocations">${__("Confirm Customer Allocation")}</button>` : ""}
 				${delivery_action}
 				${proof_action}
+				${return_action}
 			</div>
 			${delivery.state === "Awaiting Confirmation" ? `<div class="alert alert-success mt-3 mb-0">${__("Allocation confirmed. Stock remains reserved until the ERPNext Delivery Note is submitted.")}</div>` : ""}
 			${delivery.state === "ERP Document Pending" ? `<div class="alert alert-warning mt-3 mb-0">${__("The Delivery Note is Draft. An authorized ERPNext user must review and submit it; only submission posts Kanban delivery quantities.")}</div>` : ""}
@@ -554,6 +626,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		$lookup.find(".confirm-allocations").on("click", () => confirm_delivery_allocations(delivery));
 		$lookup.find(".prepare-customer-dn").on("click", () => prepare_customer_delivery_note(delivery));
 		$lookup.find(".capture-delivery-proof").on("click", () => open_delivery_proof(delivery));
+		$lookup.find(".start-customer-return").on("click", () => open_customer_return(delivery));
 		$lookup.find(".open-delivery-proof").on("click", () => frappe.set_route("Form", "CFG Kanban Delivery Proof", delivery.delivery_proof));
 		$lookup.find(".open-customer-dn").on("click", () => frappe.set_route("Form", "Delivery Note", delivery.delivery_note));
 		$lookup.find(".cancel-delivery").on("click", () => frappe.prompt([
@@ -568,6 +641,205 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			state.lookup = { delivery_session: response.message };
 			render_lookup(); await refresh_list();
 		}, __("Cancel Empty Delivery Session"), __("Cancel Session")));
+	}
+
+	async function open_customer_return(delivery) {
+		const response = await frappe.call({
+			method: "cfg_kanban.services.customer_returns.get_delivery_correction_candidate",
+			args: { delivery_session: delivery.name, operator_session_token: state.token },
+			freeze: true, freeze_message: __("Loading submitted Delivery Note quantities..."),
+		});
+		const candidate = response.message;
+		if (!(candidate.lines || []).length) {
+			return frappe.msgprint(__("No remaining quantity is available for Delivery Note correction."));
+		}
+		const dialog = new frappe.ui.Dialog({
+			title: __("Correct Wrong Delivery Note: {0}", [candidate.delivery_note]), size: "extra-large",
+			fields: [
+				{ fieldname: "delivery_context", label: __("Original ERP-confirmed Delivery"), fieldtype: "HTML",
+					options: `<div class="alert alert-info"><strong>${frappe.utils.escape_html(candidate.delivery_note)}</strong> · ${frappe.utils.escape_html(candidate.customer)} · ${frappe.utils.escape_html(candidate.site_code)}<br><small>${__("This reverses physical delivery only; it does not create an accounting Credit Note.")}</small></div>${candidate.accounting_attention_required ? `<div class="alert alert-danger"><strong>${__("Accounting attention required")}</strong><br>${__("Submitted Sales Invoice(s):")} ${candidate.linked_sales_invoices.map((name) => frappe.utils.escape_html(name)).join(", ")}. ${__("The Return Delivery Note will remain Draft.")}</div>` : ""}` },
+				{ fieldname: "customer_return_reason", label: __("Correction Reason"), fieldtype: "Small Text", reqd: 1 },
+				{ fieldname: "correction_return_warehouse", label: __("Stock Returns To"), fieldtype: "Data", read_only: 1, default: candidate.correction_return_warehouse },
+				{ fieldname: "lines", label: __("Delivery Note Lines to Reverse"), fieldtype: "Table",
+					cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true, data: candidate.lines,
+					fields: [
+						{ fieldname: "original_delivery_allocation", fieldtype: "Data", hidden: 1 },
+						{ fieldname: "original_visible_code", label: __("Stock Tag"), fieldtype: "Data", read_only: 1, in_list_view: 1, columns: 2 },
+						{ fieldname: "item_code", label: __("Item"), fieldtype: "Data", read_only: 1, in_list_view: 1, columns: 2 },
+						{ fieldname: "batch_no", label: __("Batch"), fieldtype: "Data", read_only: 1, in_list_view: 1, columns: 1 },
+						{ fieldname: "available_to_correct_qty", label: __("Available"), fieldtype: "Float", read_only: 1, in_list_view: 1, columns: 1 },
+						{ fieldname: "claimed_qty", label: __("Reverse Qty"), fieldtype: "Float", in_list_view: 1, columns: 1 },
+						{ fieldname: "details", label: __("Details"), fieldtype: "Small Text", in_list_view: 1, columns: 3 },
+					] },
+				{ fieldname: "correction_warning", fieldtype: "HTML", options: `<div class="alert alert-warning"><strong>${__("Physical delivery correction only")}</strong><br>${__("For damaged, expired, or disputed goods, scan the Customer Site and use Customer Return for QC.")}</div>` },
+			],
+			primary_action_label: __("Create Return Delivery Note"),
+			primary_action: async (values) => {
+				const rows = (values.lines || dialog.fields_dict.lines.df.data || []).filter((row) => Number(row.claimed_qty || 0) > 0);
+				if (!rows.length) return frappe.msgprint(__("Enter a reverse quantity on at least one line."));
+				const created = await frappe.call({
+					method: "cfg_kanban.services.customer_returns.create_delivery_correction_case",
+					args: { delivery_session: delivery.name,
+						customer_return_reason: values.customer_return_reason, lines: JSON.stringify(rows),
+						event_token: unique_token(), operator_session_token: state.token },
+					freeze: true, freeze_message: __("Creating controlled Return Delivery Note..."),
+				});
+				dialog.hide(); state.lookup = { return_case: created.message };
+				render_lookup(); await refresh_list();
+				frappe.show_alert({ message: __("Delivery correction recorded"), indicator: "green" });
+			},
+		});
+		dialog.show();
+	}
+
+	async function open_return_case(name) {
+		const response = await frappe.call({
+			method: "cfg_kanban.services.customer_returns.get_return_case",
+			args: { return_case: name, operator_session_token: state.token },
+		});
+		state.lookup = { return_case: response.message }; render_lookup();
+	}
+
+	function render_return_case(return_case) {
+		const e = frappe.utils.escape_html;
+		const rows = (return_case.lines || []).map((row) => `<div class="cfg-logistics-line">
+			<div><strong>${e(row.original_visible_code || "-")}</strong><small>${e(row.item_code)} · ${e(row.batch_no || __("No Batch"))} · ${e(row.condition)}</small></div>
+			<div><strong>${format_number(row.claimed_qty)} ${e(row.stock_uom)}</strong><small>${__("Received")}: ${format_number(row.received_qty)} · ${__("Accepted")}: ${format_number(row.accepted_qty)} · ${e(row.qc_disposition || __("Pending"))}</small></div>
+		</div>`).join("");
+		const qc_actions = `${return_case.can_start_qc ? `<button class="btn btn-primary start-return-qc">${__("Receive and Start QC")}</button>` : ""}${return_case.can_complete_qc ? `<button class="btn btn-success complete-return-qc">${__("Complete QC Result")}</button>` : ""}`;
+		const evidence_open = return_case.return_flow === "Customer Return for QC" && ["Awaiting QC Receipt", "QC In Progress"].includes(return_case.state);
+		const print_url = `/printview?doctype=CFG%20Kanban%20Return%20Case&name=${encodeURIComponent(return_case.name)}&format=CFG%20Temporary%20Return%20Note&no_letterhead=1`;
+		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
+			<div class="cfg-logistics-tag-head"><div><small>${__("Controlled Return Workflow")}</small><h3>${e(return_case.name)}</h3>
+			<strong>${e(return_case.site_name)} · ${e(return_case.state)}</strong></div><button class="btn btn-default close-lookup">${__("Close")}</button></div>
+			<div class="cfg-logistics-tag-grid">
+				<div><small>${__("Workflow")}</small><strong>${e(return_case.return_flow)}</strong></div>
+				<div><small>${__("Original Delivery Note")}</small><strong>${e(return_case.original_delivery_note || __("Not required for QC intake"))}</strong></div>
+				<div><small>${__("Customer")}</small><strong>${e(return_case.customer)}</strong></div>
+				<div><small>${__("Selling Company")}</small><strong>${e(return_case.selling_company)}</strong></div>
+				<div><small>${__("Inspection Location")}</small><strong>${e(return_case.inspection_location || "-")}</strong></div>
+				<div><small>${__("Customer Acknowledged By")}</small><strong>${e(return_case.customer_acknowledgement_name || __("Not recorded"))}</strong></div>
+				<div><small>${__("Return Delivery Note")}</small><strong>${e(return_case.correction_return_delivery_note || __("Not applicable"))}</strong></div>
+			</div>
+			${return_case.return_flow === "Customer Return for QC" ? `<div class="alert alert-warning mt-3"><strong>${__("NOT A TAX CREDIT NOTE OR ERP STOCK RECEIPT")}</strong> · ${__("QC must finish before a supervisor/accountant selects any accounting source.")}</div>` : `<div class="alert alert-info mt-3"><strong>${__("Physical Delivery Note correction")}</strong> · ${__("Accounting remains a separate ERPNext responsibility.")}</div>`}
+			<div class="cfg-logistics-lines">${rows}</div>
+			${return_case.return_flow === "Customer Return for QC" ? `<div class="cfg-return-evidence mt-3">
+				<h5>${__("Private Return Evidence")}</h5>
+				<div class="cfg-return-media text-muted">${__("Loading evidence...")}</div>
+				${evidence_open ? `<div class="cfg-logistics-actions mt-2">
+					<label class="btn btn-primary mb-0">${__("Take Timestamped Photo")}<input class="cfg-return-camera" type="file" accept="image/*" capture="environment" hidden></label>
+					<label class="btn btn-default mb-0">${__("Upload File / PDF")}<input class="cfg-return-file" type="file" accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf" multiple hidden></label>
+				</div><div class="cfg-return-media-status mt-2"></div>` : `<div class="text-muted">${__("Evidence is locked because QC is complete.")}</div>`}
+			</div>` : ""}
+			<div class="cfg-logistics-actions">${qc_actions}<a class="btn btn-default" href="${print_url}" target="_blank">${__("Print Temporary Return Note")}</a><button class="btn btn-default open-return-record">${__("Open Audit Record")}</button></div>
+		</div>`);
+		$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
+		$lookup.find(".open-return-record").on("click", () => frappe.set_route("Form", "CFG Kanban Return Case", return_case.name));
+		$lookup.find(".start-return-qc").on("click", async () => {
+			const response = await frappe.call({ method: "cfg_kanban.services.customer_returns.start_qc_inspection",
+				args: { return_case: return_case.name, event_token: unique_token(), operator_session_token: state.token },
+				freeze: true, freeze_message: __("Starting QC inspection...") });
+			state.lookup = { return_case: response.message }; render_lookup(); await refresh_list();
+		});
+		$lookup.find(".complete-return-qc").on("click", () => complete_return_qc_dialog(return_case));
+		if (return_case.return_flow === "Customer Return for QC") bind_return_case_evidence(return_case, evidence_open);
+	}
+
+	function bind_return_case_evidence(return_case, evidence_open) {
+		const $evidence = $lookup.find(".cfg-return-evidence");
+		let rows = [];
+		const render_rows = () => {
+			const e = frappe.utils.escape_html;
+			$evidence.find(".cfg-return-media").html(rows.length ? rows.map((row) =>
+				`<div class="cfg-logistics-line" data-media-id="${e(row.media_id)}"><div><strong>${e(row.evidence_kind || "attachment")}</strong><small>${e(row.original_filename)} · ${e(row.capture_timestamp || row.confirmed_at || "")}</small></div><div><button class="btn btn-xs btn-default cfg-open-return-media">${__("Open")}</button>${evidence_open ? ` <button class="btn btn-xs btn-danger cfg-remove-return-media">${__("Remove")}</button>` : ""}</div></div>`
+			).join("") : `<div class="text-muted">${__("No return evidence uploaded yet")}</div>`);
+			$evidence.find(".cfg-open-return-media").off("click").on("click", async function () {
+				const media_id = $(this).closest("[data-media-id]").data("media-id");
+				const view = await frappe.call({ method: "cfg_kanban.api.media.create_return_case_view_url", args: {
+					return_case: return_case.name, media_id, operator_session_token: state.token,
+				} }); window.open(view.message.url, "_blank", "noopener");
+			});
+			$evidence.find(".cfg-remove-return-media").off("click").on("click", async function () {
+				const media_id = $(this).closest("[data-media-id]").data("media-id");
+				await frappe.call({ method: "cfg_kanban.api.media.archive_return_case_media", args: {
+					return_case: return_case.name, media_id, operator_session_token: state.token,
+				} }); rows = rows.filter((row) => row.media_id !== media_id); render_rows();
+			});
+		};
+		const refresh = async () => {
+			const response = await frappe.call({ method: "cfg_kanban.api.media.list_return_case_media", args: {
+				return_case: return_case.name, operator_session_token: state.token,
+			} }); rows = response.message || []; render_rows();
+		};
+		const upload = async (files, camera = false) => {
+			const $status = $evidence.find(".cfg-return-media-status");
+			try {
+				let location = null; let captured_at = null; let selected = Array.from(files || []);
+				if (camera) {
+					location = await delivery_geotag();
+					const stamp = await frappe.call({ method: "cfg_kanban.api.media.get_return_case_camera_stamp", args: {
+						return_case: return_case.name, operator_session_token: state.token,
+					} }); captured_at = stamp.message.captured_at;
+					selected = [await stamp_delivery_photo(selected[0], captured_at, return_case.name, location,
+						"CFG Kanban customer return evidence")];
+				}
+				for (const file of selected) {
+					$status.html(`<div class="alert alert-info">${__("Uploading {0}", [frappe.utils.escape_html(file.name)])}</div>`);
+					const auth = await frappe.call({ method: "cfg_kanban.api.media.create_return_case_upload_url", args: {
+						return_case: return_case.name, original_filename: file.name, content_type: file.type,
+						size_bytes: file.size, idempotency_key: unique_token(), operator_session_token: state.token,
+						evidence_kind: camera ? "photo" : "attachment", capture_source: camera ? "timestamped-camera" : "file-upload",
+						capture_timestamp: captured_at, latitude: location && location.latitude,
+						longitude: location && location.longitude, location_accuracy: location && location.accuracy,
+					} });
+					const data = auth.message; if (data.already_available) continue;
+					const form = new FormData(); Object.entries(data.fields || {}).forEach(([key, value]) => form.append(key, value)); form.append("file", file);
+					const result = await fetch(data.url, { method: data.method, body: form });
+					if (!result.ok) throw new Error(__("Private upload failed with HTTP {0}", [result.status]));
+					await frappe.call({ method: "cfg_kanban.api.media.confirm_return_case_upload", args: {
+						return_case: return_case.name, media_id: data.media_id, confirmation_token: data.confirmation_token,
+						operator_session_token: state.token,
+					} });
+				}
+				await refresh(); $status.html(`<div class="alert alert-success">${__("Return evidence uploaded")}</div>`);
+			} catch (error) { $status.html(`<div class="alert alert-danger">${frappe.utils.escape_html(error.message || __("Upload failed"))}</div>`); }
+		};
+		$evidence.find(".cfg-return-camera").on("change", function () { if (this.files.length) upload(this.files, true); this.value = ""; });
+		$evidence.find(".cfg-return-file").on("change", function () { if (this.files.length) upload(this.files); this.value = ""; });
+		refresh();
+	}
+
+	function complete_return_qc_dialog(return_case) {
+		const data = (return_case.lines || []).map((row) => ({ name: row.name, item_code: row.item_code,
+			claimed_qty: row.claimed_qty, received_qty: row.claimed_qty, accepted_qty: 0,
+			rejected_qty: row.claimed_qty, qc_disposition: "Hold for Investigation", qc_reason: "" }));
+		const dialog = new frappe.ui.Dialog({
+			title: __("QC Result: {0}", [return_case.name]), size: "extra-large",
+			fields: [
+				{ fieldname: "notice", fieldtype: "HTML", options: `<div class="alert alert-info">${__("Accepted + Rejected must equal the physically received quantity. Accepted quantity becomes accounting-pending, not available stock.")}</div>` },
+				{ fieldname: "lines", label: __("Inspection Results"), fieldtype: "Table", cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true, data,
+					fields: [
+						{ fieldname: "name", fieldtype: "Data", hidden: 1 },
+						{ fieldname: "item_code", label: __("Item"), fieldtype: "Data", read_only: 1, in_list_view: 1, columns: 2 },
+						{ fieldname: "claimed_qty", label: __("Intake"), fieldtype: "Float", read_only: 1, in_list_view: 1, columns: 1 },
+						{ fieldname: "received_qty", label: __("Received"), fieldtype: "Float", in_list_view: 1, columns: 1 },
+						{ fieldname: "accepted_qty", label: __("Accepted"), fieldtype: "Float", in_list_view: 1, columns: 1 },
+						{ fieldname: "rejected_qty", label: __("Rejected"), fieldtype: "Float", in_list_view: 1, columns: 1 },
+						{ fieldname: "qc_disposition", label: __("Disposition"), fieldtype: "Select", options: "Accept for Credit\nReject Customer Claim\nAccept for Rework\nAccept for Disposal\nHold for Investigation", reqd: 1, in_list_view: 1, columns: 3 },
+						{ fieldname: "qc_reason", label: __("Reason"), fieldtype: "Small Text", in_list_view: 1, columns: 3 },
+					] },
+				{ fieldname: "qc_notes", label: __("Overall QC Notes"), fieldtype: "Small Text" },
+			],
+			primary_action_label: __("Complete QC and Hand Off to Accounting"),
+			primary_action: async (values) => {
+				const response = await frappe.call({ method: "cfg_kanban.services.customer_returns.complete_qc_inspection",
+					args: { return_case: return_case.name, lines: JSON.stringify(values.lines || dialog.fields_dict.lines.df.data || []),
+						qc_notes: values.qc_notes, event_token: unique_token(), operator_session_token: state.token },
+					freeze: true, freeze_message: __("Saving controlled QC disposition...") });
+				dialog.hide(); state.lookup = { return_case: response.message }; render_lookup(); await refresh_list();
+			},
+		});
+		dialog.show();
 	}
 
 	async function open_delivery_proof(delivery) {
@@ -670,7 +942,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 					const stamp = await frappe.call({ method: "cfg_kanban.api.media.get_delivery_proof_camera_stamp", args: {
 						proof_name: proof.name, operator_session_token: state.token,
 					} }); captured_at = stamp.message.captured_at;
-					selected = [await stamp_delivery_photo(selected[0], captured_at, proof.name, location)];
+					selected = [await stamp_delivery_photo(selected[0], captured_at, proof.name, location,
+						"CFG Kanban customer delivery proof")];
 				}
 				for (const file of selected) {
 					$status.html(`<div class="alert alert-info">${__("Uploading {0}", [frappe.utils.escape_html(file.name)])}</div>`);
@@ -725,7 +998,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		));
 	}
 
-	async function stamp_delivery_photo(file, captured_at, proof_name, location) {
+	async function stamp_delivery_photo(file, captured_at, reference_name, location, evidence_label) {
 		const bitmap = window.createImageBitmap ? await createImageBitmap(file) : await new Promise((resolve, reject) => {
 			const image = new Image(); const url = URL.createObjectURL(file);
 			image.onload = () => { URL.revokeObjectURL(url); resolve(image); }; image.onerror = reject; image.src = url;
@@ -733,12 +1006,12 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const canvas = document.createElement("canvas"); canvas.width = bitmap.width; canvas.height = bitmap.height;
 		const ctx = canvas.getContext("2d"); ctx.drawImage(bitmap, 0, 0);
 		const font = Math.max(22, Math.round(canvas.width * 0.025)); ctx.fillStyle = "rgba(0,0,0,.72)"; ctx.fillRect(0, canvas.height - font * 3.2, canvas.width, font * 3.2);
-		ctx.fillStyle = "#fff"; ctx.font = `bold ${font}px Arial`; ctx.fillText(`${captured_at} · ${proof_name}`, font * .6, canvas.height - font * 1.45);
+		ctx.fillStyle = "#fff"; ctx.font = `bold ${font}px Arial`; ctx.fillText(`${captured_at} · ${reference_name}`, font * .6, canvas.height - font * 1.45);
 		ctx.font = `${Math.round(font * .65)}px Arial`; ctx.fillText(`GPS ${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)} · ±${Math.round(location.accuracy)}m`, font * .6, canvas.height - font * .65);
-		ctx.fillText("CFG Kanban customer delivery proof", font * .6, canvas.height - font * .12);
+		ctx.fillText(evidence_label, font * .6, canvas.height - font * .12);
 		const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", .9)); if (bitmap.close) bitmap.close();
 		if (!blob) throw new Error(__("The delivery photo could not be stamped."));
-		return new File([blob], `delivery-proof-${Date.now()}.jpg`, { type: "image/jpeg" });
+		return new File([blob], `kanban-evidence-${Date.now()}.jpg`, { type: "image/jpeg" });
 	}
 
 	async function delivery_allocation_scan(raw) {
@@ -1191,6 +1464,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.recent_manifests = response.message.recent_manifests || [];
 		state.internal_transfers = response.message.internal_transfers || [];
 		state.delivery_sessions = response.message.delivery_sessions || [];
+		state.return_cases = response.message.return_cases || [];
 		render_list();
 	}
 
@@ -1238,6 +1512,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (!expected_token || stored_token === expected_token) localStorage.removeItem(session_key);
 		state.token = null; state.operator = null;
 		state.routes = []; state.manifests = []; state.recent_manifests = []; state.internal_transfers = [];
+		state.delivery_sessions = []; state.return_cases = [];
 		state.manifest = null; state.lookup = null; state.scan_mode = "lookup";
 	}
 

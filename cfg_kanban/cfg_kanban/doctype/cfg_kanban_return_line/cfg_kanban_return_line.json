@@ -1,0 +1,23 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Return Line","module":"CFG Kanban","istable":1,
+ "field_order":["original_delivery_allocation","original_delivery_note_item","original_handling_unit","original_visible_code","item_code","batch_no","expiry_date","stock_uom","delivered_qty","claimed_qty","received_qty","accepted_qty","rejected_qty","condition","qc_disposition","qc_reason","details"],
+ "fields":[
+  {"fieldname":"original_delivery_allocation","label":"Original Delivery Allocation","fieldtype":"Link","options":"CFG Kanban Delivery Allocation","read_only":1},
+  {"fieldname":"original_delivery_note_item","label":"Original Delivery Note Item Row","fieldtype":"Data","read_only":1},
+  {"fieldname":"original_handling_unit","label":"Original Handling Unit","fieldtype":"Link","options":"CFG Kanban Handling Unit","read_only":1},
+  {"fieldname":"original_visible_code","label":"Stock Tag / Reference","fieldtype":"Data","read_only":1,"in_list_view":1},
+  {"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"batch_no","label":"Batch","fieldtype":"Link","options":"Batch","read_only":1},
+  {"fieldname":"expiry_date","label":"Expiry Date","fieldtype":"Date","read_only":1},
+  {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM","reqd":1,"read_only":1},
+  {"fieldname":"delivered_qty","label":"Originally Delivered Qty","fieldtype":"Float","read_only":1},
+  {"fieldname":"claimed_qty","label":"Returned / Claimed Qty","fieldtype":"Float","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"received_qty","label":"Physically Received by QC","fieldtype":"Float","read_only":1},
+  {"fieldname":"accepted_qty","label":"QC Accepted Qty","fieldtype":"Float","read_only":1,"in_list_view":1},
+  {"fieldname":"rejected_qty","label":"QC Rejected Qty","fieldtype":"Float","read_only":1},
+  {"fieldname":"condition","label":"Reported Condition","fieldtype":"Select","options":"Unknown\nGood / Unwanted\nDamaged\nExpired\nPest or Contamination\nCustomer Handling Damage\nWrong Item or Quantity\nOther","default":"Unknown","reqd":1,"read_only":1},
+  {"fieldname":"qc_disposition","label":"QC Disposition","fieldtype":"Select","options":"Pending\nAccept for Credit\nReject Customer Claim\nAccept for Rework\nAccept for Disposal\nHold for Investigation","default":"Pending","read_only":1},
+  {"fieldname":"qc_reason","label":"QC Reason","fieldtype":"Small Text","read_only":1},
+  {"fieldname":"details","label":"Intake Details","fieldtype":"Small Text","read_only":1}
+ ]
+}

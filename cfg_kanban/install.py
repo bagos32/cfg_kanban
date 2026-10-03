@@ -35,6 +35,12 @@ def _ensure_responsibilities():
             "Load and unload complete physical Stock Tags in reusable containers."
         ),
         "Customer Delivery": "Deliver stock to an identified Customer Site.",
+        "Customer Return": (
+            "Record a customer-site Temporary Return Note or wrong Delivery Note correction."
+        ),
+        "Customer Return QC": (
+            "Receive, inspect, and disposition Customer Return Cases in non-stock custody."
+        ),
         "Customer Invoice Trigger": "Trigger locked-price customer invoicing.",
         "Logistics Supervisor": "Approve logistics exceptions and controlled overrides.",
         "Intercompany Billing": "Prepare and reconcile intercompany billing batches.",
@@ -72,9 +78,12 @@ def _custom_fields():
         {"fieldname": "cfg_delivery_session", "label": "Customer Delivery Session",
          "fieldtype": "Link", "options": "CFG Kanban Delivery Session", "read_only": 1,
          "insert_after": "cfg_movement_manifest"},
+        {"fieldname": "cfg_return_case", "label": "Customer Return Case",
+         "fieldtype": "Link", "options": "CFG Kanban Return Case", "read_only": 1,
+         "insert_after": "cfg_delivery_session"},
         {"fieldname": "cfg_counterpart_company", "label": "Counterpart Company",
          "fieldtype": "Link", "options": "Company", "read_only": 1,
-         "insert_after": "cfg_delivery_session"},
+         "insert_after": "cfg_return_case"},
         {"fieldname": "cfg_counterpart_document", "label": "Counterpart ERP Document",
          "fieldtype": "Data", "read_only": 1, "insert_after": "cfg_counterpart_company"},
         {"fieldname": "cfg_requested_operator", "label": "Requested by Kanban Operator",

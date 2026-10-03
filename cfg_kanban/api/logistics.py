@@ -113,10 +113,12 @@ def get_logistics_console(operator_session_token):
         limit=10,
     )
     from cfg_kanban.services.customer_delivery import delivery_session_summaries
+    from cfg_kanban.services.customer_returns import return_case_summaries
     return {"operator": _operator_summary(profile, session), "routes": routes,
             "manifests": manifests, "recent_manifests": recent_manifests,
             "internal_transfers": _internal_transfer_summaries(profile),
-            "delivery_sessions": delivery_session_summaries(profile)}
+            "delivery_sessions": delivery_session_summaries(profile),
+            "return_cases": return_case_summaries(profile)}
 
 
 @frappe.whitelist()
@@ -191,6 +193,10 @@ def lookup_logistics_tag(scan_value, operator_session_token):
         from cfg_kanban.services.customer_delivery import customer_delivery_context
         result["customer_site"] = customer_delivery_context(scan_value, profile)
         return result
+    if identity["identity_type"] == "Customer Return Case":
+        from cfg_kanban.services.customer_returns import get_return_case
+        result["return_case"] = get_return_case(identity["name"], operator_session_token)
+        return result
     if identity["identity_type"] != "Handling Unit":
         return result
 
@@ -225,6 +231,12 @@ def lookup_logistics_tag(scan_value, operator_session_token):
     )
     from cfg_kanban.services.serial_evidence import active_serials_for_unit
     result["active_serial_numbers"] = active_serials_for_unit(unit.name)
+    result["customer_deliveries"] = frappe.get_all(
+        "CFG Kanban Delivery Allocation",
+        filters={"handling_unit": unit.name, "state": "Delivered"},
+        fields=["name", "delivery_session", "delivery_note", "delivered_qty"],
+        order_by="modified desc", limit_page_length=10,
+    )
     last_movement = frappe.db.sql(
         """
         select name, event_type, posting_datetime, reference_doctype, reference_name

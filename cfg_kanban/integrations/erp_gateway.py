@@ -293,6 +293,66 @@ def build_customer_delivery_note(delivery, payload, command=None, validate_requi
     return delivery_note
 
 
+@handler("Create Correction Return Delivery Note")
+def create_correction_return_delivery_note(command, payload):
+    """Create a stock return against the exact submitted Delivery Note.
+
+    This path corrects physical delivery only. It never chooses or creates a
+    Sales Invoice return, Credit Note, or e-Invoice document.
+    """
+    from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+    case = frappe.get_doc("CFG Kanban Return Case", command.return_case)
+    if case.correction_return_delivery_note and frappe.db.exists(
+        "Delivery Note", case.correction_return_delivery_note
+    ):
+        return frappe.get_doc("Delivery Note", case.correction_return_delivery_note)
+    source_name = payload["original_delivery_note"]
+    source = frappe.get_doc("Delivery Note", source_name)
+    if source.docstatus != 1 or source.is_return:
+        frappe.throw("Delivery Note Correction requires a submitted non-return Delivery Note")
+    selected = {
+        row["original_delivery_note_item"]: flt(row["claimed_qty"])
+        for row in payload.get("lines") or []
+    }
+    if not selected or None in selected:
+        frappe.throw("Correction lines must reference original Delivery Note item rows")
+    return_doc = make_return_doc("Delivery Note", source_name)
+    kept = []
+    for row in return_doc.items:
+        source_row = row.get("dn_detail")
+        if source_row not in selected:
+            continue
+        stock_qty = abs(selected[source_row])
+        row.qty = -(stock_qty / flt(row.conversion_factor or 1))
+        row.stock_qty = -stock_qty
+        row.warehouse = payload["return_warehouse"]
+        kept.append(row)
+    if len(kept) != len(selected):
+        frappe.throw("ERPNext could not map every selected original Delivery Note row")
+    return_doc.set("items", kept)
+    return_doc.set_warehouse = payload["return_warehouse"]
+    return_doc.cfg_kanban_controlled = 1
+    return_doc.cfg_return_case = case.name
+    return_doc.cfg_requested_operator = command.requested_by_operator
+    return_doc.cfg_scan_event = command.idempotency_key
+    return_doc.remarks = (
+        f"Wrong Delivery Note correction {case.name}. "
+        "This stock reversal does not create or select an accounting Credit Note."
+    )
+    return_doc.insert(ignore_permissions=True)
+    case.db_set("correction_return_delivery_note", return_doc.name, update_modified=False)
+    if payload.get("submit"):
+        return_doc.submit()
+        return_doc.reload()
+    return_doc._cfg_command_result = {
+        "doctype": return_doc.doctype, "name": return_doc.name,
+        "docstatus": return_doc.docstatus, "submitted": return_doc.docstatus == 1,
+        "return_case": case.name, "return_against": source_name,
+    }
+    return return_doc
+
+
 def get_required_erp_inputs(doc):
     """Describe editable mandatory values still missing from an ERP document."""
     requirements = []

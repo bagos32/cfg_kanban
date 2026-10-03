@@ -1,6 +1,6 @@
 {
  "doctype":"DocType","name":"CFG Kanban Customer Scan Point","module":"CFG Kanban","autoname":"field:site_code","title_field":"site_name","track_changes":1,
- "field_order":["site_code","site_name","active","opaque_token","customer_section","selling_company","customer","customer_address","territory","route_reference","default_price_list","auto_submit_delivery_note","proof_section","proof_policy","require_recipient_name","require_signature","require_photo","require_gps","unattended_reason_required","replacement_section","replacement_of","replaced_by","notes"],
+ "field_order":["site_code","site_name","active","opaque_token","customer_section","selling_company","customer","customer_address","territory","route_reference","default_price_list","auto_submit_delivery_note","return_section","enable_customer_return_qc","enable_delivery_note_correction","return_inspection_location","correction_return_warehouse","auto_submit_correction_return_dn","proof_section","proof_policy","require_recipient_name","require_signature","require_photo","require_gps","unattended_reason_required","replacement_section","replacement_of","replaced_by","notes"],
  "fields":[
   {"fieldname":"site_code","label":"Printed Customer Site Code","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1,"description":"Primary physical scan code. Use a globally unique CUSTOMER/SITE prefix to avoid collision with stock-tag series."},
   {"fieldname":"site_name","label":"Site / Branch Name","fieldtype":"Data","reqd":1,"in_list_view":1},
@@ -14,6 +14,12 @@
   {"fieldname":"route_reference","label":"Route Reference","fieldtype":"Data","description":"Optional operational route or external planning identifier."},
   {"fieldname":"default_price_list","label":"Default Selling Price List","fieldtype":"Link","options":"Price List"},
   {"fieldname":"auto_submit_delivery_note","label":"Auto-submit Customer Delivery Note","fieldtype":"Check","default":"0","description":"When enabled, the customer Delivery Note is submitted after all ERPNext mandatory fields pass validation. When disabled, CFG Kanban creates a Draft for authorized ERP review and manual submission."},
+  {"fieldname":"return_section","label":"Customer Return Intake Policy","fieldtype":"Section Break"},
+  {"fieldname":"enable_customer_return_qc","label":"Enable Customer Return for QC","fieldtype":"Check","default":"1","description":"Allows a driver to issue a non-accounting Temporary Return Note at this site."},
+  {"fieldname":"enable_delivery_note_correction","label":"Enable Wrong Delivery Note Correction","fieldtype":"Check","default":"1","description":"Allows a driver to reverse a submitted Delivery Note for wrong customer or quantity."},
+  {"fieldname":"return_inspection_location","label":"Default Inspection Custody Location","fieldtype":"Link","options":"Location","description":"Physical non-stock custody while QC decides acceptance."},
+  {"fieldname":"correction_return_warehouse","label":"Delivery Correction Return Warehouse","fieldtype":"Link","options":"Warehouse","description":"Selling-company Warehouse that receives stock reversed by a Return Delivery Note."},
+  {"fieldname":"auto_submit_correction_return_dn","label":"Auto-submit Correction Return Delivery Note","fieldtype":"Check","default":"0","description":"Enable only when driver-side correction is approved to post stock automatically. Otherwise the Return Delivery Note remains Draft."},
   {"fieldname":"proof_section","label":"Proof of Delivery Policy","fieldtype":"Section Break"},
   {"fieldname":"proof_policy","label":"Proof Policy","fieldtype":"Select","options":"Required\nOptional\nUnattended Delivery Allowed\nNo Proof Required","default":"Required","reqd":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"require_recipient_name","label":"Require Recipient Name","fieldtype":"Check","default":"1"},

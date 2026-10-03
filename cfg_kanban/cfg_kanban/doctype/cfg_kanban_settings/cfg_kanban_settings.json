@@ -29,6 +29,8 @@
   "enable_administrator_operator_bypass",
   "command_retry_limit",
   "exception_email_role",
+  "customer_return_section",
+  "enable_customer_returns",
   "private_media_section",
   "enable_private_media",
   "media_configuration_status",
@@ -145,6 +147,18 @@
    "label": "Exception Email Role",
    "fieldtype": "Link",
    "options": "Role"
+  },
+  {
+   "fieldname": "customer_return_section",
+   "label": "Customer Return Workflows",
+   "fieldtype": "Section Break",
+   "description": "Enables non-stock QC return custody and controlled wrong-Delivery-Note correction. ERPNext remains stock/accounting authority."
+  },
+  {
+   "fieldname": "enable_customer_returns",
+   "label": "Enable Customer Return Workflows",
+   "fieldtype": "Check",
+   "default": "1"
   },
   {
    "fieldname": "private_media_section",
