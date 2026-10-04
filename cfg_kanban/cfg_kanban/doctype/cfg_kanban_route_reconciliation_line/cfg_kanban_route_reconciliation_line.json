@@ -1,0 +1,16 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Route Reconciliation Line","module":"CFG Kanban","istable":1,
+ "field_order":["item_code","batch_no","stock_uom","opening_qty","movement_qty","expected_closing_qty","tagged_count_qty","loose_count_qty","counted_qty","variance_qty"],
+ "fields":[
+  {"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"batch_no","label":"Batch","fieldtype":"Link","options":"Batch","read_only":1,"in_list_view":1},
+  {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"opening_qty","label":"Opening ERP Qty","fieldtype":"Float","read_only":1,"in_list_view":1},
+  {"fieldname":"movement_qty","label":"Net ERP Movement","fieldtype":"Float","read_only":1,"in_list_view":1},
+  {"fieldname":"expected_closing_qty","label":"Expected Closing Qty","fieldtype":"Float","read_only":1,"in_list_view":1},
+  {"fieldname":"tagged_count_qty","label":"Scanned Tag Qty","fieldtype":"Float","read_only":1,"in_list_view":1},
+  {"fieldname":"loose_count_qty","label":"Loose / Untagged Qty","fieldtype":"Float","read_only":1,"in_list_view":1},
+  {"fieldname":"counted_qty","label":"Physical Counted Qty","fieldtype":"Float","read_only":1,"in_list_view":1},
+  {"fieldname":"variance_qty","label":"Variance Qty","fieldtype":"Float","read_only":1,"in_list_view":1}
+ ]
+}

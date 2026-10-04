@@ -2,9 +2,12 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({ parent: wrapper, title: __("Kanban Logistics"), single_column: true });
 	const session_key = "cfg_kanban_operator_session";
 	const last_manifest_key = "cfg_kanban_last_manifest";
+	const last_reconciliation_key = "cfg_kanban_last_reconciliation";
 	const state = { token: localStorage.getItem(session_key), operator: null, routes: [],
 		manifests: [], recent_manifests: [], internal_transfers: [], manifest: null,
-		delivery_sessions: [], return_cases: [], lookup: null, scan_mode: "lookup" };
+		delivery_sessions: [], return_cases: [], vehicle_warehouses: [], open_reconciliations: [],
+		recent_reconciliations: [], can_reconcile: false, reconciliation: null,
+		lookup: null, scan_mode: "lookup" };
 	const $sticky = $("<div class='cfg-logistics-sticky'></div>").appendTo(page.main);
 	const $scanner = $(`<div class="frappe-card cfg-logistics-scanner">
 		<div class="cfg-logistics-scanner-head"><div><strong>${__("Logistics Scanner")}</strong>
@@ -19,8 +22,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	const $identity = $("<div></div>").appendTo($sticky);
 	const $lookup = $("<div class='cfg-logistics-lookup mt-3'></div>").appendTo(page.main);
 	const $active = $("<div class='cfg-logistics-active mt-3'></div>").appendTo(page.main);
+	const $reconciliation = $("<div class='cfg-logistics-reconciliation mt-3'></div>").appendTo(page.main);
 	const $actions = $(`<div class="cfg-logistics-toolbar mt-3 mb-3">
 		<button class="btn btn-primary new-manifest">${__("New Dispatch Manifest")}</button>
+		<button class="btn btn-warning route-reconciliation">${__("Route Stock Count")}</button>
 		<button class="btn btn-default refresh-logistics">${__("Refresh")}</button>
 		<button class="btn btn-default switch-operator">${__("Switch Operator")}</button>
 		<button class="btn btn-default production-panel">${__("Production Panel")}</button>
@@ -33,6 +38,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	});
 	$scanner.find(".camera-scan").on("click", camera_scan);
 	$actions.find(".new-manifest").on("click", new_manifest_dialog);
+	$actions.find(".route-reconciliation").on("click", reconciliation_dialog);
 	$actions.find(".refresh-logistics").on("click", load);
 	$actions.find(".switch-operator").on("click", identify_operator);
 	$actions.find(".production-panel").on("click", () => frappe.set_route("kanban-operator"));
@@ -54,11 +60,18 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			state.internal_transfers = response.message.internal_transfers || [];
 			state.delivery_sessions = response.message.delivery_sessions || [];
 			state.return_cases = response.message.return_cases || [];
+			state.vehicle_warehouses = response.message.vehicle_warehouses || [];
+			state.open_reconciliations = response.message.open_reconciliations || [];
+			state.recent_reconciliations = response.message.recent_reconciliations || [];
+			state.can_reconcile = Boolean(response.message.can_reconcile);
 			state.scan_mode = "lookup";
 			render_identity();
 			const last_manifest = state.manifest?.name || state.manifest || localStorage.getItem(last_manifest_key);
 			if (last_manifest) await open_manifest(last_manifest, { quiet: true });
 			else render_active();
+			const last_reconciliation = localStorage.getItem(last_reconciliation_key);
+			if (last_reconciliation) await open_reconciliation(last_reconciliation, { quiet: true });
+			else render_reconciliation();
 			render_lookup();
 			render_list();
 			focus_scanner();
@@ -81,6 +94,11 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.internal_transfers = [];
 		state.delivery_sessions = [];
 		state.return_cases = [];
+		state.vehicle_warehouses = [];
+		state.open_reconciliations = [];
+		state.recent_reconciliations = [];
+		state.can_reconcile = false;
+		state.reconciliation = null;
 		state.manifest = null;
 		state.lookup = null;
 		state.scan_mode = "lookup";
@@ -94,7 +112,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		$identity.find(".login-operator").on("click", identify_operator);
 		$active.html(`<div class="frappe-card text-center p-5"><h3>${__("Operator identification required")}</h3>
 			<p class="text-muted">${message || __("Identify the operator before preparing or receiving a Manifest.")}</p></div>`);
-		$lookup.empty(); $list.empty(); update_scanner_state(); focus_scanner();
+		$lookup.empty(); $reconciliation.empty(); $list.empty(); update_scanner_state(); focus_scanner();
 	}
 
 	function render_identity() {
@@ -201,6 +219,188 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		return buttons.join("");
 	}
 
+	function render_reconciliation() {
+		if (!state.reconciliation) {
+			$reconciliation.empty();
+			return;
+		}
+		const r = state.reconciliation; const e = frappe.utils.escape_html;
+		const variance = Number(r.variance_line_count || 0);
+		const lines = (r.lines || []).map((row) => `<tr class="${Math.abs(Number(row.variance_qty || 0)) > 0.000001 ? "text-danger" : ""}">
+			<td><strong>${e(row.item_code)}</strong><small>${e(row.batch_no || __("No Batch"))}</small></td>
+			<td>${format_number(row.opening_qty)}</td><td>${format_number(row.movement_qty)}</td>
+			<td>${format_number(row.expected_closing_qty)}</td><td>${format_number(row.tagged_count_qty)}</td>
+			<td>${format_number(row.loose_count_qty)}</td><td><strong>${format_number(row.counted_qty)}</strong></td>
+			<td><strong>${format_number(row.variance_qty)}</strong></td></tr>`).join("");
+		const scans = (r.scans || []).map((row) => `<div class="cfg-logistics-line">
+			<div><strong>${e(row.visible_code)}</strong><small>${e(row.item_code)} · ${e(row.batch_no || __("No Batch"))}
+			${row.container_visible_code ? ` · ${__("Container")}: ${e(row.container_visible_code)}` : ""}</small></div>
+			<div><strong>${format_number(row.qty)} ${e(row.stock_uom)}</strong></div>
+			${r.can_count ? `<button class="btn btn-xs btn-danger remove-reconciliation-scan" data-unit="${e(row.handling_unit)}">${__("Remove")}</button>` : ""}
+		</div>`).join("");
+		const counting = state.scan_mode === "reconciliation";
+		const actions = [];
+		if (r.can_count) actions.push(counting ?
+			`<button class="btn btn-warning stop-reconciliation-scan">${__("Stop Count Scanning")}</button>` :
+			`<button class="btn btn-primary arm-reconciliation-scan">${__("Start Tag Count Scanning")}</button>`);
+		if (r.can_count && !counting) {
+			actions.push(`<button class="btn btn-default loose-counts">${__("Enter Loose / Untagged Count")}</button>`);
+			actions.push(`<button class="btn btn-primary evaluate-reconciliation">${__("Evaluate against ERPNext")}</button>`);
+		}
+		if (r.can_close && !counting) actions.push(`<button class="btn btn-success close-reconciliation">${__("Close Balanced Route")}</button>`);
+		if (r.can_override && r.can_count && !counting) actions.push(`<button class="btn btn-danger cancel-reconciliation">${__("Cancel Count")}</button>`);
+		actions.push(`<button class="btn btn-default clear-reconciliation">${__("Clear Viewed Count")}</button>`);
+		$reconciliation.html(`<div class="frappe-card cfg-reconciliation-card">
+			<div class="cfg-logistics-manifest-head"><div><small>${__("End-of-route stock reconciliation")}</small>
+			<h2>${e(r.name)}</h2><strong>${e(r.vehicle_reference)} · ${e(r.vehicle_warehouse)}</strong></div>
+			<span class="indicator-pill ${reconciliation_colour(r.state)}">${e(r.state)}</span></div>
+			<div class="cfg-reconciliation-totals"><div><small>${__("ERP Item / Batch lines")}</small><strong>${format_number(r.expected_line_count)}</strong></div>
+			<div><small>${__("Physically counted lines")}</small><strong>${format_number(r.counted_line_count)}</strong></div>
+			<div><small>${__("Variance lines")}</small><strong class="${variance ? "text-danger" : "text-success"}">${format_number(variance)}</strong></div></div>
+			${counting ? `<div class="alert alert-warning"><strong>${__("ROUTE COUNT SCANNING ARMED")}</strong> · ${__("Every Stock Tag scan is added to this physical count.")}</div>` : ""}
+			<div class="table-responsive"><table class="table table-bordered"><thead><tr><th>${__("Item / Batch")}</th><th>${__("Opening")}</th><th>${__("ERP movement")}</th><th>${__("Expected")}</th><th>${__("Tags")}</th><th>${__("Loose")}</th><th>${__("Counted")}</th><th>${__("Variance")}</th></tr></thead>
+			<tbody>${lines || `<tr><td colspan="8" class="text-muted">${__("No ERP balance or physical count lines yet")}</td></tr>`}</tbody></table></div>
+			<h5>${__("Exact scanned tags")}</h5><div class="cfg-logistics-lines">${scans || `<div class="text-muted p-3">${__("No Stock Tags counted yet")}</div>`}</div>
+			${r.variance_exception ? `<div class="alert alert-danger"><strong>${__("Variance Exception")}: ${e(r.variance_exception)}</strong><br>${__("Do not alter Kanban history. Recount or post an authorized ERP stock correction, then evaluate again.")}</div>` : ""}
+			<div class="cfg-logistics-actions">${actions.join("")}</div>
+		</div>`);
+		$reconciliation.find(".arm-reconciliation-scan").on("click", () => {
+			state.scan_mode = "reconciliation"; render_reconciliation(); update_scanner_state(); focus_scanner();
+		});
+		$reconciliation.find(".stop-reconciliation-scan").on("click", () => {
+			state.scan_mode = "lookup"; render_reconciliation(); update_scanner_state(); focus_scanner();
+		});
+		$reconciliation.find(".remove-reconciliation-scan").on("click", function () {
+			remove_reconciliation_scan($(this).data("unit"));
+		});
+		$reconciliation.find(".loose-counts").on("click", loose_count_dialog);
+		$reconciliation.find(".evaluate-reconciliation").on("click", evaluate_reconciliation);
+		$reconciliation.find(".close-reconciliation").on("click", close_reconciliation_dialog);
+		$reconciliation.find(".cancel-reconciliation").on("click", cancel_reconciliation);
+		$reconciliation.find(".clear-reconciliation").on("click", clear_reconciliation_view);
+	}
+
+	function reconciliation_dialog() {
+		if (!state.can_reconcile) return frappe.msgprint(__("This operator is not assigned to Logistics Reconciliation."));
+		if (!state.vehicle_warehouses.length) return frappe.msgprint(__("No active Vehicle Warehouse is configured."));
+		const dialog = new frappe.ui.Dialog({ title: __("Start or Continue Route Stock Count"), fields: [
+			{ fieldname: "warehouse", label: __("Company-specific Vehicle Warehouse"), fieldtype: "Select", reqd: 1,
+				options: state.vehicle_warehouses.map((row) => row.name).join("\n"),
+				description: __("One physical lorry may have a separate Warehouse for each Company. Count only one Company Warehouse at a time.") },
+		], primary_action_label: __("Start / Continue Count"), primary_action: async (values) => {
+			const warehouse = state.vehicle_warehouses.find((row) => row.name === values.warehouse);
+			const response = await frappe.call({ method: "cfg_kanban.services.route_reconciliation.start_route_reconciliation", args: {
+				company: warehouse.company, vehicle_warehouse: warehouse.name,
+				event_token: unique_token(), operator_session_token: state.token,
+			}, freeze: true, freeze_message: __("Opening ERP stock snapshot...") });
+			dialog.hide(); state.reconciliation = response.message; state.scan_mode = "lookup";
+			localStorage.setItem(last_reconciliation_key, state.reconciliation.name);
+			render_reconciliation(); await refresh_list(); focus_scanner();
+		} });
+		dialog.show();
+	}
+
+	async function open_reconciliation(name, options) {
+		try {
+			const response = await frappe.call({ method: "cfg_kanban.services.route_reconciliation.get_route_reconciliation", args: {
+				reconciliation_name: name, operator_session_token: state.token,
+			} });
+			state.reconciliation = response.message;
+			localStorage.setItem(last_reconciliation_key, name);
+			render_reconciliation(); focus_scanner(); return true;
+		} catch (error) {
+			localStorage.removeItem(last_reconciliation_key); state.reconciliation = null; render_reconciliation();
+			if (!options?.quiet) scanner_error(__("Route Reconciliation could not be opened for this operator."));
+			return false;
+		}
+	}
+
+	async function reconciliation_scan(raw) {
+		if (!state.reconciliation) return scanner_error(__("Open a Route Stock Count first."));
+		try {
+			const response = await frappe.call({ method: "cfg_kanban.services.route_reconciliation.scan_reconciliation_tag", args: {
+				reconciliation_name: state.reconciliation.name, scan_value: raw,
+				event_token: unique_token(), operator_session_token: state.token,
+			}, freeze: true, freeze_message: __("Counting Stock Tag...") });
+			state.reconciliation = response.message; render_reconciliation();
+			$scanner.find(".scanner-message").html(`<small class="text-success">${__("Counted: {0}", [frappe.utils.escape_html(raw)])}</small>`);
+		} catch (error) { scanner_error(__("Tag was not accepted into the route count.")); }
+		focus_scanner();
+	}
+
+	async function remove_reconciliation_scan(handling_unit) {
+		const response = await frappe.call({ method: "cfg_kanban.services.route_reconciliation.remove_reconciliation_scan", args: {
+			reconciliation_name: state.reconciliation.name, handling_unit,
+			operator_session_token: state.token,
+		} });
+		state.reconciliation = response.message; render_reconciliation(); focus_scanner();
+	}
+
+	function loose_count_dialog() {
+		const rows = (state.reconciliation.lines || []).filter((row) => Number(row.loose_count_qty || 0) !== 0)
+			.map((row) => ({ item_code: row.item_code, batch_no: row.batch_no, qty: row.loose_count_qty }));
+		const dialog = new frappe.ui.Dialog({ title: __("Loose / Untagged Physical Count"), size: "extra-large", fields: [
+			{ fieldname: "counts", label: __("Loose Stock"), fieldtype: "Table", data: rows,
+				in_place_edit: true, description: __("Enter only physical quantity not represented by the Stock Tags scanned above."),
+				fields: [
+					{ fieldname: "item_code", label: __("Item"), fieldtype: "Link", options: "Item", reqd: 1, in_list_view: 1, columns: 4 },
+					{ fieldname: "batch_no", label: __("Batch"), fieldtype: "Link", options: "Batch", in_list_view: 1, columns: 4 },
+					{ fieldname: "qty", label: __("Physical Qty"), fieldtype: "Float", reqd: 1, in_list_view: 1, columns: 4 },
+				] },
+		], primary_action_label: __("Save Loose Count"), primary_action: async (values) => {
+			const response = await frappe.call({ method: "cfg_kanban.services.route_reconciliation.save_loose_counts", args: {
+				reconciliation_name: state.reconciliation.name,
+				counts: JSON.stringify(values.counts || []), operator_session_token: state.token,
+			}, freeze: true });
+			dialog.hide(); state.reconciliation = response.message; render_reconciliation(); focus_scanner();
+		} });
+		dialog.show();
+	}
+
+	async function evaluate_reconciliation() {
+		const response = await frappe.call({ method: "cfg_kanban.services.route_reconciliation.evaluate_route_reconciliation", args: {
+			reconciliation_name: state.reconciliation.name, operator_session_token: state.token,
+		}, freeze: true, freeze_message: __("Comparing physical count with ERPNext...") });
+		state.reconciliation = response.message; state.scan_mode = "lookup";
+		render_reconciliation(); await refresh_list(); focus_scanner();
+	}
+
+	function close_reconciliation_dialog() {
+		const had_variance = Boolean(state.reconciliation.variance_exception);
+		const dialog = new frappe.ui.Dialog({ title: __("Close Balanced Route Reconciliation"), fields: [
+			{ fieldname: "resolution_notes", label: had_variance ? __("Recount / Resolution Notes") : __("Closing Notes"),
+				fieldtype: "Small Text", reqd: had_variance ? 1 : 0 },
+			{ fieldname: "correction_reference_doctype", label: __("ERP Correction Document Type"), fieldtype: "Select", options: "\nStock Reconciliation\nStock Entry\nDelivery Note\nPurchase Receipt" },
+			{ fieldname: "correction_reference", label: __("ERP Correction Document"), fieldtype: "Dynamic Link", options: "correction_reference_doctype" },
+		], primary_action_label: __("Close Reconciliation"), primary_action: async (values) => {
+			const response = await frappe.call({ method: "cfg_kanban.services.route_reconciliation.close_route_reconciliation", args: {
+				reconciliation_name: state.reconciliation.name, resolution_notes: values.resolution_notes,
+				correction_reference_doctype: values.correction_reference_doctype,
+				correction_reference: values.correction_reference, operator_session_token: state.token,
+			}, freeze: true, freeze_message: __("Closing balanced route count...") });
+			dialog.hide(); state.reconciliation = response.message; render_reconciliation(); await refresh_list(); focus_scanner();
+			if (state.reconciliation.state === "Variance") frappe.msgprint({ title: __("Route Count Changed"), indicator: "red",
+				message: __("ERPNext stock changed after evaluation or the count is still different. Recount or post the authorized ERP correction, then evaluate again.") });
+		} });
+		dialog.show();
+	}
+
+	function cancel_reconciliation() {
+		frappe.prompt([{ fieldname: "reason", label: __("Cancellation Reason"), fieldtype: "Small Text", reqd: 1 }], async (values) => {
+			const response = await frappe.call({ method: "cfg_kanban.services.route_reconciliation.cancel_route_reconciliation", args: {
+				reconciliation_name: state.reconciliation.name, reason: values.reason,
+				operator_session_token: state.token,
+			}, freeze: true });
+			state.reconciliation = response.message; state.scan_mode = "lookup";
+			render_reconciliation(); await refresh_list(); focus_scanner();
+		}, __("Cancel Route Stock Count"), __("Cancel Count"));
+	}
+
+	function clear_reconciliation_view() {
+		state.scan_mode = "lookup"; state.reconciliation = null;
+		localStorage.removeItem(last_reconciliation_key); render_reconciliation(); update_scanner_state(); focus_scanner();
+	}
+
 	function render_list() {
 		const e = frappe.utils.escape_html;
 		const open_rows = state.manifests.map((m) =>
@@ -231,7 +431,18 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			`<button class="frappe-card cfg-logistics-list-row return-case-row" data-name="${e(row.name)}"><div><strong>${e(row.name)}</strong><small>${e(row.site_name)} · ${e(row.return_flow)}</small></div>
 			<div><span class="indicator-pill orange">${e(row.state)}</span><small>${__("Claim quantity recorded")}</small></div></button>`
 		).join("") || `<div class="text-muted p-3">${__("No open Customer Return Cases for this operator")}</div>`;
-		$list.html(`<section class="cfg-customer-delivery-list mb-4"><h3>${__("Customer Delivery Sessions")}</h3>
+		const reconciliation_rows = state.open_reconciliations.map((row) =>
+			`<button class="frappe-card cfg-logistics-list-row reconciliation-row" data-name="${e(row.name)}"><div><strong>${e(row.name)}</strong><small>${e(row.vehicle_reference)} · ${e(row.vehicle_warehouse)}</small></div>
+			<div><span class="indicator-pill ${reconciliation_colour(row.state)}">${e(row.state)}</span><small>${__("Variance lines")}: ${format_number(row.variance_line_count)}</small></div></button>`
+		).join("") || `<div class="text-muted p-3">${state.can_reconcile ? __("No open Route Stock Counts") : __("Logistics Reconciliation responsibility is not assigned")}</div>`;
+		const recent_reconciliation_rows = state.recent_reconciliations.map((row) =>
+			`<button class="frappe-card cfg-logistics-list-row reconciliation-row" data-name="${e(row.name)}"><div><strong>${e(row.name)}</strong><small>${e(row.vehicle_reference)} · ${e(display_datetime(row.modified))}</small></div>
+			<div><span class="indicator-pill ${reconciliation_colour(row.state)}">${e(row.state)}</span><small>${__("Variance lines")}: ${format_number(row.variance_line_count)}</small></div></button>`
+		).join("") || `<div class="text-muted p-3">${__("No recently closed Route Stock Counts")}</div>`;
+		$list.html(`<section class="cfg-reconciliation-list mb-4"><h3>${__("End-of-route Reconciliation")}</h3>
+			<p class="text-muted">${__("Physically count one Company-specific lorry Warehouse, compare it with ERPNext, and resolve every variance before route closure.")}</p>
+			${reconciliation_rows}<details class="cfg-logistics-recent mt-3"><summary><strong>${__("Recently Closed Counts")}</strong></summary><div class="mt-3">${recent_reconciliation_rows}</div></details></section>
+			<section class="cfg-customer-delivery-list mb-4"><h3>${__("Customer Delivery Sessions")}</h3>
 			<p class="text-muted">${__("Scan a Customer Site code in normal lookup mode to start a controlled delivery context.")}</p>${delivery_rows}</section>
 			<section class="cfg-customer-return-list mb-4"><h3>${__("Customer Return Intake")}</h3>
 			<p class="text-muted">${__("Returned goods under inspection are physical custody only and are not ERPNext available stock.")}</p>${return_rows}</section>
@@ -248,6 +459,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		});
 		$list.find(".return-case-row").off("click").on("click", function () {
 			open_return_case($(this).data("name"));
+		});
+		$list.find(".reconciliation-row").off("click").on("click", function () {
+			open_reconciliation($(this).data("name"));
 		});
 	}
 
@@ -1254,7 +1468,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const operator = operator_token(raw);
 		if (!state.token || operator) return login_operator(operator || raw);
 		if (/^KMF-/i.test(raw)) return open_manifest(raw);
+		if (/^KREC-/i.test(raw)) return open_reconciliation(raw);
 		if (state.scan_mode === "delivery") return delivery_allocation_scan(raw);
+		if (state.scan_mode === "reconciliation") return reconciliation_scan(raw);
 		if (state.scan_mode === "lookup") return lookup_tag(raw);
 		if (!state.manifest) return scanner_error(__("No Manifest is armed for transaction scanning."));
 		const receipt_mode = state.scan_mode === "receipt";
@@ -1465,6 +1681,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.internal_transfers = response.message.internal_transfers || [];
 		state.delivery_sessions = response.message.delivery_sessions || [];
 		state.return_cases = response.message.return_cases || [];
+		state.vehicle_warehouses = response.message.vehicle_warehouses || [];
+		state.open_reconciliations = response.message.open_reconciliations || [];
+		state.recent_reconciliations = response.message.recent_reconciliations || [];
+		state.can_reconcile = Boolean(response.message.can_reconcile);
 		render_list();
 	}
 
@@ -1497,7 +1717,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			}, freeze: true, freeze_message: __("Identifying operator...") });
 			state.token = response.message.session_token; localStorage.setItem(session_key, state.token);
 			if (station) localStorage.setItem("cfg_kanban_station", station);
-			state.manifest = null; state.lookup = null; state.scan_mode = "lookup"; await load();
+			state.manifest = null; state.reconciliation = null; state.lookup = null; state.scan_mode = "lookup"; await load();
 		} catch (error) { scanner_error(__("Operator identification failed.")); }
 	}
 
@@ -1513,7 +1733,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.token = null; state.operator = null;
 		state.routes = []; state.manifests = []; state.recent_manifests = []; state.internal_transfers = [];
 		state.delivery_sessions = []; state.return_cases = [];
-		state.manifest = null; state.lookup = null; state.scan_mode = "lookup";
+		state.vehicle_warehouses = []; state.open_reconciliations = []; state.recent_reconciliations = [];
+		state.can_reconcile = false; state.manifest = null; state.reconciliation = null;
+		state.lookup = null; state.scan_mode = "lookup";
 	}
 
 	function camera_scan() {
@@ -1539,6 +1761,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (state.scan_mode === "dispatch" && state.manifest) { label = `${__("Dispatch")} → ${state.manifest.name}`; colour = "orange"; }
 		if (state.scan_mode === "receipt" && state.manifest) { label = `${__("Receipt")} → ${state.manifest.name}`; colour = "green"; }
 		if (state.scan_mode === "delivery" && state.lookup?.delivery_session) { label = `${__("Customer Allocation")} → ${state.lookup.delivery_session.name}`; colour = "orange"; }
+		if (state.scan_mode === "reconciliation" && state.reconciliation) { label = `${__("Route Count")} → ${state.reconciliation.name}`; colour = "orange"; }
 		$scanner.find(".scanner-state").removeClass("orange blue green red").addClass(colour).text(label);
 	}
 
@@ -1562,6 +1785,14 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (["Exception", "Hold"].includes(value)) return "red";
 		if (["Awaiting Receipt", "Receipt Document Pending"].includes(value)) return "orange";
 		return "blue";
+	}
+
+	function reconciliation_colour(value) {
+		if (value === "Closed") return "green";
+		if (value === "Variance") return "red";
+		if (value === "Ready to Close") return "blue";
+		if (value === "Cancelled") return "grey";
+		return "orange";
 	}
 
 	function display_datetime(value) {

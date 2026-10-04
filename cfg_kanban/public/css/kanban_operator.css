@@ -100,6 +100,12 @@
 .cfg-logistics-recent { padding: 14px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--subtle-fg); }
 .cfg-logistics-recent summary { cursor: pointer; }
 .cfg-logistics-recent .recent-manifest-row { opacity: 0.94; }
+.cfg-reconciliation-list { padding: 14px; border-left: 6px solid var(--orange-500, #f59e0b); border-radius: 8px; background: rgba(245, 158, 11, 0.08); }
+.cfg-reconciliation-card { padding: 16px; border: 1px solid var(--border-color); border-left: 7px solid var(--orange-500, #f59e0b); border-radius: var(--border-radius-md); background: var(--card-bg); }
+.cfg-reconciliation-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+.cfg-reconciliation-totals > div { padding: 12px; border-radius: 8px; background: var(--subtle-fg); }
+.cfg-reconciliation-totals small, .cfg-reconciliation-totals strong { display: block; }
+.cfg-reconciliation-totals strong { font-size: 20px; }
 
 .cfg-genealogy-scanner,
 .cfg-genealogy-focus,
@@ -169,6 +175,7 @@
 }
 
 @media (max-width: 767px) {
+	.cfg-reconciliation-totals { grid-template-columns: 1fr; }
 	.cfg-logistics-sticky { top: 0; }
 	.cfg-logistics-scan-row { display: grid; grid-template-columns: 1fr; }
 	.cfg-logistics-scan-row .camera-scan { width: 100%; min-height: 52px; font-size: 16px; }

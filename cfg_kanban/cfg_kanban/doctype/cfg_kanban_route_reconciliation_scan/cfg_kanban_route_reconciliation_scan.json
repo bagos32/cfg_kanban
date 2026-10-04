@@ -1,0 +1,18 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Route Reconciliation Scan","module":"CFG Kanban","istable":1,
+ "field_order":["handling_unit","visible_code","container_handling_unit","container_visible_code","item_code","batch_no","qty","stock_uom","scanned_on","scanned_by","operator_session","scan_event_key"],
+ "fields":[
+  {"fieldname":"handling_unit","label":"Handling Unit","fieldtype":"Link","options":"CFG Kanban Handling Unit","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"visible_code","label":"Visible Tag Code","fieldtype":"Data","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"container_handling_unit","label":"Scanned Container","fieldtype":"Link","options":"CFG Kanban Handling Unit","read_only":1},
+  {"fieldname":"container_visible_code","label":"Container Code","fieldtype":"Data","read_only":1,"in_list_view":1},
+  {"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"batch_no","label":"Batch","fieldtype":"Link","options":"Batch","read_only":1,"in_list_view":1},
+  {"fieldname":"qty","label":"Counted Qty","fieldtype":"Float","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"scanned_on","label":"Scanned On","fieldtype":"Datetime","reqd":1,"read_only":1},
+  {"fieldname":"scanned_by","label":"Scanned By","fieldtype":"Link","options":"Employee","read_only":1},
+  {"fieldname":"operator_session","label":"Operator Session","fieldtype":"Link","options":"CFG Kanban Operator Session","read_only":1},
+  {"fieldname":"scan_event_key","label":"Scan Event Key","fieldtype":"Data","reqd":1,"read_only":1,"hidden":1}
+ ]
+}

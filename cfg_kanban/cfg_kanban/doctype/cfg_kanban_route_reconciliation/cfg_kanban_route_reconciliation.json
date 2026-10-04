@@ -1,0 +1,43 @@
+{
+ "doctype":"DocType","name":"CFG Kanban Route Reconciliation","module":"CFG Kanban","autoname":"KREC-.YYYY.-.#####","title_field":"vehicle_reference","track_changes":1,
+ "search_fields":"vehicle_reference,vehicle_warehouse,company,state,variance_exception",
+ "field_order":["state","company","vehicle_warehouse","vehicle_reference","period_section","period_start","period_end","period_column","opened_by_operator","opened_operator_session","closed_by_operator","closed_operator_session","closed_on","balance_section","expected_line_count","counted_line_count","variance_line_count","lines","scan_section","scans","resolution_section","variance_exception","resolution_notes","correction_reference_doctype","correction_reference","resolved_by","resolved_on","control_section","idempotency_key","cancellation_reason"],
+ "fields":[
+  {"fieldname":"state","label":"Reconciliation State","fieldtype":"Select","options":"Counting\nVariance\nReady to Close\nClosed\nCancelled","default":"Counting","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"company","label":"Company","fieldtype":"Link","options":"Company","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"vehicle_warehouse","label":"Vehicle Warehouse","fieldtype":"Link","options":"Warehouse","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"vehicle_reference","label":"Physical Vehicle Reference","fieldtype":"Data","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"period_section","label":"Count Period and Operators","fieldtype":"Section Break"},
+  {"fieldname":"period_start","label":"Opening Snapshot On","fieldtype":"Datetime","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"period_end","label":"Final Count Evaluated On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"period_column","fieldtype":"Column Break"},
+  {"fieldname":"opened_by_operator","label":"Opened by Operator","fieldtype":"Link","options":"Employee","read_only":1,"in_standard_filter":1},
+  {"fieldname":"opened_operator_session","label":"Opening Operator Session","fieldtype":"Link","options":"CFG Kanban Operator Session","read_only":1},
+  {"fieldname":"closed_by_operator","label":"Closed by Operator","fieldtype":"Link","options":"Employee","read_only":1,"in_standard_filter":1},
+  {"fieldname":"closed_operator_session","label":"Closing Operator Session","fieldtype":"Link","options":"CFG Kanban Operator Session","read_only":1},
+  {"fieldname":"closed_on","label":"Closed On","fieldtype":"Datetime","read_only":1,"in_list_view":1},
+  {"fieldname":"balance_section","label":"ERP Expected versus Physical Count","fieldtype":"Section Break"},
+  {"fieldname":"expected_line_count","label":"ERP Item / Batch Lines","fieldtype":"Int","read_only":1},
+  {"fieldname":"counted_line_count","label":"Physically Counted Lines","fieldtype":"Int","read_only":1},
+  {"fieldname":"variance_line_count","label":"Variance Lines","fieldtype":"Int","read_only":1,"in_list_view":1},
+  {"fieldname":"lines","label":"Item and Batch Reconciliation","fieldtype":"Table","options":"CFG Kanban Route Reconciliation Line","read_only":1},
+  {"fieldname":"scan_section","label":"Exact Physical Tag Count","fieldtype":"Section Break"},
+  {"fieldname":"scans","label":"Scanned Tags","fieldtype":"Table","options":"CFG Kanban Route Reconciliation Scan","read_only":1},
+  {"fieldname":"resolution_section","label":"Variance Resolution","fieldtype":"Section Break"},
+  {"fieldname":"variance_exception","label":"Variance Exception","fieldtype":"Link","options":"CFG Kanban Exception","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"resolution_notes","label":"Recount / Resolution Notes","fieldtype":"Small Text","read_only":1},
+  {"fieldname":"correction_reference_doctype","label":"Correction Reference Type","fieldtype":"Link","options":"DocType","read_only":1},
+  {"fieldname":"correction_reference","label":"Correction Reference","fieldtype":"Dynamic Link","options":"correction_reference_doctype","read_only":1},
+  {"fieldname":"resolved_by","label":"Resolved By","fieldtype":"Link","options":"User","read_only":1},
+  {"fieldname":"resolved_on","label":"Resolved On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"control_section","label":"Control and Idempotency","fieldtype":"Section Break","collapsible":1},
+  {"fieldname":"idempotency_key","label":"Idempotency Key","fieldtype":"Data","reqd":1,"unique":1,"read_only":1,"hidden":1},
+  {"fieldname":"cancellation_reason","label":"Cancellation Reason","fieldtype":"Small Text","read_only":1}
+ ],
+ "permissions":[
+  {"role":"Stock User","read":1,"print":1},
+  {"role":"Stock Manager","read":1,"print":1},
+  {"role":"Manufacturing Manager","read":1,"print":1},
+  {"role":"System Manager","read":1,"print":1}
+ ]
+}

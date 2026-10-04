@@ -1692,7 +1692,8 @@ Users normally create Settings, Masters, Cards, Operator Profiles, Task Schedule
 Profiles, Handling Units, Logistics Routes, Customer Scan Points, and Tag Families. The app normally
 creates Demands, Signals, Cycles, ERP Commands,
 Process Executions, Operation Summaries, Runtime Allocations, Process Tasks, service Task
-occurrences, Progress, WIP Ledger, Events, Sequence Changes, Operator Sessions, and Media registry
+occurrences, Progress, WIP Ledger, Events, Sequence Changes, Operator Sessions, Route
+Reconciliations, and Media registry
 records. Material Trace records and Handling Unit Quantity Ledger rows are also system-created and
 immutable. Supervisors
 interact with those generated records only through their defined approval,
@@ -1760,7 +1761,7 @@ Signal rollback cancels/deletes only activity-free ERP documents, marks Cycle an
 returns the Card to Available, clears Active Cycle, and records Events. A submitted Work Order can be
 cancelled only while ERPNext permits it and the code has found no production/material activity.
 
-## 25. Multi-company logistics and customer allocation (Packages A-B, C1-C2B, D1, and D2A)
+## 25. Multi-company logistics and customer allocation (Packages A-B, C1-C2B, and D1-D3)
 
 Package A installs the configuration and physical-identity foundation. Package B adds the controlled
 intercompany Movement Manifest, source-company Delivery Note, destination-company Purchase Receipt,
@@ -1769,8 +1770,9 @@ Company-specific vehicle Warehouse validation, and an immutable Delivery Session
 physical Stock Tag/customer allocation and reservation. Package C2B creates the controlled customer
 Delivery Note and waits for ERPNext submission before changing tag stock. Package D1 captures and
 validates customer proof before closing the session. Package D2A records a controlled post-delivery
-return claim and inspection custody without adding available stock. Final return posting and Billing
-Batch grouping remain later increments. The locked design is in
+return claim and inspection custody without adding available stock. D2B-D2C control accounting and
+physical stock disposition after QC. D3 reconciles each Company-specific lorry Warehouse at route
+end without changing ERP stock. Billing Batch grouping remains a later increment. The locked design is in
 `docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md`.
 
 ### CFG Kanban Logistics Route
@@ -1997,6 +1999,54 @@ The combined Return State is intentional:
 - stock complete while accounting is pending: `QC Completed - Accounting Pending`;
 - accounting complete while stock is pending: `Accounting Completed`;
 - accounting and stock complete: `Closed`.
+
+### End-of-route vehicle stock reconciliation (Package D3)
+
+Use D3 at route opening and route closing for each Company-specific lorry Warehouse. The physical
+lorry may be shared, but every Company Warehouse has its own ERP stock balance and therefore its own
+`CFG Kanban Route Reconciliation`.
+
+1. On the operator's **CFG Kanban Operator Profile**, add **Logistics Reconciliation** and permit
+   Start and Complete. Give Supervisor Override only to supervisors who may cancel a count.
+2. In **Logistics Operator Panel**, identify the operator and select **Route Stock Count**. Select
+   the exact **Company-specific Vehicle Warehouse** (`vehicle_warehouse`). The app records **Opening
+   Snapshot On** (`period_start`) and each Item/Batch **Opening ERP Qty** (`opening_qty`) from
+   submitted ERPNext Stock Ledger Entries. Only one open count is allowed per Warehouse.
+3. At route end select **Start Tag Count Scanning**. Scan every activated Stock Tag physically in
+   that Warehouse. A reusable-container scan expands its currently loaded Stock Tags; do not scan
+   those child tags again. A contained tag must be counted through its container. Duplicate, empty,
+   unactivated, wrong-Company, and wrong-Warehouse tags are rejected. If a counted tag's quantity,
+   Warehouse, identity state, or container membership changes, evaluation requires it to be removed
+   and rescanned.
+4. Stop scanning and select **Enter Loose / Untagged Count**. Enter only physical quantity not
+   represented by a scanned tag, grouped by exact Item and optional Batch. This is how ordinary
+   ERP-only stock participates without forcing physical tagging.
+5. Select **Evaluate against ERPNext**. The server refreshes submitted ERP stock at **Final Count
+   Evaluated On** (`period_end`). For every Item/Batch it records:
+
+   ```text
+   Opening ERP Qty + Net ERP Movement = Expected Closing Qty
+   Scanned Tag Qty + Loose / Untagged Qty = Physical Counted Qty
+   Physical Counted Qty - Expected Closing Qty = Variance Qty
+   ```
+
+6. A zero variance changes state to `Ready to Close`. Select **Close Balanced Route**. The immutable
+   record stores closing operator/time, and every exact scanned tag receives **Last Reconciled On**.
+   Closure is blocked while that Company/Warehouse still has an unfinished Customer Delivery
+   Session or physically open Movement Manifest.
+7. Any variance changes state to `Variance` and creates a Critical `CFG Kanban Exception` with type
+   `Route Stock Variance`. The app does not make a Stock Entry or alter Handling Unit quantity.
+   Recount the physical stock, or let an authorized stock user post the correct ERPNext adjustment.
+   Evaluate again. After balance is restored, closing requires **Recount / Resolution Notes**
+   (`resolution_notes`) and may link **ERP Correction Document Type**
+   (`correction_reference_doctype`) plus **ERP Correction Document** (`correction_reference`). The
+   linked Exception becomes Resolved.
+8. Use **CFG Kanban → Route Reconciliations** for audit and print **CFG Route Reconciliation
+   Report**. It shows opening, ERP movement, expected, tagged, loose, counted and variance quantities
+   plus the exact tag list and resolution evidence.
+
+Counting is observational. ERPNext submitted stock documents remain authoritative. Never create a
+fake Kanban ledger movement or delete delivery history merely to force a zero variance.
 
 **Correct Wrong Delivery Note:** Retrieve the completed Delivery Session and select **Correct Wrong
 Delivery Note**. The exact submitted Delivery Note is mandatory and reversal quantities cannot exceed

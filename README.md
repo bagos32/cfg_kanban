@@ -21,6 +21,8 @@ The accountant-controlled post-QC continuation is
 [Package D2B Customer Return Accounting System Test](docs/TEST_PACKAGE_D2B_CUSTOMER_RETURN_ACCOUNTING.md).
 The accepted-return physical-stock continuation is
 [Package D2C Return Stock Disposition System Test](docs/TEST_PACKAGE_D2C_RETURN_STOCK_DISPOSITION.md).
+The end-of-route physical count and ERP variance continuation is
+[Package D3 Route Reconciliation System Test](docs/TEST_PACKAGE_D3_ROUTE_RECONCILIATION.md).
 Package A identity/configuration, Package B intercompany handover, Package C1 customer/vehicle
 session foundation, Package C2A customer tagged-stock reservation, and Package C2B controlled
 customer Delivery Note posting are implemented. Package D1 adds policy-controlled proof of delivery,
@@ -33,6 +35,10 @@ invoice or No Credit and prepares a non-stock Draft ERPNext Sales Invoice Return
 manual tax/e-Invoice review and submission. Package D2C independently splits QC-accepted quantity
 between quarantine, rework, available stock, or controlled disposal; only a submitted ERPNext
 Material Receipt changes stock, and the Return Case closes after both tracks finish.
+Package D3 closes the logistics route-control loop with a Company-specific vehicle-Warehouse
+opening snapshot, exact Stock Tag/container count, loose-stock count, ERP movement comparison,
+variance Exceptions, controlled resolution, and a printable reconciliation report. Counting never
+changes ERPNext stock.
 The additive tagged/untagged material-continuity model is documented in
 [Material Genealogy Architecture](docs/MATERIAL_GENEALOGY_ARCHITECTURE.md). Its mixed-trace policy
 and submitted Purchase Receipt tag-activation slice are implemented without making tags mandatory
@@ -63,6 +69,9 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
 - Process executions linked to ERPNext Job Cards, immutable progress entries, and an auditable WIP
   quantity ledger.
 - Event, signal, ERP command, and exception records.
+- End-of-route reconciliation for each Company-specific Vehicle Warehouse, with exact tag/container
+  scans, loose-stock counts, submitted ERP movement comparison, variance Exceptions, resolution
+  audit, and a printable closing report. Reconciliation never changes ERPNext stock.
 - A central card state service and trigger service.
 - One ERP gateway for Work Order, Job Card, and Stock Entry actions.
 - Purchase-replenishment signals that create ERPNext Material Requests, bind a validated submitted

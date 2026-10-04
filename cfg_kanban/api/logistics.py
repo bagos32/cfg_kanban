@@ -114,11 +114,17 @@ def get_logistics_console(operator_session_token):
     )
     from cfg_kanban.services.customer_delivery import delivery_session_summaries
     from cfg_kanban.services.customer_returns import return_case_summaries
+    from cfg_kanban.services.route_reconciliation import get_reconciliation_console
+    reconciliation = get_reconciliation_console(operator_session_token)
     return {"operator": _operator_summary(profile, session), "routes": routes,
             "manifests": manifests, "recent_manifests": recent_manifests,
             "internal_transfers": _internal_transfer_summaries(profile),
             "delivery_sessions": delivery_session_summaries(profile),
-            "return_cases": return_case_summaries(profile)}
+            "return_cases": return_case_summaries(profile),
+            "vehicle_warehouses": reconciliation["vehicle_warehouses"],
+            "open_reconciliations": reconciliation["open_reconciliations"],
+            "recent_reconciliations": reconciliation["recent_reconciliations"],
+            "can_reconcile": reconciliation["can_reconcile"]}
 
 
 @frappe.whitelist()

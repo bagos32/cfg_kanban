@@ -3,7 +3,7 @@
 **Architecture version:** 1.0  
 **Decision status:** Locked baseline  
 **Decision date:** 30 September 2026  
-**Implementation status:** Package A, Package B intercompany handover, Packages C1-C2B customer delivery, Package D1 proof/closure, Package D2A controlled return intake plus QC disposition, Package D2B accountant-controlled Draft Sales Invoice Return, and Package D2C accepted-return ERP stock disposition are implemented; customer invoicing, reconciliation, and Package E remain approved future scope
+**Implementation status:** Package A, Package B intercompany handover, Packages C1-C2B customer delivery, Package D1 proof/closure, Package D2A controlled return intake plus QC disposition, Package D2B accountant-controlled Draft Sales Invoice Return, Package D2C accepted-return ERP stock disposition, and Package D3 end-of-route reconciliation are implemented; customer invoicing and Package E remain approved future scope
 
 This document is the source of truth for CFG Kanban stock-tag logistics across sister companies,
 company-specific vehicle warehouses, customer-site delivery, and delayed intercompany billing. It
@@ -482,6 +482,9 @@ constraint. Existing DocTypes are extended; they are not rebuilt.
 | CFG Kanban Handling Unit Quantity Ledger | Immutable tag/container quantity and location events |
 | CFG Kanban Delivery Session | Driver/customer-site context and ERP delivery lifecycle |
 | CFG Kanban Delivery Allocation | Immutable Delivery Note row-to-tag quantity allocation |
+| CFG Kanban Route Reconciliation | One Company-specific Vehicle Warehouse opening snapshot, physical closing count, variance and resolution audit |
+| CFG Kanban Route Reconciliation Line | Item/Batch opening, ERP movement, expected closing, tagged/loose count and variance |
+| CFG Kanban Route Reconciliation Scan | Exact Handling Unit/container-expanded physical count evidence |
 | CFG Kanban Route Stop | Planned/actual Customer Site sequence and reserved Delivery Note |
 | CFG Kanban Billing Batch | Groups received intercompany movements for later invoices |
 
@@ -518,7 +521,7 @@ Every command stores the resolved route/site snapshot, quantities, rates, source
 idempotency key, target ERP document, result payload, and recoverable error.
 
 `CFG Kanban Event` and `CFG Kanban Exception` gain neutral links to Movement Manifest, Handling
-Unit, Delivery Session, Customer Scan Point, and Billing Batch.
+Unit, Delivery Session, Route Reconciliation, Customer Scan Point, and Billing Batch.
 
 ### 15.4 ERPNext trace fields
 
@@ -647,7 +650,9 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
   Draft Material Receipt and become stock only after ERPNext submission; disposal creates no stock.
   Accounting and physical disposition can finish independently, and the case closes only when both
   controls are complete.
-- Add end-of-route reconciliation, variance Exceptions, and reports.
+- **Implemented in D3:** add Company-specific vehicle-Warehouse opening snapshots, exact tag and
+  reusable-container scans, loose/untagged physical quantities, submitted ERP movement comparison,
+  variance Exceptions, controlled recount/correction resolution, and a printable closing report.
 
 ### Package E — Operational hardening
 

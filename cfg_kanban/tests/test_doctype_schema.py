@@ -69,6 +69,10 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Handling Unit Serial")
         self.assertEqual(links["Movement Manifests"],
                          "CFG Kanban Movement Manifest")
+        self.assertEqual(links["Route Reconciliations"],
+                         "CFG Kanban Route Reconciliation")
+        self.assertEqual(shortcuts["Route Reconciliations"],
+                         "CFG Kanban Route Reconciliation")
         self.assertEqual(links["Material Trace Policies"],
                          "CFG Kanban Material Trace Policy")
         self.assertEqual(shortcuts["Material Trace Policies"],
@@ -159,6 +163,68 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def _validate_manifest_container_groups", logistics_api)
         feedback = (APP_ROOT / "integrations" / "logistics_feedback.py").read_text()
         self.assertIn("def _update_manifest_containers", feedback)
+
+    def test_route_reconciliation_is_count_only_and_erp_authoritative(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        reconciliation = schemas["CFG Kanban Route Reconciliation"]
+        fields = {row["fieldname"]: row for row in reconciliation["fields"]}
+        self.assertTrue({
+            "state", "company", "vehicle_warehouse", "vehicle_reference",
+            "period_start", "period_end", "lines", "scans",
+            "expected_line_count", "counted_line_count", "variance_line_count",
+            "variance_exception", "resolution_notes",
+            "correction_reference_doctype", "correction_reference",
+            "idempotency_key",
+        }.issubset(fields))
+        self.assertEqual(fields["idempotency_key"].get("unique"), 1)
+        self.assertEqual(fields["lines"]["options"],
+                         "CFG Kanban Route Reconciliation Line")
+        self.assertEqual(fields["scans"]["options"],
+                         "CFG Kanban Route Reconciliation Scan")
+
+        line_fields = {row["fieldname"] for row in
+                       schemas["CFG Kanban Route Reconciliation Line"]["fields"]}
+        self.assertTrue({
+            "opening_qty", "movement_qty", "expected_closing_qty",
+            "tagged_count_qty", "loose_count_qty", "counted_qty", "variance_qty",
+        }.issubset(line_fields))
+        scan_fields = {row["fieldname"] for row in
+                       schemas["CFG Kanban Route Reconciliation Scan"]["fields"]}
+        self.assertTrue({
+            "handling_unit", "visible_code", "container_handling_unit",
+            "container_visible_code", "item_code", "batch_no", "qty",
+            "scanned_on", "scanned_by", "scan_event_key",
+        }.issubset(scan_fields))
+
+        service = (APP_ROOT / "services" / "route_reconciliation.py").read_text()
+        for method in (
+            "start_route_reconciliation", "scan_reconciliation_tag",
+            "save_loose_counts", "evaluate_route_reconciliation",
+            "close_route_reconciliation", "cancel_route_reconciliation",
+        ):
+            self.assertIn(f"def {method}", service)
+        self.assertIn("`tabStock Ledger Entry`", service)
+        self.assertIn("`tabSerial and Batch Entry`", service)
+        self.assertIn("active_container_contents", service)
+        self.assertIn('"Route Stock Variance"', service)
+        self.assertNotIn("post_quantity_event", service)
+        self.assertNotIn('"Stock Entry"', service)
+
+        event_fields = {row["fieldname"] for row in
+                        schemas["CFG Kanban Event"]["fields"]}
+        exception_fields = {row["fieldname"] for row in
+                            schemas["CFG Kanban Exception"]["fields"]}
+        self.assertIn("route_reconciliation", event_fields)
+        self.assertIn("route_reconciliation", exception_fields)
+
+        print_format = json.loads((
+            APP_ROOT / "cfg_kanban" / "print_format" /
+            "cfg_route_reconciliation_report" /
+            "cfg_route_reconciliation_report.json"
+        ).read_text())
+        self.assertEqual(print_format["doc_type"],
+                         "CFG Kanban Route Reconciliation")
+        self.assertIn("ERPNext expected balance", print_format["html"])
 
     def test_exact_serial_membership_is_erp_referenced_and_auditable(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}
