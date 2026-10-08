@@ -490,21 +490,56 @@ def _tagged_origin_qty(purchase_receipt, item_row):
 
 
 def _active_origin_tags(purchase_receipt, item_row):
-    return frappe.get_all(
+    direct = frappe.get_all(
         "CFG Kanban Handling Unit",
         filters={
             "origin_reference_doctype": "Purchase Receipt",
             "origin_reference_name": purchase_receipt,
             "origin_reference_row": item_row,
-            "identity_state": "Active",
         },
         fields=[
             "name", "handling_unit_id", "original_qty", "current_qty", "stock_uom",
-            "state", "current_warehouse",
+            "state", "identity_state", "current_warehouse",
+            "origin_reference_doctype", "origin_reference_name",
         ],
         order_by="creation asc",
         limit_page_length=1000,
     )
+    rows = {row.name: row for row in direct}
+    frontier = list(rows)
+    for _depth in range(20):
+        if not frontier:
+            break
+        children = frappe.get_all(
+            "CFG Kanban Handling Unit",
+            filters={
+                "origin_reference_doctype": "CFG Kanban Handling Unit",
+                "origin_reference_name": ["in", frontier],
+            },
+            fields=[
+                "name", "handling_unit_id", "original_qty", "current_qty", "stock_uom",
+                "state", "identity_state", "current_warehouse",
+                "origin_reference_doctype", "origin_reference_name",
+            ],
+            order_by="creation asc",
+            limit_page_length=1000,
+        )
+        frontier = []
+        for child in children:
+            if child.name in rows:
+                continue
+            rows[child.name] = child
+            frontier.append(child.name)
+    result = []
+    for row in rows.values():
+        if row.identity_state != "Active":
+            continue
+        row["can_void_activation"] = (
+            row.origin_reference_doctype == "Purchase Receipt"
+            and abs(flt(row.current_qty) - flt(row.original_qty)) <= 0.000001
+        )
+        result.append(row)
+    return result
 
 
 def _row_batch_numbers(row):

@@ -983,6 +983,35 @@ physical baskets in the same receiving Warehouse requires the controlled receipt
 workflow so the decrease and increase occur as one balanced, audited event without an ERPNext stock
 transfer.
 
+For ordinary non-serial material, start that controlled transaction from either location:
+
+- **Purchase Receipt → CFG Kanban → Tag Received Material → Active Tags → Split / Repack**; or
+- the source **CFG Kanban Handling Unit → Kanban Actions → Receipt-Time Split / Repack**.
+
+Enter the quantity moving, record the reason, and scan a different unused preprinted **main** Stock
+Tag for the new basket. Scanning opens a review window; tick **I checked both physical tags and the
+quantity** before confirming. The service posts one balanced Handling Unit **Split** ledger event:
+the source decreases and the new destination tag increases by the same Stock-UOM quantity. Item,
+Batch, Company, Warehouse and receipt lineage are retained, while ERPNext stock remains unchanged.
+The source must still be at the original receiving Warehouse, quality released, unreserved, and not
+loaded into another container. A full-quantity repack is allowed and leaves the old source tag Empty.
+For serial-controlled Items, use **Split Exact Serials to Child Tag** instead.
+
+When both physical baskets already have active Stock Tags, use **Move to Active Tag** beside the
+source tag in the Purchase Receipt dialog, or open the source **CFG Kanban Handling Unit** and select
+**Kanban Actions → Transfer Quantity to Active Tag**. Enter the quantity and reason, then scan the
+existing active destination tag. Review and tick the physical-check acknowledgement before
+confirming. The system records one balanced **Merge** ledger event: the source decreases and the
+destination increases, but ERPNext Warehouse stock does not change. A full transfer leaves the
+source tag Empty.
+
+This active-tag transfer is intentionally strict. Both tags must have the same Item, Batch, Stock
+UOM, Company, Warehouse, quality state, current operation, and movement state. Both must be quality
+released, unreserved, outside open manifests and delivery allocations, and unloaded from reusable
+containers. Serial-controlled tags require an exact-serial workflow. The destination's original
+activation quantity remains immutable audit history; its live `Current Qty` reflects the combined
+physical balance. Use **Split / Repack** instead when the destination tag is new and unused.
+
 In this first receiving slice, **Required Physical Tag** makes the missing tagged balance visible
 but does not block native Purchase Receipt submission. Do not interpret it as an accounting hold.
 A later controlled pending-tag workflow will add enforcement without affecting ERP-only Items.

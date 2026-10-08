@@ -539,6 +539,24 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Rescanning it cannot change the quantity", api)
         self.assertIn('result["idempotent_replay"] = True', api)
         self.assertIn("no quantity changed", form)
+        repack = (APP_ROOT / "services" / "receipt_repack.py").read_text()
+        handling_form = (APP_ROOT / "public" / "js" /
+                         "cfg_kanban_handling_unit.js").read_text()
+        self.assertIn("def get_receipt_repack_plan", repack)
+        self.assertIn("def repack_receipt_quantity", repack)
+        self.assertIn('event_type="Split"', repack)
+        self.assertIn('destination.flags.skip_initial_ledger = True', repack)
+        self.assertIn("Receipt-Time Split / Repack", form)
+        self.assertIn("Receipt-Time Split / Repack", handling_form)
+        self.assertIn("I checked both physical tags and the quantity", form)
+        transfer = (APP_ROOT / "services" / "tag_to_tag_transfer.py").read_text()
+        self.assertIn("def get_tag_to_tag_transfer_plan", transfer)
+        self.assertIn("def transfer_between_active_tags", transfer)
+        self.assertIn('event_type="Merge"', transfer)
+        self.assertIn("Same-warehouse active-tag quantity transfer", transfer)
+        self.assertIn("Transfer Quantity to Active Tag", form)
+        self.assertIn("Transfer Quantity to Active Tag", handling_form)
+        self.assertIn("I checked both active tags and the physical quantity", form)
         self.assertNotIn(
             ".filter((row) => row.tagging_available && row.remaining_stock_qty",
             form,

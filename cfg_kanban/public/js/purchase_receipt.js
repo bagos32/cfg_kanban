@@ -48,7 +48,7 @@ async function refresh_receiving_dialog(dialog, plan) {
 	const options = rows.map((row) => `${row.row_name} :: ${row.item_code} :: ${row.remaining_stock_qty} ${row.stock_uom} :: ${row.tag_policy}`);
 	dialog.set_df_property("item_row", "options", options.join("\n"));
 	dialog.fields_dict.summary.$wrapper.html(receiving_summary(plan));
-	bind_receipt_tag_void_actions(dialog, plan);
+	bind_receipt_tag_actions(dialog, plan);
 	if (!options.length) {
 		await dialog.set_value("item_row", "");
 		await dialog.set_value("qty", 0);
@@ -128,31 +128,224 @@ function show_receiving_activation_review(frm, source_dialog, values, on_complet
 	review.disable_primary_action();
 }
 
-function bind_receipt_tag_void_actions(dialog, plan) {
-	if (!plan.can_void_receipt_tags) return;
-	dialog.fields_dict.summary.$wrapper.find("[data-void-receipt-tag]")
-		.off("click.cfg_receipt_void")
-		.on("click.cfg_receipt_void", (event) => {
-			const handling_unit = event.currentTarget.dataset.voidReceiptTag;
-			frappe.prompt([
-				{ fieldname: "reason", label: __("Why was this tag activated incorrectly?"),
-					fieldtype: "Small Text", reqd: 1 },
-			], async (prompt_values) => {
-				await frappe.call({
-					method: "cfg_kanban.api.receiving.void_purchase_receipt_tag",
-					args: {
-						purchase_receipt: plan.purchase_receipt,
-						handling_unit,
-						reason: prompt_values.reason,
-					},
-					freeze: true,
-					freeze_message: __("Voiding the wrong tag activation..."),
-				});
-				frappe.show_alert({ message: __("Wrong tag voided; scan a new unused tag"), indicator: "orange" }, 8);
+function bind_receipt_tag_actions(dialog, plan) {
+	if (plan.can_void_receipt_tags) {
+		dialog.fields_dict.summary.$wrapper.find("[data-void-receipt-tag]")
+			.off("click.cfg_receipt_void")
+			.on("click.cfg_receipt_void", (event) => {
+				const handling_unit = event.currentTarget.dataset.voidReceiptTag;
+				frappe.prompt([
+					{ fieldname: "reason", label: __("Why was this tag activated incorrectly?"),
+						fieldtype: "Small Text", reqd: 1 },
+				], async (prompt_values) => {
+					await frappe.call({
+						method: "cfg_kanban.api.receiving.void_purchase_receipt_tag",
+						args: {
+							purchase_receipt: plan.purchase_receipt,
+							handling_unit,
+							reason: prompt_values.reason,
+						},
+						freeze: true,
+						freeze_message: __("Voiding the wrong tag activation..."),
+					});
+					frappe.show_alert({ message: __("Wrong tag voided; scan a new unused tag"), indicator: "orange" }, 8);
+					const refreshed = await load_trace_plan(plan.purchase_receipt);
+					await refresh_receiving_dialog(dialog, refreshed);
+				}, __("Void Wrong Receipt Tag"), __("Void Tag"));
+			});
+	}
+	dialog.fields_dict.summary.$wrapper.find("[data-repack-receipt-tag]")
+		.off("click.cfg_receipt_repack")
+		.on("click.cfg_receipt_repack", (event) => {
+			show_receipt_repack_dialog(event.currentTarget.dataset.repackReceiptTag, async () => {
 				const refreshed = await load_trace_plan(plan.purchase_receipt);
 				await refresh_receiving_dialog(dialog, refreshed);
-			}, __("Void Wrong Receipt Tag"), __("Void Tag"));
+			});
 		});
+	dialog.fields_dict.summary.$wrapper.find("[data-transfer-receipt-tag]")
+		.off("click.cfg_receipt_transfer")
+		.on("click.cfg_receipt_transfer", (event) => {
+			show_active_tag_transfer_dialog(event.currentTarget.dataset.transferReceiptTag, async () => {
+				const refreshed = await load_trace_plan(plan.purchase_receipt);
+				await refresh_receiving_dialog(dialog, refreshed);
+			});
+		});
+}
+
+async function show_active_tag_transfer_dialog(source_handling_unit, on_complete) {
+	const response = await frappe.call({
+		method: "cfg_kanban.services.tag_to_tag_transfer.get_tag_to_tag_transfer_plan",
+		args: { source_handling_unit },
+	});
+	const plan = response.message || {};
+	if (!plan.can_transfer) {
+		frappe.msgprint({ title: __("Tag-to-Tag Transfer Not Available"),
+			message: plan.blocked_reason, indicator: "orange" });
+		return;
+	}
+	const e = frappe.utils.escape_html;
+	const event_token = frappe.utils.get_random(24);
+	const dialog = new frappe.ui.Dialog({
+		title: __("Transfer Quantity to Active Tag"),
+		fields: [
+			{ fieldname: "summary", fieldtype: "HTML", options: `<div class="alert alert-info">
+				<strong>${e(plan.source_tag)}</strong> · ${e(plan.item_code)} · ${e(plan.available_qty)} ${e(plan.stock_uom)}<br>
+				${e(plan.warehouse)}<br><small>${__("The destination must be an active matching tag in this same ERP warehouse.")}</small>
+			</div>` },
+			{ fieldname: "qty", label: __("Quantity Moving to Destination Tag"),
+				fieldtype: "Float", reqd: 1 },
+			{ fieldname: "reason", label: __("Transfer Reason"),
+				fieldtype: "Small Text", reqd: 1 },
+			{ fieldname: "destination_scan_value", label: __("Existing Active Destination Tag"),
+				fieldtype: "Data", reqd: 1,
+				description: __("Scan the active destination tag. Quantity moves only after final confirmation.") },
+		],
+		primary_action_label: __("Review Tag Transfer"),
+		primary_action: (values) => show_active_tag_transfer_confirmation(
+			plan, dialog, values, event_token, on_complete
+		),
+	});
+	dialog.show();
+}
+
+function show_active_tag_transfer_confirmation(plan, source_dialog, values, event_token, on_complete) {
+	const e = frappe.utils.escape_html;
+	let review;
+	review = new frappe.ui.Dialog({
+		title: __("Confirm Tag-to-Tag Quantity Transfer"),
+		fields: [
+			{ fieldname: "summary", fieldtype: "HTML", options: `<div class="alert alert-warning">
+				${__("Source")}: <strong>${e(plan.source_tag)}</strong><br>
+				${__("Active destination")}: <strong>${e(values.destination_scan_value)}</strong><br>
+				${__("Quantity moving")}: <strong>${e(values.qty)} ${e(plan.stock_uom)}</strong><br>
+				${__("Reason")}: ${e(values.reason)}
+			</div>` },
+			{ fieldname: "confirmed", label: __("I checked both active tags and the physical quantity"),
+				fieldtype: "Check", reqd: 1, change: () => {
+					if (review.get_value("confirmed")) review.enable_primary_action();
+					else review.disable_primary_action();
+				} },
+		],
+		primary_action_label: __("Confirm Tag Transfer"),
+		primary_action: async () => {
+			review.disable_primary_action();
+			try {
+				const response = await frappe.call({
+					method: "cfg_kanban.services.tag_to_tag_transfer.transfer_between_active_tags",
+					args: {
+						source_handling_unit: plan.source_handling_unit,
+						destination_scan_value: values.destination_scan_value,
+						qty: values.qty,
+						reason: values.reason,
+						event_token,
+					},
+					freeze: true,
+					freeze_message: __("Transferring quantity between active tags..."),
+				});
+				review.hide();
+				source_dialog.hide();
+				const result = response.message || {};
+				frappe.show_alert({ message: __("{0} {1} remains on {2}; {3} now contains {4}", [
+					result.source.current_qty, result.stock_uom, result.source.visible_code,
+					result.destination.visible_code, result.destination.current_qty,
+				]), indicator: result.idempotent_replay ? "blue" : "green" }, 10);
+				await on_complete();
+			} finally {
+				review.enable_primary_action();
+			}
+		},
+	});
+	review.show();
+	review.disable_primary_action();
+}
+
+async function show_receipt_repack_dialog(source_handling_unit, on_complete) {
+	const response = await frappe.call({
+		method: "cfg_kanban.services.receipt_repack.get_receipt_repack_plan",
+		args: { source_handling_unit },
+	});
+	const plan = response.message || {};
+	if (!plan.can_repack) {
+		frappe.msgprint({ title: __("Receipt-Time Split / Repack Not Available"),
+			message: plan.blocked_reason, indicator: "orange" });
+		return;
+	}
+	const e = frappe.utils.escape_html;
+	const dialog = new frappe.ui.Dialog({
+		title: __("Receipt-Time Split / Repack"),
+		fields: [
+			{ fieldname: "summary", fieldtype: "HTML", options: `<div class="alert alert-info">
+				<strong>${e(plan.source_tag)}</strong> · ${e(plan.item_code)} · ${e(plan.available_qty)} ${e(plan.stock_uom)}<br>
+				${e(plan.warehouse)}<br><small>${__("This redistributes physical tag quantity inside the same ERP warehouse. It does not create a Stock Entry.")}</small>
+			</div>` },
+			{ fieldname: "qty", label: __("Quantity Moving to New Basket Tag"),
+				fieldtype: "Float", reqd: 1 },
+			{ fieldname: "reason", label: __("Split / Repack Reason"),
+				fieldtype: "Small Text", reqd: 1 },
+			{ fieldname: "destination_scan_value", label: __("New Unused Main Stock Tag"),
+				fieldtype: "Data", reqd: 1,
+				description: __("Scan only after checking the quantity and reason. Scanning opens a final review; it does not move quantity immediately.") },
+		],
+		primary_action_label: __("Review Split / Repack"),
+		primary_action: (values) => {
+			show_receipt_repack_confirmation(plan, dialog, values, on_complete);
+		},
+	});
+	dialog.show();
+}
+
+function show_receipt_repack_confirmation(plan, source_dialog, values, on_complete) {
+	const e = frappe.utils.escape_html;
+	let review;
+	review = new frappe.ui.Dialog({
+		title: __("Confirm Receipt-Time Split / Repack"),
+		fields: [
+			{ fieldname: "summary", fieldtype: "HTML", options: `<div class="alert alert-warning">
+				${__("Source")}: <strong>${e(plan.source_tag)}</strong><br>
+				${__("New tag")}: <strong>${e(values.destination_scan_value)}</strong><br>
+				${__("Quantity moving")}: <strong>${e(values.qty)} ${e(plan.stock_uom)}</strong><br>
+				${__("Warehouse")}: ${e(plan.warehouse)}<br>
+				${__("Reason")}: ${e(values.reason)}
+			</div>` },
+			{ fieldname: "confirmed", label: __("I checked both physical tags and the quantity"),
+				fieldtype: "Check", reqd: 1, change: () => {
+					if (review.get_value("confirmed")) review.enable_primary_action();
+					else review.disable_primary_action();
+				} },
+		],
+		primary_action_label: __("Confirm Split / Repack"),
+		primary_action: async () => {
+			review.disable_primary_action();
+			try {
+				const result = await frappe.call({
+					method: "cfg_kanban.services.receipt_repack.repack_receipt_quantity",
+					args: {
+						source_handling_unit: plan.source_handling_unit,
+						destination_scan_value: values.destination_scan_value,
+						qty: values.qty,
+						reason: values.reason,
+					},
+					freeze: true,
+					freeze_message: __("Splitting physical basket quantity..."),
+				});
+				review.hide();
+				source_dialog.hide();
+				const moved = result.message || {};
+				frappe.show_alert({
+					message: __("{0} {1} moved to tag {2}", [
+						moved.destination.current_qty, moved.stock_uom,
+						moved.destination.visible_code,
+					]),
+					indicator: "green",
+				}, 10);
+				await on_complete();
+			} finally {
+				review.enable_primary_action();
+			}
+		},
+	});
+	review.show();
+	review.disable_primary_action();
 }
 
 async function apply_receiving_row(dialog, row) {
@@ -191,7 +384,11 @@ function receiving_summary(plan) {
 	const rows = (plan.rows || []).map((row) => {
 		const active_tags = (row.activated_tags || []).map((tag) => `<div>
 			<strong>${e(tag.handling_unit_id)}</strong> · ${e(tag.current_qty)} ${e(tag.stock_uom)}
-			${plan.can_void_receipt_tags ? `<button type="button" class="btn btn-xs btn-danger"
+			<button type="button" class="btn btn-xs btn-default"
+				data-repack-receipt-tag="${e(tag.name)}">${__("Split / Repack")}</button>
+			<button type="button" class="btn btn-xs btn-default"
+				data-transfer-receipt-tag="${e(tag.name)}">${__("Move to Active Tag")}</button>
+			${plan.can_void_receipt_tags && tag.can_void_activation ? `<button type="button" class="btn btn-xs btn-danger"
 				data-void-receipt-tag="${e(tag.name)}">${__("Void Wrong Tag")}</button>` : ""}
 		</div>`).join("") || `<span class="text-muted">${__("None")}</span>`;
 		return `<tr>
