@@ -69,9 +69,21 @@ def _refresh_receipt_state(cycle_name, latest_receipt):
     row = next(item for item in po.items if item.name == cycle.get("purchase_order_item"))
     received = flt(row.received_qty)
     outstanding = max(flt(row.qty) - received, 0)
+    conversion_factor = flt(row.conversion_factor or 1)
+    ordered_stock = flt(row.stock_qty) or flt(row.qty) * conversion_factor
+    received_stock = received * conversion_factor
+    outstanding_stock = max(ordered_stock - received_stock, 0)
     complete = outstanding <= 0.000001
     purchase_status = "Received" if complete else ("Partially Received" if received else "Ordered")
     cycle.db_set({"latest_purchase_receipt": latest_receipt,
+                  "purchase_uom": row.uom,
+                  "purchase_uom_conversion_factor": conversion_factor,
+                  "ordered_purchase_qty": row.qty,
+                  "ordered_stock_qty": ordered_stock,
+                  "received_purchase_qty": received,
+                  "received_stock_qty": received_stock,
+                  "outstanding_purchase_qty": outstanding,
+                  "outstanding_stock_qty": outstanding_stock,
                   "received_qty": received, "outstanding_qty": outstanding,
                   "purchase_status": purchase_status})
     set_cycle_state(cycle, "Completed" if complete else purchase_status,

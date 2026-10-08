@@ -1705,10 +1705,22 @@ Use **Control Type** (`control_type`) = **Purchase Replenishment** when the item
 normal third-party supplier. This V1 flow does not represent buyer-directed contract manufacturing;
 that richer vendor execution model remains V2.
 
-On **CFG Kanban Master**, configure exact fields **Default Supplier** (`default_supplier`),
-**Destination Warehouse** (`destination_warehouse`), optional **Supplier Pack Size**
-(`supplier_pack_size`), **Minimum Order Qty** (`minimum_order_qty`), **Purchase Order Multiple**
-(`purchase_order_multiple`), **Submit Material Request on Approval**
+The Card's **Replenishment Qty (Stock UOM)** (`replenishment_qty`) is always canonical ERP stock
+quantity. **Item Stock UOM** (`stock_uom`) is fetched from the Item and cannot be replaced with the
+supplier unit. Configure the Item's UOM conversion table and optional **Default Purchase Unit of
+Measure**, then select **Purchase UOM** (`purchase_uom`) on the Master. The app snapshots **Stock
+Qty per Purchase UOM** (`purchase_uom_conversion_factor`) and displays **Calculated Replenishment
+Qty (Purchase UOM)** (`purchase_replenishment_qty`). ERPNext's rule is preserved: Stock Qty equals
+Purchase Qty multiplied by Conversion Factor.
+
+For example, a 500 Kg Card with Purchase UOM Bag and conversion 25 creates a request for 20 Bags /
+500 Kg. Card, stock, BOM, WIP, tag and genealogy quantities remain Kg. Purchase quantities, partial
+receipts and tolerance entry use Bags. The Cycle records both units explicitly.
+
+On **CFG Kanban Master**, also configure **Default Supplier** (`default_supplier`), **Destination
+Warehouse** (`destination_warehouse`), optional **Supplier Pack Multiple (Purchase UOM)**
+(`supplier_pack_size`), **Minimum Order Qty (Purchase UOM)** (`minimum_order_qty`), **Purchase Order
+Multiple (Purchase UOM)** (`purchase_order_multiple`), **Submit Material Request on Approval**
 (`auto_submit_material_request`), **Receipt Posting Mode** (`receipt_posting_mode`), **Allow Partial
 Receipt** (`allow_partial_receipt`), **Kanban Over-receipt Tolerance %**
 (`over_receipt_tolerance_pct`), and optional **Rejected Warehouse** (`rejected_warehouse`).
@@ -1723,10 +1735,11 @@ The operational sequence is:
 4. A Purchase Order made from the linked Material Request is associated automatically when the
    link is unambiguous. Otherwise open the Cycle and use **Purchase Replenishment → Select Purchase
    Order**. The submitted PO must match Company, Supplier, and Item, and the reason is audited.
-5. At receipt, open the Cycle and choose **Purchase Replenishment → Receive Purchased Item**. Enter
-   Delivered Qty, Accepted Qty, Rejected Qty, warehouses, and Supplier Delivery Note. Delivered
-   must equal Accepted plus Rejected and may not exceed outstanding PO quantity plus the configured
-   tolerance.
+5. At receipt, open the Cycle and choose **Purchase Replenishment → Receive Purchased Item**. The
+   dialog states the Purchase UOM, Stock UOM, conversion and both outstanding quantities. Enter
+   Delivered Qty, Accepted Qty, and Rejected Qty in the displayed Purchase UOM, plus warehouses and
+   Supplier Delivery Note. Delivered must equal Accepted plus Rejected and may not exceed
+   outstanding PO purchase quantity plus the configured tolerance.
 6. **Create Draft Purchase Receipt** leaves ERPNext submission to an authorised stock user.
    **Submit After Receiver Confirmation** submits simple items immediately. Batch-controlled,
    serial-controlled, or incoming-inspection items deliberately remain Draft until their standard

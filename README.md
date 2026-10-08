@@ -6,6 +6,9 @@ The consolidated model is documented in
 [Enhanced V1 Core Architecture](docs/ENHANCED_CORE_ARCHITECTURE.md).
 The approved multi-company stock-tag and customer-delivery extension is documented in
 [Multi-Company Logistics Architecture](docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md).
+The independent full-flow procedure from buyer-owned purchase replenishment through receiving,
+production genealogy, intercompany handover, and the Package C1 Customer Delivery Session is in
+[Purchase Signal through Package C1 System Test](docs/TEST_PURCHASE_TO_C1_END_TO_END.md).
 The independent tester-facing acceptance procedure for the implemented Customer Site / Delivery
 Session foundation is in
 [Package C1 Customer Delivery Session System Test](docs/TEST_PACKAGE_C1_CUSTOMER_DELIVERY_SESSION.md).

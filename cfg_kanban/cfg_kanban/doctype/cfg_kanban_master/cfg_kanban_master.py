@@ -1,12 +1,16 @@
 import frappe
 from frappe.model.document import Document
+from frappe.utils import cint, flt
 
 from cfg_kanban.services.dynamic_forms import validate_condition_definitions
+from cfg_kanban.services.purchase_uom import calculate_purchase_quantities
+from cfg_kanban.services.uom_conversion import get_item_purchase_uom
 
 
 class CFGKanbanMaster(Document):
     def validate(self):
-        if self.replenishment_qty <= 0 or self.number_of_cards <= 0:
+        self._set_item_and_purchase_uom()
+        if flt(self.replenishment_qty) <= 0 or cint(self.number_of_cards) <= 0:
             frappe.throw("Replenishment quantity and number of cards must be positive")
         if self.control_type == "Purchase Replenishment":
             if not self.default_supplier or not self.destination_warehouse:
@@ -15,7 +19,10 @@ class CFGKanbanMaster(Document):
                                      ("minimum_order_qty", "Minimum Order Qty"),
                                      ("purchase_order_multiple", "Purchase Order Multiple"),
                                      ("over_receipt_tolerance_pct", "Over-receipt Tolerance")):
-                if (self.get(fieldname) or 0) < 0:
+                # Frappe form payloads may carry Float/Percent values as strings
+                # (for example, Percent zero arrives as "0"). Always normalize
+                # before comparing so a valid purchase Master can be saved.
+                if flt(self.get(fieldname)) < 0:
                     frappe.throw(f"{label} cannot be negative")
         sequences = [row.sequence for row in self.operation_profiles]
         if len(sequences) != len(set(sequences)):
@@ -27,11 +34,11 @@ class CFGKanbanMaster(Document):
                 frappe.throw(f"Dependency operation {row.dependency_operation} is not in this route")
             if row.destination_operation and row.destination_operation not in operations:
                 frappe.throw(f"Destination operation {row.destination_operation} is not in this route")
-            if row.start_rule == "Minimum Qty Available" and (row.minimum_qty or 0) <= 0:
+            if row.start_rule == "Minimum Qty Available" and flt(row.minimum_qty) <= 0:
                 frappe.throw(f"Minimum Qty must be positive for operation {row.operation}")
-            if row.start_rule == "Minimum Percentage Available" and not 0 < (row.minimum_percentage or 0) <= 100:
+            if row.start_rule == "Minimum Percentage Available" and not 0 < flt(row.minimum_percentage) <= 100:
                 frappe.throw(f"Minimum Percentage must be between 0 and 100 for operation {row.operation}")
-            if row.handoff_mode == "Digital Quantity Handoff" and (row.transfer_multiple or 0) <= 0:
+            if row.handoff_mode == "Digital Quantity Handoff" and flt(row.transfer_multiple) <= 0:
                 frappe.throw(f"Transfer Multiple must be positive for operation {row.operation}")
         task_keys = [row.task_key for row in self.process_task_profiles]
         if len(task_keys) != len(set(task_keys)):
@@ -45,7 +52,7 @@ class CFGKanbanMaster(Document):
             if row.trigger_point in ("Before Operation Start", "After Operation Complete",
                                      "Before WIP Release") and not row.linked_operation:
                 frappe.throw(f"Linked Operation is required for Process Task {row.task_name}")
-            if row.reuse_while_valid and (row.validity_duration_hours or 0) <= 0:
+            if row.reuse_while_valid and flt(row.validity_duration_hours) <= 0:
                 frappe.throw(f"Validity Duration must be positive for Process Task {row.task_name}")
             if row.qc_controlled:
                 if not row.test_method or not row.specification_reference:
@@ -77,18 +84,37 @@ class CFGKanbanMaster(Document):
         validate_condition_definitions(self.operator_field_definitions)
         self._validate_sales_demand_configuration()
 
+    def _set_item_and_purchase_uom(self):
+        if not self.item_code:
+            return
+        if self.control_type != "Purchase Replenishment":
+            self.stock_uom = frappe.db.get_value("Item", self.item_code, "stock_uom")
+            return
+        uom = get_item_purchase_uom(self.item_code, self.get("purchase_uom"))
+        self.stock_uom = uom["stock_uom"]
+        self.purchase_uom = uom["purchase_uom"]
+        self.purchase_uom_conversion_factor = uom["conversion_factor"]
+        plan = calculate_purchase_quantities(
+            self.replenishment_qty,
+            uom["conversion_factor"],
+            self.minimum_order_qty,
+            self.purchase_order_multiple,
+            self.supplier_pack_size,
+        )
+        self.purchase_replenishment_qty = plan["purchase_qty"]
+
     def _validate_sales_demand_configuration(self):
         if not self.get("enable_sales_order_trigger"):
             return
         scope = self.get("demand_scope") or "General"
         if scope != "General" and not self.get("demand_scope_value"):
             frappe.throw("Demand Scope Value is required for a non-General demand scope")
-        if self.get("threshold_source") == "Kanban Override" and (self.get("minimum_stock_override") or 0) <= 0:
+        if self.get("threshold_source") == "Kanban Override" and flt(self.get("minimum_stock_override")) <= 0:
             frappe.throw("Minimum Stock Override must be greater than zero")
         if self.get("production_policy") == "Customer Make-to-Order":
             if scope != "Customer":
                 frappe.throw("Customer Make-to-Order Masters must use Customer demand scope")
-            if (self.get("mto_extra_tolerance_pct") or 0) < 0:
+            if flt(self.get("mto_extra_tolerance_pct")) < 0:
                 frappe.throw("MTO Extra Production Tolerance cannot be negative")
         matches = frappe.get_all("CFG Kanban Master", filters={
             "active": 1, "enable_sales_order_trigger": 1, "item_code": self.item_code,

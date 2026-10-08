@@ -90,13 +90,24 @@ def create_material_request(command, payload):
     }, "name")
     if existing:
         return frappe.get_doc("Material Request", existing)
+    # Keep recovery compatible with ERP Commands created before dual-UOM
+    # support, whose payload contained only qty + stock_uom.
+    purchase_qty = payload.get("purchase_qty", payload.get("qty"))
+    purchase_uom = payload.get("purchase_uom", payload.get("stock_uom"))
+    stock_uom = payload.get("stock_uom", purchase_uom)
+    conversion_factor = flt(payload.get("conversion_factor") or 1)
+    stock_qty = flt(payload.get("stock_qty") or (flt(purchase_qty) * conversion_factor))
     request = frappe.get_doc({
         "doctype": "Material Request", "material_request_type": "Purchase",
         "company": payload["company"], "schedule_date": add_to_date(now_datetime(), days=1).date(),
         "cfg_kanban_controlled": 1, "cfg_kanban_cycle": cycle.name,
         "cfg_kanban_signal": command.source_signal,
-        "items": [{"item_code": payload["item_code"], "qty": payload["qty"],
-                   "uom": payload.get("stock_uom"),
+        "items": [{"item_code": payload["item_code"],
+                   "qty": purchase_qty,
+                   "uom": purchase_uom,
+                   "stock_uom": stock_uom,
+                   "conversion_factor": conversion_factor,
+                   "stock_qty": stock_qty,
                    "warehouse": payload.get("warehouse"),
                    "schedule_date": add_to_date(now_datetime(), days=1).date()}],
     }).insert(ignore_permissions=True)
@@ -104,7 +115,13 @@ def create_material_request(command, payload):
         request.submit()
     cycle.db_set({"material_request": request.name, "supplier": payload.get("supplier"),
                   "purchase_status": "Material Requested",
-                  "outstanding_qty": payload["qty"]})
+                  "purchase_uom": purchase_uom,
+                  "purchase_uom_conversion_factor": conversion_factor,
+                  "requested_purchase_qty": purchase_qty,
+                  "requested_stock_qty": stock_qty,
+                  "outstanding_purchase_qty": purchase_qty,
+                  "outstanding_stock_qty": stock_qty,
+                  "outstanding_qty": purchase_qty})
     signal = frappe.get_doc("CFG Kanban Signal", command.source_signal)
     signal.db_set({"erp_reference_doctype": "Material Request",
                    "erp_reference_name": request.name, "status": "Completed"})

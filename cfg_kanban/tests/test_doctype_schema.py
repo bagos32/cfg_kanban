@@ -208,7 +208,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("active_container_contents", service)
         self.assertIn('"Route Stock Variance"', service)
         self.assertNotIn("post_quantity_event", service)
-        self.assertNotIn('"Stock Entry"', service)
+        self.assertNotIn('"doctype": "Stock Entry"', service)
+        self.assertNotIn('frappe.new_doc("Stock Entry")', service)
 
         event_fields = {row["fieldname"] for row in
                         schemas["CFG Kanban Event"]["fields"]}
@@ -360,11 +361,18 @@ class TestDocTypeSchema(TestCase):
         self.assertTrue({"default_supplier", "supplier_pack_size", "minimum_order_qty",
                          "purchase_order_multiple", "auto_submit_material_request",
                          "receipt_posting_mode", "allow_partial_receipt",
-                         "over_receipt_tolerance_pct", "rejected_warehouse"}.issubset(master))
+                         "over_receipt_tolerance_pct", "rejected_warehouse", "purchase_uom",
+                         "purchase_uom_conversion_factor", "purchase_replenishment_qty"}
+                        .issubset(master))
+        self.assertEqual(master["stock_uom"].get("read_only"), 1)
         cycle = {row["fieldname"] for row in schemas["CFG Kanban Cycle"]["fields"]}
         self.assertTrue({"supplier", "material_request", "purchase_order",
                          "purchase_order_item", "latest_purchase_receipt", "ordered_qty",
-                         "received_qty", "outstanding_qty", "purchase_status"}.issubset(cycle))
+                         "received_qty", "outstanding_qty", "purchase_status", "purchase_uom",
+                         "purchase_uom_conversion_factor", "requested_purchase_qty",
+                         "requested_stock_qty", "ordered_purchase_qty", "ordered_stock_qty",
+                         "received_purchase_qty", "received_stock_qty",
+                         "outstanding_purchase_qty", "outstanding_stock_qty"}.issubset(cycle))
         commands = next(row for row in schemas["CFG ERP Command"]["fields"]
                         if row["fieldname"] == "command_type")["options"].splitlines()
         self.assertIn("Create Material Request", commands)

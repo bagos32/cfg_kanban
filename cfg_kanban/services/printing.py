@@ -177,10 +177,15 @@ def get_card_route(master_name):
 def get_card_print_context(master_name):
     master = frappe.get_doc("CFG Kanban Master", master_name)
     return {"name": master.name, "item_code": master.item_code,
+            "control_type": master.control_type,
             "source_warehouse": master.source_warehouse,
             "destination_warehouse": master.destination_warehouse,
             "replenishment_qty": master.replenishment_qty,
-            "stock_uom": master.stock_uom, "revision": master.revision,
+            "stock_uom": master.stock_uom,
+            "purchase_uom": master.get("purchase_uom"),
+            "purchase_uom_conversion_factor": master.get("purchase_uom_conversion_factor"),
+            "purchase_replenishment_qty": master.get("purchase_replenishment_qty"),
+            "revision": master.revision,
             "route": get_card_route(master.name)}
 
 

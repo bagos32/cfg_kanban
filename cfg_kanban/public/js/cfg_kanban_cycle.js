@@ -22,9 +22,14 @@ frappe.ui.form.on("CFG Kanban Cycle", {
 					args: { cycle_name: frm.doc.name } });
 				const context = response.message;
 				frappe.prompt([
-					{ fieldname: "delivered_qty", label: __("Delivered Qty"), fieldtype: "Float", reqd: 1, default: context.outstanding_qty },
-					{ fieldname: "accepted_qty", label: __("Accepted Qty"), fieldtype: "Float", reqd: 1, default: context.outstanding_qty },
-					{ fieldname: "rejected_qty", label: __("Rejected Qty"), fieldtype: "Float", default: 0 },
+					{ fieldname: "uom_summary", fieldtype: "HTML", options:
+						`<div class="alert alert-info"><strong>${__("Purchase UOM")}: ${frappe.utils.escape_html(context.purchase_uom)}</strong><br>
+						${__("1 {0} = {1} {2}", [context.purchase_uom, context.conversion_factor, context.stock_uom])}<br>
+						${__("Outstanding: {0} {1} = {2} {3}", [context.outstanding_qty, context.purchase_uom,
+							context.outstanding_stock_qty, context.stock_uom])}</div>` },
+					{ fieldname: "delivered_qty", label: __("Delivered Qty ({0})", [context.purchase_uom]), fieldtype: "Float", reqd: 1, default: context.outstanding_qty },
+					{ fieldname: "accepted_qty", label: __("Accepted Qty ({0})", [context.purchase_uom]), fieldtype: "Float", reqd: 1, default: context.outstanding_qty },
+					{ fieldname: "rejected_qty", label: __("Rejected Qty ({0})", [context.purchase_uom]), fieldtype: "Float", default: 0 },
 					{ fieldname: "warehouse", label: __("Accepted Warehouse"), fieldtype: "Link", options: "Warehouse", reqd: 1, default: context.warehouse },
 					{ fieldname: "rejected_warehouse", label: __("Rejected Warehouse"), fieldtype: "Link", options: "Warehouse", default: context.rejected_warehouse },
 					{ fieldname: "supplier_delivery_note", label: __("Supplier Delivery Note"), fieldtype: "Data" },

@@ -645,6 +645,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const work_order_label = effective_work_order
 			? `${document_link("work-order", effective_work_order.name)}${status_line(effective_work_order.status, effective_work_order.docstatus)}`
 			: document_link("work-order", null);
+		const purchase_equivalent = master.control_type === "Purchase Replenishment" && master.purchase_uom
+			? `<div class="text-muted"><small>${__("Planned supplier order")}: ${e(master.purchase_replenishment_qty || 0)} ${e(master.purchase_uom)} · ${__("1 {0} = {1} {2}", [master.purchase_uom, master.purchase_uom_conversion_factor || 1, master.stock_uom || ""])}</small></div>`
+			: "";
 		$root.append(`<div class="cfg-work-section-heading"><div><h3>${__("Active Work")}</h3>
 			<small>${__("Current scanned production card, ERP status, tasks and execution lanes.")}</small></div>
 			<span class="indicator-pill blue">1 ${__("Selected")}</span></div>
@@ -652,13 +655,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<div class="d-flex justify-content-between align-items-start flex-wrap">
 				<div><div class="d-flex align-items-center flex-wrap"><h3 class="mr-3 mb-1">${e(card.card_number)}</h3>
 					<span class="indicator-pill blue mb-1">${e(card.card_type || __("Unspecified Card Type"))}</span></div>
-					<div><strong>${e(card.item_code || master.item_code || card.asset || card.location_reference || card.task_schedule || "")}</strong>${card.kanban_qty ? ` · ${e(card.kanban_qty)} ${e(card.stock_uom || master.stock_uom || "")}` : ""}</div>
+					<div><strong>${e(card.item_code || master.item_code || card.asset || card.location_reference || card.task_schedule || "")}</strong>${card.kanban_qty ? ` · ${e(card.kanban_qty)} ${e(card.stock_uom || master.stock_uom || "")}` : ""}</div>${purchase_equivalent}
 					<div class="text-muted">${e(master.control_type || card.card_behavior || "")} ${master.card_representation ? "· " + e(master.card_representation) : ""}${card.operation ? " · " + e(card.operation) : ""}</div></div>
 				<div class="text-right"><small>${__("Card Status")}</small><br><span class="indicator-pill ${indicator(card.current_state)}">${e(card.current_state)}</span></div>
 			</div><hr>
 			<div class="row">
 				<div class="col-sm-2"><small>${__("Master")}</small><div>${e(master.kanban_name || __("Service identity"))}</div></div>
-				<div class="col-sm-2"><small>${__("Quantity")}</small><div>${e(card.kanban_qty)}</div></div>
+				<div class="col-sm-2"><small>${__("Quantity")}</small><div>${e(card.kanban_qty)} ${e(card.stock_uom || master.stock_uom || "")}</div></div>
 				<div class="col-sm-2"><small>${__("Automation")}</small><div>${e(master.automation_level)}</div></div>
 				<div class="col-sm-3"><small>${__("Cycle")}</small><div>${cycle_label}</div></div>
 				<div class="col-sm-3"><small>${__("Effective Work Order")}</small><div>${work_order_label}</div></div>

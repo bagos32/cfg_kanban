@@ -1,12 +1,12 @@
-import math
-
 import frappe
 from frappe.utils import cint, flt, now_datetime
 
 from cfg_kanban.integrations.erp_gateway import execute_command
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key, insert_once
+from cfg_kanban.services.purchase_uom import calculate_purchase_quantities
 from cfg_kanban.services.state_machine import set_cycle_state, transition_card
+from cfg_kanban.services.uom_conversion import get_item_purchase_uom
 
 
 PURCHASE_ROLES = ("Purchase User", "Purchase Manager", "Stock User", "Stock Manager",
@@ -14,9 +14,9 @@ PURCHASE_ROLES = ("Purchase User", "Purchase Manager", "Stock User", "Stock Mana
 
 
 def purchase_request_qty(nominal_qty, minimum_order_qty=0, order_multiple=0, pack_size=0):
-    qty = max(flt(nominal_qty), flt(minimum_order_qty))
-    multiple = flt(order_multiple) or flt(pack_size)
-    return math.ceil(qty / multiple) * multiple if multiple > 0 else qty
+    return calculate_purchase_quantities(
+        nominal_qty, 1, minimum_order_qty, order_multiple, pack_size
+    )["purchase_qty"]
 
 
 def create_material_request_command(signal_name):
@@ -24,15 +24,26 @@ def create_material_request_command(signal_name):
     master = frappe.get_doc("CFG Kanban Master", signal.kanban_master)
     if master.control_type != "Purchase Replenishment":
         frappe.throw("This Kanban Master is not configured for Purchase Replenishment")
-    qty = purchase_request_qty(signal.requested_qty, master.minimum_order_qty,
-                               master.purchase_order_multiple, master.supplier_pack_size)
+    uom = get_item_purchase_uom(master.item_code, master.get("purchase_uom"))
+    plan = calculate_purchase_quantities(
+        signal.requested_qty,
+        uom["conversion_factor"],
+        master.minimum_order_qty,
+        master.purchase_order_multiple,
+        master.supplier_pack_size,
+    )
     key = canonical_key("command", signal.name, "Create Material Request")
     command, _ = insert_once(frappe.get_doc({
         "doctype": "CFG ERP Command", "command_type": "Create Material Request",
         "source_signal": signal.name, "kanban_cycle": signal.kanban_cycle,
         "status": "Pending", "target_doctype": "Material Request",
         "request_payload": frappe.as_json({
-            "item_code": master.item_code, "qty": qty, "stock_uom": master.stock_uom,
+            "item_code": master.item_code,
+            "purchase_qty": plan["purchase_qty"],
+            "stock_qty": plan["stock_qty"],
+            "purchase_uom": uom["purchase_uom"],
+            "stock_uom": uom["stock_uom"],
+            "conversion_factor": uom["conversion_factor"],
             "warehouse": master.destination_warehouse, "company": master.company,
             "supplier": master.default_supplier,
             "submit": cint(master.auto_submit_material_request),
@@ -63,15 +74,50 @@ def link_purchase_order(cycle_name, purchase_order_name, reason):
         _block(cycle, "Purchase Order Mismatch",
                f"Purchase Order does not contain item {cycle.item_code}", po)
     row = max(rows, key=lambda value: flt(value.qty) - flt(value.received_qty))
-    outstanding = max(flt(row.qty) - flt(row.received_qty), 0)
-    if outstanding <= 0:
+    item_uom = get_item_purchase_uom(master.item_code, master.get("purchase_uom"))
+    # New cycles retain the exact UOM snapshot used when their Material Request
+    # was created.  Do not compare them with a Master that may have been revised
+    # later.  Older active cycles have no snapshot, so accept the submitted PO's
+    # Purchase UOM while still enforcing the Item's canonical Stock UOM.
+    has_uom_snapshot = bool(cycle.get("purchase_uom"))
+    expected_purchase_uom = cycle.get("purchase_uom") or row.uom
+    expected_factor = flt(cycle.get("purchase_uom_conversion_factor")) or flt(
+        row.conversion_factor
+    )
+    if row.uom != expected_purchase_uom or row.stock_uom != item_uom["stock_uom"]:
+        _block(cycle, "Purchase Order Mismatch",
+               f"Purchase Order UOM must be {expected_purchase_uom} and Stock UOM must be "
+               f"{item_uom['stock_uom']}", po)
+    if flt(row.conversion_factor) <= 0:
+        _block(cycle, "Purchase Order Mismatch",
+               "Purchase Order conversion factor must be greater than zero", po)
+    if has_uom_snapshot and abs(flt(row.conversion_factor) - expected_factor) > 0.000001:
+        _block(cycle, "Purchase Order Mismatch",
+               f"Purchase Order conversion factor {row.conversion_factor} does not match "
+               f"the released Kanban factor {expected_factor}", po)
+    outstanding_purchase = max(flt(row.qty) - flt(row.received_qty), 0)
+    ordered_stock = flt(row.stock_qty) or flt(row.qty) * flt(row.conversion_factor)
+    received_stock = flt(row.received_qty) * flt(row.conversion_factor)
+    outstanding_stock = max(ordered_stock - received_stock, 0)
+    if outstanding_purchase <= 0:
         _block(cycle, "Purchase Order Mismatch", "Selected Purchase Order row is fully received", po)
     po.db_set({"cfg_kanban_controlled": 1, "cfg_kanban_cycle": cycle.name,
                "cfg_kanban_signal": cycle.signal}, update_modified=False)
     cycle.db_set({
         "purchase_order": po.name, "purchase_order_item": row.name,
-        "supplier": po.supplier, "ordered_qty": row.qty,
-        "received_qty": row.received_qty, "outstanding_qty": outstanding,
+        "supplier": po.supplier,
+        "purchase_uom": row.uom,
+        "purchase_uom_conversion_factor": row.conversion_factor,
+        "requested_purchase_qty": cycle.get("requested_purchase_qty") or row.qty,
+        "requested_stock_qty": cycle.get("requested_stock_qty") or ordered_stock,
+        "ordered_purchase_qty": row.qty,
+        "ordered_stock_qty": ordered_stock,
+        "received_purchase_qty": row.received_qty,
+        "received_stock_qty": received_stock,
+        "outstanding_purchase_qty": outstanding_purchase,
+        "outstanding_stock_qty": outstanding_stock,
+        "ordered_qty": row.qty, "received_qty": row.received_qty,
+        "outstanding_qty": outstanding_purchase,
         "purchase_status": "Ordered",
     })
     set_cycle_state(cycle, "Ordered", event_type="Purchase Order Linked",
@@ -94,10 +140,20 @@ def receipt_context(cycle_name):
     if not row:
         frappe.throw("The selected Purchase Order item row no longer exists")
     outstanding = max(flt(row.qty) - flt(row.received_qty), 0)
+    factor = flt(row.conversion_factor or 1)
+    ordered_stock = flt(row.stock_qty) or flt(row.qty) * factor
+    received_stock = flt(row.received_qty) * factor
     master = frappe.get_doc("CFG Kanban Master", cycle.kanban_master)
     return {"cycle": cycle.name, "purchase_order": po.name, "supplier": po.supplier,
-            "item_code": row.item_code, "ordered_qty": flt(row.qty),
+            "item_code": row.item_code,
+            "purchase_uom": row.uom,
+            "stock_uom": row.stock_uom,
+            "conversion_factor": factor,
+            "ordered_qty": flt(row.qty),
             "received_qty": flt(row.received_qty), "outstanding_qty": outstanding,
+            "ordered_stock_qty": ordered_stock,
+            "received_stock_qty": received_stock,
+            "outstanding_stock_qty": max(ordered_stock - received_stock, 0),
             "warehouse": master.destination_warehouse,
             "rejected_warehouse": master.rejected_warehouse,
             "receipt_posting_mode": master.receipt_posting_mode,
