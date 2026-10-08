@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import flt, now_datetime
+from frappe.utils import cint, flt, now_datetime
 
 from cfg_kanban.integrations.erp_gateway import (
     build_intercompany_delivery_note,
@@ -25,6 +25,7 @@ MANIFEST_LIST_FIELDS = [
     "modified",
 ]
 INTERNAL_TRANSFER_RESPONSIBILITY = "Internal Warehouse Transfer"
+SUPPLIER_RECEIVING_RESPONSIBILITY = "Supplier Receiving"
 
 
 @frappe.whitelist()
@@ -129,6 +130,121 @@ def get_logistics_console(operator_session_token):
 
 
 @frappe.whitelist()
+def get_supplier_receiving_context(scan_value, operator_session_token):
+    """Resolve either a warehouse receiving point or its exact Purchase Kanban card."""
+    profile, _session = require_operator(operator_session_token)
+    _require_supplier_receiving(profile)
+    card_name = (frappe.db.get_value("CFG Kanban Card", {"qr_code": scan_value}, "name")
+                 or frappe.db.get_value("CFG Kanban Card", {"card_number": scan_value}, "name"))
+    if not card_name:
+        frappe.throw("Scan a Supplier Receiving Location Card or Purchase Kanban card")
+    card = frappe.get_doc("CFG Kanban Card", card_name)
+    if card.card_type == "Location Card":
+        if card.get("location_purpose") != "Supplier Receiving" or not card.current_warehouse:
+            frappe.throw("This Location Card is not configured as a Supplier Receiving point")
+        return {
+            "mode": "warehouse", "location_card": card.name,
+            "warehouse": card.current_warehouse,
+            "company": frappe.db.get_value("Warehouse", card.current_warehouse, "company"),
+            "pending_orders": _pending_supplier_receipts(card.current_warehouse),
+        }
+    if not card.kanban_master:
+        frappe.throw("This card is not linked to a Purchase Replenishment Master")
+    master = frappe.get_doc("CFG Kanban Master", card.kanban_master)
+    if master.control_type != "Purchase Replenishment":
+        frappe.throw("Only Purchase Replenishment cards can open supplier receiving")
+    if not card.active_cycle:
+        frappe.throw("This Purchase Kanban card has no active receiving Cycle")
+    rows = _pending_supplier_receipts(master.destination_warehouse, card.active_cycle)
+    if not rows:
+        frappe.throw("This card has no submitted Purchase Order quantity awaiting receipt")
+    return {
+        "mode": "purchase_card", "purchase_card": card.name,
+        "warehouse": master.destination_warehouse, "company": master.company,
+        "pending_orders": rows, "selected_order": rows[0],
+    }
+
+
+@frappe.whitelist()
+def receive_supplier_purchase(cycle_name, delivered_qty, accepted_qty, rejected_qty=0,
+                              supplier_delivery_note=None, event_token=None,
+                              operator_session_token=None, cardless_override=0,
+                              override_reason=None):
+    profile, session = require_operator(operator_session_token, "start")
+    _require_supplier_receiving(profile)
+    if cint(cardless_override):
+        if not cint(profile.get("can_override")):
+            frappe.throw("Supervisor Override permission is required for cardless receiving")
+        if not (override_reason or "").strip():
+            frappe.throw("Cardless receiving requires an override reason")
+    from cfg_kanban.services.purchase_replenishment import create_purchase_receipt_command
+    context = _supplier_receipt_row(cycle_name)
+    result = create_purchase_receipt_command(
+        cycle_name, delivered_qty, accepted_qty, rejected_qty,
+        warehouse=context["warehouse"], rejected_warehouse=context.get("rejected_warehouse"),
+        supplier_delivery_note=supplier_delivery_note, event_token=event_token,
+    )
+    record("Supplier Receipt Confirmed at Logistics Panel", card=context.get("kanban_card"),
+           cycle=cycle_name, qty=accepted_qty, reference_doctype="Purchase Receipt",
+           reference_name=result["purchase_receipt"], operator=profile.employee,
+           operator_session=session.name, terminal_user=session.terminal_user,
+           notes=(f"Supplier Delivery Note: {supplier_delivery_note or '-'}; "
+                  f"Cardless override: {override_reason or 'No'}"))
+    result["receiving_context"] = context
+    return result
+
+
+def _pending_supplier_receipts(warehouse, cycle_name=None):
+    filters = {
+        "destination_warehouse": warehouse,
+        "purchase_status": ["in", ("Ordered", "Partially Received")],
+        "blocked": 0,
+    }
+    if cycle_name:
+        filters["name"] = cycle_name
+    cycles = frappe.get_all(
+        "CFG Kanban Cycle", filters=filters,
+        fields=["name", "kanban_card", "kanban_master", "item_code", "priority",
+                "purchase_order", "purchase_order_item", "purchase_status"],
+        order_by="creation asc", limit_page_length=200,
+    )
+    rows = []
+    for cycle in cycles:
+        try:
+            row = _supplier_receipt_row(cycle.name)
+        except Exception:
+            continue
+        if row["outstanding_qty"] > 0:
+            rows.append(row)
+    return rows
+
+
+def _supplier_receipt_row(cycle_name):
+    from cfg_kanban.services.purchase_replenishment import receipt_context
+    cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
+    context = receipt_context(cycle.name)
+    po = frappe.get_doc("Purchase Order", context["purchase_order"])
+    if po.docstatus != 1 or po.status in ("Closed", "Cancelled"):
+        frappe.throw("Supplier receiving requires a submitted, open Purchase Order")
+    card_number = (frappe.db.get_value("CFG Kanban Card", cycle.kanban_card, "card_number")
+                   if cycle.kanban_card else None)
+    return {
+        **context,
+        "kanban_card": cycle.kanban_card,
+        "card_number": card_number,
+        "priority": cycle.priority,
+        "purchase_status": cycle.purchase_status,
+        "schedule_date": po.schedule_date,
+    }
+
+
+def _require_supplier_receiving(profile):
+    if _can_view_all(profile) or SUPPLIER_RECEIVING_RESPONSIBILITY in _responsibilities(profile):
+        return
+    frappe.throw("Supplier Receiving responsibility is required", frappe.PermissionError)
+
+
+@frappe.whitelist()
 def create_manifest(logistics_route, event_token, operator_session_token):
     profile, session = require_operator(operator_session_token, "start")
     route = frappe.get_doc("CFG Kanban Logistics Route", logistics_route)
@@ -192,6 +308,13 @@ def get_manifest(manifest_name, operator_session_token):
 def lookup_logistics_tag(scan_value, operator_session_token):
     """Read-only tag lookup. This endpoint never changes a Manifest or balance."""
     profile, _session = require_operator(operator_session_token)
+    card_name = (frappe.db.get_value("CFG Kanban Card", {"qr_code": scan_value}, "name")
+                 or frappe.db.get_value("CFG Kanban Card", {"card_number": scan_value}, "name"))
+    if card_name:
+        return {"identity": {"identity_type": "Kanban Card", "name": card_name},
+                "supplier_receiving": get_supplier_receiving_context(
+                    scan_value, operator_session_token
+                )}
     identity = resolve_logistics_scan(scan_value)
     if not identity:
         frappe.throw("The scanned logistics identity was not found")

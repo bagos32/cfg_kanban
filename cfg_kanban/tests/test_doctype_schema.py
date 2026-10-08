@@ -376,6 +376,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Purchase Replenishment", master["control_type"]["options"].splitlines())
         self.assertTrue({"default_supplier", "supplier_pack_size", "minimum_order_qty",
                          "purchase_order_multiple", "auto_submit_material_request",
+                         "purchase_execution_mode", "master_auto_submit_po_value_limit",
                          "receipt_posting_mode", "allow_partial_receipt",
                          "over_receipt_tolerance_pct", "rejected_warehouse", "purchase_uom",
                          "purchase_uom_conversion_factor", "purchase_replenishment_qty"}
@@ -392,7 +393,13 @@ class TestDocTypeSchema(TestCase):
         commands = next(row for row in schemas["CFG ERP Command"]["fields"]
                         if row["fieldname"] == "command_type")["options"].splitlines()
         self.assertIn("Create Material Request", commands)
+        self.assertIn("Create Purchase Order", commands)
         self.assertIn("Create Purchase Receipt", commands)
+
+        settings = {row["fieldname"]: row for row in
+                    schemas["CFG Kanban Settings"]["fields"]}
+        self.assertTrue({"maximum_purchase_automation", "maximum_auto_submit_po_value"}
+                        .issubset(settings))
 
     def test_logistics_foundation_schema_is_additive(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}
@@ -1048,7 +1055,8 @@ class TestDocTypeSchema(TestCase):
         card = {row["fieldname"]: row for row in schemas["CFG Kanban Card"]["fields"]}
         options = card["card_type"]["options"].splitlines()
         self.assertTrue({"Asset Card", "Location Card", "Task Card"}.issubset(options))
-        self.assertTrue({"card_behavior", "asset", "location_reference", "task_schedule"}
+        self.assertTrue({"card_behavior", "asset", "location_reference", "location_purpose",
+                         "task_schedule"}
                         .issubset(card))
         self.assertFalse(card["kanban_master"].get("reqd", 0))
 

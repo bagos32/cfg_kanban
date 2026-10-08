@@ -171,6 +171,58 @@ def create_purchase_receipt(command, payload):
     return receipt
 
 
+@handler("Create Purchase Order")
+def create_purchase_order(command, payload):
+    from erpnext.stock.doctype.material_request.material_request import make_purchase_order
+
+    cycle = frappe.get_doc("CFG Kanban Cycle", command.kanban_cycle)
+    existing = cycle.get("purchase_order") or frappe.db.get_value(
+        "Purchase Order", {"cfg_kanban_cycle": cycle.name, "docstatus": ["<", 2]}, "name"
+    )
+    if existing:
+        purchase_order = frappe.get_doc("Purchase Order", existing)
+    else:
+        request = frappe.get_doc("Material Request", payload["material_request"])
+        if request.docstatus != 1:
+            frappe.throw("Material Request must be submitted before creating its Purchase Order")
+        purchase_order = make_purchase_order(request.name)
+        purchase_order.supplier = payload["supplier"]
+        purchase_order.cfg_kanban_controlled = 1
+        purchase_order.cfg_kanban_cycle = cycle.name
+        purchase_order.cfg_kanban_signal = command.source_signal
+        purchase_order.run_method("set_missing_values")
+        purchase_order.insert(ignore_permissions=True)
+        cycle.db_set({"purchase_order": purchase_order.name,
+                      "purchase_status": "Purchase Order Draft"})
+        set_cycle_state(cycle, "Purchase Order Draft", event_type="Draft Purchase Order Created",
+                        reference_doctype="Purchase Order", reference_name=purchase_order.name)
+
+    requested_submit = payload.get("mode") == "Create and Submit Purchase Order"
+    limits = [flt(payload.get("global_value_limit")), flt(payload.get("master_value_limit"))]
+    positive_limits = [value for value in limits if value > 0]
+    effective_limit = min(positive_limits) if positive_limits else 0
+    can_submit = requested_submit and (
+        not effective_limit or flt(purchase_order.grand_total) <= effective_limit
+    )
+    attention = None
+    if requested_submit and not can_submit:
+        attention = (f"Purchase Order total {purchase_order.grand_total} exceeds the effective "
+                     f"auto-submit limit {effective_limit}")
+        cycle.db_set("purchase_status", "Purchase Attention Required")
+        set_cycle_state(cycle, "Purchase Attention Required",
+                        event_type="Purchase Order Review Required",
+                        reference_doctype="Purchase Order", reference_name=purchase_order.name)
+    if can_submit and purchase_order.docstatus == 0:
+        purchase_order.submit()
+        purchase_order.reload()
+    purchase_order._cfg_command_result = {
+        "doctype": purchase_order.doctype, "name": purchase_order.name,
+        "docstatus": purchase_order.docstatus, "requested_mode": payload.get("mode"),
+        "effective_value_limit": effective_limit, "attention": attention,
+    }
+    return purchase_order
+
+
 @handler("Create Intercompany Delivery Note")
 def create_intercompany_delivery_note(command, payload):
     manifest = frappe.get_doc("CFG Kanban Movement Manifest", command.movement_manifest)

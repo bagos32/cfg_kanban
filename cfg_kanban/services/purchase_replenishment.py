@@ -11,6 +11,11 @@ from cfg_kanban.services.uom_conversion import get_item_purchase_uom
 
 PURCHASE_ROLES = ("Purchase User", "Purchase Manager", "Stock User", "Stock Manager",
                   "Manufacturing Manager", "System Manager")
+PURCHASE_EXECUTION_RANK = {
+    "Material Request Only": 0,
+    "Create Draft Purchase Order": 1,
+    "Create and Submit Purchase Order": 2,
+}
 
 
 def purchase_request_qty(nominal_qty, minimum_order_qty=0, order_multiple=0, pack_size=0):
@@ -58,6 +63,86 @@ def create_material_request_command(signal_name):
                             event_type="Purchase Replenishment Requested",
                             cycle=signal.kanban_cycle)
     return command
+
+
+def effective_purchase_execution_mode(master):
+    """Apply the global safety ceiling without weakening a stricter Master."""
+    requested = master.get("purchase_execution_mode") or "Material Request Only"
+    ceiling = (frappe.db.get_single_value(
+        "CFG Kanban Settings", "maximum_purchase_automation"
+    ) or "Material Request Only")
+    rank = min(PURCHASE_EXECUTION_RANK.get(requested, 0),
+               PURCHASE_EXECUTION_RANK.get(ceiling, 0))
+    return next(mode for mode, value in PURCHASE_EXECUTION_RANK.items() if value == rank)
+
+
+def create_purchase_order_command(cycle_name):
+    cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
+    master = frappe.get_doc("CFG Kanban Master", cycle.kanban_master)
+    mode = effective_purchase_execution_mode(master)
+    if mode == "Material Request Only":
+        return None
+    if not cycle.material_request:
+        frappe.throw("A Kanban Material Request must exist before Purchase Order creation")
+    request = frappe.get_doc("Material Request", cycle.material_request)
+    if request.docstatus != 1:
+        frappe.throw("Submit the Kanban Material Request before Purchase Order creation")
+    existing = cycle.get("purchase_order") or frappe.db.get_value(
+        "Purchase Order", {"cfg_kanban_cycle": cycle.name, "docstatus": ["<", 2]}, "name"
+    )
+    if existing:
+        po = frappe.get_doc("Purchase Order", existing)
+        if po.docstatus == 1:
+            return None
+    key = canonical_key("command", cycle.name, "Create Purchase Order")
+    command, _created = insert_once(frappe.get_doc({
+        "doctype": "CFG ERP Command", "command_type": "Create Purchase Order",
+        "source_signal": cycle.signal, "kanban_cycle": cycle.name,
+        "status": "Pending", "target_doctype": "Purchase Order",
+        "request_payload": frappe.as_json({
+            "material_request": request.name,
+            "supplier": master.default_supplier,
+            "mode": mode,
+            "master_value_limit": flt(master.get("master_auto_submit_po_value_limit")),
+            "global_value_limit": flt(frappe.db.get_single_value(
+                "CFG Kanban Settings", "maximum_auto_submit_po_value"
+            )),
+        }),
+        "requested_on": now_datetime(), "created_by_system": 1,
+    }), key)
+    if (existing and mode == "Create and Submit Purchase Order"
+            and command.status == "Completed"):
+        command.db_set({"status": "Pending", "target_document": None,
+                        "completed_on": None, "last_error": None})
+        command.reload()
+    return command
+
+
+def continue_purchase_execution(cycle_name):
+    """Continue MR → PO without rolling back a valid MR when PO prerequisites fail."""
+    cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
+    master = frappe.get_doc("CFG Kanban Master", cycle.kanban_master)
+    mode = effective_purchase_execution_mode(master)
+    if mode == "Material Request Only":
+        return {"mode": mode, "status": "Material Requested"}
+    try:
+        command = create_purchase_order_command(cycle.name)
+        if not command:
+            return {"mode": mode, "purchase_order": cycle.get("purchase_order"),
+                    "status": cycle.get("purchase_status")}
+        po = execute_command(command.name)
+        return {"mode": mode, "command": command.name, "purchase_order": po.name,
+                "docstatus": po.docstatus,
+                "status": "Ordered" if po.docstatus == 1 else "Purchase Order Draft"}
+    except Exception as exc:
+        cycle.reload()
+        cycle.db_set({"purchase_status": "Purchase Attention Required"})
+        set_cycle_state(cycle, "Purchase Attention Required",
+                        event_type="Purchase Automation Attention Required")
+        record("Purchase Automation Attention Required", card=cycle.kanban_card,
+               cycle=cycle.name, notes=frappe.get_traceback())
+        return {"mode": mode, "status": "Purchase Attention Required",
+                "error": str(exc)}
 
 
 def link_purchase_order(cycle_name, purchase_order_name, reason):
@@ -164,6 +249,14 @@ def create_purchase_receipt_command(cycle_name, delivered_qty, accepted_qty, rej
                                     warehouse=None, rejected_warehouse=None,
                                     supplier_delivery_note=None, event_token=None):
     cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
+    existing_draft = frappe.db.get_value(
+        "Purchase Receipt", {"cfg_kanban_cycle": cycle.name, "docstatus": 0}, "name"
+    )
+    if existing_draft:
+        frappe.throw(
+            f"Draft Purchase Receipt {existing_draft} already exists for this Cycle. "
+            "Complete or cancel it before starting another receipt."
+        )
     context = receipt_context(cycle.name)
     delivered_qty, accepted_qty, rejected_qty = map(flt, (delivered_qty, accepted_qty, rejected_qty))
     if delivered_qty <= 0 or accepted_qty < 0 or rejected_qty < 0:

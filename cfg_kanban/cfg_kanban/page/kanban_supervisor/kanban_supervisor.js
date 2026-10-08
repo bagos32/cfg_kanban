@@ -72,7 +72,8 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 		const purchase = row.signal_type === "Purchase Replenishment";
 		const purchase_detail = purchase && row.purchase_uom
 			? `<div><small>${__("Planned supplier order")}</small><strong>${number(row.purchase_replenishment_qty)} ${e(row.purchase_uom)}</strong>
-			<small>1 ${e(row.purchase_uom)} = ${number(row.purchase_uom_conversion_factor || 1)} ${e(row.stock_uom || "")}</small></div>` : "";
+			<small>1 ${e(row.purchase_uom)} = ${number(row.purchase_uom_conversion_factor || 1)} ${e(row.stock_uom || "")}</small>
+			<small>${e(row.purchase_execution_mode || "Material Request Only")}</small></div>` : "";
 		const error = row.error_message ? `<div class="alert alert-danger cfg-inline-alert">${e(row.error_message)}</div>` : "";
 		const blocked = row.cycle_blocked ? `<span class="indicator-pill red">${__("Cycle blocked")}</span>` : "";
 		const can_act = state.data.permissions?.can_approve_signals;

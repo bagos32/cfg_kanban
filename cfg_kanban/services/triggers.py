@@ -6,7 +6,10 @@ from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key, insert_once
 from cfg_kanban.services.state_machine import transition_card
 from cfg_kanban.services.process_tasks import ensure_tasks, evaluate_gate
-from cfg_kanban.services.purchase_replenishment import create_material_request_command
+from cfg_kanban.services.purchase_replenishment import (
+    continue_purchase_execution,
+    create_material_request_command,
+)
 
 
 def consume_card(card_name, *, device_id=None, event_token=None, trusted_operator=False):
@@ -52,6 +55,8 @@ def consume_card(card_name, *, device_id=None, event_token=None, trusted_operato
                    if master.control_type == "Purchase Replenishment"
                    else create_work_order_command(signal.name))
         execute_command(command.name)
+        if master.control_type == "Purchase Replenishment":
+            continue_purchase_execution(cycle.name)
     return {"duplicate": not created, "cycle": cycle.name, "signal": signal.name}
 
 

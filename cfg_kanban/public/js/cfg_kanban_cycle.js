@@ -12,6 +12,18 @@ frappe.ui.form.on("CFG Kanban Cycle", {
 		if (frm.doc.material_request) {
 			frm.add_custom_button(__("Open Material Request"), () =>
 				frappe.set_route("Form", "Material Request", frm.doc.material_request), __("View"));
+			if (["Purchase Order Draft", "Purchase Attention Required"].includes(frm.doc.purchase_status) &&
+				["Manufacturing Manager", "Purchase Manager", "System Manager"].some((role) => frappe.user_roles.includes(role))) {
+				frm.add_custom_button(__("Retry Purchase Automation"), async () => {
+					const response = await frappe.call({ method: "cfg_kanban.api.purchase.retry_purchase_execution",
+						args: { cycle_name: frm.doc.name }, freeze: true,
+						freeze_message: __("Retrying controlled Purchase Order automation...") });
+					const result = response.message || {};
+					frappe.show_alert({ message: __("Purchase result: {0}", [result.status || result.purchase_order]),
+						indicator: result.status === "Purchase Attention Required" ? "orange" : "green" }, 8);
+					frm.reload_doc();
+				}, __("Purchase Replenishment"));
+			}
 		}
 		if (frm.doc.purchase_order) {
 			frm.add_custom_button(__("Open Purchase Order"), () =>

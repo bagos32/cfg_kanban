@@ -29,6 +29,9 @@
   "enable_administrator_operator_bypass",
   "command_retry_limit",
   "exception_email_role",
+  "purchase_automation_section",
+  "maximum_purchase_automation",
+  "maximum_auto_submit_po_value",
   "customer_return_section",
   "enable_customer_returns",
   "private_media_section",
@@ -147,6 +150,27 @@
    "label": "Exception Email Role",
    "fieldtype": "Link",
    "options": "Role"
+  },
+  {
+   "fieldname": "purchase_automation_section",
+   "label": "Purchase Automation Safety",
+   "fieldtype": "Section Break",
+   "description": "Global ceiling for buyer-owned Kanban purchase automation. Individual Masters may be more restrictive but cannot exceed this level."
+  },
+  {
+   "fieldname": "maximum_purchase_automation",
+   "label": "Maximum Purchase Automation",
+   "fieldtype": "Select",
+   "options": "Material Request Only\nCreate Draft Purchase Order\nCreate and Submit Purchase Order",
+   "default": "Material Request Only",
+   "reqd": 1
+  },
+  {
+   "fieldname": "maximum_auto_submit_po_value",
+   "label": "Maximum Auto-submit PO Value",
+   "fieldtype": "Currency",
+   "default": "0",
+   "description": "Optional global monetary ceiling. Zero means no value ceiling after Submitted PO automation is explicitly enabled. A PO above a positive limit remains Draft for Purchase review."
   },
   {
    "fieldname": "customer_return_section",

@@ -1825,17 +1825,24 @@ On **CFG Kanban Master**, also configure **Default Supplier** (`default_supplier
 Warehouse** (`destination_warehouse`), optional **Supplier Pack Multiple (Purchase UOM)**
 (`supplier_pack_size`), **Minimum Order Qty (Purchase UOM)** (`minimum_order_qty`), **Purchase Order
 Multiple (Purchase UOM)** (`purchase_order_multiple`), **Submit Material Request on Approval**
-(`auto_submit_material_request`), **Receipt Posting Mode** (`receipt_posting_mode`), **Allow Partial
+(`auto_submit_material_request`), **Purchase Execution Mode** (`purchase_execution_mode`), optional
+**Master Auto-submit PO Value Limit** (`master_auto_submit_po_value_limit`), **Receipt Posting Mode**
+(`receipt_posting_mode`), **Allow Partial
 Receipt** (`allow_partial_receipt`), **Kanban Over-receipt Tolerance %**
 (`over_receipt_tolerance_pct`), and optional **Rejected Warehouse** (`rejected_warehouse`).
 
 The operational sequence is:
 
 1. Consume the reusable Card. The app creates a **Purchase Replenishment** Signal and Cycle.
-2. For Approval mode, open the Signal and select **Approve and Create Material Request**. Automatic
+2. For Approval mode, open the Signal and select **Approve Purchase Replenishment**. Automatic
    mode performs the same command immediately. Signal Only does not create an ERP document.
-3. ERPNext Material Request is the first purchasing record. Purchasing creates and submits the
-   Purchase Order from it using the normal ERPNext buying workflow.
+3. ERPNext Material Request is always the first purchasing record. **Material Request Only** stops
+   here for manual buying; **Create Draft Purchase Order** maps the submitted MR and sets the Master
+   supplier; **Create and Submit Purchase Order** also submits the PO when ERP prerequisites and the
+   configured monetary ceiling permit it. **CFG Kanban Settings → Maximum Purchase Automation** is
+   the global safety ceiling. A positive **Maximum Auto-submit PO Value** and the optional Master
+   limit cause higher-value POs to remain Draft for review; zero means no monetary ceiling after
+   Submitted PO automation is explicitly enabled.
 4. A Purchase Order made from the linked Material Request is associated automatically when the
    link is unambiguous. Otherwise open the Cycle and use **Purchase Replenishment → Select Purchase
    Order**. The submitted PO must match Company, Supplier, and Item, and the reason is audited.
@@ -1852,6 +1859,23 @@ The operational sequence is:
 7. Only a submitted Purchase Receipt updates ERPNext stock. Partial receipt leaves the Cycle and
    Card active as **Partially Received**. Full receipt completes the Cycle and recycles the Card to
    **Available**. Purchase Invoice and payment remain the later ERPNext accounts workflow.
+
+### Tablet receiving at the warehouse
+
+Create a **CFG Kanban Card** with **Card Type** (`card_type`) = **Location Card**, **Location
+Purpose** (`location_purpose`) = **Supplier Receiving**, and set **Current Warehouse**
+(`current_warehouse`) to the exact ERPNext receiving Warehouse. Use **Print Kanban → Print Supplier
+Receiving Location Card**. Assign **Supplier Receiving** under the warehouse employee's **CFG Kanban
+Operator Profile → Responsibilities**.
+
+At the Logistics Panel, identify the operator and either scan the original Purchase Kanban Card to
+open its exact submitted PO item, or scan the permanent receiving Location Card to see all submitted
+PO quantities outstanding for that Warehouse. After a warehouse scan, scan the original Purchase
+Kanban Card to select the exact order. Only an operator with Override permission receives the
+**Supervisor Select** fallback. Enter supplier Delivery Note and delivered, accepted and rejected
+quantities in Purchase UOM. A submitted simple-item receipt immediately offers onsite preprinted-tag
+activation. Controlled Batch, Serial, Quality Inspection, Draft or approval receipts must first be
+completed and submitted in ERPNext; Kanban does not claim stock or release physical tags early.
 
 Material Request, Purchase Order, and Purchase Receipt receive app-owned read-only trace fields
 **Kanban Controlled**, **Kanban Cycle**, and **Kanban Signal**. Supplier/company/item mismatch,

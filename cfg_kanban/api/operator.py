@@ -11,7 +11,10 @@ from cfg_kanban.services.progress import report
 from cfg_kanban.services.printing import get_qr_svg
 from cfg_kanban.services.operation_summary import recalculate
 from cfg_kanban.services.triggers import create_work_order_command
-from cfg_kanban.services.purchase_replenishment import create_material_request_command
+from cfg_kanban.services.purchase_replenishment import (
+    continue_purchase_execution,
+    create_material_request_command,
+)
 from cfg_kanban.services.runtime_selector import allocate as allocate_runtime_card
 from cfg_kanban.services.runtime_selector import preview as preview_runtime_card
 from cfg_kanban.services.signal_cancellation import cancel_and_rollback
@@ -447,8 +450,11 @@ def approve_signal(signal_name):
                if master.control_type == "Purchase Replenishment"
                else create_work_order_command(signal.name))
     result = execute_command(command.name)
+    purchase_execution = (continue_purchase_execution(signal.kanban_cycle)
+                          if master.control_type == "Purchase Replenishment" else None)
     return {"signal": signal.name, "command": command.name,
-            "erp_document": result.name, "duplicate": False}
+            "erp_document": result.name, "purchase_execution": purchase_execution,
+            "duplicate": False}
 
 
 @frappe.whitelist()

@@ -68,6 +68,7 @@ def _signal_actions(limit):
             "name", "kanban_name", "company", "control_type", "bom", "default_supplier",
             "source_warehouse", "destination_warehouse", "purchase_uom",
             "purchase_uom_conversion_factor", "purchase_replenishment_qty",
+            "purchase_execution_mode",
         ], limit_page_length=limit,
     )}
     # A Signal has no direct Company field, therefore filter it through the
@@ -105,13 +106,15 @@ def _signal_actions(limit):
             "purchase_uom": master.get("purchase_uom"),
             "purchase_uom_conversion_factor": master.get("purchase_uom_conversion_factor"),
             "purchase_replenishment_qty": master.get("purchase_replenishment_qty"),
+            "purchase_execution_mode": master.get("purchase_execution_mode") or "Material Request Only",
             "cycle_status": cycle.get("status"),
             "cycle_blocked": cycle.get("blocked"),
             "work_order": cycle.get("work_order"),
             "material_request": cycle.get("material_request"),
             "purchase_order": cycle.get("purchase_order"),
             "approval_action": (
-                "Create Material Request" if row.signal_type == "Purchase Replenishment"
+                (master.get("purchase_execution_mode") or "Material Request Only")
+                if row.signal_type == "Purchase Replenishment"
                 else "Create Work Order"
             ),
         })

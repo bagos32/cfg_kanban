@@ -3,15 +3,15 @@ frappe.ui.form.on("CFG Kanban Signal", {
 		if (frm.is_new()) return;
 		if (["Waiting Approval", "Validated", "Failed"].includes(frm.doc.status)) {
 			const purchase = frm.doc.signal_type === "Purchase Replenishment";
-			const label = purchase ? __("Approve and Create Material Request") : __("Approve and Create Work Order");
+			const label = purchase ? __("Approve Purchase Replenishment") : __("Approve and Create Work Order");
 			frm.add_custom_button(label, () => {
 			frappe.confirm(purchase
-				? __("Approve this purchase signal and create its ERPNext Material Request?")
+				? __("Approve this purchase signal? The Kanban Master controls whether processing stops at Material Request, Draft Purchase Order, or Submitted Purchase Order.")
 				: __("Approve this signal and send its Work Order command to ERPNext?"), async () => {
 				await frappe.call({ method: "cfg_kanban.api.operator.approve_signal",
 					args: { signal_name: frm.doc.name }, freeze: true,
-					freeze_message: purchase ? __("Creating Material Request...") : __("Creating Work Order...") });
-				frappe.show_alert({ message: purchase ? __("Material Request created") : __("Work Order created"), indicator: "green" });
+					freeze_message: purchase ? __("Running controlled purchase execution...") : __("Creating Work Order...") });
+			frappe.show_alert({ message: purchase ? __("Purchase replenishment released") : __("Work Order created"), indicator: "green" });
 				frm.reload_doc();
 			});
 			}).addClass("btn-primary");

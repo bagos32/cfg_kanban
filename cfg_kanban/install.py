@@ -27,6 +27,9 @@ def _ensure_responsibilities():
     responsibilities = {
         "Logistics Dispatch": "Confirm approved stock dispatches.",
         "Logistics Receipt": "Confirm approved stock receipts.",
+        "Supplier Receiving": (
+            "Receive submitted purchase orders at an authorized warehouse location."
+        ),
         "Vehicle Loading": "Load and unload company-specific vehicle warehouses.",
         "Internal Warehouse Transfer": (
             "Scan tagged stock against a same-company ERPNext Material Transfer."

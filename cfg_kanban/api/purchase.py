@@ -1,8 +1,8 @@
 import frappe
 
 from cfg_kanban.services.purchase_replenishment import (
-    PURCHASE_ROLES, create_purchase_receipt_command, link_purchase_order,
-    receipt_context,
+    PURCHASE_ROLES, continue_purchase_execution, create_purchase_receipt_command,
+    link_purchase_order, receipt_context,
 )
 
 
@@ -24,6 +24,12 @@ def select_purchase_order(cycle_name, purchase_order_name, reason):
     if not reason:
         frappe.throw("Selection reason is required for the audit trail")
     return link_purchase_order(cycle_name, purchase_order_name, reason)
+
+
+@frappe.whitelist()
+def retry_purchase_execution(cycle_name):
+    _require_purchase_role()
+    return continue_purchase_execution(cycle_name)
 
 
 @frappe.whitelist()

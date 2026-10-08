@@ -26,10 +26,11 @@ VOID_ROLES = ("Stock Manager", "Manufacturing Manager", "System Manager")
 
 
 @frappe.whitelist()
-def get_purchase_receipt_trace_plan(purchase_receipt):
-    frappe.only_for(ALLOWED_ROLES)
+def get_purchase_receipt_trace_plan(purchase_receipt, operator_session_token=None):
+    _authorize_receiving(operator_session_token)
     receipt = frappe.get_doc("Purchase Receipt", purchase_receipt)
-    receipt.check_permission("read")
+    if not operator_session_token:
+        receipt.check_permission("read")
     if receipt.docstatus != 1:
         frappe.throw("Submit the Purchase Receipt before activating received-material tags")
     if receipt.get("is_return"):
@@ -102,8 +103,9 @@ def get_purchase_receipt_trace_plan(purchase_receipt):
 
 @frappe.whitelist()
 def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
-                                  handling_unit_type="Container", serial_numbers=None):
-    frappe.only_for(ALLOWED_ROLES)
+                                  handling_unit_type="Container", serial_numbers=None,
+                                  operator_session_token=None):
+    _authorize_receiving(operator_session_token)
     try:
         visible_code = normalize_physical_code(scan_value)
     except ValueError as exc:
@@ -117,7 +119,8 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
         purchase_receipt,
     )
     receipt = frappe.get_doc("Purchase Receipt", purchase_receipt)
-    receipt.check_permission("read")
+    if not operator_session_token:
+        receipt.check_permission("read")
     if receipt.docstatus != 1:
         frappe.throw("Only a submitted Purchase Receipt can activate received-material tags")
     if receipt.get("is_return"):
@@ -469,6 +472,23 @@ def _existing_activation_result(unit_name, receipt, row, visible_code, requested
         f"{unit.stock_uom}; no quantity changed"
     )
     return result
+
+
+def _authorize_receiving(operator_session_token=None):
+    if not operator_session_token:
+        frappe.only_for(ALLOWED_ROLES)
+        return
+    from cfg_kanban.api.logistics import (
+        SUPPLIER_RECEIVING_RESPONSIBILITY,
+        _can_view_all,
+        _responsibilities,
+    )
+    from cfg_kanban.services.operator_auth import require_operator
+    profile, _session = require_operator(operator_session_token)
+    if (_can_view_all(profile)
+            or SUPPLIER_RECEIVING_RESPONSIBILITY in _responsibilities(profile)):
+        return
+    frappe.throw("Supplier Receiving responsibility is required", frappe.PermissionError)
 
 
 def _row_stock_qty(row):

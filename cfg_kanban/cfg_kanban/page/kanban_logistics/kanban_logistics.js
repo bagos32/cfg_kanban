@@ -588,6 +588,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 
 	function render_lookup() {
 		if (!state.lookup) return $lookup.empty();
+		if (state.lookup.supplier_receiving) {
+			render_supplier_receiving(state.lookup.supplier_receiving);
+			return;
+		}
 		if (state.lookup.return_case) {
 			render_return_case(state.lookup.return_case);
 			return;
@@ -672,6 +676,106 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		$lookup.find(".manage-container").on("click", manage_container_dialog);
 		$lookup.find(".split-unused-tag").on("click", () => open_stock_retagging_dialog("split"));
 		$lookup.find(".transfer-active-tag").on("click", () => open_stock_retagging_dialog("transfer"));
+	}
+
+	function render_supplier_receiving(context) {
+		const e = frappe.utils.escape_html;
+		const direct = context.mode === "purchase_card";
+		const can_override = Boolean(state.operator?.permissions?.override);
+		const rows = (context.pending_orders || []).map((row) => `<div class="frappe-card cfg-logistics-list-row supplier-receipt-row">
+			<div><strong>${e(row.item_code)}</strong><small>${e(row.supplier)} · ${e(row.purchase_order)}</small>
+			<small>${__("Purchase Card")}: ${e(row.card_number || "-")} · ${e(row.priority || "Normal")}</small></div>
+			<div><strong>${format_number(row.outstanding_qty)} ${e(row.purchase_uom)} ${__("outstanding")}</strong>
+			<small>${format_number(row.outstanding_stock_qty)} ${e(row.stock_uom)} · ${e(row.purchase_status)}</small>
+			${direct || can_override ? `<button class="btn btn-primary receive-supplier" data-cycle="${e(row.cycle)}">${direct ? __("Receive This Order") : __("Supervisor Select")}</button>` : ""}</div>
+		</div>`).join("") || `<div class="alert alert-success">${__("No submitted Purchase Orders are awaiting receipt at this warehouse.")}</div>`;
+		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
+			<div class="cfg-logistics-tag-head"><div><small>${direct ? __("Purchase Kanban Receiving") : __("Warehouse Receiving Point")}</small>
+			<h3>${e(context.warehouse)}</h3><strong>${e(context.company || "-")}</strong></div>
+			<button class="btn btn-default close-lookup">${__("Close")}</button></div>
+			<div class="alert ${direct ? "alert-success" : "alert-info"} mt-3">${direct ?
+				__("The original Purchase Kanban card selected its exact submitted order.") :
+				__("Pending orders are filtered to this warehouse. Scan the original Purchase Kanban card to select the exact order.")}</div>
+			<div class="cfg-supplier-receipts">${rows}</div>
+		</div>`);
+		$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
+		$lookup.find(".receive-supplier").on("click", function () {
+			const row = (context.pending_orders || []).find((value) => value.cycle === $(this).data("cycle"));
+			if (row) supplier_receipt_dialog(row, !direct);
+		});
+	}
+
+	function supplier_receipt_dialog(row, override) {
+		const e = frappe.utils.escape_html;
+		const dialog = new frappe.ui.Dialog({
+			title: __("Receive Supplier Delivery"), size: "large", fields: [
+				{ fieldname: "summary", fieldtype: "HTML", options: `<div class="alert alert-info">
+					<strong>${e(row.item_code)}</strong> · ${e(row.purchase_order)} · ${e(row.supplier)}<br>
+					${__("Outstanding")}: ${format_number(row.outstanding_qty)} ${e(row.purchase_uom)}
+					(${format_number(row.outstanding_stock_qty)} ${e(row.stock_uom)})<br>
+					${__("Receiving Warehouse")}: ${e(row.warehouse)}${override ? `<br><strong>${__("Supervisor cardless selection")}</strong>` : ""}
+				</div>` },
+				{ fieldname: "supplier_delivery_note", label: __("Supplier Delivery Note"), fieldtype: "Data" },
+				{ fieldname: "delivered_qty", label: __("Delivered Qty ({0})", [row.purchase_uom]), fieldtype: "Float", reqd: 1, default: row.outstanding_qty },
+				{ fieldname: "accepted_qty", label: __("Accepted Qty ({0})", [row.purchase_uom]), fieldtype: "Float", reqd: 1, default: row.outstanding_qty },
+				{ fieldname: "rejected_qty", label: __("Rejected Qty ({0})", [row.purchase_uom]), fieldtype: "Float", default: 0 },
+				...(override ? [{ fieldname: "override_reason", label: __("Why is the original Purchase Kanban card unavailable?"), fieldtype: "Small Text", reqd: 1 }] : []),
+				{ fieldname: "confirmation", label: __("I checked the supplier, item, warehouse and physical quantities"), fieldtype: "Check", reqd: 1 },
+			],
+			primary_action_label: __("Confirm Supplier Receipt"),
+			primary_action: async (values) => {
+				const response = await frappe.call({
+					method: "cfg_kanban.api.logistics.receive_supplier_purchase",
+					args: { cycle_name: row.cycle, delivered_qty: values.delivered_qty,
+						accepted_qty: values.accepted_qty, rejected_qty: values.rejected_qty,
+						supplier_delivery_note: values.supplier_delivery_note,
+						cardless_override: override ? 1 : 0, override_reason: values.override_reason,
+						event_token: unique_token(), operator_session_token: state.token },
+					freeze: true, freeze_message: __("Creating controlled Purchase Receipt..."),
+				});
+				dialog.hide();
+				const result = response.message || {};
+				if (result.docstatus === 1) {
+					frappe.show_alert({ message: __("Purchase Receipt submitted"), indicator: "green" }, 8);
+					open_supplier_tagging(result.purchase_receipt);
+				} else {
+					frappe.msgprint({ title: __("ERP Completion Required"), indicator: "orange",
+						message: __("Draft Purchase Receipt {0} was created. Complete its Batch, Serial, Quality Inspection, or approval requirements before stock and physical tags are released.", [result.purchase_receipt]),
+						primary_action: { label: __("Open Purchase Receipt"), action: () => frappe.set_route("Form", "Purchase Receipt", result.purchase_receipt) } });
+				}
+				state.lookup = null; render_lookup(); focus_scanner();
+			},
+		});
+		dialog.show();
+	}
+
+	async function open_supplier_tagging(purchase_receipt) {
+		const response = await frappe.call({
+			method: "cfg_kanban.api.receiving.get_purchase_receipt_trace_plan",
+			args: { purchase_receipt, operator_session_token: state.token },
+		});
+		const plan = response.message || {}; const rows = (plan.rows || []).filter((row) => row.tagging_ready);
+		if (!rows.length) return frappe.msgprint({ title: __("Receipt Completed"), indicator: "green",
+			message: __("ERP stock is received. No receipt row is currently ready or required for physical tag activation.") });
+		const options = rows.map((row) => `${row.row_name} :: ${row.item_code} :: ${row.remaining_stock_qty} ${row.stock_uom}`);
+		const dialog = new frappe.ui.Dialog({ title: __("Activate Received Stock Tag"), fields: [
+			{ fieldname: "item_row", label: __("Receipt Item"), fieldtype: "Select", options: options.join("\n"), reqd: 1, default: options[0] },
+			{ fieldname: "qty", label: __("Quantity in Stock UOM"), fieldtype: "Float", reqd: 1, default: rows[0].remaining_stock_qty },
+			{ fieldname: "scan_value", label: __("Preprinted Main Tag"), fieldtype: "Data", reqd: 1 },
+			{ fieldname: "camera_tag", label: __("Scan Tag with Camera"), fieldtype: "Button",
+				click: () => camera_value((value) => dialog.set_value("scan_value", value)) },
+			{ fieldname: "handling_unit_type", label: __("Handling Unit Type"), fieldtype: "Select", options: "Pallet\nMesh\nTote\nContainer\nReusable Box\nOther", default: "Container", reqd: 1 },
+			{ fieldname: "confirmed", label: __("I checked the receipt row, tag and physical quantity"), fieldtype: "Check", reqd: 1 },
+		], primary_action_label: __("Activate Tag"), primary_action: async (values) => {
+			const item_row = String(values.item_row).split(" :: ")[0];
+			await frappe.call({ method: "cfg_kanban.api.receiving.activate_purchase_receipt_tag", args: {
+				purchase_receipt, item_row, scan_value: values.scan_value, qty: values.qty,
+				handling_unit_type: values.handling_unit_type, operator_session_token: state.token,
+			}, freeze: true, freeze_message: __("Activating received-material tag...") });
+			dialog.hide(); frappe.show_alert({ message: __("Received-material tag activated"), indicator: "green" }, 8);
+			open_supplier_tagging(purchase_receipt);
+		} });
+		dialog.show();
 	}
 
 	async function open_stock_retagging_dialog(mode) {

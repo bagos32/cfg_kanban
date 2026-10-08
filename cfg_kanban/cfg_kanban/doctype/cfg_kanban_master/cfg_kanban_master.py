@@ -15,10 +15,16 @@ class CFGKanbanMaster(Document):
         if self.control_type == "Purchase Replenishment":
             if not self.default_supplier or not self.destination_warehouse:
                 frappe.throw("Default Supplier and Destination Warehouse are required for Purchase Replenishment")
+            if (self.purchase_execution_mode or "Material Request Only") != "Material Request Only" \
+                    and not cint(self.auto_submit_material_request):
+                frappe.throw(
+                    "Submit Material Request on Approval is required when Purchase Execution Mode creates a Purchase Order"
+                )
             for fieldname, label in (("supplier_pack_size", "Supplier Pack Size"),
                                      ("minimum_order_qty", "Minimum Order Qty"),
                                      ("purchase_order_multiple", "Purchase Order Multiple"),
-                                     ("over_receipt_tolerance_pct", "Over-receipt Tolerance")):
+                                     ("over_receipt_tolerance_pct", "Over-receipt Tolerance"),
+                                     ("master_auto_submit_po_value_limit", "Master Auto-submit PO Value Limit")):
                 # Frappe form payloads may carry Float/Percent values as strings
                 # (for example, Percent zero arrives as "0"). Always normalize
                 # before comparing so a valid purchase Master can be saved.

@@ -228,6 +228,7 @@ Create **CFG Kanban Master**:
 | **Minimum Order Qty (Purchase UOM)** (`minimum_order_qty`) | `5` |
 | **Purchase Order Multiple (Purchase UOM)** (`purchase_order_multiple`) | `1` |
 | **Submit Material Request on Approval** (`auto_submit_material_request`) | Checked |
+| **Purchase Execution Mode** (`purchase_execution_mode`) | `Material Request Only` for the baseline; repeat later with both PO automation modes |
 | **Receipt Posting Mode** (`receipt_posting_mode`) | `Create Draft Purchase Receipt` |
 | **Allow Partial Receipt** (`allow_partial_receipt`) | Checked |
 | **Kanban Over-receipt Tolerance %** (`over_receipt_tolerance_pct`) | `0` |
@@ -311,7 +312,7 @@ credential. Issuing a new credential invalidates the previous one.
 4. Confirm the displayed Item, quantity, Master, and Card type.
 5. Select **Consume / Trigger** once.
 6. Open **CFG Kanban → Kanban Signals** and locate the new Purchase Replenishment Signal.
-7. Select **Approve and Create Material Request**.
+7. Select **Approve Purchase Replenishment**.
 
 Expected:
 
@@ -388,6 +389,25 @@ Negative checks:
 - Delivered Qty not equal to Accepted Qty plus Rejected Qty must fail.
 - Rejected Qty without Rejected Warehouse must fail.
 - Quantity above outstanding plus tolerance must fail and create an Exception.
+
+### 9.1 Logistics Panel warehouse-card receiving variant
+
+1. Create a **Location Card** named `RCV-RAW-TEST-001`, set **Location Purpose** to **Supplier
+   Receiving**, and set **Current Warehouse** to Manufacturing Raw Warehouse.
+2. Add **Supplier Receiving** Responsibility to the receiving operator profile, then migrate before
+   assigning it if the Responsibility was not previously installed.
+3. Print **CFG Supplier Receiving Location Card**.
+4. Open **Kanban Logistics**, identify that operator, and scan `RCV-RAW-TEST-001`.
+5. Confirm the page lists only submitted, outstanding PO items for Manufacturing Raw Warehouse.
+6. Scan `PUR-RM-FLAVOUR-001`; verify it selects the exact active Cycle and PO item.
+7. Choose **Receive This Order**, enter supplier Delivery Note and quantities, confirm the review
+   checkbox, then create the controlled Purchase Receipt.
+8. If the receipt submits immediately and physical tags are permitted, activate one unused
+   preprinted main tag. If it remains Draft, complete the indicated ERP prerequisites first.
+
+Expected: a location scan never posts stock; an original-card scan cannot select another warehouse,
+Company or item; only the submitted Purchase Receipt updates ERP stock and releases Card lifecycle;
+physical tags cannot exceed submitted accepted stock quantity.
 - A fully received PO row cannot be selected again.
 
 ## 10. Test Phase D — Activate received raw-material tags
