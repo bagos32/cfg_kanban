@@ -9,12 +9,10 @@ from cfg_kanban.services.logistics_foundation import (
     post_quantity_event,
     resolve_logistics_scan,
 )
+from cfg_kanban.services.physical_identity import normalize_physical_code
+from cfg_kanban.services.retagging_auth import authorize_stock_retagging
 
 
-ALLOWED_ROLES = (
-    "Stock User", "Stock Manager", "Manufacturing User", "Manufacturing Manager",
-    "System Manager",
-)
 TOLERANCE = 0.000001
 BLOCKED_MOVEMENT_STATES = {
     "Reserved", "Loaded", "Intercompany Transit", "Delivered", "Quarantined", "Empty",
@@ -22,8 +20,155 @@ BLOCKED_MOVEMENT_STATES = {
 
 
 @frappe.whitelist()
-def get_tag_to_tag_transfer_plan(source_handling_unit):
-    frappe.only_for(ALLOWED_ROLES)
+def get_stock_tag_split_plan(source_handling_unit, operator_session_token=None):
+    authorize_stock_retagging(operator_session_token)
+    source = frappe.get_doc("CFG Kanban Handling Unit", source_handling_unit)
+    problem = _unit_problem(source, _("Source"))
+    return {
+        "source_handling_unit": source.name,
+        "source_tag": source.handling_unit_id,
+        "item_code": source.item_code,
+        "batch_no": source.batch_no,
+        "company": source.inventory_company,
+        "warehouse": source.current_warehouse,
+        "stock_uom": source.stock_uom,
+        "available_qty": flt(source.available_qty),
+        "can_split": not problem,
+        "blocked_reason": problem,
+    }
+
+
+@frappe.whitelist()
+def split_to_unused_tag(
+    source_handling_unit, destination_scan_value, qty, reason, event_token,
+    operator_session_token=None,
+):
+    profile, session = authorize_stock_retagging(operator_session_token, "start")
+    reason = (reason or "").strip()
+    if not reason:
+        frappe.throw(_("Stock-tag split reason is required"))
+    if not event_token:
+        frappe.throw(_("Event token is required; retry with the same token after a network error"))
+    qty = flt(qty)
+    if qty <= TOLERANCE:
+        frappe.throw(_("Split quantity must be positive"))
+    destination_code = normalize_physical_code(destination_scan_value)
+
+    split_key = canonical_key("same-warehouse-tag-split", source_handling_unit, event_token)
+    existing_name = frappe.db.get_value(
+        "CFG Kanban Handling Unit", {"activation_key": split_key}, "name"
+    )
+    if existing_name:
+        return _existing_split_result(
+            split_key, source_handling_unit, destination_code, qty, existing_name
+        )
+
+    frappe.db.sql(
+        "select name from `tabCFG Kanban Handling Unit` where name=%s for update",
+        source_handling_unit,
+    )
+    source = frappe.get_doc("CFG Kanban Handling Unit", source_handling_unit)
+    existing_name = frappe.db.get_value(
+        "CFG Kanban Handling Unit", {"activation_key": split_key}, "name"
+    )
+    if existing_name:
+        return _existing_split_result(
+            split_key, source.name, destination_code, qty, existing_name
+        )
+    problem = _unit_problem(source, _("Source"))
+    if problem:
+        frappe.throw(problem)
+    if destination_code == source.handling_unit_id:
+        frappe.throw(_("Destination tag must be different from the source tag"))
+    if qty > flt(source.available_qty) + TOLERANCE:
+        frappe.throw(
+            _("Quantity {0} exceeds source tag available quantity {1} {2}").format(
+                qty, source.available_qty, source.stock_uom
+            )
+        )
+    _validate_unused_main_tag(destination_code)
+
+    destination = frappe.copy_doc(source)
+    destination.name = None
+    destination.handling_unit_id = destination_code
+    destination.opaque_token = None
+    destination.tag_kind = "Main Stock Tag"
+    destination.tag_family = None
+    destination.tag_range_registry = None
+    destination.parent_handling_unit = None
+    destination.root_handling_unit = None
+    destination.child_index = 0
+    destination.qty = qty
+    destination.original_qty = qty
+    destination.current_qty = 0
+    destination.reserved_qty = 0
+    destination.available_qty = 0
+    destination.serial_count = 0
+    destination.identity_state = "Active"
+    destination.origin_reference_doctype = "CFG Kanban Handling Unit"
+    destination.origin_reference_name = source.name
+    destination.origin_reference_row = None
+    destination.activation_key = split_key
+    destination.replacement_of = None
+    destination.replaced_by = None
+    destination.void_reason = None
+    destination.print_revision = 1
+    destination.print_count = 0
+    destination.last_printed_on = None
+    destination.last_printed_by = None
+    destination.last_scan_time = None
+    destination.flags.skip_initial_ledger = True
+    destination.insert(ignore_permissions=True)
+
+    ledger = post_quantity_event(
+        event_type="Split",
+        qty=qty,
+        stock_uom=source.stock_uom,
+        idempotency_key=canonical_key("same-warehouse-tag-split-ledger", split_key),
+        source_handling_unit=source.name,
+        destination_handling_unit=destination.name,
+        item_code=source.item_code,
+        batch_no=source.batch_no,
+        source_company=source.inventory_company,
+        destination_company=source.inventory_company,
+        source_warehouse=source.current_warehouse,
+        destination_warehouse=source.current_warehouse,
+        reference_doctype="CFG Kanban Handling Unit",
+        reference_name=source.name,
+        operator=profile.employee if profile else None,
+        operator_session=session.name if session else None,
+        device_id=event_token,
+        reason=f"Same-warehouse split to unused Stock Tag: {reason}",
+    )
+    source.reload()
+    destination.reload()
+    if flt(source.current_qty) <= TOLERANCE:
+        source.db_set(
+            {"identity_state": "Empty", "movement_state": "Empty"},
+            update_modified=False,
+        )
+    record(
+        "Stock Tag Split Onsite",
+        card=source.kanban_card,
+        cycle=source.kanban_cycle,
+        handling_unit=destination.name,
+        qty=qty,
+        reference_doctype=ledger.doctype,
+        reference_name=ledger.name,
+        device_id=event_token,
+        notes=(f"{source.handling_unit_id} -> {destination.handling_unit_id}; "
+               f"{qty} {source.stock_uom}; {reason}"),
+        system_generated=False,
+        ignore_permissions=True,
+        operator=profile.employee if profile else None,
+        operator_session=session.name if session else None,
+    )
+    return _result(source.name, destination.name, ledger.name)
+
+
+@frappe.whitelist()
+def get_tag_to_tag_transfer_plan(source_handling_unit, operator_session_token=None):
+    authorize_stock_retagging(operator_session_token)
     source = frappe.get_doc("CFG Kanban Handling Unit", source_handling_unit)
     problem = _unit_problem(source, _("Source"))
     return {
@@ -42,9 +187,10 @@ def get_tag_to_tag_transfer_plan(source_handling_unit):
 
 @frappe.whitelist()
 def transfer_between_active_tags(
-    source_handling_unit, destination_scan_value, qty, reason, event_token
+    source_handling_unit, destination_scan_value, qty, reason, event_token,
+    operator_session_token=None,
 ):
-    frappe.only_for(ALLOWED_ROLES)
+    profile, session = authorize_stock_retagging(operator_session_token, "start")
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(_("Tag-to-tag transfer reason is required"))
@@ -112,6 +258,8 @@ def transfer_between_active_tags(
         destination_warehouse=destination.current_warehouse,
         reference_doctype="CFG Kanban Handling Unit",
         reference_name=source.name,
+        operator=profile.employee if profile else None,
+        operator_session=session.name if session else None,
         device_id=event_token,
         reason=f"Same-warehouse active-tag quantity transfer: {reason}",
     )
@@ -134,6 +282,8 @@ def transfer_between_active_tags(
                f"{qty} {source.stock_uom}; {reason}"),
         system_generated=False,
         ignore_permissions=True,
+        operator=profile.employee if profile else None,
+        operator_session=session.name if session else None,
     )
     return _result(source.name, destination.name, ledger.name)
 
@@ -159,6 +309,54 @@ def _existing_transfer_result(transfer_key, source_name, destination_name, qty):
     return _result(
         source_name, destination_name, existing.name, idempotent_replay=True
     )
+
+
+def _existing_split_result(split_key, source_name, destination_code, qty, existing_name):
+    destination = frappe.get_doc("CFG Kanban Handling Unit", existing_name)
+    if (
+        destination.origin_reference_name != source_name
+        or destination.handling_unit_id != destination_code
+        or abs(flt(destination.original_qty) - qty) > TOLERANCE
+    ):
+        frappe.throw(
+            _("This split retry token was already used with a different tag or quantity. "
+              "Refresh and start a new split.")
+        )
+    if destination.identity_state in ("Void", "Replaced"):
+        frappe.throw(
+            _("The destination created by this split was later {0}; start a new split "
+              "with a new unused tag.").format(destination.identity_state.lower())
+        )
+    ledger = frappe.db.get_value(
+        "CFG Kanban Handling Unit Quantity Ledger",
+        {"idempotency_key": canonical_key("same-warehouse-tag-split-ledger", split_key)},
+        "name",
+    )
+    return _result(source_name, destination.name, ledger, idempotent_replay=True)
+
+
+def _validate_unused_main_tag(visible_code):
+    identity = resolve_logistics_scan(visible_code)
+    if identity and identity.get("identity_type") == "Handling Unit":
+        frappe.throw(
+            _("Destination tag {0} is already active. Use Transfer Quantity to Active Tag.").format(
+                visible_code
+            )
+        )
+    if not identity or identity.get("identity_type") not in (
+        "Registered Tag Identity", "Tag Range Candidate"
+    ):
+        frappe.throw(
+            _("Destination tag {0} is not covered by an active Tag Family or Tag Range").format(
+                visible_code
+            )
+        )
+    if identity.get("tag_role") != "Main":
+        frappe.throw(_("Stock-tag split requires an unused main Stock Tag"))
+    if identity.get("state") not in ("Unused", "Unmaterialized"):
+        frappe.throw(
+            _("Destination tag {0} is {1}").format(visible_code, identity.get("state"))
+        )
 
 
 def _transfer_problem(source, destination):

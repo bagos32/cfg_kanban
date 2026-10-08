@@ -34,6 +34,10 @@ def _ensure_responsibilities():
         "Container Loading": (
             "Load and unload complete physical Stock Tags in reusable containers."
         ),
+        "Stock Retagging": (
+            "Split tagged quantity to an unused tag or transfer quantity between active tags "
+            "inside the same Company and ERP warehouse."
+        ),
         "Customer Delivery": "Deliver stock to an identified Customer Site.",
         "Customer Return": (
             "Record a customer-site Temporary Return Note or wrong Delivery Note correction."

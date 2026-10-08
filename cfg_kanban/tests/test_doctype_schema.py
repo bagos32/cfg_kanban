@@ -557,6 +557,19 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Transfer Quantity to Active Tag", form)
         self.assertIn("Transfer Quantity to Active Tag", handling_form)
         self.assertIn("I checked both active tags and the physical quantity", form)
+        install = (APP_ROOT / "install.py").read_text()
+        self.assertIn('"Stock Retagging"', install)
+        auth = (APP_ROOT / "services" / "retagging_auth.py").read_text()
+        self.assertIn("STOCK_RETAGGING_RESPONSIBILITY", auth)
+        self.assertIn("def authorize_stock_retagging", auth)
+        self.assertIn("def split_to_unused_tag", transfer)
+        logistics_api = (APP_ROOT / "api" / "logistics.py").read_text()
+        logistics_panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
+                           "kanban_logistics.js").read_text()
+        self.assertIn('result["can_retag"]', logistics_api)
+        self.assertIn("Split to New Tag", logistics_panel)
+        self.assertIn("Move to Active Tag", logistics_panel)
+        self.assertIn("operator_session_token: state.token", logistics_panel)
         self.assertNotIn(
             ".filter((row) => row.tagging_available && row.remaining_stock_qty",
             form,

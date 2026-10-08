@@ -14,6 +14,7 @@ from cfg_kanban.services.logistics_foundation import (
     validate_warehouse_company,
 )
 from cfg_kanban.services.operator_auth import require_operator
+from cfg_kanban.services.retagging_auth import can_stock_retag
 
 
 TERMINAL_STATES = {"Received", "Billing Pending", "Partially Billed", "Billed", "Closed", "Cancelled"}
@@ -235,6 +236,7 @@ def lookup_logistics_tag(scan_value, operator_session_token):
         and profile.can_start
         and (_can_view_all(profile) or "Container Loading" in _responsibilities(profile))
     )
+    result["can_retag"] = bool(can_stock_retag(profile) and profile.can_start)
     from cfg_kanban.services.serial_evidence import active_serials_for_unit
     result["active_serial_numbers"] = active_serials_for_unit(unit.name)
     result["customer_deliveries"] = frappe.get_all(
@@ -1003,6 +1005,7 @@ def _operator_summary(profile, session):
         "responsibilities": sorted(_responsibilities(profile)),
         "view_all_responsibilities": bool(_can_view_all(profile)),
         "can_override": bool(profile.can_override),
+        "can_retag": bool(can_stock_retag(profile) and profile.can_start),
         "session": session.name,
     }
 

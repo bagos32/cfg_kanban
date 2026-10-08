@@ -1012,6 +1012,33 @@ containers. Serial-controlled tags require an exact-serial workflow. The destina
 activation quantity remains immutable audit history; its live `Current Qty` reflects the combined
 physical balance. Use **Split / Repack** instead when the destination tag is new and unused.
 
+### Onsite retagging from the Logistics panel
+
+For warehouse staff and drivers working from a phone or tablet, assign **Stock Retagging** under
+**CFG Kanban Operator Profile → Responsibilities** and ensure the profile can start work. ERPNext
+roles alone do not expose these floor actions. A Supervisor with **View All Responsibilities** can
+also use them. Do not assign this responsibility to every operator: it authorizes physical tagged
+quantity redistribution.
+
+In **Kanban Logistics**, identify the operator and scan the source Stock Tag in normal lookup mode.
+The tag status card shows a **Stock Retagging** block only for an authorized operator:
+
+- **Split to New Tag** moves a stated quantity to a new unused main Stock Tag. Use this when one
+  basket/bin is physically divided and the second basket has not yet been activated.
+- **Move to Active Tag** moves a stated quantity into another already-active matching Stock Tag.
+  Use this when consolidating or moving loose quantity between two tagged bins.
+
+Enter the physical quantity and reason, scan the destination with the camera or scanner field, then
+confirm the separate physical-check acknowledgement. Both operations write one balanced immutable
+Handling Unit ledger event and record the employee/operator session. They do not create an ERPNext
+Stock Entry because Company and ERP warehouse do not change. If the physical bins are configured as
+different ERPNext Warehouses, use the tagged Material Transfer workflow instead.
+
+The Logistics panel rejects retagging when the source is reserved, loaded in a reusable container,
+on an open Manifest or customer allocation, quarantined, serial-controlled, or otherwise in an
+incompatible process state. Active-to-active transfer additionally requires matching Item, Batch,
+UOM, Company, Warehouse, quality state, operation, and movement state.
+
 In this first receiving slice, **Required Physical Tag** makes the missing tagged balance visible
 but does not block native Purchase Receipt submission. Do not interpret it as an accounting hold.
 A later controlled pending-tag workflow will add enforcement without affecting ERP-only Items.

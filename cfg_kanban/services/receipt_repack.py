@@ -10,18 +10,15 @@ from cfg_kanban.services.logistics_foundation import (
     resolve_logistics_scan,
 )
 from cfg_kanban.services.physical_identity import normalize_physical_code
+from cfg_kanban.services.retagging_auth import authorize_stock_retagging
 
 
-ALLOWED_ROLES = (
-    "Stock User", "Stock Manager", "Manufacturing User", "Manufacturing Manager",
-    "System Manager",
-)
 TOLERANCE = 0.000001
 
 
 @frappe.whitelist()
-def get_receipt_repack_plan(source_handling_unit):
-    frappe.only_for(ALLOWED_ROLES)
+def get_receipt_repack_plan(source_handling_unit, operator_session_token=None):
+    authorize_stock_retagging(operator_session_token)
     source = frappe.get_doc("CFG Kanban Handling Unit", source_handling_unit)
     receipt, row = _receipt_origin(source)
     problem = _repack_problem(source, receipt, row)
@@ -42,8 +39,11 @@ def get_receipt_repack_plan(source_handling_unit):
 
 
 @frappe.whitelist()
-def repack_receipt_quantity(source_handling_unit, destination_scan_value, qty, reason):
-    frappe.only_for(ALLOWED_ROLES)
+def repack_receipt_quantity(
+    source_handling_unit, destination_scan_value, qty, reason,
+    operator_session_token=None,
+):
+    profile, session = authorize_stock_retagging(operator_session_token, "start")
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(_("Split / repack reason is required"))
@@ -148,6 +148,8 @@ def repack_receipt_quantity(source_handling_unit, destination_scan_value, qty, r
         destination_warehouse=source.current_warehouse,
         reference_doctype="Purchase Receipt",
         reference_name=receipt.name,
+        operator=profile.employee if profile else None,
+        operator_session=session.name if session else None,
         reason=f"Receipt-time physical split / repack: {reason}",
     )
     source.reload()
@@ -167,6 +169,8 @@ def repack_receipt_quantity(source_handling_unit, destination_scan_value, qty, r
                f"{qty} {source.stock_uom}; {reason}"),
         system_generated=False,
         ignore_permissions=True,
+        operator=profile.employee if profile else None,
+        operator_session=session.name if session else None,
     )
     return _result(source.name, destination.name, receipt.name)
 
