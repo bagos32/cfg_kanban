@@ -519,6 +519,14 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Tag Family {tag_family} is inactive", api)
         self.assertIn("Tag Received Material", form)
         self.assertIn("No Physical Tag remain valid ERPNext warehouse stock", form)
+        self.assertIn('"tagging_ready": not blocking_reason', api)
+        self.assertIn('"tagging_status": "Ready to tag"', api)
+        self.assertIn("Every receipt row is listed", form)
+        self.assertIn('fieldname: "row_guidance"', form)
+        self.assertNotIn(
+            ".filter((row) => row.tagging_available && row.remaining_stock_qty",
+            form,
+        )
 
     def test_production_material_trace_is_stock_entry_confirmed(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

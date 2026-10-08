@@ -38,6 +38,24 @@ def get_purchase_receipt_trace_plan(purchase_receipt):
         policy = effective_trace_policy(item.item_code, receipt.company)
         stock_qty = _row_stock_qty(item)
         tagged_qty = _tagged_origin_qty(receipt.name, item.name)
+        remaining_qty = max(stock_qty - tagged_qty, 0)
+        warehouse = item.warehouse or receipt.set_warehouse
+        batch_numbers = _row_batch_numbers(item)
+        tagging_permitted = policy.receiving_tag_policy != NO_TAG
+        blocking_reason = None
+        if not tagging_permitted:
+            blocking_reason = (
+                "ERP-only receiving: configure an enabled Item/Company Material Trace Policy "
+                "with Optional or Required Physical Tag to activate a Stock Tag"
+            )
+        elif remaining_qty <= 0.000001:
+            blocking_reason = "The confirmed receipt quantity is already fully tagged"
+        elif not warehouse:
+            blocking_reason = "Set the accepted Warehouse on the Purchase Receipt row"
+        elif len(batch_numbers) > 1:
+            blocking_reason = "Split this row so each physical tag represents only one Batch"
+        elif policy.require_batch and not batch_numbers:
+            blocking_reason = "Complete the ERPNext Batch information before tagging"
         serial_controlled = item_uses_serials(item.item_code)
         row_serials = erp_row_serials(item) if serial_controlled else []
         assigned_serials = set(assigned_serials_for_reference(
@@ -47,16 +65,18 @@ def get_purchase_receipt_trace_plan(purchase_receipt):
             "row_name": item.name,
             "item_code": item.item_code,
             "item_name": item.item_name,
-            "warehouse": item.warehouse or receipt.set_warehouse,
-            "batch_no": _display_batch(item),
+            "warehouse": warehouse,
+            "batch_no": batch_numbers[0] if len(batch_numbers) == 1 else "Multiple batches" if batch_numbers else None,
             "stock_uom": item.stock_uom,
             "confirmed_stock_qty": stock_qty,
             "tagged_stock_qty": tagged_qty,
-            "remaining_stock_qty": max(stock_qty - tagged_qty, 0),
+            "remaining_stock_qty": remaining_qty,
             "trace_level": policy.trace_level,
             "tag_policy": policy.receiving_tag_policy,
             "policy_source": policy.policy_source,
-            "tagging_available": policy.receiving_tag_policy != NO_TAG,
+            "tagging_available": tagging_permitted,
+            "tagging_ready": not blocking_reason,
+            "tagging_status": "Ready to tag" if not blocking_reason else blocking_reason,
             "tag_required": policy.receiving_tag_policy == "Required Physical Tag",
             "allow_partial_tag_quantity": bool(policy.allow_partial_tag_quantity),
             "require_batch": bool(policy.require_batch),
@@ -367,8 +387,3 @@ def _tag_batch_no(row):
             "Serial and Batch Bundle per Batch before assigning physical Handling Unit tags."
         )
     return batches[0] if batches else None
-
-
-def _display_batch(row):
-    batches = _row_batch_numbers(row)
-    return batches[0] if len(batches) == 1 else "Multiple batches" if batches else None

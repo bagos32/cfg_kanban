@@ -956,6 +956,15 @@ The dialog derives Item, Company, accepted Warehouse, Stock UOM, Batch, Supplier
 from the submitted Purchase Receipt and prevents the total activated tag quantity from exceeding
 the confirmed receipt-row quantity.
 
+The **Receipt Item** dropdown deliberately includes both tag-enabled and ERP-only rows. Select a row
+to see its readiness message. If it says **ERP-only receiving**, create or open **CFG Kanban Material
+Trace Policy** for the exact Purchase Receipt **Company** and **Item**, enable it, set **Trace Level**
+to **Exact Handling Unit**, and set **Purchase Receiving Tags** to **Optional Physical Tag** (pilot or
+selective use) or **Required Physical Tag** (the whole confirmed quantity is expected to be tagged).
+Save the policy and reopen **Tag Received Material**. A tag-enabled row also needs an accepted
+Warehouse and, when the policy requires it, completed ERPNext Batch information. Rows already fully
+tagged remain visible with an explanatory status but cannot activate another tag.
+
 In this first receiving slice, **Required Physical Tag** makes the missing tagged balance visible
 but does not block native Purchase Receipt submission. Do not interpret it as an accounting hold.
 A later controlled pending-tag workflow will add enforcement without affecting ERP-only Items.
