@@ -30,6 +30,7 @@ class TestDocTypeSchema(TestCase):
         self.assertEqual(shortcuts["Logistics Operator Panel"], "kanban-logistics")
         self.assertEqual(shortcuts["Material Genealogy Explorer"],
                          "material-genealogy")
+        self.assertEqual(shortcuts["Production Signals"], "kanban-supervisor")
         self.assertEqual(shortcuts["Maintenance Register"],
                          "Kanban Maintenance Register")
         self.assertEqual(shortcuts["Private Media Evidence"], "CFG Kanban Media")
@@ -81,6 +82,21 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Material Trace")
         self.assertEqual(links["Material Genealogy Explorer"],
                          "material-genealogy")
+
+    def test_supervisor_action_centre_exposes_visual_approval_queue(self):
+        page_root = APP_ROOT / "cfg_kanban" / "page" / "kanban_supervisor"
+        page = json.loads((page_root / "kanban_supervisor.json").read_text())
+        roles = {row["role"] for row in page["roles"]}
+        self.assertTrue({"Manufacturing Manager", "Purchase Manager", "System Manager"}
+                        .issubset(roles))
+        javascript = (page_root / "kanban_supervisor.js").read_text()
+        self.assertIn("cfg_kanban.api.supervisor.get_action_centre", javascript)
+        self.assertIn("cfg_kanban.api.operator.approve_signal", javascript)
+        self.assertIn("cfg_kanban.api.operator.cancel_signal", javascript)
+        api = (APP_ROOT / "api" / "supervisor.py").read_text()
+        self.assertIn("def get_action_centre", api)
+        self.assertIn('"Waiting Approval"', api)
+        self.assertIn('"Awaiting Verification"', api)
 
     def test_material_genealogy_explorer_is_read_only_and_printable(self):
         page = json.loads((

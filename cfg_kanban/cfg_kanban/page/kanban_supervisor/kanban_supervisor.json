@@ -1,0 +1,13 @@
+{
+ "doctype": "Page",
+ "name": "kanban-supervisor",
+ "module": "CFG Kanban",
+ "title": "Kanban Supervisor Action Centre",
+ "standard": "Yes",
+ "roles": [
+  {"role": "Manufacturing Manager"},
+  {"role": "Purchase Manager"},
+  {"role": "Stock Manager"},
+  {"role": "System Manager"}
+ ]
+}

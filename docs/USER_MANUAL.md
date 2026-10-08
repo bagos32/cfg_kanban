@@ -168,8 +168,8 @@ For stock-based Sales Order proposals, add a warehouse row under **Item → Reor
 From ERPNext Desk, open **CFG Kanban** in the sidebar. The workspace is organized into:
 
 - **Daily Operator Work:** separate Production Operator and Service Task panels.
-- **Production Supervisor:** production floor, dispatch sequence, cycles, signals, demand, and
-  production exceptions.
+- **Production Supervisor:** visual Signal approval centre, production floor, dispatch sequence,
+  cycles, demand, and production exceptions.
 - **Service & Maintenance Supervisor:** service tasks, schedules, maintenance register, and
   compliance evidence.
 - **System Setup:** Masters, Cards, operator profiles, dashboard profiles, and global settings.
@@ -181,6 +181,27 @@ The operator interface is available at:
 ```text
 /app/kanban-operator
 ```
+
+The manager-facing visual approval queue is available at:
+
+```text
+/app/kanban-supervisor
+```
+
+Open the workspace **Production Signals** shortcut to enter the **Kanban Supervisor Action
+Centre**. Its Signal cards show company, priority, Item, Card demand in Stock UOM, supplier-order
+quantity in Purchase UOM where applicable, supplier/BOM, warehouses, Cycle status, waiting time,
+and any retry error. Manufacturing Manager, Purchase Manager, or System Manager may approve an
+eligible card after confirmation. Approval creates the controlled Work Order or Material Request;
+it does not replace the ERPNext document. **Cancel** uses the existing audited safe rollback and
+requires a reason. Blocked Signals remain visible but cannot be approved until their blocking issue
+is resolved.
+
+The same page summarizes Service Tasks and production Process/QC Tasks awaiting verification and
+open Exceptions. Verification still takes place through the corresponding Service or Production
+operator panel because it requires an Employee-based Kanban supervisor session and independent
+verifier identity. The Action Centre refreshes every 30 seconds; the conventional Signal list
+remains available through **Open Signal List** for audit and advanced filtering.
 
 Standalone housekeeping, maintenance, inspection, safety, and emergency work is available at:
 

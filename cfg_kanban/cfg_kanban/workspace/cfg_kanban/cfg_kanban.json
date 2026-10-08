@@ -117,7 +117,7 @@
   {"color":"Cyan","label":"Maintenance Evidence","link_to":"Kanban Maintenance Evidence","type":"Report"},
   {"color":"Purple","doc_view":"List","label":"Private Media Evidence","link_to":"CFG Kanban Media","type":"DocType"},
   {"color":"Red","doc_view":"List","label":"Production Exceptions","link_to":"CFG Kanban Exception","type":"DocType"},
-  {"color":"Orange","doc_view":"List","label":"Production Signals","link_to":"CFG Kanban Signal","type":"DocType"},
+  {"color":"Orange","label":"Production Signals","link_to":"kanban-supervisor","type":"Page"},
   {"color":"Orange","doc_view":"List","label":"Sales Demand Proposals","link_to":"CFG Kanban Demand","type":"DocType"},
   {"color":"Purple","doc_view":"List","label":"ERP Commands","link_to":"CFG ERP Command","type":"DocType"},
   {"color":"Grey","doc_view":"List","label":"Event History","link_to":"CFG Kanban Event","type":"DocType"}
