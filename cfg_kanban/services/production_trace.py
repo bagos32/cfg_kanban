@@ -882,7 +882,11 @@ def _validate_unused_main_tag(visible_code):
     if identity.get("state") not in ("Unused", "Unmaterialized"):
         frappe.throw(f"Preprinted tag {visible_code} is {identity.get('state')}")
     tag_family = identity.get("tag_family")
-    if tag_family and not frappe.db.get_value("CFG Kanban Tag Family", tag_family, "active"):
+    # Range-backed tags are materialized only when the new Handling Unit is inserted.
+    # Only a family which already exists as a registered identity can be inactive here.
+    if (identity.get("identity_type") == "Registered Tag Identity"
+            and tag_family
+            and not frappe.db.get_value("CFG Kanban Tag Family", tag_family, "active")):
         frappe.throw(f"Tag Family {tag_family} is inactive")
     return identity
 

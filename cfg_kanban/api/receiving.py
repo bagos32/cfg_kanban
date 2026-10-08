@@ -162,7 +162,11 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
     if identity.get("state") not in ("Unused", "Unmaterialized"):
         frappe.throw(f"Preprinted tag {visible_code} is {identity.get('state')}")
     tag_family = identity.get("tag_family")
-    if tag_family and not frappe.db.get_value("CFG Kanban Tag Family", tag_family, "active"):
+    # A range candidate deliberately has no Tag Family document yet. The Handling Unit
+    # insertion materializes it from the active range registry under a database lock.
+    if (identity.get("identity_type") == "Registered Tag Identity"
+            and tag_family
+            and not frappe.db.get_value("CFG Kanban Tag Family", tag_family, "active")):
         frappe.throw(f"Tag Family {tag_family} is inactive")
 
     confirmed = _row_stock_qty(row)

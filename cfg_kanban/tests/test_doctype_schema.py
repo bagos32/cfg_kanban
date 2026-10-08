@@ -517,6 +517,9 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('"origin_reference_doctype": "Purchase Receipt"', api)
         self.assertIn("activation_key = canonical_key", api)
         self.assertIn("Tag Family {tag_family} is inactive", api)
+        self.assertIn(
+            'identity.get("identity_type") == "Registered Tag Identity"', api
+        )
         self.assertIn("Tag Received Material", form)
         self.assertIn("No Physical Tag remain valid ERPNext warehouse stock", form)
         self.assertIn('"tagging_ready": not blocking_reason', api)
@@ -633,6 +636,12 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("for update", registry.lower())
         self.assertIn("materialize_tag_family_for_code", handling)
         self.assertIn('identity.identity_type === "Tag Range Candidate"', form)
+        receiving = (APP_ROOT / "api" / "receiving.py").read_text()
+        production = (APP_ROOT / "services" / "production_trace.py").read_text()
+        for source in (receiving, production):
+            self.assertIn(
+                'identity.get("identity_type") == "Registered Tag Identity"', source
+            )
 
     def test_intercompany_manifest_schema_and_commands_are_present(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}
