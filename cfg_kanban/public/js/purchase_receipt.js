@@ -15,35 +15,20 @@ async function receiving_tag_dialog(frm) {
 			{ fieldname: "summary", fieldtype: "HTML" },
 			{ fieldname: "item_row", label: __("Receipt Item"), fieldtype: "Select", reqd: 1 },
 			{ fieldname: "row_guidance", fieldtype: "HTML" },
-			{ fieldname: "scan_value", label: __("Preprinted Main Tag"), fieldtype: "Data", reqd: 1,
-				description: __("Scan a still-unused main Stock Tag from an active Tag Range Registry.") },
 			{ fieldname: "qty", label: __("Quantity in Stock UOM"), fieldtype: "Float", reqd: 1 },
 			{ fieldname: "serial_numbers", label: __("Exact Serial Numbers"), fieldtype: "Small Text",
 				description: __("Serial-controlled Items only. Enter or scan one ERPNext Serial No per line. The field fills automatically when this tag takes every remaining serial.") },
 			{ fieldname: "handling_unit_type", label: __("Handling Unit Type"), fieldtype: "Select",
 				options: "Pallet\nMesh\nTote\nContainer\nReusable Box\nOther", default: "Container", reqd: 1 },
+			{ fieldname: "scan_value", label: __("Preprinted Main Tag"), fieldtype: "Data", reqd: 1,
+				description: __("Scanning only stages the tag for review. It does not activate stock until the separate confirmation step.") },
 		],
-		primary_action_label: __("Activate Received Tag"),
+		primary_action_label: __("Review Tag Activation"),
 		primary_action: async (values) => {
-			const row_name = String(values.item_row || "").split(" :: ")[0];
-			await frappe.call({
-				method: "cfg_kanban.api.receiving.activate_purchase_receipt_tag",
-				args: {
-					purchase_receipt: frm.doc.name,
-					item_row: row_name,
-					scan_value: values.scan_value,
-					qty: values.qty,
-					serial_numbers: values.serial_numbers,
-					handling_unit_type: values.handling_unit_type,
-				},
-				freeze: true,
-				freeze_message: __("Validating ERP receipt quantity and activating tag..."),
+			show_receiving_activation_review(frm, dialog, values, async () => {
+				plan = await load_trace_plan(frm.doc.name);
+				await refresh_receiving_dialog(dialog, plan);
 			});
-			frappe.show_alert({ message: __("Received-material tag activated"), indicator: "green" });
-			plan = await load_trace_plan(frm.doc.name);
-			await refresh_receiving_dialog(dialog, plan);
-			await dialog.set_value("scan_value", "");
-			dialog.get_field("scan_value").$input.trigger("focus");
 		},
 	});
 	dialog.show();
@@ -63,6 +48,7 @@ async function refresh_receiving_dialog(dialog, plan) {
 	const options = rows.map((row) => `${row.row_name} :: ${row.item_code} :: ${row.remaining_stock_qty} ${row.stock_uom} :: ${row.tag_policy}`);
 	dialog.set_df_property("item_row", "options", options.join("\n"));
 	dialog.fields_dict.summary.$wrapper.html(receiving_summary(plan));
+	bind_receipt_tag_void_actions(dialog, plan);
 	if (!options.length) {
 		await dialog.set_value("item_row", "");
 		await dialog.set_value("qty", 0);
@@ -82,6 +68,85 @@ async function refresh_receiving_dialog(dialog, plan) {
 		const row = rows.find((candidate) => candidate.row_name === row_name);
 		if (row) apply_receiving_row(dialog, row);
 	});
+}
+
+function show_receiving_activation_review(frm, source_dialog, values, on_complete) {
+	const e = frappe.utils.escape_html;
+	const row_name = String(values.item_row || "").split(" :: ")[0];
+	let review;
+	review = new frappe.ui.Dialog({
+		title: __("Confirm Received Tag Activation"),
+		fields: [
+			{ fieldname: "review", fieldtype: "HTML", options: `<div class="alert alert-warning">
+				<strong>${__("Check before activation")}</strong><br>
+				${__("Receipt Item")}: ${e(values.item_row)}<br>
+				${__("Tag")}: <strong>${e(values.scan_value)}</strong><br>
+				${__("Quantity")}: <strong>${e(values.qty)}</strong><br>
+				${__("Handling Unit Type")}: ${e(values.handling_unit_type)}<br><br>
+				${__("The scanned barcode will be permanently assigned. A wrong activation must be voided with an audit reason and the physical label must not be reused.")}
+			</div>` },
+			{ fieldname: "confirmed", label: __("I checked the tag, receipt item, and quantity"),
+				fieldtype: "Check", reqd: 1, change: () => {
+					if (review.get_value("confirmed")) review.enable_primary_action();
+					else review.disable_primary_action();
+				} },
+		],
+		primary_action_label: __("Confirm and Activate Tag"),
+		primary_action: async () => {
+			review.disable_primary_action();
+			try {
+				await frappe.call({
+					method: "cfg_kanban.api.receiving.activate_purchase_receipt_tag",
+					args: {
+						purchase_receipt: frm.doc.name,
+						item_row: row_name,
+						scan_value: values.scan_value,
+						qty: values.qty,
+						serial_numbers: values.serial_numbers,
+						handling_unit_type: values.handling_unit_type,
+					},
+					freeze: true,
+					freeze_message: __("Validating ERP receipt quantity and activating tag..."),
+				});
+				review.hide();
+				frappe.show_alert({ message: __("Received-material tag activated"), indicator: "green" });
+				await on_complete();
+				await source_dialog.set_value("scan_value", "");
+				source_dialog.get_field("scan_value").$input.trigger("focus");
+			} finally {
+				review.enable_primary_action();
+			}
+		},
+	});
+	review.show();
+	review.disable_primary_action();
+}
+
+function bind_receipt_tag_void_actions(dialog, plan) {
+	if (!plan.can_void_receipt_tags) return;
+	dialog.fields_dict.summary.$wrapper.find("[data-void-receipt-tag]")
+		.off("click.cfg_receipt_void")
+		.on("click.cfg_receipt_void", (event) => {
+			const handling_unit = event.currentTarget.dataset.voidReceiptTag;
+			frappe.prompt([
+				{ fieldname: "reason", label: __("Why was this tag activated incorrectly?"),
+					fieldtype: "Small Text", reqd: 1 },
+			], async (prompt_values) => {
+				await frappe.call({
+					method: "cfg_kanban.api.receiving.void_purchase_receipt_tag",
+					args: {
+						purchase_receipt: plan.purchase_receipt,
+						handling_unit,
+						reason: prompt_values.reason,
+					},
+					freeze: true,
+					freeze_message: __("Voiding the wrong tag activation..."),
+				});
+				frappe.show_alert({ message: __("Wrong tag voided; scan a new unused tag"), indicator: "orange" }, 8);
+				const refreshed = await load_trace_plan(plan.purchase_receipt);
+				await refresh_receiving_dialog(dialog, refreshed);
+			}, __("Void Wrong Receipt Tag"), __("Void Tag"));
+		});
 }
 
 async function apply_receiving_row(dialog, row) {
@@ -117,14 +182,22 @@ async function update_receiving_serial_field(dialog, row) {
 
 function receiving_summary(plan) {
 	const e = frappe.utils.escape_html;
-	const rows = (plan.rows || []).map((row) => `<tr>
+	const rows = (plan.rows || []).map((row) => {
+		const active_tags = (row.activated_tags || []).map((tag) => `<div>
+			<strong>${e(tag.handling_unit_id)}</strong> · ${e(tag.current_qty)} ${e(tag.stock_uom)}
+			${plan.can_void_receipt_tags ? `<button type="button" class="btn btn-xs btn-danger"
+				data-void-receipt-tag="${e(tag.name)}">${__("Void Wrong Tag")}</button>` : ""}
+		</div>`).join("") || `<span class="text-muted">${__("None")}</span>`;
+		return `<tr>
 		<td>${e(row.item_code)}</td><td>${e(row.batch_no || "-")}</td><td>${e(row.warehouse || "-")}</td>
 		<td>${e(row.tag_policy)}</td><td>${e(row.tagged_stock_qty)} / ${e(row.confirmed_stock_qty)} ${e(row.stock_uom)}</td>
+		<td>${active_tags}</td>
 		<td><span class="indicator-pill ${row.tagging_ready ? "green" : "orange"}">${e(row.tagging_ready ? __("Ready") : __("Attention"))}</span><br><small>${e(row.tagging_status || "")}</small></td>
-	</tr>`).join("");
+	</tr>`;
+	}).join("");
 	return `<div class="alert alert-info"><strong>${e(plan.purchase_receipt)}</strong> · ${e(plan.company)} · ${e(plan.supplier)}</div>
 		<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>
-		<th>${__("Item")}</th><th>${__("Batch")}</th><th>${__("Warehouse")}</th><th>${__("Tag Policy")}</th><th>${__("Tagged / Confirmed")}</th><th>${__("Status")}</th>
+		<th>${__("Item")}</th><th>${__("Batch")}</th><th>${__("Warehouse")}</th><th>${__("Tag Policy")}</th><th>${__("Tagged / Confirmed")}</th><th>${__("Active Tags")}</th><th>${__("Status")}</th>
 		</tr></thead><tbody>${rows}</tbody></table></div>
 		<p class="text-muted">${__("Every receipt row is listed. Rows configured as No Physical Tag remain valid ERPNext warehouse stock and intentionally cannot activate a Kanban Stock Tag.")}</p>`;
 }

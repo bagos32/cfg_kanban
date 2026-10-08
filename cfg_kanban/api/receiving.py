@@ -22,6 +22,7 @@ ALLOWED_ROLES = (
     "Stock User", "Stock Manager", "Manufacturing User", "Manufacturing Manager",
     "System Manager",
 )
+VOID_ROLES = ("Stock Manager", "Manufacturing Manager", "System Manager")
 
 
 @frappe.whitelist()
@@ -83,12 +84,14 @@ def get_purchase_receipt_trace_plan(purchase_receipt):
             "serial_controlled": serial_controlled,
             "available_serial_numbers": [value for value in row_serials
                                          if value not in assigned_serials],
+            "activated_tags": _active_origin_tags(receipt.name, item.name),
         })
     return {
         "purchase_receipt": receipt.name,
         "company": receipt.company,
         "supplier": receipt.supplier,
         "posting_date": receipt.posting_date,
+        "can_void_receipt_tags": bool(set(frappe.get_roles()).intersection(VOID_ROLES)),
         "rows": rows,
         "all_rows_satisfied": all(
             not row["tag_required"] or row["remaining_stock_qty"] <= 0.000001
@@ -228,6 +231,97 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
     return _activation_result(unit.name, receipt, row)
 
 
+@frappe.whitelist()
+def void_purchase_receipt_tag(purchase_receipt, handling_unit, reason):
+    """Revoke one untouched, mistakenly activated receipt tag without changing ERP stock."""
+    frappe.only_for(VOID_ROLES)
+    reason = (reason or "").strip()
+    if not reason:
+        frappe.throw("A correction reason is required")
+
+    frappe.db.sql(
+        "select name from `tabPurchase Receipt` where name=%s for update",
+        purchase_receipt,
+    )
+    frappe.db.sql(
+        "select name from `tabCFG Kanban Handling Unit` where name=%s for update",
+        handling_unit,
+    )
+    receipt = frappe.get_doc("Purchase Receipt", purchase_receipt)
+    receipt.check_permission("read")
+    if receipt.docstatus != 1:
+        frappe.throw("Only a submitted Purchase Receipt can correct a tag activation")
+    unit = frappe.get_doc("CFG Kanban Handling Unit", handling_unit)
+    if (unit.origin_reference_doctype != "Purchase Receipt"
+            or unit.origin_reference_name != receipt.name):
+        frappe.throw("The selected Stock Tag was not activated from this Purchase Receipt")
+    if unit.identity_state == "Void":
+        return {"handling_unit": unit.name, "state": unit.identity_state, "changed": False}
+    row = next(
+        (candidate for candidate in receipt.items
+         if candidate.name == unit.origin_reference_row),
+        None,
+    )
+    if not row:
+        frappe.throw("The original Purchase Receipt Item row no longer exists")
+    expected_warehouse = row.warehouse or receipt.set_warehouse
+    _assert_receipt_tag_untouched(
+        unit, expected_warehouse, action="void this wrong receipt tag"
+    )
+
+    previous_state = unit.state
+    original_qty = unit.current_qty
+    post_quantity_event(
+        event_type="Reconcile Decrease",
+        qty=original_qty,
+        stock_uom=unit.stock_uom,
+        idempotency_key=canonical_key(
+            "purchase-receipt-wrong-tag-void", receipt.name, unit.name
+        ),
+        source_handling_unit=unit.name,
+        item_code=unit.item_code,
+        batch_no=unit.batch_no,
+        source_company=unit.inventory_company,
+        source_warehouse=unit.current_warehouse,
+        reference_doctype="Purchase Receipt",
+        reference_name=receipt.name,
+        reason=f"Wrong receipt tag activation voided: {reason}",
+    )
+    if unit.serial_count:
+        from cfg_kanban.services.serial_evidence import release_unit_serials
+        release_unit_serials(unit.name, reason, "Purchase Receipt", receipt.name)
+    unit.db_set(
+        {
+            "state": "Void",
+            "identity_state": "Void",
+            "movement_state": "Empty",
+            "void_reason": reason,
+            "last_scan_time": now_datetime(),
+        },
+        update_modified=True,
+    )
+    frappe.db.set_value(
+        "CFG Kanban Tag Identity",
+        {"handling_unit": unit.name},
+        "state",
+        "Revoked",
+        update_modified=False,
+    )
+    record(
+        "Purchase Receipt Material Tag Voided",
+        previous_state=previous_state,
+        new_state="Void",
+        handling_unit=unit.name,
+        qty=original_qty,
+        reference_doctype="Purchase Receipt",
+        reference_name=receipt.name,
+        notes=reason,
+        system_generated=False,
+        ignore_permissions=True,
+    )
+    return {"handling_unit": unit.name, "state": "Void", "changed": True}
+
+
 def void_cancelled_purchase_receipt_tags(receipt):
     """Void untouched tags whose ERP receipt has just been cancelled.
 
@@ -303,7 +397,8 @@ def void_cancelled_purchase_receipt_tags(receipt):
     return len(units)
 
 
-def _assert_receipt_tag_untouched(unit, expected_warehouse):
+def _assert_receipt_tag_untouched(unit, expected_warehouse,
+                                  action="cancel the Purchase Receipt"):
     from cfg_kanban.services.container_contents import active_container_membership
 
     changed = (
@@ -331,7 +426,7 @@ def _assert_receipt_tag_untouched(unit, expected_warehouse):
     )
     if changed or downstream_ledger:
         frappe.throw(
-            f"Cannot cancel Purchase Receipt while Stock Tag {unit.handling_unit_id} has "
+            f"Cannot {action} because Stock Tag {unit.handling_unit_id} has "
             "moved, split, been loaded, reserved, or consumed. Reconcile the physical tag "
             "and downstream stock activity first."
         )
@@ -365,6 +460,24 @@ def _tagged_origin_qty(purchase_receipt, item_row):
         """,
         (purchase_receipt, item_row),
     )[0][0])
+
+
+def _active_origin_tags(purchase_receipt, item_row):
+    return frappe.get_all(
+        "CFG Kanban Handling Unit",
+        filters={
+            "origin_reference_doctype": "Purchase Receipt",
+            "origin_reference_name": purchase_receipt,
+            "origin_reference_row": item_row,
+            "identity_state": "Active",
+        },
+        fields=[
+            "name", "handling_unit_id", "original_qty", "current_qty", "stock_uom",
+            "state", "current_warehouse",
+        ],
+        order_by="creation asc",
+        limit_page_length=1000,
+    )
 
 
 def _row_batch_numbers(row):

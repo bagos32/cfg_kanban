@@ -8,7 +8,7 @@ def record(event_type, *, card=None, cycle=None, execution=None, process_task=No
            qty=0, previous_state=None,
            new_state=None, reference_doctype=None, reference_name=None, device_id=None,
            notes=None, system_generated=True, operator=None, operator_session=None,
-           terminal_user=None):
+           terminal_user=None, ignore_permissions=None):
     event = frappe.get_doc({
         "doctype": "CFG Kanban Event",
         "event_type": event_type,
@@ -34,5 +34,6 @@ def record(event_type, *, card=None, cycle=None, execution=None, process_task=No
         "device_id": device_id,
         "notes": notes,
         "system_generated": system_generated,
-    }).insert(ignore_permissions=system_generated)
+    }).insert(ignore_permissions=(system_generated if ignore_permissions is None
+                                  else ignore_permissions))
     return event

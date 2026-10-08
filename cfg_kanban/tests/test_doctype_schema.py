@@ -526,6 +526,13 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('"tagging_status": "Ready to tag"', api)
         self.assertIn("Every receipt row is listed", form)
         self.assertIn('fieldname: "row_guidance"', form)
+        self.assertIn("Review Tag Activation", form)
+        self.assertIn("Confirm and Activate Tag", form)
+        self.assertIn("def void_purchase_receipt_tag", api)
+        self.assertIn("_assert_receipt_tag_untouched(unit, expected_warehouse)", api)
+        self.assertIn('"Revoked"', api)
+        self.assertIn("Void Wrong Receipt Tag", form)
+        self.assertIn("ignore_permissions=True", api)
         self.assertNotIn(
             ".filter((row) => row.tagging_available && row.remaining_stock_qty",
             form,

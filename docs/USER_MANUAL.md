@@ -965,6 +965,16 @@ Save the policy and reopen **Tag Received Material**. A tag-enabled row also nee
 Warehouse and, when the policy requires it, completed ERPNext Batch information. Rows already fully
 tagged remain visible with an explanatory status but cannot activate another tag.
 
+Scanning a preprinted tag in this dialog only opens a separate review step. Confirm the receipt
+row, Stock-UOM quantity, handling-unit type, and visible tag number, tick **I checked the tag,
+receipt item, and quantity**, and then select **Confirm and Activate Tag**. The scanner's Enter
+suffix cannot bypass this acknowledgement. Stock Manager, Manufacturing Manager, or System Manager
+can use **Void Wrong Tag** while the newly activated tag is still untouched. A correction reason is
+mandatory; the quantity returns to the row's untagged balance and the physical barcode is revoked,
+not erased or made reusable. Remove and quarantine that label, then activate a new unused tag. Once
+the tag has moved, split, been reserved, loaded, or consumed, this shortcut is blocked and the
+controlled downstream reconciliation process is required.
+
 In this first receiving slice, **Required Physical Tag** makes the missing tagged balance visible
 but does not block native Purchase Receipt submission. Do not interpret it as an accounting hold.
 A later controlled pending-tag workflow will add enforcement without affecting ERP-only Items.
