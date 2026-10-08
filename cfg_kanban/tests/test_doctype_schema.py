@@ -533,6 +533,9 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('"Revoked"', api)
         self.assertIn("Void Wrong Receipt Tag", form)
         self.assertIn("ignore_permissions=True", api)
+        self.assertIn("def _existing_activation_result", api)
+        self.assertIn("was {disposition} and cannot be reused", api)
+        self.assertIn("Recorded reason: {reason}", api)
         self.assertNotIn(
             ".filter((row) => row.tagging_available && row.remaining_stock_qty",
             form,

@@ -144,7 +144,7 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
         "CFG Kanban Handling Unit", {"activation_key": activation_key}, "name"
     )
     if existing:
-        return _activation_result(existing, receipt, row)
+        return _existing_activation_result(existing, receipt, row, visible_code)
 
     identity = resolve_logistics_scan(visible_code)
     if identity and identity.get("identity_type") == "Handling Unit":
@@ -152,7 +152,7 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
         if (unit.origin_reference_doctype == "Purchase Receipt"
                 and unit.origin_reference_name == receipt.name
                 and unit.origin_reference_row == row.name):
-            return _activation_result(unit.name, receipt, row)
+            return _existing_activation_result(unit.name, receipt, row, visible_code)
         frappe.throw(f"Preprinted tag {visible_code} is already active as {unit.name}")
     if not identity or identity.get("identity_type") not in (
         "Registered Tag Identity", "Tag Range Candidate"
@@ -442,6 +442,18 @@ def _activation_result(unit_name, receipt, row):
         "tagged_stock_qty": tagged,
         "remaining_stock_qty": max(confirmed - tagged, 0),
     }
+
+
+def _existing_activation_result(unit_name, receipt, row, visible_code):
+    unit = frappe.get_doc("CFG Kanban Handling Unit", unit_name)
+    if unit.identity_state in ("Void", "Replaced") or unit.state in ("Void", "Replaced"):
+        disposition = "revoked" if unit.identity_state == "Void" else "replaced"
+        reason = unit.void_reason or "No reason was recorded"
+        frappe.throw(
+            f"Preprinted tag {visible_code} was {disposition} and cannot be reused. "
+            f"Recorded reason: {reason}. Select a new unused tag."
+        )
+    return _activation_result(unit.name, receipt, row)
 
 
 def _row_stock_qty(row):
