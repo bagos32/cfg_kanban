@@ -144,7 +144,7 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
         "CFG Kanban Handling Unit", {"activation_key": activation_key}, "name"
     )
     if existing:
-        return _existing_activation_result(existing, receipt, row, visible_code)
+        return _existing_activation_result(existing, receipt, row, visible_code, qty)
 
     identity = resolve_logistics_scan(visible_code)
     if identity and identity.get("identity_type") == "Handling Unit":
@@ -152,7 +152,7 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
         if (unit.origin_reference_doctype == "Purchase Receipt"
                 and unit.origin_reference_name == receipt.name
                 and unit.origin_reference_row == row.name):
-            return _existing_activation_result(unit.name, receipt, row, visible_code)
+            return _existing_activation_result(unit.name, receipt, row, visible_code, qty)
         frappe.throw(f"Preprinted tag {visible_code} is already active as {unit.name}")
     if not identity or identity.get("identity_type") not in (
         "Registered Tag Identity", "Tag Range Candidate"
@@ -228,7 +228,9 @@ def activate_purchase_receipt_tag(purchase_receipt, item_row, scan_value, qty,
         notes=f"{row.item_code} / {batch_no or 'no Batch'} / {warehouse}",
         system_generated=True,
     )
-    return _activation_result(unit.name, receipt, row)
+    result = _activation_result(unit.name, receipt, row)
+    result["idempotent_replay"] = False
+    return result
 
 
 @frappe.whitelist()
@@ -444,7 +446,7 @@ def _activation_result(unit_name, receipt, row):
     }
 
 
-def _existing_activation_result(unit_name, receipt, row, visible_code):
+def _existing_activation_result(unit_name, receipt, row, visible_code, requested_qty):
     unit = frappe.get_doc("CFG Kanban Handling Unit", unit_name)
     if unit.identity_state in ("Void", "Replaced") or unit.state in ("Void", "Replaced"):
         disposition = "revoked" if unit.identity_state == "Void" else "replaced"
@@ -453,7 +455,20 @@ def _existing_activation_result(unit_name, receipt, row, visible_code):
             f"Preprinted tag {visible_code} was {disposition} and cannot be reused. "
             f"Recorded reason: {reason}. Select a new unused tag."
         )
-    return _activation_result(unit.name, receipt, row)
+    if abs(flt(requested_qty) - flt(unit.original_qty)) > 0.000001:
+        frappe.throw(
+            f"Preprinted tag {visible_code} is already activated with "
+            f"{unit.original_qty} {unit.stock_uom}. Rescanning it cannot change the quantity "
+            f"to {requested_qty}. Void the untouched wrong tag and activate a new unused tag, "
+            "or use the controlled receipt-time split/repack workflow."
+        )
+    result = _activation_result(unit.name, receipt, row)
+    result["idempotent_replay"] = True
+    result["message"] = (
+        f"Tag {visible_code} was already activated with {unit.original_qty} "
+        f"{unit.stock_uom}; no quantity changed"
+    )
+    return result
 
 
 def _row_stock_qty(row):

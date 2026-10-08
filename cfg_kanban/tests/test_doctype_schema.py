@@ -536,6 +536,9 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def _existing_activation_result", api)
         self.assertIn("was {disposition} and cannot be reused", api)
         self.assertIn("Recorded reason: {reason}", api)
+        self.assertIn("Rescanning it cannot change the quantity", api)
+        self.assertIn('result["idempotent_replay"] = True', api)
+        self.assertIn("no quantity changed", form)
         self.assertNotIn(
             ".filter((row) => row.tagging_available && row.remaining_stock_qty",
             form,

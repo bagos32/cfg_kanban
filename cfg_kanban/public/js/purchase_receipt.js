@@ -95,7 +95,7 @@ function show_receiving_activation_review(frm, source_dialog, values, on_complet
 		primary_action: async () => {
 			review.disable_primary_action();
 			try {
-				await frappe.call({
+				const response = await frappe.call({
 					method: "cfg_kanban.api.receiving.activate_purchase_receipt_tag",
 					args: {
 						purchase_receipt: frm.doc.name,
@@ -109,7 +109,13 @@ function show_receiving_activation_review(frm, source_dialog, values, on_complet
 					freeze_message: __("Validating ERP receipt quantity and activating tag..."),
 				});
 				review.hide();
-				frappe.show_alert({ message: __("Received-material tag activated"), indicator: "green" });
+				const result = response.message || {};
+				frappe.show_alert({
+					message: result.idempotent_replay
+						? __(result.message || "Tag was already active; no quantity changed")
+						: __("Received-material tag activated"),
+					indicator: result.idempotent_replay ? "blue" : "green",
+				}, 8);
 				await on_complete();
 				await source_dialog.set_value("scan_value", "");
 				source_dialog.get_field("scan_value").$input.trigger("focus");

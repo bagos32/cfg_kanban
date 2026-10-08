@@ -975,6 +975,14 @@ not erased or made reusable. Remove and quarantine that label, then activate a n
 the tag has moved, split, been reserved, loaded, or consumed, this shortcut is blocked and the
 controlled downstream reconciliation process is required.
 
+Rescanning an already active receipt tag never adds or subtracts quantity. An exact repeat is
+reported as an idempotent retry with **no quantity changed**; a different quantity is rejected.
+Correct an untouched wrong total by voiding that tag and activating a new unused tag with the right
+quantity. Do not use repeated activation as a basket-transfer method. Moving material between two
+physical baskets in the same receiving Warehouse requires the controlled receipt-time split/repack
+workflow so the decrease and increase occur as one balanced, audited event without an ERPNext stock
+transfer.
+
 In this first receiving slice, **Required Physical Tag** makes the missing tagged balance visible
 but does not block native Purchase Receipt submission. Do not interpret it as an accounting hold.
 A later controlled pending-tag workflow will add enforcement without affecting ERP-only Items.
