@@ -28,6 +28,8 @@ The end-of-route physical count and ERP variance continuation is
 [Package D3 Route Reconciliation System Test](docs/TEST_PACKAGE_D3_ROUTE_RECONCILIATION.md).
 The same-Company warehouse replenishment continuation is
 [Package L1 Transfer Kanban System Test](docs/TEST_PACKAGE_L1_TRANSFER_KANBAN.md).
+The controlled consumable/indirect-stock issue continuation is
+[Package L2 Withdrawal Kanban System Test](docs/TEST_PACKAGE_L2_WITHDRAWAL_KANBAN.md).
 Package A identity/configuration, Package B intercompany handover, Package C1 customer/vehicle
 session foundation, Package C2A customer tagged-stock reservation, and Package C2B controlled
 customer Delivery Note posting are implemented. Package D1 adds policy-controlled proof of delivery,
@@ -145,6 +147,11 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
   Transfer Stock Entries in Direct or Goods-in-Transit mode; optional physical tags, untagged ERP
   stock, cycle/card completion, and cancellation safeguards all remain subordinate to submitted ERP
   stock documents.
+- Withdrawal Kanban cards provide a separate mobile Logistics flow for consumables and indirect
+  materials that leave inventory without a Work Order or destination Warehouse. The operator may
+  select exact Stock Tags or ordinary ERP stock according to the Item/Company trace policy; an
+  idempotent ERPNext Material Issue remains the stock system of record, and only submission consumes
+  tagged quantity and recycles the Card.
 
 ## Control flow
 

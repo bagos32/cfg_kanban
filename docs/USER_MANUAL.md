@@ -294,7 +294,7 @@ Open **CFG Kanban Master → New** and complete:
 | Company (`company`) | Your company | Must match BOM and warehouses |
 | Item (`item_code`) | Finished Item | Item controlled by the loop |
 | BOM (`bom`) | Active BOM | Required for production Work Orders |
-| Control Type (`control_type`) | Production | Production creates Work Orders; Purchase Replenishment creates buying demand; Transfer creates a same-Company Movement Manifest; Withdrawal is reserved for controlled stock-use development |
+| Control Type (`control_type`) | Production | Production creates Work Orders; Purchase Replenishment creates buying demand; Transfer creates a same-Company Movement Manifest; Withdrawal creates a controlled Material Issue without a Work Order |
 | Card Representation (`card_representation`) | Batch | Options: Unit, Batch, Container |
 | Replenishment Qty (`replenishment_qty`) | 400 | Nominal quantity represented by a card |
 | Stock UOM (`stock_uom`) | Nos | Item/BOM stock unit |
@@ -2463,6 +2463,66 @@ Safety rules:
 - The older **Same-Company Tagged Warehouse Transfer** Stock Entry assistant remains a manual
   fallback for movements that did not originate from a Transfer Kanban Card.
 
+### Withdrawal Kanban — consumables and indirect stock use
+
+Use this workflow when stock leaves inventory for operational use without becoming another
+Warehouse balance and without belonging to a BOM/Work Order—for example rubber bands, cleaning
+chemicals, labels, gloves, or workshop consumables. Do not use Withdrawal for Warehouse-to-Warehouse
+movement; use Transfer Kanban for that.
+
+Configuration:
+
+1. Create or enable the **Stock Withdrawal** Kanban Responsibility and add it to the applicable
+   **CFG Kanban Operator Profile**. The profile must also allow Start and Complete.
+2. Create **CFG Kanban Material Trace Policy** for the Item/Company if its physical-tag behavior must
+   differ from the safe default. **Stock Withdrawal Tags** (`stock_withdrawal_tag_policy`) supports
+   **No Physical Tag**, **Optional Physical Tag**, or **Required Physical Tag**. No policy defaults to
+   No Physical Tag.
+3. Create **CFG Kanban Master** with **Control Type** (`control_type`) = **Withdrawal**. Set the exact
+   Company, Item, Card quantity in Stock UOM, source Warehouse, **Standard Withdrawal Reason**
+   (`withdrawal_reason`), and Automation Level. Destination Warehouse, Logistics Route, BOM and WIP
+   Warehouse are not part of this transaction.
+4. Leave **Submit Material Issue on Operator Confirmation**
+   (`auto_submit_withdrawal_stock_entry`) off during rollout. When enabled, the operator's final
+   confirmation submits the native Stock Entry immediately.
+5. Create/print the Card normally. A reusable physical Withdrawal Card represents the standard
+   quantity and returns to Available only after ERPNext confirms the Material Issue.
+
+Operation:
+
+1. Identify the operator in **Logistics Operator Panel**, then scan the Withdrawal Card.
+2. Select **Trigger Withdrawal Card**. Automatic Masters release immediately; Approval Masters show
+   a Waiting Approval Signal in **Kanban Supervisor**, where an authorized manager selects
+   **Release Stock Withdrawal**. Scan the Card again after approval.
+3. For **No Physical Tag**, the Cycle automatically selects the Card quantity from ordinary ERP
+   stock. For **Optional Physical Tag**, select either **Add Stock Tag** one or more times or **Use ERP
+   Stock without Tags**. For **Required Physical Tag**, scan active, released Stock Tags from the
+   exact Item, Company, and source Warehouse. The selected total must equal the Card quantity.
+4. Select **Prepare Withdrawal**. The app checks ERPNext stock. Tagged rows are reserved in the
+   handling-unit ledger so another movement cannot consume the same physical quantity.
+5. Select **Create Material Issue**. Any mandatory ERPNext parent or child values not supplied by
+   defaults appear in a controlled dialog. The app creates one idempotent ERPNext Stock Entry whose
+   purpose is **Material Issue**.
+6. With auto-submit off, an authorized ERPNext stock user reviews and submits the Draft Stock Entry.
+   Draft creation does not reduce ERP stock and does not recycle the Card.
+7. On submission, ERPNext reduces stock, tagged quantity is consumed and its reservation released,
+   the Withdrawal Cycle/Signal complete, and the reusable Card becomes Available.
+
+Safety and recovery:
+
+- Untagged floor withdrawal is blocked for batch- or serial-controlled Items because the Card cannot
+  identify the exact native batch/serial selection. Use Stock Tags for exact batch identity or use an
+  authorized native ERPNext Material Issue when exact serial/bundle selection is required.
+- A scanned Stock Tag must be active, released, outside a reusable container, and match Item,
+  Company, Warehouse, and available quantity. Partial use follows **Allow Partial Tag Quantity**.
+- Repeated scans and retries reuse the existing selection/ERP Command; they do not create a second
+  Material Issue.
+- Before any ERP document exists, the Supervisor can cancel the Signal with a reason. Prepared tag
+  reservations are released and the Card returns to Available. An override-authorized operator may
+  use **Discard Draft and Retry** for the linked unused Draft Material Issue, with a mandatory reason;
+  its prepared reservation is retained for a safe retry. A submitted Stock Entry requires controlled
+  recovery; do not delete history or manually edit Kanban status fields.
+
 ## 26. Guidance rules for another LLM
 
 When using this file as context, an assistant must:
@@ -2499,6 +2559,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.35 | 9 October 2026 | Added controlled Withdrawal Kanban for non-BOM consumables, independent Stock Withdrawal responsibility, optional tagged/untagged selection, tag reservation, native ERPNext Material Issue posting, submission feedback, Card recycling, cancellation safeguards, Logistics-panel operation, and an independent L2 system test |
 | 1.34 | 9 October 2026 | Added Transfer Kanban release into Logistics Movement Manifests, explicit internal versus intercompany route modes, direct and Goods-in-Transit Material Transfer Stock Entries, optional no-tag ERP-stock lines, ERP-submission feedback, Card/Cycle completion, cancellation safeguards, and scan-card Manifest lookup |
 | 1.33 | 9 October 2026 | Separated physical supplier delivery from usable purchase fulfilment, added rejected-warehouse disposition records, replacement/return reconciliation, validated concession transfers, controlled short close, Receipt Exception lifecycle and Card-release protection |
 | 1.32 | 4 October 2026 | Added independent accepted-return physical disposition with quantity-conserving splits, Company/Warehouse/rate validation, controlled Draft Material Receipt, no-stock disposal, draft discard, ERP submit/cancel feedback, and combined accounting-plus-stock closure |

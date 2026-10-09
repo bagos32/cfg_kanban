@@ -413,6 +413,73 @@ def _link_internal_transfer_details(entry):
             )
 
 
+@handler("Create Kanban Stock Withdrawal")
+def create_kanban_stock_withdrawal(command, payload):
+    cycle = frappe.get_doc("CFG Kanban Cycle", command.kanban_cycle)
+    existing = frappe.db.get_value(
+        "Stock Entry",
+        {"cfg_withdrawal_cycle": cycle.name, "docstatus": ["<", 2]},
+        "name",
+    )
+    if existing:
+        entry = frappe.get_doc("Stock Entry", existing)
+        if payload.get("submit") and entry.docstatus == 0:
+            entry.submit()
+            entry.reload()
+        return entry
+    entry = build_withdrawal_stock_entry(cycle, payload, command=command)
+    entry.insert(ignore_permissions=True)
+    cycle.db_set("withdrawal_stock_entry", entry.name, update_modified=False)
+    if payload.get("submit"):
+        entry.submit()
+        entry.reload()
+    entry._cfg_command_result = {
+        "doctype": entry.doctype, "name": entry.name, "docstatus": entry.docstatus,
+        "cycle": cycle.name, "submitted": entry.docstatus == 1,
+    }
+    return entry
+
+
+def build_withdrawal_stock_entry(cycle, payload, command=None):
+    """Build the exact ERPNext Material Issue controlled by a Withdrawal Cycle."""
+    items = [{
+        "item_code": row.item_code,
+        "qty": row.qty,
+        "transfer_qty": row.qty,
+        "uom": row.stock_uom,
+        "stock_uom": row.stock_uom,
+        "conversion_factor": 1,
+        "s_warehouse": cycle.source_warehouse,
+        "batch_no": row.batch_no,
+        "cfg_handling_unit": row.handling_unit,
+        "cfg_withdrawal_allocation": row.name,
+    } for row in cycle.withdrawal_allocations]
+    if not items:
+        frappe.throw("Withdrawal has no selected stock")
+    entry = frappe.get_doc({
+        "doctype": "Stock Entry",
+        "stock_entry_type": "Material Issue",
+        "purpose": "Material Issue",
+        "company": cycle.company,
+        "from_warehouse": cycle.source_warehouse,
+        "cfg_kanban_controlled": 1,
+        "cfg_kanban_cycle": cycle.name,
+        "cfg_kanban_signal": cycle.signal,
+        "cfg_withdrawal_cycle": cycle.name,
+        "cfg_scan_event": command.idempotency_key if command else None,
+        "items": items,
+    })
+    entry.set_missing_values()
+    apply_required_erp_inputs(entry, payload.get("required_erp_inputs"))
+    missing = get_required_erp_inputs(entry)
+    if missing:
+        frappe.throw(
+            "Required Material Issue details are missing: "
+            + ", ".join(row["label"] for row in missing)
+        )
+    return entry
+
+
 @handler("Create Customer Delivery Note")
 def create_customer_delivery_note(command, payload):
     delivery = frappe.get_doc("CFG Kanban Delivery Session", command.delivery_session)

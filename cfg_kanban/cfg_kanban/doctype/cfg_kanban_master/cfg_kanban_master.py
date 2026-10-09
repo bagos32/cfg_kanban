@@ -48,6 +48,23 @@ class CFGKanbanMaster(Document):
                     "The Internal Logistics Route Company and Warehouses must exactly match "
                     "the Kanban Master"
                 )
+        if self.control_type == "Withdrawal":
+            if not self.source_warehouse or not (self.withdrawal_reason or "").strip():
+                frappe.throw(
+                    "Source Warehouse and Standard Withdrawal Reason are required for "
+                    "Withdrawal control"
+                )
+            if not frappe.db.get_value("Item", self.item_code, "is_stock_item"):
+                frappe.throw("Withdrawal control requires a stock Item")
+            warehouse_company = frappe.db.get_value(
+                "Warehouse", self.source_warehouse, "company"
+            )
+            if warehouse_company != self.company:
+                frappe.throw(
+                    f"Source Warehouse belongs to {warehouse_company}, not {self.company}"
+                )
+            self.destination_warehouse = None
+            self.logistics_route = None
         sequences = [row.sequence for row in self.operation_profiles]
         if len(sequences) != len(set(sequences)):
             frappe.throw("Operation profile sequences must be unique")

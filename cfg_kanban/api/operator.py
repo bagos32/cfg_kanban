@@ -451,6 +451,11 @@ def approve_signal(signal_name):
         manifest = create_transfer_manifest(signal.name)
         return {"signal": signal.name, "manifest": manifest.name,
                 "erp_document": None, "duplicate": False}
+    if master.control_type == "Withdrawal":
+        from cfg_kanban.services.withdrawal import release_withdrawal
+        cycle = release_withdrawal(signal.name)
+        return {"signal": signal.name, "cycle": cycle.name,
+                "erp_document": None, "duplicate": False}
     command = (create_material_request_command(signal.name)
                if master.control_type == "Purchase Replenishment"
                else create_work_order_command(signal.name))
@@ -464,9 +469,9 @@ def approve_signal(signal_name):
 
 @frappe.whitelist()
 def cancel_signal(signal_name, reason):
-    frappe.only_for(("Manufacturing Manager", "Purchase Manager", "System Manager"))
+    frappe.only_for(("Manufacturing Manager", "Purchase Manager", "Stock Manager",
+                     "System Manager"))
     signal = frappe.get_doc("CFG Kanban Signal", signal_name)
-    signal.check_permission("write")
     if signal.status == "Cancelled":
         cycle = frappe.get_doc("CFG Kanban Cycle", signal.kanban_cycle)
         active_cycle = (frappe.db.get_value("CFG Kanban Card", signal.kanban_card,

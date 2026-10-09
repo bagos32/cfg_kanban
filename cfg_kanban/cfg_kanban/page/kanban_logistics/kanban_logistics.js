@@ -598,6 +598,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 
 	function render_lookup() {
 		if (!state.lookup) return $lookup.empty();
+		if (state.lookup.withdrawal_card) {
+			render_withdrawal_card(state.lookup);
+			return;
+		}
 		if (state.lookup.transfer_card) {
 			render_transfer_card(state.lookup);
 			return;
@@ -690,6 +694,141 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		$lookup.find(".manage-container").on("click", manage_container_dialog);
 		$lookup.find(".split-unused-tag").on("click", () => open_stock_retagging_dialog("split"));
 		$lookup.find(".transfer-active-tag").on("click", () => open_stock_retagging_dialog("transfer"));
+	}
+
+	function render_withdrawal_card(lookup) {
+		const e = frappe.utils.escape_html;
+		const card = lookup.withdrawal_card;
+		const withdrawal = lookup.withdrawal;
+		const allocations = (withdrawal?.withdrawal_allocations || []).map((row) =>
+			`<div class="cfg-logistics-list-row"><div><strong>${e(row.visible_code || row.line_kind)}</strong>
+			<small>${e(row.line_kind)} · ${e(row.state)}</small></div>
+			<div><strong>${format_number(row.qty)} ${e(row.stock_uom || "")}</strong>
+			${withdrawal.can_edit_selection && row.handling_unit ? `<button class="btn btn-xs btn-danger remove-withdrawal-tag" data-unit="${e(row.handling_unit)}">${__("Remove")}</button>` : ""}</div></div>`
+		).join("");
+		let actions = "";
+		if (!card.active_cycle) {
+			actions = card.can_trigger ? `<button class="btn btn-primary trigger-withdrawal-card">${__("Trigger Withdrawal Card")}</button>` : "";
+		} else if (!withdrawal) {
+			actions = `<div class="alert alert-warning">${__("The Withdrawal Signal is waiting for supervisor approval.")}</div>`;
+		} else {
+			actions = `<div class="cfg-logistics-toolbar mt-3">
+			${withdrawal.can_edit_selection && withdrawal.withdrawal_tag_policy !== "No Physical Tag" ? `<button class="btn btn-primary add-withdrawal-tag">${__("Add Stock Tag")}</button>` : ""}
+			${withdrawal.can_use_untagged_stock ? `<button class="btn btn-default use-untagged-withdrawal">${__("Use ERP Stock without Tags")}</button>` : ""}
+			${withdrawal.can_prepare ? `<button class="btn btn-warning prepare-withdrawal">${__("Prepare Withdrawal")}</button>` : ""}
+			${withdrawal.can_confirm ? `<button class="btn btn-success confirm-withdrawal">${__("Create Material Issue")}</button>` : ""}
+			${withdrawal.withdrawal_stock_entry ? `<button class="btn btn-default open-withdrawal-entry">${__("Open Stock Entry")}</button>` : ""}
+			${withdrawal.can_discard_draft ? `<button class="btn btn-danger discard-withdrawal-draft">${__("Discard Draft and Retry")}</button>` : ""}
+			</div>`;
+		}
+		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
+			<div class="cfg-logistics-tag-head"><div><small>${__("Stock Withdrawal Kanban")}</small>
+			<h3>${e(card.card_number || card.card)}</h3><strong>${e(card.item_code)}</strong></div>
+			<button class="btn btn-default close-lookup">${__("Close")}</button></div>
+			<div class="cfg-logistics-tag-grid">
+			<div><small>${__("Source Warehouse")}</small><strong>${e(card.source_warehouse)}</strong></div>
+			<div><small>${__("Card Quantity")}</small><strong>${format_number(card.quantity)} ${e(card.stock_uom || "")}</strong></div>
+			<div><small>${__("Cycle")}</small><strong>${e(card.active_cycle || __("Not triggered"))}</strong></div>
+			<div><small>${__("Withdrawal Status")}</small><strong>${e(withdrawal?.withdrawal_status || __("Waiting"))}</strong></div>
+			<div><small>${__("Tag Policy")}</small><strong>${e(withdrawal?.withdrawal_tag_policy || "-")}</strong></div>
+			<div><small>${__("Selected")}</small><strong>${format_number(withdrawal?.selected_qty || 0)} / ${format_number(card.quantity)}</strong></div></div>
+			${allocations ? `<div class="mt-3"><strong>${__("Selected Stock")}</strong>${allocations}</div>` : ""}
+			${actions}</div>`);
+		$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
+		$lookup.find(".trigger-withdrawal-card").on("click", () => trigger_withdrawal_card(card));
+		$lookup.find(".add-withdrawal-tag").on("click", () => add_withdrawal_tag_dialog(card, withdrawal));
+		$lookup.find(".use-untagged-withdrawal").on("click", () => withdrawal_action("select_untagged_stock", card, withdrawal));
+		$lookup.find(".prepare-withdrawal").on("click", () => withdrawal_action("prepare_withdrawal", card, withdrawal));
+		$lookup.find(".confirm-withdrawal").on("click", () => confirm_withdrawal(card, withdrawal));
+		$lookup.find(".open-withdrawal-entry").on("click", () => frappe.set_route("Form", "Stock Entry", withdrawal.withdrawal_stock_entry));
+		$lookup.find(".discard-withdrawal-draft").on("click", () => {
+			frappe.prompt([{ fieldname: "reason", label: __("Discard Reason"), fieldtype: "Small Text", reqd: 1 }],
+				async (values) => {
+					await frappe.call({ method: "cfg_kanban.services.withdrawal.discard_withdrawal_draft",
+						args: { cycle_name: withdrawal.name, reason: values.reason,
+							operator_session_token: state.token }, freeze: true,
+						freeze_message: __("Discarding unused Material Issue draft...") });
+					await lookup_tag(card.card_number || card.card);
+				}, __("Discard Draft Material Issue"), __("Discard and Retry"));
+		});
+		$lookup.find(".remove-withdrawal-tag").on("click", function () {
+			withdrawal_action("remove_withdrawal_tag", card, withdrawal, { handling_unit: $(this).data("unit") });
+		});
+	}
+
+	async function trigger_withdrawal_card(card) {
+		const response = await frappe.call({
+			method: "cfg_kanban.api.logistics.trigger_withdrawal_card",
+			args: { card_name: card.card, event_token: unique_token(), operator_session_token: state.token },
+			freeze: true, freeze_message: __("Triggering Withdrawal Card..."),
+		});
+		if (response.message.waiting_approval) frappe.msgprint(__("Withdrawal Signal {0} is waiting for supervisor approval.", [response.message.signal]));
+		await lookup_tag(card.card_number || card.card);
+	}
+
+	function add_withdrawal_tag_dialog(card, withdrawal) {
+		const dialog = new frappe.ui.Dialog({
+			title: __("Add Stock Tag to Withdrawal"),
+			fields: [
+				{ fieldname: "scan_value", label: __("Stock Tag Barcode / QR"), fieldtype: "Data", reqd: 1 },
+				{ fieldname: "camera", label: __("Scan with Camera"), fieldtype: "Button", click() {
+					camera_value((value) => dialog.set_value("scan_value", value));
+				} },
+				{ fieldname: "qty", label: __("Quantity from this Tag"), fieldtype: "Float", reqd: 1,
+					default: withdrawal.remaining_qty },
+			],
+			primary_action_label: __("Add Tag"),
+			primary_action: async (values) => {
+				dialog.hide();
+				await withdrawal_action("add_withdrawal_tag", card, withdrawal, {
+					scan_value: values.scan_value, qty: values.qty,
+				});
+			},
+		});
+		dialog.show();
+		dialog.get_field("scan_value").$input.focus();
+	}
+
+	async function withdrawal_action(method, card, withdrawal, extra) {
+		await frappe.call({
+			method: `cfg_kanban.services.withdrawal.${method}`,
+			args: { cycle_name: withdrawal.name, event_token: unique_token(),
+				operator_session_token: state.token, ...(extra || {}) },
+			freeze: true, freeze_message: __("Updating stock withdrawal..."),
+		});
+		await lookup_tag(card.card_number || card.card);
+	}
+
+	async function confirm_withdrawal(card, withdrawal) {
+		const response = await frappe.call({
+			method: "cfg_kanban.services.withdrawal.get_withdrawal_requirements",
+			args: { cycle_name: withdrawal.name, operator_session_token: state.token },
+			freeze: true, freeze_message: __("Checking Material Issue requirements..."),
+		});
+		const requirements = response.message.fields || [];
+		if (!requirements.length) return submit_withdrawal(card, withdrawal);
+		const dialog = new frappe.ui.Dialog({
+			title: __("Required Material Issue Details"),
+			fields: required_erp_dialog_fields(requirements),
+			primary_action_label: __("Create Material Issue"),
+			primary_action: async (values) => {
+				dialog.hide();
+				await submit_withdrawal(card, withdrawal,
+					JSON.stringify(required_erp_values(requirements, values)));
+			},
+		});
+		dialog.show();
+	}
+
+	async function submit_withdrawal(card, withdrawal, required_erp_inputs) {
+		await frappe.call({
+			method: "cfg_kanban.services.withdrawal.confirm_withdrawal",
+			args: { cycle_name: withdrawal.name, event_token: unique_token(),
+				operator_session_token: state.token, required_erp_inputs },
+			freeze: true, freeze_message: __("Creating ERPNext Material Issue..."),
+		});
+		await lookup_tag(card.card_number || card.card);
+		await refresh_list();
 	}
 
 	function render_transfer_card(lookup) {

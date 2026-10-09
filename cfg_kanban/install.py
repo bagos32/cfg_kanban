@@ -34,6 +34,9 @@ def _ensure_responsibilities():
         "Internal Warehouse Transfer": (
             "Scan tagged stock against a same-company ERPNext Material Transfer."
         ),
+        "Stock Withdrawal": (
+            "Issue approved consumables and indirect materials from ERP stock without a Work Order."
+        ),
         "Container Loading": (
             "Load and unload complete physical Stock Tags in reusable containers."
         ),
@@ -144,10 +147,13 @@ def _custom_fields():
             {"fieldname": "cfg_transfer_stage", "label": "Internal Transfer Stage",
              "fieldtype": "Select", "options": "Direct\nOutward\nReceipt", "read_only": 1,
              "insert_after": "cfg_movement_manifest", "module": "CFG Kanban"},
+            {"fieldname": "cfg_withdrawal_cycle", "label": "Kanban Withdrawal Cycle",
+             "fieldtype": "Link", "options": "CFG Kanban Cycle", "read_only": 1,
+             "insert_after": "cfg_transfer_stage", "module": "CFG Kanban"},
             {"fieldname": "cfg_return_case", "label": "Customer Return Case",
              "fieldtype": "Link", "options": "CFG Kanban Return Case", "read_only": 1,
-             "insert_after": "cfg_transfer_stage", "module": "CFG Kanban"},
-            {"fieldname": "cfg_scan_event", "label": "Kanban Return Event Identity",
+             "insert_after": "cfg_withdrawal_cycle", "module": "CFG Kanban"},
+            {"fieldname": "cfg_scan_event", "label": "Kanban Event Identity",
              "fieldtype": "Data", "read_only": 1, "insert_after": "cfg_return_case",
              "module": "CFG Kanban"},
         ],
@@ -158,9 +164,12 @@ def _custom_fields():
             {"fieldname": "cfg_manifest_line", "label": "Kanban Manifest Line",
              "fieldtype": "Data", "read_only": 1,
              "insert_after": "cfg_handling_unit", "module": "CFG Kanban"},
+            {"fieldname": "cfg_withdrawal_allocation", "label": "Kanban Withdrawal Allocation",
+             "fieldtype": "Data", "read_only": 1,
+             "insert_after": "cfg_manifest_line", "module": "CFG Kanban"},
             {"fieldname": "cfg_return_disposition_line",
              "label": "Customer Return Disposition Row", "fieldtype": "Data",
-             "read_only": 1, "insert_after": "cfg_manifest_line", "module": "CFG Kanban"},
+             "read_only": 1, "insert_after": "cfg_withdrawal_allocation", "module": "CFG Kanban"},
         ],
         "Material Request": purchase_common("terms"),
         "Purchase Order": purchase_common("terms"),

@@ -25,6 +25,7 @@ def effective_trace_policy(item_code, company):
         "production_input_tag_policy": NO_TAG,
         "production_output_tag_policy": NO_TAG,
         "warehouse_transfer_tag_policy": NO_TAG,
+        "stock_withdrawal_tag_policy": NO_TAG,
         "require_batch": 0,
         "allow_partial_tag_quantity": 1,
     })
@@ -35,6 +36,7 @@ def stage_requires_tag(item_code, company, stage):
         "Purchase Receiving": "receiving_tag_policy",
         "Production Input": "production_input_tag_policy",
         "Production Output": "production_output_tag_policy",
+        "Stock Withdrawal": "stock_withdrawal_tag_policy",
     }.get(stage)
     if not fieldname:
         frappe.throw(f"Unsupported material trace stage {stage}")

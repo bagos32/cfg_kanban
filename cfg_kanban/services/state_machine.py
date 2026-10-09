@@ -7,7 +7,8 @@ from cfg_kanban.services.events import record
 CARD_TRANSITIONS = {
     "Available": {"Consumed", "Inactive", "Blocked"},
     "Consumed": {"Signal Created", "Production Released", "Blocked"},
-    "Signal Created": {"Replenishment Requested", "Blocked"},
+    "Signal Created": {"Replenishment Requested", "Withdrawal Requested", "Blocked"},
+    "Withdrawal Requested": {"Available", "Blocked"},
     "Replenishment Requested": {"Production Released", "Purchase Ordered", "Partially Received", "Receipt Exception", "Received", "In Transit", "Blocked"},
     "Purchase Ordered": {"Partially Received", "Receipt Exception", "Received", "Blocked"},
     "Partially Received": {"Purchase Ordered", "Receipt Exception", "Received", "Blocked"},
@@ -17,7 +18,7 @@ CARD_TRANSITIONS = {
     "In Production": {"Produced", "Blocked"},
     "Produced": {"In Transit", "Available", "Blocked"},
     "In Transit": {"Available", "Blocked"},
-    "Blocked": {"Available", "Consumed", "Signal Created", "Replenishment Requested", "Purchase Ordered", "Partially Received", "Receipt Exception", "Production Released", "In Production"},
+    "Blocked": {"Available", "Consumed", "Signal Created", "Replenishment Requested", "Withdrawal Requested", "Purchase Ordered", "Partially Received", "Receipt Exception", "Production Released", "In Production"},
 }
 
 

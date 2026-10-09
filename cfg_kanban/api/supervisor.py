@@ -117,6 +117,8 @@ def _signal_actions(limit):
                 if row.signal_type == "Purchase Replenishment"
                 else "Release Internal Transfer"
                 if row.signal_type == "Transfer Replenishment"
+                else "Release Stock Withdrawal"
+                if row.signal_type == "Stock Withdrawal"
                 else "Create Work Order"
             ),
         })

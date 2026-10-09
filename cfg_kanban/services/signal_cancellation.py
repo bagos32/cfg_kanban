@@ -24,6 +24,7 @@ def cancel_and_rollback(signal_name, reason):
     )
     _assert_no_purchase_activity(cycle)
     _cancel_transfer_manifest(cycle, signal, reason)
+    _cancel_withdrawal(cycle, signal, reason)
     _assert_no_production_activity(cycle, work_order_name)
     if work_order_name and frappe.db.exists("Work Order", work_order_name):
         work_order = frappe.get_doc("Work Order", work_order_name)
@@ -164,3 +165,50 @@ def _cancel_transfer_manifest(cycle, signal, reason):
         "CFG Kanban Manifest Line", {"parent": manifest.name}, "state", "Cancelled",
         update_modified=False,
     )
+
+
+def _cancel_withdrawal(cycle, signal, reason):
+    if not cycle.get("withdrawal_status"):
+        return
+    if cycle.withdrawal_status == "Cancelled":
+        return
+    entry_name = cycle.get("withdrawal_stock_entry") or frappe.db.get_value(
+        "Stock Entry", {"cfg_withdrawal_cycle": cycle.name, "docstatus": ["<", 2]}, "name"
+    )
+    if entry_name:
+        frappe.throw(
+            f"Withdrawal Cycle {cycle.name} already has Stock Entry {entry_name}. "
+            "Use Discard Draft and Retry for an unused draft before cancelling the Signal."
+        )
+    if cycle.withdrawal_status not in ("Requested", "Prepared", "Exception"):
+        frappe.throw(
+            f"Withdrawal Cycle {cycle.name} is {cycle.withdrawal_status} and cannot be rolled back."
+        )
+    if cycle.withdrawal_status in ("Prepared", "Exception"):
+        for row in cycle.withdrawal_allocations:
+            if not row.handling_unit or row.state != "Reserved":
+                continue
+            unit = frappe.get_doc("CFG Kanban Handling Unit", row.handling_unit)
+            if not flt(unit.reserved_qty):
+                continue
+            post_quantity_event(
+                event_type="Unreserve",
+                qty=min(flt(row.qty), flt(unit.reserved_qty)),
+                stock_uom=row.stock_uom,
+                idempotency_key=canonical_key(
+                    "signal-withdrawal-cancel-unreserve", signal.name, row.name
+                ),
+                source_handling_unit=row.handling_unit,
+                item_code=row.item_code,
+                batch_no=row.batch_no,
+                source_company=cycle.company,
+                source_warehouse=cycle.source_warehouse,
+                reference_doctype=signal.doctype,
+                reference_name=signal.name,
+                reason=reason,
+            )
+    frappe.db.set_value(
+        "CFG Kanban Withdrawal Allocation", {"parent": cycle.name}, "state", "Cancelled",
+        update_modified=False,
+    )
+    cycle.db_set("withdrawal_status", "Cancelled", update_modified=False)

@@ -30,7 +30,10 @@ frappe.ui.form.on("CFG Kanban Master", {
 					(message.purchase_uom || message.stock_uom) : frm.doc.purchase_uom,
 			})).then(() => refresh_purchase_uom(frm));
 	},
-	control_type: refresh_purchase_uom,
+	control_type(frm) {
+		refresh_purchase_uom(frm);
+		frm.trigger("refresh");
+	},
 	purchase_uom: refresh_purchase_uom,
 	replenishment_qty: refresh_purchase_uom,
 	supplier_pack_size: refresh_purchase_uom,
@@ -47,6 +50,8 @@ frappe.ui.form.on("CFG Kanban Master", {
 		refresh_purchase_uom(frm);
 		if (frm.doc.production_policy === "Customer Make-to-Order") {
 			frm.set_intro(__("MTO mode creates one digital cycle and Batch per Sales Order line. It does not reserve reusable cards or use reorder stock."), "blue");
+		} else if (frm.doc.control_type === "Withdrawal") {
+			frm.set_intro(__("Withdrawal creates a controlled ERPNext Material Issue for consumables or indirect stock. Use a Transfer Master when stock must remain in inventory at another warehouse."), "orange");
 		}
 	},
 });

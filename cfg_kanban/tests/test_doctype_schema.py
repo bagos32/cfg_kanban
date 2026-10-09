@@ -1210,3 +1210,41 @@ class TestDocTypeSchema(TestCase):
             "return_line", "item_code", "batch_no", "stock_uom", "qty", "disposition",
             "target_warehouse", "valuation_rate", "reason", "status", "stock_entry_detail",
         }.issubset(disposition_child))
+
+    def test_l2_withdrawal_uses_controlled_material_issue(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        master = {row["fieldname"]: row for row in
+                  schemas["CFG Kanban Master"]["fields"]}
+        cycle = {row["fieldname"]: row for row in
+                 schemas["CFG Kanban Cycle"]["fields"]}
+        allocation = {row["fieldname"]: row for row in
+                      schemas["CFG Kanban Withdrawal Allocation"]["fields"]}
+        self.assertTrue({"withdrawal_reason", "auto_submit_withdrawal_stock_entry"}
+                        .issubset(master))
+        self.assertTrue({"withdrawal_status", "withdrawal_stock_entry",
+                         "withdrawal_command", "withdrawal_tag_policy",
+                         "withdrawal_allocations"}.issubset(cycle))
+        self.assertEqual(cycle["withdrawal_allocations"]["options"],
+                         "CFG Kanban Withdrawal Allocation")
+        self.assertTrue({"line_kind", "handling_unit", "qty", "state",
+                         "reserved_ledger", "consumed_ledger"}.issubset(allocation))
+
+        gateway = (APP_ROOT / "integrations" / "erp_gateway.py").read_text()
+        feedback = (APP_ROOT / "integrations" / "erp_feedback.py").read_text()
+        trigger = (APP_ROOT / "services" / "triggers.py").read_text()
+        service = (APP_ROOT / "services" / "withdrawal.py").read_text()
+        logistics = (APP_ROOT / "api" / "logistics.py").read_text()
+        panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
+                 "kanban_logistics.js").read_text()
+        install = (APP_ROOT / "install.py").read_text()
+        self.assertIn('@handler("Create Kanban Stock Withdrawal")', gateway)
+        self.assertIn('"stock_entry_type": "Material Issue"', gateway)
+        self.assertIn("validate_withdrawal_stock_entry", feedback)
+        self.assertIn('"Withdrawal": "Stock Withdrawal"', trigger)
+        self.assertIn("def prepare_withdrawal", service)
+        self.assertIn("def complete_withdrawal", service)
+        self.assertIn("def discard_withdrawal_draft", service)
+        self.assertIn("def trigger_withdrawal_card", logistics)
+        self.assertIn("render_withdrawal_card", panel)
+        self.assertIn('"cfg_withdrawal_cycle"', install)
+        self.assertIn('"cfg_withdrawal_allocation"', install)

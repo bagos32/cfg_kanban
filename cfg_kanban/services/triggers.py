@@ -22,11 +22,6 @@ def consume_card(card_name, *, device_id=None, event_token=None, trusted_operato
                 "signal": frappe.db.get_value("CFG Kanban Signal", {"kanban_cycle": card.active_cycle}, "name")}
 
     master = frappe.get_doc("CFG Kanban Master", card.kanban_master)
-    if master.control_type == "Withdrawal":
-        frappe.throw(
-            "Withdrawal Kanban is not yet released as a stock transaction. Use the Logistics "
-            "stock-use workflow when it is deployed; this guard prevents an incorrect Work Order."
-        )
     event_key = canonical_key("consume-card", card.name, event_token or card.modified)
     existing = frappe.db.get_value("CFG Kanban Signal", {"idempotency_key": event_key}, ["name", "kanban_cycle"], as_dict=True)
     if existing:
@@ -46,6 +41,7 @@ def consume_card(card_name, *, device_id=None, event_token=None, trusted_operato
     signal_type = {
         "Purchase Replenishment": "Purchase Replenishment",
         "Transfer": "Transfer Replenishment",
+        "Withdrawal": "Stock Withdrawal",
     }.get(master.control_type, "Production Replenishment")
     signal, created = insert_once(frappe.get_doc({
         "doctype": "CFG Kanban Signal", "signal_type": signal_type,
@@ -61,6 +57,9 @@ def consume_card(card_name, *, device_id=None, event_token=None, trusted_operato
         if master.control_type == "Transfer":
             from cfg_kanban.services.internal_transfer import create_transfer_manifest
             create_transfer_manifest(signal.name)
+        elif master.control_type == "Withdrawal":
+            from cfg_kanban.services.withdrawal import release_withdrawal
+            release_withdrawal(signal.name)
         else:
             command = (create_material_request_command(signal.name)
                        if master.control_type == "Purchase Replenishment"

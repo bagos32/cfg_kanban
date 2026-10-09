@@ -190,6 +190,10 @@ def on_job_card_cancel(doc, method=None):
 
 
 def on_stock_entry_submit(doc, method=None):
+    if doc.get("cfg_withdrawal_cycle"):
+        from cfg_kanban.services.withdrawal import complete_withdrawal
+        complete_withdrawal(doc)
+        return
     if doc.get("cfg_movement_manifest"):
         from cfg_kanban.integrations.logistics_feedback import on_internal_stock_entry_submit
         on_internal_stock_entry_submit(doc)
@@ -210,6 +214,10 @@ def on_stock_entry_submit(doc, method=None):
 
 
 def validate_stock_entry(doc, method=None):
+    if doc.get("cfg_withdrawal_cycle"):
+        from cfg_kanban.services.withdrawal import validate_withdrawal_stock_entry
+        validate_withdrawal_stock_entry(doc)
+        return
     if doc.get("cfg_movement_manifest"):
         from cfg_kanban.integrations.logistics_feedback import validate_internal_stock_entry
         validate_internal_stock_entry(doc)
@@ -273,6 +281,10 @@ def _submitted_mto_qty(cycle_name, item_code):
 
 
 def on_stock_entry_cancel(doc, method=None):
+    if doc.get("cfg_withdrawal_cycle"):
+        from cfg_kanban.services.withdrawal import block_withdrawal_cancel
+        block_withdrawal_cancel(doc)
+        return
     if doc.get("cfg_movement_manifest"):
         from cfg_kanban.integrations.logistics_feedback import on_internal_stock_entry_cancel
         on_internal_stock_entry_cancel(doc)

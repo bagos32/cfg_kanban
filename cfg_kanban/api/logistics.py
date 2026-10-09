@@ -29,6 +29,7 @@ MANIFEST_LIST_FIELDS = [
 ]
 INTERNAL_TRANSFER_RESPONSIBILITY = "Internal Warehouse Transfer"
 SUPPLIER_RECEIVING_RESPONSIBILITY = "Supplier Receiving"
+STOCK_WITHDRAWAL_RESPONSIBILITY = "Stock Withdrawal"
 
 
 @frappe.whitelist()
@@ -396,6 +397,30 @@ def lookup_logistics_tag(scan_value, operator_session_token):
                 ),
             }
             return result
+        if master and master.control_type == "Withdrawal":
+            responsibilities = _responsibilities(profile)
+            allowed = bool(
+                _can_view_all(profile)
+                or STOCK_WITHDRAWAL_RESPONSIBILITY in responsibilities
+            )
+            if not allowed:
+                frappe.throw("Operator is not assigned to Stock Withdrawal", frappe.PermissionError)
+            result["withdrawal_card"] = {
+                "card": card.name, "card_number": card.card_number,
+                "item_code": master.item_code, "source_warehouse": master.source_warehouse,
+                "quantity": card.kanban_qty or master.replenishment_qty,
+                "stock_uom": master.stock_uom, "active_cycle": card.active_cycle,
+                "can_trigger": bool(
+                    not card.active_cycle and card.active and not card.blocked
+                    and profile.can_start
+                ),
+            }
+            if card.active_cycle:
+                from cfg_kanban.services.withdrawal import get_withdrawal
+                result["withdrawal"] = get_withdrawal(
+                    card.active_cycle, operator_session_token
+                )
+            return result
         result["supplier_receiving"] = get_supplier_receiving_context(
             scan_value, operator_session_token
         )
@@ -516,6 +541,36 @@ def trigger_transfer_card(card_name, event_token, operator_session_token):
         "card": card.name, "cycle": result["cycle"], "signal": signal.name,
         "signal_status": signal.status, "manifest": manifest_name,
         "waiting_approval": not bool(manifest_name),
+    }
+
+
+@frappe.whitelist()
+def trigger_withdrawal_card(card_name, event_token, operator_session_token):
+    """Start a controlled consumable withdrawal from the Logistics panel."""
+    profile, session = require_operator(operator_session_token, "start")
+    responsibilities = _responsibilities(profile)
+    if (not _can_view_all(profile)
+            and STOCK_WITHDRAWAL_RESPONSIBILITY not in responsibilities):
+        frappe.throw("Operator is not assigned to Stock Withdrawal", frappe.PermissionError)
+    card = frappe.get_doc("CFG Kanban Card", card_name)
+    if not card.kanban_master:
+        frappe.throw("Withdrawal Card is not linked to a Kanban Master")
+    master = frappe.get_doc("CFG Kanban Master", card.kanban_master)
+    if master.control_type != "Withdrawal":
+        frappe.throw("Only Withdrawal Kanban cards can use this action")
+    from cfg_kanban.services.triggers import consume_card
+    result = consume_card(
+        card.name, device_id=f"logistics:{session.name}", event_token=event_token,
+        trusted_operator=True,
+    )
+    signal = frappe.get_doc("CFG Kanban Signal", result["signal"])
+    return {
+        "card": card.name, "cycle": result["cycle"], "signal": signal.name,
+        "signal_status": signal.status,
+        "released": bool(frappe.db.get_value(
+            "CFG Kanban Cycle", result["cycle"], "withdrawal_status"
+        )),
+        "waiting_approval": signal.status == "Waiting Approval",
     }
 
 

@@ -3,7 +3,7 @@
 **Architecture version:** 1.0  
 **Decision status:** Locked baseline  
 **Decision date:** 30 September 2026  
-**Implementation status:** Package A, Package B intercompany handover, Packages C1-C2B customer delivery, Package D1 proof/closure, Package D2A controlled return intake plus QC disposition, Package D2B accountant-controlled Draft Sales Invoice Return, Package D2C accepted-return ERP stock disposition, Package D3 end-of-route reconciliation, and Package L1 same-Company Transfer Kanban are implemented; customer invoicing and Package E remain approved future scope
+**Implementation status:** Package A, Package B intercompany handover, Packages C1-C2B customer delivery, Package D1 proof/closure, Package D2A controlled return intake plus QC disposition, Package D2B accountant-controlled Draft Sales Invoice Return, Package D2C accepted-return ERP stock disposition, Package D3 end-of-route reconciliation, Package L1 same-Company Transfer Kanban, and Package L2 controlled Stock Withdrawal are implemented; customer invoicing and Package E remain approved future scope
 
 This document is the source of truth for CFG Kanban stock-tag logistics across sister companies,
 company-specific vehicle warehouses, customer-site delivery, and delayed intercompany billing. It
@@ -599,6 +599,23 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
   replacing ERP stock.
 - Submitted Stock Entries alone complete stock movement and recycle the Card. Draft documents stay
   visibly pending; destructive cancellation after ERP posting is blocked for controlled recovery.
+
+### Package L2 — Controlled Stock Withdrawal Kanban (implemented)
+
+- A `Withdrawal` Master identifies one Company, Item, source Warehouse, card quantity, and immutable
+  standard withdrawal reason. It does not require a destination Warehouse, Logistics Route, BOM, or
+  Work Order.
+- A scanned Card releases a Stock Withdrawal Signal into the mobile Logistics panel. Approval mode
+  continues to use the Supervisor Signal panel and the explicit `Release Stock Withdrawal` action.
+- Item/Company trace policy selects No, Optional, or Required physical Stock Tags. Tagged selections
+  are reserved before posting; untagged selection remains native ERP Bin stock and is restricted to
+  non-batch/non-serial Items in this floor workflow.
+- Operator confirmation creates exactly one native ERPNext `Material Issue` Stock Entry. A Draft
+  entry leaves the Cycle pending. Only submitted Stock Entry feedback consumes tagged quantity,
+  completes the Cycle, completes the Signal, and recycles the Card.
+- Accidental Signals can be cancelled with a reason before an ERP document exists. Prepared tag
+  reservations are released. Submitted Material Issues cannot be cancelled directly because audit,
+  ERP stock, and the physical-tag ledger require a separate controlled recovery transaction.
 
 ### Package A — Foundation and migration (implemented)
 

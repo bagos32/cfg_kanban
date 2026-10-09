@@ -1,0 +1,22 @@
+{
+ "doctype":"DocType",
+ "name":"CFG Kanban Withdrawal Allocation",
+ "module":"CFG Kanban",
+ "istable":1,
+ "editable_grid":0,
+ "field_order":["line_kind","handling_unit","visible_code","item_code","batch_no","qty","stock_uom","state","scan_event_key","reserved_ledger","consumed_ledger"],
+ "fields":[
+  {"fieldname":"line_kind","label":"Line Kind","fieldtype":"Select","options":"Tagged Stock\nERP Stock without Physical Tag","default":"Tagged Stock","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"handling_unit","label":"Handling Unit","fieldtype":"Link","options":"CFG Kanban Handling Unit","read_only":1},
+  {"fieldname":"visible_code","label":"Visible Tag / Source","fieldtype":"Data","read_only":1,"in_list_view":1},
+  {"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"batch_no","label":"Batch","fieldtype":"Link","options":"Batch","read_only":1,"in_list_view":1},
+  {"fieldname":"qty","label":"Withdrawal Qty","fieldtype":"Float","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM","reqd":1,"read_only":1},
+  {"fieldname":"state","label":"State","fieldtype":"Select","options":"Selected\nReserved\nConsumed\nCancelled","default":"Selected","read_only":1,"in_list_view":1},
+  {"fieldname":"scan_event_key","label":"Scan Event Key","fieldtype":"Data","read_only":1},
+  {"fieldname":"reserved_ledger","label":"Reservation Ledger","fieldtype":"Link","options":"CFG Kanban Handling Unit Quantity Ledger","read_only":1},
+  {"fieldname":"consumed_ledger","label":"Consumption Ledger","fieldtype":"Link","options":"CFG Kanban Handling Unit Quantity Ledger","read_only":1}
+ ],
+ "permissions":[]
+}
