@@ -15,9 +15,11 @@ def record_print(doctype, name, print_format, reason=None):
     doc = frappe.get_doc(doctype, name)
     doc.check_permission("print")
     count = (doc.print_count or 0) + 1
-    values = {"print_count": count}
-    if doctype == "CFG Kanban Handling Unit":
-        values.update({"last_printed_on": now_datetime(), "last_printed_by": frappe.session.user})
+    values = {
+        "print_count": count,
+        "last_printed_on": now_datetime(),
+        "last_printed_by": frappe.session.user,
+    }
     doc.db_set(values, update_modified=True)
     record("Card Printed" if doctype == "CFG Kanban Card" else "Handling Unit Tag Printed",
            card=doc.name if doctype == "CFG Kanban Card" else doc.kanban_card,

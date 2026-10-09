@@ -48,8 +48,10 @@ frappe.ui.form.on("CFG Kanban Card", {
 		frm.add_custom_button(__("Open Operator Console"), () => {
 			frappe.set_route("kanban-operator");
 		});
-		const production = ["Physical Unit Card", "Physical Batch Card", "Process Kanban", "Station Kanban"].includes(frm.doc.card_type);
-		if (production) {
+		const master_backed = Boolean(frm.doc.kanban_master);
+		if (master_backed) {
+			frm.add_custom_button(__("Print Card with QR"), () => cfg_card_print(frm,
+				"CFG Kanban Operational Card"));
 			frm.add_custom_button(__("Print Standard Card"), () => cfg_card_print(frm,
 				"CFG Kanban Standard Card"), __("Print Kanban"));
 			frm.add_custom_button(__("Print Operational Card"), () => cfg_card_print(frm,
@@ -61,7 +63,8 @@ frappe.ui.form.on("CFG Kanban Card", {
 			frm.add_custom_button(__("Open Logistics Panel"), () => frappe.set_route("kanban-logistics"));
 		}
 		if (frm.doc.active) {
-			frm.add_custom_button(__("Replace Card"), () => cfg_replace_card(frm), __("Print Kanban"));
+			frm.add_custom_button(__("Replace Card Identity"), () => cfg_replace_card(frm),
+				__("Card Identity"));
 		}
 		if (frm.doc.current_state === "Available" && !frm.doc.active_cycle && frm.doc.active &&
 			["Physical Unit Card", "Physical Batch Card"].includes(frm.doc.card_type)) {

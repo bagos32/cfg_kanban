@@ -629,7 +629,9 @@ Complete:
 
 Exact **Card Type** (`card_type`) options are: `Physical Unit Card`, `Physical Batch Card`,
 `Process Kanban`, `Station Kanban`, `Asset Card`, `Location Card`, and `Task Card`. The first four
-are production cards. The final three are service identity cards and do not trigger production.
+are master-backed operational cards; their Master Control Type decides whether the Card controls
+Production, Purchase Replenishment, Transfer, or Withdrawal. The final three are service identity
+cards and do not trigger production.
 **Card Behaviour** (`card_behavior`), current state, QR, UUID, active Cycle, handoff mode, and most
 location/status fields are derived or system-maintained.
 
@@ -638,7 +640,8 @@ card.
 
 ### Step 5 — Print and verify the card
 
-Open the saved Card and use **Print Kanban**:
+Open any saved Card linked to a Kanban Master. Use the visible **Print Card with QR** action for the
+single-sided operational format, or use **Print Kanban** for either format:
 
 - **Print Standard Card:** reusable A6 landscape, two pages for front and reverse instructions.
 - **Print Operational Card:** reusable A6 landscape, single-sided operational version.
@@ -2559,6 +2562,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.36 | 9 October 2026 | Exposed QR printing on every master-backed Card, separated Card identity replacement from printing, recorded Card print time/user, and labelled Transfer and Withdrawal print formats correctly |
 | 1.35 | 9 October 2026 | Added controlled Withdrawal Kanban for non-BOM consumables, independent Stock Withdrawal responsibility, optional tagged/untagged selection, tag reservation, native ERPNext Material Issue posting, submission feedback, Card recycling, cancellation safeguards, Logistics-panel operation, and an independent L2 system test |
 | 1.34 | 9 October 2026 | Added Transfer Kanban release into Logistics Movement Manifests, explicit internal versus intercompany route modes, direct and Goods-in-Transit Material Transfer Stock Entries, optional no-tag ERP-stock lines, ERP-submission feedback, Card/Cycle completion, cancellation safeguards, and scan-card Manifest lookup |
 | 1.33 | 9 October 2026 | Separated physical supplier delivery from usable purchase fulfilment, added rejected-warehouse disposition records, replacement/return reconciliation, validated concession transfers, controlled short close, Receipt Exception lifecycle and Card-release protection |

@@ -92,7 +92,12 @@ Create **CFG Kanban Master**:
 
 Create an active **CFG Kanban Card** for this Master with Card Number `MOVE-RAW-20`.
 
-Expected result: the Master refuses a route whose Company, Warehouses, or Route Type do not match.
+Open the saved Card and verify **Print Card with QR** is visible. Printing must retain the current QR
+identity, increment Print Count, and label the output **STOCK TRANSFER**. **Replace Card Identity** is
+an exception action for a lost/damaged identity; it is not required for ordinary printing.
+
+Expected result: the Master refuses a route whose Company, Warehouses, or Route Type do not match,
+and the Card can be printed without replacing its identity.
 
 ## 5. Direct Transfer without physical tags
 

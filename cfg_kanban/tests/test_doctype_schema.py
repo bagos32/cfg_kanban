@@ -105,6 +105,24 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('"Waiting Approval"', api)
         self.assertIn('"Awaiting Verification"', api)
 
+    def test_master_backed_cards_expose_qr_print_actions(self):
+        card_js = (APP_ROOT / "public" / "js" / "cfg_kanban_card.js").read_text()
+        self.assertIn("const master_backed = Boolean(frm.doc.kanban_master)", card_js)
+        self.assertIn('__("Print Card with QR")', card_js)
+        self.assertIn('__("Replace Card Identity")', card_js)
+
+        standard = json.loads((
+            APP_ROOT / "cfg_kanban" / "print_format" /
+            "cfg_kanban_standard_card" / "cfg_kanban_standard_card.json"
+        ).read_text())
+        operational = json.loads((
+            APP_ROOT / "cfg_kanban" / "print_format" /
+            "cfg_kanban_operational_card" / "cfg_kanban_operational_card.json"
+        ).read_text())
+        for print_format in (standard, operational):
+            self.assertIn("STOCK TRANSFER", print_format["html"])
+            self.assertIn("STOCK WITHDRAWAL", print_format["html"])
+
     def test_material_genealogy_explorer_is_read_only_and_printable(self):
         page = json.loads((
             APP_ROOT / "cfg_kanban" / "page" / "material_genealogy" /
