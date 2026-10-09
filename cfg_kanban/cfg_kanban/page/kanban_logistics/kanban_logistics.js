@@ -29,7 +29,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		<button class="btn btn-warning route-reconciliation">${__("Route Stock Count")}</button>
 		<button class="btn btn-default refresh-logistics">${__("Refresh")}</button>
 		<button class="btn btn-default clear-current">${__("Clear Screen")}</button>
-		<button class="btn btn-default switch-operator">${__("Switch Operator")}</button>
+		<button class="btn btn-primary switch-operator cfg-change-operator">${__("Scan / Change Operator")}</button>
 		<button class="btn btn-default production-panel">${__("Production Panel")}</button>
 		<button class="btn btn-default service-panel">${__("Service Panel")}</button>
 	</div>`).appendTo(page.main);
@@ -123,7 +123,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		$identity.html(`<div class="alert alert-info cfg-logistics-identity"><div><small>${__("Active operator")}</small>
 			<strong>${e(state.operator.employee_name || state.operator.employee)}</strong>
 			<span>${e(state.operator.kanban_role || "")}</span></div>
-			<div><button class="btn btn-primary switch">${__("Switch Operator")}</button>
+			<div><button class="btn btn-primary switch cfg-change-operator">${__("Scan / Change Operator")}</button>
 			<button class="btn btn-default end">${__("End Session")}</button></div></div>`);
 		$identity.find(".switch").on("click", identify_operator);
 		$identity.find(".end").on("click", () => frappe.confirm(__("End operator session?"), end_session));

@@ -12,6 +12,7 @@ class CFGKanbanCard(Document):
     def validate(self):
         production_types = ("Physical Unit Card", "Physical Batch Card",
                             "Process Kanban", "Station Kanban")
+        service_types = ("Asset Card", "Location Card", "Task Card")
         behaviour = {
             "Physical Unit Card": "TRAVELLING_CARD",
             "Physical Batch Card": "TRAVELLING_CARD",
@@ -22,9 +23,22 @@ class CFGKanbanCard(Document):
             "Task Card": "TASK_CARD",
         }
         self.card_behavior = behaviour.get(self.card_type)
+        if self.card_type in service_types and self.kanban_master:
+            frappe.throw(
+                "Service identity cards cannot use a Kanban Master. For Purchase, Transfer, or "
+                "Withdrawal control, use a Physical Unit Card or Physical Batch Card."
+            )
         if self.card_type in production_types and not self.kanban_master:
             frappe.throw("Kanban Master is required for a production card")
         self._copy_master_context()
+        if self.kanban_master:
+            master = frappe.get_cached_doc("CFG Kanban Master", self.kanban_master)
+            if (master.control_type in ("Purchase Replenishment", "Transfer", "Withdrawal")
+                    and self.card_type not in ("Physical Unit Card", "Physical Batch Card")):
+                frappe.throw(
+                    f"{master.control_type} Master {master.name} requires a Physical Unit Card "
+                    "or Physical Batch Card; it does not use Task Schedule."
+                )
         if self.card_type in production_types and self.kanban_qty <= 0:
             frappe.throw("Kanban quantity must be positive")
         if self.card_type in ("Process Kanban", "Station Kanban") and not self.operation:
@@ -44,6 +58,8 @@ class CFGKanbanCard(Document):
             self.company = warehouse_company
         if self.card_type == "Task Card" and not self.task_schedule:
             frappe.throw("Task Schedule is required for a Task Card")
+        if self.card_type != "Task Card":
+            self.task_schedule = None
 
     def _copy_master_context(self):
         if not self.kanban_master:

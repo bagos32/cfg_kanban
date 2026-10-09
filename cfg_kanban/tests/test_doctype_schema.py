@@ -943,6 +943,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Start Dispatch Scanning", logistics_panel)
         self.assertIn("Recently Completed", logistics_panel)
         self.assertIn("Done — Clear Screen", logistics_panel)
+        self.assertIn("Scan / Change Operator", logistics_panel)
         self.assertIn("options?.restore && TERMINAL_STATES.has", logistics_panel)
         self.assertIn("def remove_dispatch_tag", logistics)
         self.assertIn("Manifest Dispatch Selection Removed", logistics)
@@ -953,6 +954,13 @@ class TestDocTypeSchema(TestCase):
             self.assertIn("sync_session_from_storage", panel)
             self.assertIn("stored_token ===", panel)
         self.assertIn("Refresh Operator Session", operator_panel)
+
+        card_controller = (APP_ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_card" /
+                           "cfg_kanban_card.py").read_text()
+        card_form = (APP_ROOT / "public" / "js" / "cfg_kanban_card.js").read_text()
+        self.assertIn("Service identity cards cannot use a Kanban Master", card_controller)
+        self.assertIn('("Purchase Replenishment", "Transfer", "Withdrawal")', card_controller)
+        self.assertIn("Task Schedule is not required", card_form)
 
     def test_card_and_cycle_capture_company_snapshot(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

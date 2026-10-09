@@ -75,6 +75,11 @@ much* to produce. Card Type decides *what a scan does*.
 | Location Card | Finds open standalone Service Tasks for one location text | Never | Location Reference; no Master required |
 | Task Card | Finds open standalone Service Tasks from one Task Schedule | Never | Task Schedule; no Master required |
 
+A Purchase Replenishment, Transfer, or Withdrawal Master uses a **Physical Unit Card** or
+**Physical Batch Card**. It never requires a Task Schedule. A **Task Card** is a separate service
+identity whose QR is resolved in the **Service Task Panel**; it does not trigger stock movement and
+must not be linked to a Kanban Master.
+
 A Process/Station card is a reusable runtime allocation tool. It filters Job Cards by the Card Item,
 Master Company, Card Operation, submitted Kanban-controlled Work Order, remaining Job Card demand,
 and available upstream input. A Station Kanban adds an exact Workstation match. The system recommends
@@ -623,7 +628,7 @@ Complete:
 | Eligible Workstation (`workstation`) | Required only for Station Kanban |
 | Asset (`asset`) | Required only for Asset Card |
 | Location Reference (`location_reference`) | Required only for Location Card |
-| Task Schedule (`task_schedule`) | Required only for Task Card |
+| Task Schedule (`task_schedule`) | Required only for a standalone service Task Card; leave it out of Purchase, Transfer, and Withdrawal cards |
 | Active (`active`) | Yes |
 | Revision (`revision`) | Start with 1 |
 
@@ -2403,6 +2408,10 @@ after a later page reload. Select **Done — Clear Screen** on a completed Manif
 by default and contains only the latest 10 authorized terminal-state Manifests; clearing the screen
 does not delete this audit history. Older history remains accessible by scanning a Stock Tag,
 scanning/entering the Manifest number, or using the normal Desk list.
+
+The prominent **Scan / Change Operator** action makes the next credential scan replace the active
+operator identity. Its larger touch target is used both in the active-operator banner and the
+Logistics toolbar; it does not end or alter the current Manifest.
 
 An unused **Draft** or **Prepared** Manifest can be cancelled by an override-authorized operator
 with a reason; prepared physical-tag reservations are released. For a Card-triggered Transfer, this

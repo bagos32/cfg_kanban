@@ -90,7 +90,9 @@ Create **CFG Kanban Master**:
 | Internal Logistics Route | Direct Transfer route above |
 | Automation Level | Approval for the first test |
 
-Create an active **CFG Kanban Card** for this Master with Card Number `MOVE-RAW-20`.
+Create an active **CFG Kanban Card** for this Master with Card Number `MOVE-RAW-20` and **Card
+Type = Physical Batch Card**. Do not select Task Card or Task Schedule; those belong only to the
+standalone Service Task workflow.
 
 Open the saved Card and verify **Print Card with QR** is visible. Printing must retain the current QR
 identity, increment Print Count, and label the output **STOCK TRANSFER**. **Replace Card Identity** is

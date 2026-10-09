@@ -9,15 +9,25 @@ frappe.ui.form.on("CFG Kanban Card", {
 		frm.set_value("operation", null);
 		if (!frm.doc.kanban_master) return;
 		frappe.db.get_value("CFG Kanban Master", frm.doc.kanban_master,
-			["item_code", "stock_uom", "replenishment_qty", "source_warehouse", "destination_warehouse"])
-			.then(({ message }) => frm.set_value({
+			["item_code", "stock_uom", "replenishment_qty", "source_warehouse", "destination_warehouse", "control_type"])
+			.then(async ({ message }) => {
+				const stock_control = ["Purchase Replenishment", "Transfer", "Withdrawal"].includes(message.control_type);
+				if (stock_control && !["Physical Unit Card", "Physical Batch Card"].includes(frm.doc.card_type)) {
+					await frm.set_value("card_type", "Physical Batch Card");
+					frappe.show_alert({
+						message: __("{0} uses a physical stock-control card; Task Schedule is not required.", [message.control_type]),
+						indicator: "blue",
+					});
+				}
+				return frm.set_value({
 				item_code: message.item_code,
 				stock_uom: message.stock_uom,
 				kanban_qty: frm.doc.kanban_qty || message.replenishment_qty,
 				source_warehouse: message.source_warehouse,
 				destination_warehouse: message.destination_warehouse,
 				current_warehouse: frm.doc.current_warehouse || message.destination_warehouse,
-			}));
+				});
+			});
 	},
 	operation(frm) {
 		if (!frm.doc.kanban_master || !frm.doc.operation) {
@@ -40,6 +50,15 @@ frappe.ui.form.on("CFG Kanban Card", {
 		frm.set_df_property("operation", "reqd", required);
 		if (frm.doc.card_type !== "Station Kanban" && frm.doc.workstation) {
 			frm.set_value("workstation", null);
+		}
+		if (frm.doc.card_type !== "Task Card" && frm.doc.task_schedule) {
+			frm.set_value("task_schedule", null);
+		}
+		if (!production && frm.doc.kanban_master) {
+			frappe.show_alert({
+				message: __("Service identity cards do not use a Kanban Master. Select a physical card for stock control."),
+				indicator: "orange",
+			});
 		}
 	},
 	refresh(frm) {

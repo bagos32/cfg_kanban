@@ -80,6 +80,14 @@
 .cfg-logistics-line { padding: 12px 4px; border-bottom: 1px solid var(--border-color); }
 .cfg-logistics-docs, .cfg-logistics-actions { flex-wrap: wrap; margin-top: 14px; }
 .cfg-logistics-actions .btn, .cfg-logistics-toolbar .btn { min-height: 44px; font-weight: 700; }
+.cfg-logistics-identity .cfg-change-operator,
+.cfg-logistics-toolbar .cfg-change-operator {
+	min-height: 48px;
+	padding-left: 18px;
+	padding-right: 18px;
+	font-weight: 700;
+	white-space: nowrap;
+}
 .cfg-logistics-docs { justify-content: space-between; }
 .cfg-logistics-toolbar { flex-wrap: wrap; }
 .cfg-logistics-list-row { width: 100%; display: flex; justify-content: space-between; text-align: left; margin-bottom: 8px; color: var(--text-color); }
@@ -181,6 +189,7 @@
 	.cfg-logistics-scan-row .camera-scan { width: 100%; min-height: 52px; font-size: 16px; }
 	.cfg-logistics-identity, .cfg-logistics-route { align-items: stretch; }
 	.cfg-logistics-toolbar .btn { flex: 1 1 45%; }
+	.cfg-logistics-toolbar .cfg-change-operator { flex-basis: 55%; }
 	.cfg-logistics-docs { display: grid; }
 	.cfg-logistics-actions { display: grid; grid-template-columns: 1fr; }
 	.cfg-logistics-actions .btn { width: 100%; min-height: 50px; }

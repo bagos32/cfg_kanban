@@ -57,13 +57,16 @@ Create **CFG Kanban Master** with:
 | Automation Level (`automation_level`) | Approval |
 | Submit Material Issue on Operator Confirmation (`auto_submit_withdrawal_stock_entry`) | No |
 
-Save, then create one normal **CFG Kanban Card** for this Master and note its Card Number.
+Save, then create one **CFG Kanban Card** for this Master with **Card Type = Physical Batch Card**
+and note its Card Number. Do not select Task Card or Task Schedule; Withdrawal is a stock-control
+workflow, not a scheduled service task.
 
 Expected:
 
 - Destination Warehouse and Internal Logistics Route are blank.
 - Master saves without BOM/operation profiles.
 - Card is active and Available.
+- Task Schedule is not requested or stored on the Card.
 
 ## C. Approval-mode positive flow, untagged ERP stock
 
