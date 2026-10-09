@@ -1,6 +1,6 @@
 {
  "doctype":"DocType","name":"CFG Kanban Material Trace Policy","module":"CFG Kanban","autoname":"MTP-.#####","title_field":"item_code","track_changes":1,
- "search_fields":"item_code,company,trace_level","field_order":["enabled","company","item_code","trace_level","stage_section","receiving_tag_policy","production_input_tag_policy","production_output_tag_policy","control_section","require_batch","allow_partial_tag_quantity","notes"],
+ "search_fields":"item_code,company,trace_level","field_order":["enabled","company","item_code","trace_level","stage_section","receiving_tag_policy","production_input_tag_policy","production_output_tag_policy","warehouse_transfer_tag_policy","control_section","require_batch","allow_partial_tag_quantity","notes"],
  "fields":[
   {"fieldname":"enabled","label":"Enabled","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1},
   {"fieldname":"company","label":"Company","fieldtype":"Link","options":"Company","reqd":1,"in_list_view":1,"in_standard_filter":1},
@@ -10,6 +10,7 @@
   {"fieldname":"receiving_tag_policy","label":"Purchase Receiving Tags","fieldtype":"Select","options":"No Physical Tag\nOptional Physical Tag\nRequired Physical Tag","default":"No Physical Tag","reqd":1,"in_list_view":1},
   {"fieldname":"production_input_tag_policy","label":"Production Input Tags","fieldtype":"Select","options":"No Physical Tag\nOptional Physical Tag\nRequired Physical Tag","default":"No Physical Tag","reqd":1},
   {"fieldname":"production_output_tag_policy","label":"Production Output Tags","fieldtype":"Select","options":"No Physical Tag\nOptional Physical Tag\nRequired Physical Tag","default":"No Physical Tag","reqd":1},
+  {"fieldname":"warehouse_transfer_tag_policy","label":"Warehouse Transfer Tags","fieldtype":"Select","options":"No Physical Tag\nOptional Physical Tag\nRequired Physical Tag","default":"No Physical Tag","reqd":1,"description":"Controls whether same-Company Transfer Kanban movements use ordinary ERP stock, optional Stock Tags, or mandatory Stock Tags."},
   {"fieldname":"control_section","label":"Quantity and Batch Controls","fieldtype":"Section Break"},
   {"fieldname":"require_batch","label":"Require Batch on Tagged Quantity","fieldtype":"Check","default":"0","description":"Use only when the Item must carry a Batch before a physical tag can be activated."},
   {"fieldname":"allow_partial_tag_quantity","label":"Allow Receipt Quantity Across Multiple Tags","fieldtype":"Check","default":"1","description":"Allows one ERP receipt/output row to be divided across several physical containers without exceeding its confirmed stock quantity."},

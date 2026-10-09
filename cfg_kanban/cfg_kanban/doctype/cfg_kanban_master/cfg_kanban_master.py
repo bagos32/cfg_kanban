@@ -30,6 +30,24 @@ class CFGKanbanMaster(Document):
                 # before comparing so a valid purchase Master can be saved.
                 if flt(self.get(fieldname)) < 0:
                     frappe.throw(f"{label} cannot be negative")
+        if self.control_type == "Transfer":
+            if not self.source_warehouse or not self.destination_warehouse or not self.logistics_route:
+                frappe.throw(
+                    "Source Warehouse, Destination Warehouse, and Internal Logistics Route "
+                    "are required for Transfer control"
+                )
+            route = frappe.get_doc("CFG Kanban Logistics Route", self.logistics_route)
+            if route.route_type != "Internal Warehouse Transfer":
+                frappe.throw("Transfer Masters require an Internal Warehouse Transfer route")
+            expected = (self.company, self.source_warehouse, self.company,
+                        self.destination_warehouse)
+            actual = (route.source_company, route.source_warehouse,
+                      route.destination_company, route.destination_warehouse)
+            if actual != expected:
+                frappe.throw(
+                    "The Internal Logistics Route Company and Warehouses must exactly match "
+                    "the Kanban Master"
+                )
         sequences = [row.sequence for row in self.operation_profiles]
         if len(sequences) != len(set(sequences)):
             frappe.throw("Operation profile sequences must be unique")

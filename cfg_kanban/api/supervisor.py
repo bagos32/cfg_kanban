@@ -7,7 +7,7 @@ SUPERVISOR_ROLES = {
     "Manufacturing Manager", "Purchase Manager", "Stock Manager", "System Manager"
 }
 SIGNAL_APPROVAL_ROLES = {
-    "Manufacturing Manager", "Purchase Manager", "System Manager"
+    "Manufacturing Manager", "Purchase Manager", "Stock Manager", "System Manager"
 }
 ACTIONABLE_SIGNAL_STATUSES = ("Waiting Approval", "Validated", "Failed", "Blocked")
 
@@ -115,6 +115,8 @@ def _signal_actions(limit):
             "approval_action": (
                 (master.get("purchase_execution_mode") or "Material Request Only")
                 if row.signal_type == "Purchase Replenishment"
+                else "Release Internal Transfer"
+                if row.signal_type == "Transfer Replenishment"
                 else "Create Work Order"
             ),
         })

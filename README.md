@@ -26,6 +26,8 @@ The accepted-return physical-stock continuation is
 [Package D2C Return Stock Disposition System Test](docs/TEST_PACKAGE_D2C_RETURN_STOCK_DISPOSITION.md).
 The end-of-route physical count and ERP variance continuation is
 [Package D3 Route Reconciliation System Test](docs/TEST_PACKAGE_D3_ROUTE_RECONCILIATION.md).
+The same-Company warehouse replenishment continuation is
+[Package L1 Transfer Kanban System Test](docs/TEST_PACKAGE_L1_TRANSFER_KANBAN.md).
 Package A identity/configuration, Package B intercompany handover, Package C1 customer/vehicle
 session foundation, Package C2A customer tagged-stock reservation, and Package C2B controlled
 customer Delivery Note posting are implemented. Package D1 adds policy-controlled proof of delivery,
@@ -138,6 +140,11 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
   accepted-return stock is handled separately by D2C through quantity-conserving disposition splits,
   Draft ERPNext Material Receipt preparation, submission/cancellation feedback, and no-stock
   controlled disposal.
+- Transfer Kanban cards now release same-Company warehouse replenishment into the mobile Logistics
+  Operator Panel. Explicit Internal Warehouse Transfer routes create native ERPNext Material
+  Transfer Stock Entries in Direct or Goods-in-Transit mode; optional physical tags, untagged ERP
+  stock, cycle/card completion, and cancellation safeguards all remain subordinate to submitted ERP
+  stock documents.
 
 ## Control flow
 

@@ -34,7 +34,7 @@
    "fieldname": "command_type",
    "label": "Command Type",
    "fieldtype": "Select",
-   "options": "Create Work Order\nSubmit Work Order\nCreate Material Request\nCreate Purchase Order\nCreate Purchase Receipt\nCreate Intercompany Delivery Note\nCreate Intercompany Purchase Receipt\nCreate Customer Delivery Note\nCreate Correction Return Delivery Note\nCreate Customer Credit Return\nCreate Customer Return Material Receipt\nStart Job Card\nPause Job Card\nResume Job Card\nUpdate Job Card\nComplete Job Card\nCreate Stock Entry\nCancel Signal and Rollback",
+   "options": "Create Work Order\nSubmit Work Order\nCreate Material Request\nCreate Purchase Order\nCreate Purchase Receipt\nCreate Intercompany Delivery Note\nCreate Intercompany Purchase Receipt\nCreate Internal Transfer Dispatch\nCreate Internal Transfer Receipt\nCreate Customer Delivery Note\nCreate Correction Return Delivery Note\nCreate Customer Credit Return\nCreate Customer Return Material Receipt\nStart Job Card\nPause Job Card\nResume Job Card\nUpdate Job Card\nComplete Job Card\nCreate Stock Entry\nCancel Signal and Rollback",
    "reqd": 1,
    "in_list_view": 1,
    "in_standard_filter": 1

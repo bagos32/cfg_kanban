@@ -8,7 +8,7 @@ CARD_TRANSITIONS = {
     "Available": {"Consumed", "Inactive", "Blocked"},
     "Consumed": {"Signal Created", "Production Released", "Blocked"},
     "Signal Created": {"Replenishment Requested", "Blocked"},
-    "Replenishment Requested": {"Production Released", "Purchase Ordered", "Partially Received", "Receipt Exception", "Received", "Blocked"},
+    "Replenishment Requested": {"Production Released", "Purchase Ordered", "Partially Received", "Receipt Exception", "Received", "In Transit", "Blocked"},
     "Purchase Ordered": {"Partially Received", "Receipt Exception", "Received", "Blocked"},
     "Partially Received": {"Purchase Ordered", "Receipt Exception", "Received", "Blocked"},
     "Receipt Exception": {"Purchase Ordered", "Partially Received", "Received", "Blocked"},

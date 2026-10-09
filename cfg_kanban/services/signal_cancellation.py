@@ -2,6 +2,8 @@ import frappe
 from frappe.utils import flt, now_datetime
 
 from cfg_kanban.services.events import record
+from cfg_kanban.services.idempotency import canonical_key
+from cfg_kanban.services.logistics_foundation import post_quantity_event
 
 
 def cancel_and_rollback(signal_name, reason):
@@ -21,6 +23,7 @@ def cancel_and_rollback(signal_name, reason):
         signal.erp_reference_name if signal.erp_reference_doctype == "Work Order" else None
     )
     _assert_no_purchase_activity(cycle)
+    _cancel_transfer_manifest(cycle, signal, reason)
     _assert_no_production_activity(cycle, work_order_name)
     if work_order_name and frappe.db.exists("Work Order", work_order_name):
         work_order = frappe.get_doc("Work Order", work_order_name)
@@ -108,3 +111,56 @@ def _assert_no_purchase_activity(cycle):
         frappe.throw("This Signal has an effective Purchase Order. Cancel or close the ERPNext Purchase "
                      "Order first, then reconcile the Kanban Cycle; automatic rollback stops here to "
                      "protect purchasing history.")
+
+
+def _cancel_transfer_manifest(cycle, signal, reason):
+    manifest_name = cycle.get("movement_manifest")
+    if not manifest_name:
+        return
+    manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
+    if manifest.state == "Cancelled":
+        return
+    if manifest.state not in ("Draft", "Prepared"):
+        frappe.throw(
+            f"Transfer Manifest {manifest.name} is {manifest.state}. Use controlled logistics "
+            "recovery; the Signal cannot be rolled back automatically."
+        )
+    if (manifest.dispatch_delivery_note or manifest.receipt_purchase_receipt
+            or manifest.dispatch_stock_entry or manifest.receipt_stock_entry):
+        frappe.throw(
+            f"Transfer Manifest {manifest.name} already has an ERP document and requires "
+            "controlled logistics recovery."
+        )
+    if manifest.state == "Prepared":
+        for line in manifest.lines:
+            if not line.handling_unit:
+                continue
+            unit = frappe.get_doc("CFG Kanban Handling Unit", line.handling_unit)
+            if not flt(unit.reserved_qty):
+                continue
+            post_quantity_event(
+                event_type="Unreserve",
+                qty=min(flt(line.dispatch_qty), flt(unit.reserved_qty)),
+                stock_uom=line.stock_uom,
+                idempotency_key=canonical_key(
+                    "signal-transfer-cancel-unreserve", signal.name, line.name
+                ),
+                source_handling_unit=line.handling_unit,
+                item_code=line.item_code,
+                batch_no=line.batch_no,
+                source_company=manifest.source_company,
+                source_warehouse=manifest.source_warehouse,
+                reference_doctype=signal.doctype,
+                reference_name=signal.name,
+                reason=reason,
+            )
+    manifest.db_set({
+        "state": "Cancelled",
+        "cancelled_on": now_datetime(),
+        "cancellation_reason": reason,
+    }, update_modified=True)
+    cycle.db_set("transfer_status", "Cancelled", update_modified=False)
+    frappe.db.set_value(
+        "CFG Kanban Manifest Line", {"parent": manifest.name}, "state", "Cancelled",
+        update_modified=False,
+    )

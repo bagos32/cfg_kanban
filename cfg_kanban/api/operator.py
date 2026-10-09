@@ -437,7 +437,7 @@ def _runtime_close_readiness(execution, work_order, job_card):
 
 @frappe.whitelist()
 def approve_signal(signal_name):
-    frappe.only_for(("Manufacturing Manager", "Purchase Manager", "System Manager"))
+    frappe.only_for(("Manufacturing Manager", "Purchase Manager", "Stock Manager", "System Manager"))
     signal = frappe.get_doc("CFG Kanban Signal", signal_name)
     if signal.status == "Completed":
         return {"signal": signal.name, "command": signal.command, "duplicate": True}
@@ -446,6 +446,11 @@ def approve_signal(signal_name):
     assert_gate_open(signal.kanban_cycle, "Before Cycle Start")
     signal.db_set({"status": "Validated", "validated_on": now_datetime()})
     master = frappe.get_doc("CFG Kanban Master", signal.kanban_master)
+    if master.control_type == "Transfer":
+        from cfg_kanban.services.internal_transfer import create_transfer_manifest
+        manifest = create_transfer_manifest(signal.name)
+        return {"signal": signal.name, "manifest": manifest.name,
+                "erp_document": None, "duplicate": False}
     command = (create_material_request_command(signal.name)
                if master.control_type == "Purchase Replenishment"
                else create_work_order_command(signal.name))

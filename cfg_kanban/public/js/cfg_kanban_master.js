@@ -11,6 +11,14 @@ frappe.ui.form.on("CFG Kanban Master", {
 			query: "cfg_kanban.api.form_queries.master_operations",
 			filters: { kanban_master: frm.doc.name || "" },
 		}));
+		frm.set_query("logistics_route", () => ({ filters: {
+			route_type: "Internal Warehouse Transfer",
+			source_company: frm.doc.company || "",
+			destination_company: frm.doc.company || "",
+			source_warehouse: frm.doc.source_warehouse || "",
+			destination_warehouse: frm.doc.destination_warehouse || "",
+			active: 1,
+		} }));
 	},
 	item_code(frm) {
 		if (!frm.doc.item_code) return;

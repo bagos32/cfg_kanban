@@ -43,7 +43,7 @@
   {"fieldname":"state_section","label":"Lifecycle","fieldtype":"Section Break"},
   {"fieldname":"state","label":"Legacy Scan State","fieldtype":"Select","options":"Issued\nAttached\nDispatched\nReceived\nVoid\nReplaced","default":"Issued","read_only":1,"in_standard_filter":1},
   {"fieldname":"identity_state","label":"Identity State","fieldtype":"Select","options":"Unused\nActive\nEmpty\nVoid\nReplaced","default":"Active","read_only":1,"in_list_view":1,"in_standard_filter":1},
-  {"fieldname":"movement_state","label":"Movement State","fieldtype":"Select","options":"At Source\nPacked\nReserved\nLoaded\nIntercompany Transit\nReceived\nDelivered\nReturned\nQuarantined\nEmpty","default":"At Source","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"movement_state","label":"Movement State","fieldtype":"Select","options":"At Source\nPacked\nReserved\nLoaded\nInternal Transit\nIntercompany Transit\nReceived\nDelivered\nReturned\nQuarantined\nEmpty","default":"At Source","read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"quality_state","label":"Quality State","fieldtype":"Select","options":"Released\nHold\nQuarantined\nRejected","default":"Released","read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"quantity_section","label":"Ledger Balance Cache","fieldtype":"Section Break"},
   {"fieldname":"original_qty","label":"Original Activated Qty","fieldtype":"Float","default":"0","read_only":1},

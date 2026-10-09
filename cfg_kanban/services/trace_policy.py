@@ -24,6 +24,7 @@ def effective_trace_policy(item_code, company):
         "receiving_tag_policy": NO_TAG,
         "production_input_tag_policy": NO_TAG,
         "production_output_tag_policy": NO_TAG,
+        "warehouse_transfer_tag_policy": NO_TAG,
         "require_batch": 0,
         "allow_partial_tag_quantity": 1,
     })

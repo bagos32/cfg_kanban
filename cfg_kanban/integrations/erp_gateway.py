@@ -288,6 +288,131 @@ def build_intercompany_delivery_note(manifest, payload, command=None, validate_r
     return delivery_note
 
 
+@handler("Create Internal Transfer Dispatch")
+def create_internal_transfer_dispatch(command, payload):
+    manifest = frappe.get_doc("CFG Kanban Movement Manifest", command.movement_manifest)
+    existing = frappe.db.get_value(
+        "Stock Entry",
+        {"cfg_movement_manifest": manifest.name,
+         "cfg_transfer_stage": ["in", ["Direct", "Outward"]],
+         "docstatus": ["<", 2]},
+        "name",
+    )
+    if existing:
+        entry = frappe.get_doc("Stock Entry", existing)
+        if payload.get("submit") and entry.docstatus == 0:
+            entry.submit()
+            entry.reload()
+        return entry
+    entry = build_internal_transfer_stock_entry(manifest, payload, command=command)
+    entry.insert(ignore_permissions=True)
+    manifest.db_set("dispatch_stock_entry", entry.name, update_modified=False)
+    _link_internal_transfer_details(entry)
+    if payload.get("submit"):
+        entry.submit()
+        entry.reload()
+    entry._cfg_command_result = {
+        "doctype": entry.doctype, "name": entry.name, "docstatus": entry.docstatus,
+        "manifest": manifest.name, "stage": payload["stage"],
+    }
+    return entry
+
+
+@handler("Create Internal Transfer Receipt")
+def create_internal_transfer_receipt(command, payload):
+    manifest = frappe.get_doc("CFG Kanban Movement Manifest", command.movement_manifest)
+    existing = frappe.db.get_value(
+        "Stock Entry",
+        {"cfg_movement_manifest": manifest.name, "cfg_transfer_stage": "Receipt",
+         "docstatus": ["<", 2]},
+        "name",
+    )
+    if existing:
+        entry = frappe.get_doc("Stock Entry", existing)
+        if payload.get("submit") and entry.docstatus == 0:
+            entry.submit()
+            entry.reload()
+        return entry
+    entry = build_internal_transfer_stock_entry(manifest, payload, command=command)
+    entry.insert(ignore_permissions=True)
+    manifest.db_set("receipt_stock_entry", entry.name, update_modified=False)
+    _link_internal_transfer_details(entry)
+    if payload.get("submit"):
+        entry.submit()
+        entry.reload()
+    entry._cfg_command_result = {
+        "doctype": entry.doctype, "name": entry.name, "docstatus": entry.docstatus,
+        "manifest": manifest.name, "stage": "Receipt",
+    }
+    return entry
+
+
+def build_internal_transfer_stock_entry(manifest, payload, command=None):
+    """Build the native ERPNext Material Transfer behind an internal Manifest."""
+    stage = payload["stage"]
+    source = (manifest.transit_warehouse if stage == "Receipt"
+              else manifest.source_warehouse)
+    destination = (manifest.destination_warehouse if stage in ("Direct", "Receipt")
+                   else manifest.transit_warehouse)
+    items = []
+    for row in manifest.lines:
+        outgoing_detail = None
+        if stage == "Receipt":
+            outgoing_detail = frappe.db.get_value(
+                "Stock Entry Detail",
+                {"parent": manifest.dispatch_stock_entry, "cfg_manifest_line": row.name},
+                "name",
+            )
+            if not outgoing_detail:
+                frappe.throw(
+                    f"Outward Stock Entry row is missing for Manifest line {row.name}"
+                )
+        items.append({
+            "item_code": row.item_code,
+            "qty": row.dispatch_qty,
+            "uom": row.stock_uom,
+            "stock_uom": row.stock_uom,
+            "conversion_factor": 1,
+            "transfer_qty": row.dispatch_qty,
+            "s_warehouse": source,
+            "t_warehouse": destination,
+            "batch_no": row.batch_no,
+            "against_stock_entry": manifest.dispatch_stock_entry if stage == "Receipt" else None,
+            "ste_detail": outgoing_detail,
+            "cfg_handling_unit": row.handling_unit,
+            "cfg_manifest_line": row.name,
+        })
+    entry = frappe.get_doc({
+        "doctype": "Stock Entry",
+        "stock_entry_type": "Material Transfer",
+        "purpose": "Material Transfer",
+        "company": manifest.source_company,
+        "from_warehouse": source,
+        "to_warehouse": destination,
+        "add_to_transit": 1 if stage == "Outward" else 0,
+        "outgoing_stock_entry": (manifest.dispatch_stock_entry if stage == "Receipt" else None),
+        "cfg_kanban_controlled": 1,
+        "cfg_kanban_cycle": manifest.kanban_cycle,
+        "cfg_kanban_signal": manifest.source_signal,
+        "cfg_logistics_route": manifest.logistics_route,
+        "cfg_movement_manifest": manifest.name,
+        "cfg_transfer_stage": stage,
+        "items": items,
+    })
+    entry.set_missing_values()
+    apply_required_erp_inputs(entry, payload.get("required_erp_inputs"))
+    return entry
+
+
+def _link_internal_transfer_details(entry):
+    for row in entry.items:
+        if row.get("cfg_manifest_line"):
+            frappe.db.set_value(
+                "CFG Kanban Manifest Line", row.cfg_manifest_line,
+                "stock_entry_detail", row.name, update_modified=False,
+            )
+
+
 @handler("Create Customer Delivery Note")
 def create_customer_delivery_note(command, payload):
     delivery = frappe.get_doc("CFG Kanban Delivery Session", command.delivery_session)

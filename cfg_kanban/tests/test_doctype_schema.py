@@ -516,7 +516,7 @@ class TestDocTypeSchema(TestCase):
             ["ERP Document Only", "Batch Pool", "Exact Handling Unit"],
         )
         for fieldname in ("receiving_tag_policy", "production_input_tag_policy",
-                          "production_output_tag_policy"):
+                          "production_output_tag_policy", "warehouse_transfer_tag_policy"):
             self.assertEqual(
                 policy[fieldname]["options"].splitlines(),
                 ["No Physical Tag", "Optional Physical Tag", "Required Physical Tag"],
@@ -659,7 +659,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("INTERNAL_TRANSFER_RESPONSIBILITY", logistics_api)
         self.assertIn("def _internal_transfer_summaries(", logistics_api)
         self.assertIn('"internal_transfers": _internal_transfer_summaries(profile)', logistics_api)
-        self.assertIn("Same-Company Tagged Warehouse Transfers", logistics_panel)
+        self.assertIn("Manual Material Transfer Fallback", logistics_panel)
         self.assertIn("Tagged Warehouse Transfer", logistics_panel)
         self.assertIn("Internal Warehouse Transfer", install)
 
@@ -731,6 +731,52 @@ class TestDocTypeSchema(TestCase):
                           schemas["CFG ERP Command"]["fields"]}
         self.assertEqual(command_fields["command_type"].get("reqd"), 1)
         self.assertFalse(command_fields["kanban_cycle"].get("reqd", 0))
+
+    def test_internal_transfer_kanban_uses_controlled_stock_entries(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        route = {row["fieldname"]: row for row in
+                 schemas["CFG Kanban Logistics Route"]["fields"]}
+        self.assertIn("Internal Warehouse Transfer", route["route_type"]["options"])
+        self.assertEqual(
+            route["internal_transfer_mode"]["options"].splitlines(),
+            ["Direct Transfer", "Goods in Transit"],
+        )
+        master = {row["fieldname"]: row for row in schemas["CFG Kanban Master"]["fields"]}
+        self.assertEqual(master["logistics_route"]["options"], "CFG Kanban Logistics Route")
+        manifest = {row["fieldname"]: row for row in
+                    schemas["CFG Kanban Movement Manifest"]["fields"]}
+        self.assertTrue({
+            "manifest_type", "kanban_cycle", "source_signal", "internal_transfer_mode",
+            "dispatch_stock_entry", "receipt_stock_entry", "auto_submit_internal_dispatch",
+            "auto_submit_internal_receipt",
+        }.issubset(manifest))
+        line = {row["fieldname"]: row for row in
+                schemas["CFG Kanban Manifest Line"]["fields"]}
+        self.assertEqual(
+            line["line_kind"]["options"].splitlines(),
+            ["Tagged Stock", "ERP Stock without Physical Tag"],
+        )
+        commands = next(row for row in schemas["CFG ERP Command"]["fields"]
+                        if row["fieldname"] == "command_type")["options"].splitlines()
+        self.assertIn("Create Internal Transfer Dispatch", commands)
+        self.assertIn("Create Internal Transfer Receipt", commands)
+
+        gateway = (APP_ROOT / "integrations" / "erp_gateway.py").read_text()
+        feedback = (APP_ROOT / "integrations" / "logistics_feedback.py").read_text()
+        logistics = (APP_ROOT / "api" / "logistics.py").read_text()
+        triggers = (APP_ROOT / "services" / "triggers.py").read_text()
+        self.assertIn('stock_entry_type": "Material Transfer"', gateway)
+        self.assertIn('"add_to_transit": 1 if stage == "Outward" else 0', gateway)
+        self.assertIn('"outgoing_stock_entry"', gateway)
+        self.assertIn("def validate_internal_stock_entry", feedback)
+        self.assertIn("def on_internal_stock_entry_submit", feedback)
+        self.assertIn('{"Outward", "Receipt"}', feedback)
+        self.assertIn("def create_transfer_manifest", (APP_ROOT / "services" /
+                                                        "internal_transfer.py").read_text())
+        self.assertIn('master.control_type == "Transfer"', triggers)
+        self.assertIn("ERP Stock without Physical Tag", logistics)
+        self.assertIn("def trigger_transfer_card", logistics)
+        self.assertIn("def _receipt_retry_available", logistics)
 
     def test_customer_delivery_session_foundation_is_company_scoped(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

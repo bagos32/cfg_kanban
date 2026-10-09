@@ -294,7 +294,7 @@ Open **CFG Kanban Master → New** and complete:
 | Company (`company`) | Your company | Must match BOM and warehouses |
 | Item (`item_code`) | Finished Item | Item controlled by the loop |
 | BOM (`bom`) | Active BOM | Required for production Work Orders |
-| Control Type (`control_type`) | Production | Options: Production, Withdrawal, Transfer |
+| Control Type (`control_type`) | Production | Production creates Work Orders; Purchase Replenishment creates buying demand; Transfer creates a same-Company Movement Manifest; Withdrawal is reserved for controlled stock-use development |
 | Card Representation (`card_representation`) | Batch | Options: Unit, Batch, Container |
 | Replenishment Qty (`replenishment_qty`) | 400 | Nominal quantity represented by a card |
 | Stock UOM (`stock_uom`) | Nos | Item/BOM stock unit |
@@ -1954,7 +1954,8 @@ end without changing ERP stock. Billing Batch grouping remains a later increment
 
 ### CFG Kanban Logistics Route
 
-Create one directional route for each permitted company pair. Exact fields include **Route Name**
+Create one directional route for each permitted movement. Select **Route Type** (`route_type`) as
+**Intercompany Handover** or **Internal Warehouse Transfer**. Exact fields include **Route Name**
 (`route_name`), **Active** (`active`), **Source Company** (`source_company`), **Source Warehouse**
 (`source_warehouse`), optional **Transit Warehouse** (`transit_warehouse`), **Destination Company**
 (`destination_company`), **Destination Warehouse** (`destination_warehouse`), **Internal Customer**
@@ -1962,12 +1963,15 @@ Create one directional route for each permitted company pair. Exact fields inclu
 (`internal_supplier`), **Buying Price List** (`buying_price_list`), **Handover Mode**
 (`handover_mode`), **Auto-submit Dispatch Delivery Note** (`auto_submit_dispatch_dn`), **Auto-submit
 Receipt Purchase Receipt** (`auto_submit_receipt_pr`), **Billing Frequency**
-(`billing_frequency`), and the three Responsibility links.
+(`billing_frequency`), and the three Responsibility links. Internal routes instead expose
+**Internal Transfer Posting Mode** (`internal_transfer_mode`: Direct Transfer or Goods in Transit),
+**Auto-submit Internal Dispatch Stock Entry** (`auto_submit_internal_dispatch`), and
+**Auto-submit Internal Receipt Stock Entry** (`auto_submit_internal_receipt`).
 
-The form rejects same-Company routes, Warehouses belonging to the wrong Company, and Price Lists
-that are not enabled for the required selling/buying direction. The two auto-submit settings are
-independent: one controls the source Delivery Note and the other controls the destination Purchase
-Receipt.
+Intercompany routes require different Companies, the internal Customer/Supplier and both Price
+Lists. Internal Warehouse Transfer routes require the same Company and never require those parties
+or Price Lists. All route types reject Warehouses belonging to the wrong Company. For internal
+**Goods in Transit**, the Transit Warehouse is mandatory and must differ from both endpoints.
 
 ### CFG Kanban Customer Scan Point
 
@@ -2400,6 +2404,65 @@ ERP cancellation/recovery. Movement Manifests are audit records and cannot be de
 does not itself load a lorry or perform later intercompany billing. Customer Delivery Notes are
 created separately from a confirmed Package C2 Delivery Session as described above.
 
+### Transfer Kanban — same-Company Warehouse replenishment
+
+Use this workflow when one Company replenishes stock from one Warehouse to another. It is separate
+from intercompany handover and separate from customer delivery.
+
+Configuration:
+
+1. Create **CFG Kanban Logistics Route** with **Route Type** (`route_type`) = **Internal Warehouse
+   Transfer**. Set the same source and destination Company, the exact source/destination Warehouses,
+   dispatch/receipt Responsibilities, and choose **Direct Transfer** or **Goods in Transit**.
+2. For Goods in Transit, set a same-Company Warehouse whose ERPNext **Warehouse Type** is
+   **Transit**. Direct Transfer does not need one.
+3. Create **CFG Kanban Master** with **Control Type** (`control_type`) = **Transfer**, the Item,
+   card quantity, source/destination Warehouses, and **Internal Logistics Route**
+   (`logistics_route`). The form requires the route Company/Warehouses to match exactly.
+4. Configure **Warehouse Transfer Tags** (`warehouse_transfer_tag_policy`) on the Item/Company
+   material-trace policy. **No Physical Tag** creates one ERP-stock Manifest line. **Optional
+   Physical Tag** lets the operator either scan tags or select **Use ERP Stock Without Tags** before
+   preparation. **Required Physical Tag** permits only active Stock Tag scans.
+5. Create the Cards normally and assign logistics operators the route Responsibilities.
+
+Operation:
+
+1. In **Logistics Operator Panel**, scan the Transfer Card and select **Trigger Transfer Card**.
+   Automatic Masters create the Manifest immediately; Approval Masters wait in the Supervisor
+   Signal panel for **Release Internal Transfer**. The operator does not need ERPNext Desk access.
+2. In **Logistics Operator Panel**, scan the same Card or open its Movement Manifest from the open
+   list. The Card scan is read-only and shows the exact linked Manifest.
+3. If physical tags are used, choose **Start Dispatch Scanning** and scan only the correct Item tags.
+   The prepared total must equal the Card/Cycle quantity. With No Physical Tag, the planned ERP-stock row
+   is already present and ERPNext Warehouse availability is checked during preparation.
+4. Stop scanning and select **Prepare and Reserve**. Tagged lines are reserved in the Kanban ledger;
+   untagged lines remain ERPNext stock and are not given a fictional tag.
+5. Select **Confirm Dispatch**. CFG Kanban creates a native ERPNext **Material Transfer Stock Entry**.
+   If auto-submit is off, an authorized ERP user reviews and submits the draft. Kanban does not claim
+   movement from a draft document.
+6. **Direct Transfer:** submitted Stock Entry feedback moves each tag to the destination, marks the
+   Manifest Received, completes the Cycle, and recycles the Card.
+7. **Goods in Transit:** the submitted outward Stock Entry moves tagged units to the Transit
+   Warehouse and changes the Manifest/Card to in transit. At destination, rescan every physical tag
+   (untagged ERP stock needs confirmation but no fictional scan), then **Confirm Receipt**. The linked
+   receipt Stock Entry uses ERPNext's outgoing Stock Entry reference. Only its submission completes
+   the Manifest/Cycle and recycles the Card.
+
+Safety rules:
+
+- Internal routes never ask for Internal Customer, Internal Supplier, Price List, Delivery Note, or
+  Purchase Receipt.
+- A card-linked Manifest accepts only its Cycle Item and cannot exceed its planned quantity.
+- Untagged Card transfer is limited to non-batch, non-serial Items because the Card alone cannot
+  identify the exact ERP batch/serial stock. Use Required Physical Tags for exact identity, or the
+  manual ERPNext Material Transfer fallback when native batch/serial selection is required.
+- A submitted controlled Stock Entry cannot be cancelled directly; use controlled recovery so the
+  ERP stock ledger and physical-tag ledger cannot diverge.
+- A Draft/Prepared Transfer Manifest and its Signal may be cancelled with a reason before any ERP
+  document exists; tagged reservations are released and audit history is preserved.
+- The older **Same-Company Tagged Warehouse Transfer** Stock Entry assistant remains a manual
+  fallback for movements that did not originate from a Transfer Kanban Card.
+
 ## 26. Guidance rules for another LLM
 
 When using this file as context, an assistant must:
@@ -2436,6 +2499,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.34 | 9 October 2026 | Added Transfer Kanban release into Logistics Movement Manifests, explicit internal versus intercompany route modes, direct and Goods-in-Transit Material Transfer Stock Entries, optional no-tag ERP-stock lines, ERP-submission feedback, Card/Cycle completion, cancellation safeguards, and scan-card Manifest lookup |
 | 1.33 | 9 October 2026 | Separated physical supplier delivery from usable purchase fulfilment, added rejected-warehouse disposition records, replacement/return reconciliation, validated concession transfers, controlled short close, Receipt Exception lifecycle and Card-release protection |
 | 1.32 | 4 October 2026 | Added independent accepted-return physical disposition with quantity-conserving splits, Company/Warehouse/rate validation, controlled Draft Material Receipt, no-stock disposal, draft discard, ERP submit/cancel feedback, and combined accounting-plus-stock closure |
 | 1.31 | 4 October 2026 | Added accountant-only post-QC source/no-credit decisions, same-Company/Customer and remaining-quantity validation, idempotent non-stock Draft Sales Invoice Return preparation, ERPNext-owned tax/e-Invoice submission, submit/cancel feedback and controlled replacement revision |

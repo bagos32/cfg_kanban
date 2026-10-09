@@ -3,7 +3,7 @@
 **Architecture version:** 1.0  
 **Decision status:** Locked baseline  
 **Decision date:** 30 September 2026  
-**Implementation status:** Package A, Package B intercompany handover, Packages C1-C2B customer delivery, Package D1 proof/closure, Package D2A controlled return intake plus QC disposition, Package D2B accountant-controlled Draft Sales Invoice Return, Package D2C accepted-return ERP stock disposition, and Package D3 end-of-route reconciliation are implemented; customer invoicing and Package E remain approved future scope
+**Implementation status:** Package A, Package B intercompany handover, Packages C1-C2B customer delivery, Package D1 proof/closure, Package D2A controlled return intake plus QC disposition, Package D2B accountant-controlled Draft Sales Invoice Return, Package D2C accepted-return ERP stock disposition, Package D3 end-of-route reconciliation, and Package L1 same-Company Transfer Kanban are implemented; customer invoicing and Package E remain approved future scope
 
 This document is the source of truth for CFG Kanban stock-tag logistics across sister companies,
 company-specific vehicle warehouses, customer-site delivery, and delayed intercompany billing. It
@@ -505,8 +505,10 @@ constraint. Existing DocTypes are extended; they are not rebuilt.
 The immutable quantity ledger is authoritative over cached quantities.
 
 `CFG Kanban Card` and `CFG Kanban Cycle` gain immutable Company snapshots where required for
-existing production/transfer traceability. Logistics movements do not overload Production Cycles;
-they use Movement Manifest and Delivery Session aggregates.
+existing production/transfer traceability. Customer and intercompany logistics do not overload
+Production Cycles; they use Movement Manifest and Delivery Session aggregates. A Transfer Kanban
+Cycle intentionally links to exactly one Internal Warehouse Transfer Manifest so the reusable Card
+can request, display, and close its native ERPNext stock movement without becoming the stock record.
 
 `CFG ERP Command` gains controlled command types for creating/submitting:
 
@@ -582,6 +584,21 @@ next unsafe action. Recovery may retry, cancel where ERPNext legally permits, cr
 amendment, or require supervisor reconciliation. It never deletes submitted audit history.
 
 ## 18. Implementation packages
+
+### Package L1 — Same-Company Transfer Kanban (implemented)
+
+- A `Transfer` Master binds one Item, source Warehouse, destination Warehouse, and an explicit
+  `Internal Warehouse Transfer` route belonging to the same Company.
+- The mobile Logistics panel resolves and triggers the Card without requiring the operator to use
+  ERPNext Desk.
+- One Cycle owns one idempotent Movement Manifest and exact replenishment quantity.
+- Direct mode creates one native ERPNext Material Transfer Stock Entry. Goods-in-Transit mode uses
+  ERPNext's native outgoing/incoming Stock Entry relationship and a Warehouse of type `Transit`.
+- Item/Company trace policy independently selects No, Optional, or Required physical tags. Untagged
+  quantities remain ERP Bin stock; tagged quantities add physical identity and genealogy without
+  replacing ERP stock.
+- Submitted Stock Entries alone complete stock movement and recycle the Card. Draft documents stay
+  visibly pending; destructive cancellation after ERP posting is blocked for controlled recovery.
 
 ### Package A — Foundation and migration (implemented)
 

@@ -203,6 +203,208 @@ def on_purchase_receipt_cancel(doc, method=None):
     )
 
 
+def validate_internal_stock_entry(doc):
+    """Protect the immutable movement plan behind a Kanban-controlled Stock Entry."""
+    manifest = frappe.get_doc("CFG Kanban Movement Manifest", doc.cfg_movement_manifest)
+    if manifest.manifest_type != "Internal Warehouse Transfer":
+        frappe.throw("A Movement Manifest Stock Entry requires an Internal Warehouse Transfer route")
+    if doc.company != manifest.source_company or manifest.source_company != manifest.destination_company:
+        frappe.throw("Internal transfer Stock Entry Company does not match the Manifest")
+    stage = doc.get("cfg_transfer_stage")
+    allowed_stages = ({"Outward", "Receipt"}
+                      if manifest.internal_transfer_mode == "Goods in Transit"
+                      else {"Direct"})
+    if stage not in allowed_stages:
+        frappe.throw(
+            "Internal transfer stage must remain " + " or ".join(sorted(allowed_stages))
+        )
+    if stage == "Receipt" and (
+        not manifest.dispatch_stock_entry
+        or frappe.db.get_value("Stock Entry", manifest.dispatch_stock_entry, "docstatus") != 1
+    ):
+        frappe.throw("Receipt requires its submitted outward Stock Entry")
+    expected_source = manifest.transit_warehouse if stage == "Receipt" else manifest.source_warehouse
+    expected_destination = (
+        manifest.destination_warehouse if stage in ("Direct", "Receipt")
+        else manifest.transit_warehouse
+    )
+    manifest_rows = {row.name: row for row in manifest.lines}
+    if len(doc.items) != len(manifest_rows):
+        frappe.throw("Stock Entry rows must match the controlled Movement Manifest")
+    seen = set()
+    for item in doc.items:
+        line = manifest_rows.get(item.get("cfg_manifest_line"))
+        if not line or line.name in seen:
+            frappe.throw("Stock Entry contains an item outside the controlled Movement Manifest")
+        seen.add(line.name)
+        if (item.item_code != line.item_code
+                or item.s_warehouse != expected_source
+                or item.t_warehouse != expected_destination
+                or abs(flt(item.transfer_qty or item.qty) - flt(line.dispatch_qty)) > 0.000001
+                or (item.batch_no or None) != (line.batch_no or None)):
+            frappe.throw(f"Stock Entry row for {line.item_code} no longer matches the Manifest")
+        if stage == "Receipt":
+            outward_detail = frappe.db.get_value(
+                "Stock Entry Detail",
+                {"parent": manifest.dispatch_stock_entry, "cfg_manifest_line": line.name},
+                "name",
+            )
+            if (item.against_stock_entry != manifest.dispatch_stock_entry
+                    or item.ste_detail != outward_detail):
+                frappe.throw(
+                    f"Receipt row for {line.item_code} must remain linked to its outward Stock Entry row"
+                )
+
+
+def on_internal_stock_entry_submit(doc):
+    manifest = frappe.get_doc("CFG Kanban Movement Manifest", doc.cfg_movement_manifest)
+    stage = doc.cfg_transfer_stage
+    validate_internal_stock_entry(doc)
+    if stage == "Direct":
+        _post_internal_direct(manifest, doc)
+    elif stage == "Outward":
+        _post_internal_outward(manifest, doc)
+    elif stage == "Receipt":
+        _post_internal_receipt(manifest, doc)
+    else:
+        frappe.throw(f"Unsupported internal transfer stage {stage}")
+
+
+def on_internal_stock_entry_cancel(doc):
+    manifest = frappe.get_doc("CFG Kanban Movement Manifest", doc.cfg_movement_manifest)
+    frappe.throw(
+        f"Stock Entry {doc.name} is controlled by Movement Manifest {manifest.name}. "
+        "Use the Kanban controlled recovery workflow instead of cancelling it directly."
+    )
+
+
+def _post_internal_direct(manifest, doc):
+    for line in manifest.lines:
+        _unreserve_manifest_line(manifest, line, doc, "direct")
+        _post_tag_location(manifest, line, doc, manifest.source_warehouse,
+                           manifest.destination_warehouse, "internal-direct")
+        _finish_internal_line(line, manifest.destination_warehouse)
+    _update_manifest_containers(
+        manifest, inventory_company=manifest.destination_company,
+        current_warehouse=manifest.destination_warehouse, movement_state="Received",
+        state="Received",
+    )
+    manifest.db_set({
+        "dispatch_stock_entry": doc.name, "state": "Received",
+        "total_received_quantity": manifest.total_quantity,
+    }, update_modified=True)
+    if manifest.kanban_cycle:
+        frappe.db.set_value("CFG Kanban Cycle", manifest.kanban_cycle, {
+            "transfer_dispatch_stock_entry": doc.name,
+            "transfer_receipt_stock_entry": doc.name,
+        }, update_modified=False)
+    from cfg_kanban.services.internal_transfer import complete_transfer_cycle
+    complete_transfer_cycle(manifest, "Stock Entry", doc.name)
+    record("Internal Transfer Posted", movement_manifest=manifest.name,
+           previous_state="Dispatch Document Pending", new_state="Received",
+           qty=manifest.total_quantity, reference_doctype="Stock Entry", reference_name=doc.name)
+
+
+def _post_internal_outward(manifest, doc):
+    for line in manifest.lines:
+        _post_tag_location(manifest, line, doc, manifest.source_warehouse,
+                           manifest.transit_warehouse, "internal-outward")
+        if line.handling_unit:
+            frappe.db.set_value("CFG Kanban Handling Unit", line.handling_unit, {
+                "current_warehouse": manifest.transit_warehouse,
+                "movement_state": "Internal Transit", "state": "Dispatched",
+                "last_scan_time": now_datetime(),
+            }, update_modified=False)
+        frappe.db.set_value("CFG Kanban Manifest Line", line.name, "state", "In Transit",
+                            update_modified=False)
+    _update_manifest_containers(
+        manifest, current_warehouse=manifest.transit_warehouse,
+        movement_state="Internal Transit", state="Dispatched",
+    )
+    manifest.db_set({"dispatch_stock_entry": doc.name, "state": "Awaiting Receipt"},
+                    update_modified=True)
+    from cfg_kanban.services.internal_transfer import mark_transfer_in_transit
+    mark_transfer_in_transit(manifest, doc)
+    record("Internal Transfer Outward Posted", movement_manifest=manifest.name,
+           previous_state="Dispatch Document Pending", new_state="Awaiting Receipt",
+           qty=manifest.total_quantity, reference_doctype="Stock Entry", reference_name=doc.name)
+
+
+def _post_internal_receipt(manifest, doc):
+    if not manifest.dispatch_stock_entry or frappe.db.get_value(
+        "Stock Entry", manifest.dispatch_stock_entry, "docstatus"
+    ) != 1:
+        frappe.throw("The outward transit Stock Entry must remain submitted")
+    for line in manifest.lines:
+        _unreserve_manifest_line(manifest, line, doc, "receipt")
+        _post_tag_location(manifest, line, doc, manifest.transit_warehouse,
+                           manifest.destination_warehouse, "internal-receipt")
+        _finish_internal_line(line, manifest.destination_warehouse)
+    _update_manifest_containers(
+        manifest, current_warehouse=manifest.destination_warehouse,
+        movement_state="Received", state="Received",
+    )
+    manifest.db_set({
+        "receipt_stock_entry": doc.name, "state": "Received",
+        "total_received_quantity": manifest.total_quantity,
+    }, update_modified=True)
+    if manifest.kanban_cycle:
+        frappe.db.set_value("CFG Kanban Cycle", manifest.kanban_cycle,
+                            "transfer_receipt_stock_entry", doc.name, update_modified=False)
+    from cfg_kanban.services.internal_transfer import complete_transfer_cycle
+    complete_transfer_cycle(manifest, "Stock Entry", doc.name)
+    record("Internal Transfer Receipt Posted", movement_manifest=manifest.name,
+           previous_state="Receipt Document Pending", new_state="Received",
+           qty=manifest.total_quantity, reference_doctype="Stock Entry", reference_name=doc.name)
+
+
+def _unreserve_manifest_line(manifest, line, doc, suffix):
+    if not line.handling_unit:
+        return
+    unit = frappe.get_doc("CFG Kanban Handling Unit", line.handling_unit)
+    if not flt(unit.reserved_qty):
+        return
+    post_quantity_event(
+        event_type="Unreserve", qty=min(flt(line.dispatch_qty), flt(unit.reserved_qty)),
+        stock_uom=line.stock_uom,
+        idempotency_key=canonical_key("manifest-internal-unreserve", suffix,
+                                      manifest.name, line.name),
+        source_handling_unit=line.handling_unit, item_code=line.item_code,
+        batch_no=line.batch_no, source_company=manifest.source_company,
+        source_warehouse=unit.current_warehouse,
+        reference_doctype="Stock Entry", reference_name=doc.name,
+        reason="Submitted internal Material Transfer",
+    )
+
+
+def _post_tag_location(manifest, line, doc, source, destination, suffix):
+    if not line.handling_unit:
+        return
+    post_quantity_event(
+        event_type="Location Transfer", qty=line.dispatch_qty, stock_uom=line.stock_uom,
+        idempotency_key=canonical_key("manifest-internal-location", suffix,
+                                      manifest.name, line.name),
+        source_handling_unit=line.handling_unit, item_code=line.item_code,
+        batch_no=line.batch_no, source_company=manifest.source_company,
+        destination_company=manifest.destination_company, source_warehouse=source,
+        destination_warehouse=destination,
+        reference_doctype="Stock Entry", reference_name=doc.name,
+        reason="Submitted internal Material Transfer",
+    )
+
+
+def _finish_internal_line(line, destination_warehouse):
+    if line.handling_unit:
+        frappe.db.set_value("CFG Kanban Handling Unit", line.handling_unit, {
+            "current_warehouse": destination_warehouse,
+            "movement_state": "Received", "state": "Received",
+            "last_scan_time": now_datetime(),
+        }, update_modified=False)
+    frappe.db.set_value("CFG Kanban Manifest Line", line.name, {
+        "state": "Received", "received_qty": line.dispatch_qty,
+    }, update_modified=False)
+
+
 def _raise_manifest_exception(manifest, exception_type, message, reference_doctype,
                               reference_name):
     exception = frappe.get_doc({
