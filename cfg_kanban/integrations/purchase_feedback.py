@@ -1,8 +1,5 @@
 import frappe
-from frappe.utils import flt, now_datetime
-
-from cfg_kanban.services.events import record
-from cfg_kanban.services.state_machine import set_cycle_state, transition_card
+from frappe.utils import now_datetime
 
 
 def on_purchase_order_submit(doc, method=None):
@@ -26,9 +23,15 @@ def on_purchase_receipt_submit(doc, method=None):
     if doc.get("cfg_movement_manifest"):
         from cfg_kanban.integrations.logistics_feedback import on_purchase_receipt_submit as logistics_submit
         logistics_submit(doc, method)
-    cycle_name = doc.get("cfg_kanban_cycle")
+    from cfg_kanban.services.purchase_disposition import (
+        ensure_receipt_dispositions, receipt_cycle,
+    )
+    cycle_name = receipt_cycle(doc)
     if not cycle_name:
         return
+    if not doc.get("cfg_kanban_cycle"):
+        doc.db_set("cfg_kanban_cycle", cycle_name, update_modified=False)
+    ensure_receipt_dispositions(doc)
     _refresh_receipt_state(cycle_name, doc.name)
 
 
@@ -60,43 +63,5 @@ def on_purchase_receipt_cancel(doc, method=None):
 
 
 def _refresh_receipt_state(cycle_name, latest_receipt):
-    cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
-    po = frappe.get_doc("Purchase Order", cycle.purchase_order)
-    row = next((item for item in po.items if item.name == cycle.get("purchase_order_item")), None)
-    if not row:
-        return
-    po.reload()
-    row = next(item for item in po.items if item.name == cycle.get("purchase_order_item"))
-    received = flt(row.received_qty)
-    outstanding = max(flt(row.qty) - received, 0)
-    conversion_factor = flt(row.conversion_factor or 1)
-    ordered_stock = flt(row.stock_qty) or flt(row.qty) * conversion_factor
-    received_stock = received * conversion_factor
-    outstanding_stock = max(ordered_stock - received_stock, 0)
-    complete = outstanding <= 0.000001
-    purchase_status = "Received" if complete else ("Partially Received" if received else "Ordered")
-    cycle.db_set({"latest_purchase_receipt": latest_receipt,
-                  "purchase_uom": row.uom,
-                  "purchase_uom_conversion_factor": conversion_factor,
-                  "ordered_purchase_qty": row.qty,
-                  "ordered_stock_qty": ordered_stock,
-                  "received_purchase_qty": received,
-                  "received_stock_qty": received_stock,
-                  "outstanding_purchase_qty": outstanding,
-                  "outstanding_stock_qty": outstanding_stock,
-                  "received_qty": received, "outstanding_qty": outstanding,
-                  "purchase_status": purchase_status})
-    set_cycle_state(cycle, "Completed" if complete else purchase_status,
-                    event_type="Purchase Receipt Posted",
-                    reference_doctype="Purchase Receipt", reference_name=latest_receipt)
-    if cycle.kanban_card:
-        card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card)
-        target = "Received" if complete else ("Partially Received" if received else "Purchase Ordered")
-        transition_card(card, target, event_type="Purchase Receipt Posted", cycle=cycle.name)
-        if complete:
-            transition_card(card, "Available", event_type="Purchase Kanban Card Recycled",
-                            cycle=cycle.name)
-            card.db_set("active_cycle", None, update_modified=False)
-            cycle.db_set("completed_on", now_datetime())
-    record("Purchase Receipt Reconciled", card=cycle.kanban_card, cycle=cycle.name,
-           qty=received, reference_doctype="Purchase Receipt", reference_name=latest_receipt)
+    from cfg_kanban.services.purchase_disposition import reconcile_purchase_cycle
+    return reconcile_purchase_cycle(cycle_name, latest_receipt)

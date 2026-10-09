@@ -1856,9 +1856,45 @@ The operational sequence is:
    serial-controlled, or incoming-inspection items deliberately remain Draft until their standard
    ERPNext batch/serial/Quality Inspection information is completed. **Require Supervisor Approval**
    also creates a Draft.
-7. Only a submitted Purchase Receipt updates ERPNext stock. Partial receipt leaves the Cycle and
-   Card active as **Partially Received**. Full receipt completes the Cycle and recycles the Card to
-   **Available**. Purchase Invoice and payment remain the later ERPNext accounts workflow.
+7. Only a submitted Purchase Receipt updates ERPNext stock. Kanban separates physical delivery
+   from usable replenishment: **Physically Received Qty** includes accepted and rejected material,
+   while **Usable Fulfilment Qty** includes accepted material plus a later approved concession.
+   Partial usable fulfilment leaves the Cycle and Card active as **Partially Received**. A receipt
+   with rejected material becomes **Receipt Exception** and the Card does not recycle merely because
+   ERPNext marks the PO physically received. Purchase Invoice and payment remain the later ERPNext
+   accounts workflow.
+
+### Rejected supplier material and usable completion
+
+A non-zero **Rejected Qty** posts that stock into the Master's **Rejected Warehouse** through the
+same submitted ERPNext Purchase Receipt. It does not mean the material was returned to the supplier
+and it does not create a supplier credit. The app creates one **CFG Kanban Receipt Disposition** per
+rejected Purchase Receipt row. Open it from the Cycle with **Purchase Replenishment → Open Receipt
+Dispositions** and record one controlled decision:
+
+- **Supplier Replacement**: create and submit ERPNext's Purchase Return from the rejected warehouse.
+  The returned quantity reopens native PO receipt capacity; receive the replacement against the same
+  controlled Cycle. The Cycle completes only when cumulative accepted replacement reaches the usable
+  order quantity.
+- **Supplier Credit / Return**: use the native Purchase Return for physical stock and let Accounts
+  create the applicable Debit Note/Purchase Invoice Return. Do not update stock twice in the Debit
+  Note when the Purchase Return already removed it.
+- **Accept by Concession**: first submit a native Material Transfer Stock Entry from the exact
+  Rejected Warehouse to the Cycle's Destination Warehouse. Then choose **Confirm Concession
+  Transfer** on the disposition. The app validates Item, source, destination and quantity before
+  adding the concession to usable fulfilment.
+- **Scrap / Dispose**: move or dispose of the rejected stock through the applicable submitted native
+  ERP document. Disposal does not satisfy the replenishment shortage.
+- **Short Close**: a Purchase/Stock/Manufacturing/System Manager may use **Short-close Usable
+  Shortage** on the Cycle with a mandatory reason. This releases only the replenishment shortage;
+  it never moves rejected stock and never creates a supplier credit. Any open physical disposition
+  remains visible until its native stock action is resolved.
+
+Use **Refresh Receipt Result** after correcting or posting native ERP return/transfer documents.
+The Cycle displays the exact labels **Accepted Qty (Purchase UOM)**, **Rejected Qty Awaiting Physical
+Disposition**, **Approved Concession Qty**, **Usable Fulfilment Qty**, **Supervisor Short-closed
+Qty**, and **Receipt Disposition Status**. Only usable fulfilment plus authorised short-close can
+complete the purchase Cycle and recycle its reusable Card.
 
 ### Tablet receiving at the warehouse
 
@@ -2400,6 +2436,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.33 | 9 October 2026 | Separated physical supplier delivery from usable purchase fulfilment, added rejected-warehouse disposition records, replacement/return reconciliation, validated concession transfers, controlled short close, Receipt Exception lifecycle and Card-release protection |
 | 1.32 | 4 October 2026 | Added independent accepted-return physical disposition with quantity-conserving splits, Company/Warehouse/rate validation, controlled Draft Material Receipt, no-stock disposal, draft discard, ERP submit/cancel feedback, and combined accounting-plus-stock closure |
 | 1.31 | 4 October 2026 | Added accountant-only post-QC source/no-credit decisions, same-Company/Customer and remaining-quantity validation, idempotent non-stock Draft Sales Invoice Return preparation, ERPNext-owned tax/e-Invoice submission, submit/cancel feedback and controlled replacement revision |
 | 1.30 | 4 October 2026 | Replaced the draft return concept with two practical floor workflows: Customer Return for QC from a Customer Site without prior DN/invoice, optional customer acknowledgement, private timestamped/geotagged evidence, printable/scannable Temporary Return Note, QC receipt/disposition and accounting-pending handoff; plus exact submitted-DN correction through a controlled Return Delivery Note with invoiced-DN safety hold |

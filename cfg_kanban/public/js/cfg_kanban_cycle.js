@@ -53,6 +53,34 @@ frappe.ui.form.on("CFG Kanban Cycle", {
 				}, __("Receive against {0}", [context.purchase_order]), __("Create Purchase Receipt"));
 				}, __("Purchase Replenishment"));
 			}
+			frm.add_custom_button(__("Refresh Receipt Result"), async () => {
+				await frappe.call({ method: "cfg_kanban.api.purchase.refresh_receipt_disposition",
+					args: { cycle_name: frm.doc.name }, freeze: true,
+					freeze_message: __("Reconciling submitted Purchase Receipts and returns...") });
+				frm.reload_doc();
+			}, __("Purchase Replenishment"));
+			if (frm.doc.receipt_disposition_status === "Open") {
+				frm.add_custom_button(__("Open Receipt Dispositions"), () => {
+					frappe.route_options = { kanban_cycle: frm.doc.name };
+					frappe.set_route("List", "CFG Kanban Receipt Disposition");
+				}, __("Purchase Replenishment"));
+			}
+			if ((frm.doc.outstanding_purchase_qty || 0) > 0 &&
+				["Manufacturing Manager", "Purchase Manager", "Stock Manager", "System Manager"]
+					.some((role) => frappe.user_roles.includes(role))) {
+				frm.add_custom_button(__("Short-close Usable Shortage"), () => {
+					frappe.prompt([
+						{ fieldname: "warning", fieldtype: "HTML", options: `<div class="alert alert-warning">${__("This releases the purchase Kanban card without receiving the remaining usable quantity. It does not remove rejected stock from its warehouse or create a supplier credit.")}</div>` },
+						{ fieldname: "qty", label: __("Short-close Qty ({0})", [frm.doc.purchase_uom]), fieldtype: "Float", reqd: 1, default: frm.doc.outstanding_purchase_qty },
+						{ fieldname: "reason", label: __("Supervisor Reason"), fieldtype: "Small Text", reqd: 1 },
+					], async (values) => {
+						await frappe.call({ method: "cfg_kanban.api.purchase.short_close_purchase_cycle",
+							args: { cycle_name: frm.doc.name, qty: values.qty, reason: values.reason },
+							freeze: true, freeze_message: __("Applying controlled short close...") });
+						frm.reload_doc();
+					}, __("Short-close Purchase Replenishment"), __("Confirm Short Close"));
+				}, __("Purchase Replenishment"));
+			}
 		}
 		if (frm.doc.purchase_status && !frm.doc.purchase_order &&
 			["Manufacturing Manager", "Purchase Manager", "System Manager"].some((role) => frappe.user_roles.includes(role))) {

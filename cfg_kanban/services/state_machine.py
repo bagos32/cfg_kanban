@@ -8,15 +8,16 @@ CARD_TRANSITIONS = {
     "Available": {"Consumed", "Inactive", "Blocked"},
     "Consumed": {"Signal Created", "Production Released", "Blocked"},
     "Signal Created": {"Replenishment Requested", "Blocked"},
-    "Replenishment Requested": {"Production Released", "Purchase Ordered", "Partially Received", "Received", "Blocked"},
-    "Purchase Ordered": {"Partially Received", "Received", "Blocked"},
-    "Partially Received": {"Purchase Ordered", "Received", "Blocked"},
+    "Replenishment Requested": {"Production Released", "Purchase Ordered", "Partially Received", "Receipt Exception", "Received", "Blocked"},
+    "Purchase Ordered": {"Partially Received", "Receipt Exception", "Received", "Blocked"},
+    "Partially Received": {"Purchase Ordered", "Receipt Exception", "Received", "Blocked"},
+    "Receipt Exception": {"Purchase Ordered", "Partially Received", "Received", "Blocked"},
     "Received": {"Available", "Blocked"},
     "Production Released": {"In Production", "Blocked"},
     "In Production": {"Produced", "Blocked"},
     "Produced": {"In Transit", "Available", "Blocked"},
     "In Transit": {"Available", "Blocked"},
-    "Blocked": {"Available", "Consumed", "Signal Created", "Replenishment Requested", "Purchase Ordered", "Partially Received", "Production Released", "In Production"},
+    "Blocked": {"Available", "Consumed", "Signal Created", "Replenishment Requested", "Purchase Ordered", "Partially Received", "Receipt Exception", "Production Released", "In Production"},
 }
 
 

@@ -184,6 +184,13 @@ def receive_supplier_purchase(cycle_name, delivered_qty, accepted_qty, rejected_
         warehouse=context["warehouse"], rejected_warehouse=context.get("rejected_warehouse"),
         supplier_delivery_note=supplier_delivery_note, event_token=event_token,
     )
+    result["rejected_qty"] = flt(rejected_qty)
+    if result.get("docstatus") == 1 and flt(rejected_qty) > 0:
+        result["receipt_dispositions"] = frappe.get_all(
+            "CFG Kanban Receipt Disposition",
+            filters={"kanban_cycle": cycle_name, "purchase_receipt": result["purchase_receipt"]},
+            pluck="name",
+        )
     record("Supplier Receipt Confirmed at Logistics Panel", card=context.get("kanban_card"),
            cycle=cycle_name, qty=accepted_qty, reference_doctype="Purchase Receipt",
            reference_name=result["purchase_receipt"], operator=profile.employee,
@@ -197,7 +204,7 @@ def receive_supplier_purchase(cycle_name, delivered_qty, accepted_qty, rejected_
 def _pending_supplier_receipts(warehouse, cycle_name=None):
     filters = {
         "destination_warehouse": warehouse,
-        "purchase_status": ["in", ("Ordered", "Partially Received")],
+        "purchase_status": ["in", ("Ordered", "Partially Received", "Receipt Exception")],
         "blocked": 0,
     }
     if cycle_name:

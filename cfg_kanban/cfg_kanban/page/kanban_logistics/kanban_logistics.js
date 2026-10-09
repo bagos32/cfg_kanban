@@ -736,7 +736,11 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				dialog.hide();
 				const result = response.message || {};
 				if (result.docstatus === 1) {
-					frappe.show_alert({ message: __("Purchase Receipt submitted"), indicator: "green" }, 8);
+					if ((result.rejected_qty || 0) > 0) {
+						frappe.show_alert({ message: __("Purchase Receipt submitted with {0} rejected. Keep it in the configured Rejected Warehouse; supervisor disposition is now open.", [result.rejected_qty]), indicator: "orange" }, 12);
+					} else {
+						frappe.show_alert({ message: __("Purchase Receipt submitted"), indicator: "green" }, 8);
+					}
 					open_supplier_tagging(result.purchase_receipt);
 				} else {
 					frappe.msgprint({ title: __("ERP Completion Required"), indicator: "orange",

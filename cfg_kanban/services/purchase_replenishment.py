@@ -224,6 +224,9 @@ def receipt_context(cycle_name):
     row = next((item for item in po.items if item.name == cycle.get("purchase_order_item")), None)
     if not row:
         frappe.throw("The selected Purchase Order item row no longer exists")
+    # ERPNext records physical delivery, including rejected material, in
+    # Purchase Order Item.received_qty. A submitted rejected-material Purchase
+    # Return contributes negative received_qty and therefore reopens capacity.
     outstanding = max(flt(row.qty) - flt(row.received_qty), 0)
     factor = flt(row.conversion_factor or 1)
     ordered_stock = flt(row.stock_qty) or flt(row.qty) * factor
@@ -242,7 +245,11 @@ def receipt_context(cycle_name):
             "warehouse": master.destination_warehouse,
             "rejected_warehouse": master.rejected_warehouse,
             "receipt_posting_mode": master.receipt_posting_mode,
-            "allow_partial_receipt": bool(master.allow_partial_receipt)}
+            "allow_partial_receipt": bool(master.allow_partial_receipt),
+            "usable_fulfilment_qty": flt(cycle.get("usable_fulfilment_purchase_qty")),
+            "usable_outstanding_qty": flt(cycle.get("outstanding_purchase_qty")),
+            "rejected_open_qty": flt(cycle.get("rejected_open_purchase_qty")),
+            "receipt_disposition_status": cycle.get("receipt_disposition_status")}
 
 
 def create_purchase_receipt_command(cycle_name, delivered_qty, accepted_qty, rejected_qty=0,

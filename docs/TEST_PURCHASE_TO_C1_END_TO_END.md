@@ -410,6 +410,35 @@ Company or item; only the submitted Purchase Receipt updates ERP stock and relea
 physical tags cannot exceed submitted accepted stock quantity.
 - A fully received PO row cannot be selected again.
 
+### 9.2 Rejected-warehouse and replacement chronology
+
+Use a separate Cycle ordered for `5 Bag` and configure a valid **Rejected Warehouse**.
+
+1. Receive Delivered `5`, Accepted `3`, Rejected `2`, then submit the Purchase Receipt.
+2. Verify ERPNext added `3 Bag` to the accepted Raw Warehouse and `2 Bag` to the Rejected Warehouse.
+3. Verify the Cycle shows Physically Received `5`, Accepted `3`, rejected/open `2`, usable
+   fulfilment `3`, usable outstanding `2`, status **Receipt Exception**, and the Card remains active.
+4. Open **Purchase Replenishment → Open Receipt Dispositions**. Select **Supplier Replacement** and
+   enter a reason.
+5. From the original submitted Purchase Receipt, create the native Purchase Return for the rejected
+   `2 Bag`, explicitly returning it from the Rejected Warehouse, then submit it.
+6. On the Cycle choose **Refresh Receipt Result**. Verify the disposition records the native return,
+   rejected stock is no longer in the Rejected Warehouse, and replacement remains pending.
+7. Receive the replacement `2 Bag` against the reopened PO/Cycle, accept all `2`, and submit.
+
+Expected: ERPNext documents alone move stock; the first physical delivery does not recycle the Card;
+the Purchase Return reopens replacement receiving; cumulative usable fulfilment reaches `5 Bag` only
+after the replacement receipt; then the Cycle completes and the Card becomes **Available**.
+
+Concession variant: select **Accept by Concession**, submit a Material Transfer Stock Entry moving
+the rejected quantity from the exact Rejected Warehouse to the Cycle Destination Warehouse, then
+use **Confirm Concession Transfer**. A Draft entry, wrong Item, wrong warehouses, or excessive
+quantity must be rejected. The validated concession may satisfy usable fulfilment.
+
+Short-close variant: use **Short-close Usable Shortage** with a manager and mandatory reason. Verify
+the Card is released only for the authorised shortage and that short close neither moves rejected
+stock nor creates a supplier Debit Note. The physical disposition remains auditable.
+
 ## 10. Test Phase D — Activate received raw-material tags
 
 1. Open the submitted Purchase Receipt.

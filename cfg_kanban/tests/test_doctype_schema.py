@@ -78,6 +78,8 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Material Trace Policy")
         self.assertEqual(shortcuts["Material Trace Policies"],
                          "CFG Kanban Material Trace Policy")
+        self.assertEqual(links["Supplier Receipt Dispositions"],
+                         "CFG Kanban Receipt Disposition")
         self.assertEqual(links["Material Genealogy"],
                          "CFG Kanban Material Trace")
         self.assertEqual(links["Material Genealogy Explorer"],
@@ -389,7 +391,19 @@ class TestDocTypeSchema(TestCase):
                          "purchase_uom_conversion_factor", "requested_purchase_qty",
                          "requested_stock_qty", "ordered_purchase_qty", "ordered_stock_qty",
                          "received_purchase_qty", "received_stock_qty",
-                         "outstanding_purchase_qty", "outstanding_stock_qty"}.issubset(cycle))
+                         "outstanding_purchase_qty", "outstanding_stock_qty",
+                         "delivered_purchase_qty", "accepted_purchase_qty",
+                         "rejected_purchase_qty", "rejected_open_purchase_qty",
+                         "concession_purchase_qty", "usable_fulfilment_purchase_qty",
+                         "purchase_short_closed_qty", "receipt_disposition_status"}.issubset(cycle))
+        disposition = {row["fieldname"] for row in
+                       schemas["CFG Kanban Receipt Disposition"]["fields"]}
+        self.assertTrue({"kanban_cycle", "purchase_receipt", "purchase_receipt_item",
+                         "rejected_warehouse", "delivered_qty", "accepted_qty",
+                         "rejected_qty", "returned_rejected_qty", "open_rejected_qty",
+                         "disposition", "status", "resolution_doctype",
+                         "resolution_document", "approved_concession_qty",
+                         "disposed_qty", "decision_reason"}.issubset(disposition))
         commands = next(row for row in schemas["CFG ERP Command"]["fields"]
                         if row["fieldname"] == "command_type")["options"].splitlines()
         self.assertIn("Create Material Request", commands)
