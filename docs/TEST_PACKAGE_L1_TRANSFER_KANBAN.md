@@ -110,6 +110,8 @@ and the Card can be printed without replacing its identity.
    and scan the Card again.
 6. Open the linked Movement Manifest.
 7. Verify it has one line labelled **ERP Stock without Physical Tag** for exactly `20 Nos`.
+   The panel must display **Warehouse Transfer Tags: No Physical Tag** and must not offer
+   **Start Dispatch Scanning**. A physical tag scan is not part of this policy mode.
 8. Select **Prepare Manifest**.
 9. Verify the system checks the ERP source balance and changes the Manifest/Cycle to Prepared.
 10. Select **Confirm Dispatch** and satisfy any genuine ERPNext mandatory input displayed by the

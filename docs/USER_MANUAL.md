@@ -2455,7 +2455,15 @@ Safety rules:
 
 - Internal routes never ask for Internal Customer, Internal Supplier, Price List, Delivery Note, or
   Purchase Receipt.
+- The panel displays the effective **Warehouse Transfer Tags** policy. **No Physical Tag** already
+  represents the complete Card quantity with an `ERP STOCK` line and therefore disables physical
+  tag scanning. To scan existing Stock Tags, configure the exact Item/Company policy as **Optional
+  Physical Tag** or **Required Physical Tag**, cancel the unused Cycle, and trigger a new Card Cycle
+  so its immutable Manifest snapshot follows the corrected policy.
 - A card-linked Manifest accepts only its Cycle Item and cannot exceed its planned quantity.
+- Every scanned Stock Tag moves in full. If its available quantity is greater than the Card's
+  remaining quantity, first split the exact required quantity to another active tag or use a Card
+  quantity matching that complete tag. One physical tag cannot remain in two Warehouses.
 - Untagged Card transfer is limited to non-batch, non-serial Items because the Card alone cannot
   identify the exact ERP batch/serial stock. Use Required Physical Tags for exact identity, or the
   manual ERPNext Material Transfer fallback when native batch/serial selection is required.

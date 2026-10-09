@@ -311,6 +311,10 @@ def get_manifest(manifest_name, operator_session_token):
         result["receipt_document_type"],
         manifest.receipt_stock_entry if internal else manifest.receipt_purchase_receipt,
     ) if result["receipt_document_type"] else None
+    result["transfer_tag_policy"] = _transfer_tag_policy(manifest)
+    result["can_scan_dispatch_tags"] = bool(
+        not manifest.kanban_cycle or result["transfer_tag_policy"] != "No Physical Tag"
+    )
     result["dispatch_retry_available"] = _dispatch_retry_available(manifest)
     result["receipt_retry_available"] = _receipt_retry_available(manifest)
     result["can_use_untagged_stock"] = _can_use_untagged_stock(manifest)
@@ -582,6 +586,14 @@ def scan_dispatch_tag(manifest_name, scan_value, event_token, operator_session_t
     _require_route_responsibility(profile, route.dispatch_responsibility, "dispatch")
     if manifest.state != "Draft":
         frappe.throw("Dispatch tags can only be added while the Manifest is Draft")
+    if manifest.kanban_cycle and _transfer_tag_policy(manifest) == "No Physical Tag":
+        frappe.throw(
+            "This Transfer Card uses ERP stock without physical tags. Its Card quantity is "
+            "already represented by the ERP STOCK Manifest line. To scan Stock Tags, change "
+            "Warehouse Transfer Tags on the Item/Company Material Trace Policy to Optional "
+            "Physical Tag or Required Physical Tag, then cancel this unused Cycle and trigger "
+            "a new one."
+        )
     identity = resolve_logistics_scan(scan_value)
     if not identity:
         frappe.throw("Preprinted Stock Tag was not found")
@@ -606,6 +618,19 @@ def scan_dispatch_tag(manifest_name, scan_value, event_token, operator_session_t
         return get_manifest(manifest.name, operator_session_token)
     _assert_not_in_other_open_manifest(unit.name, manifest.name)
     _assert_erp_stock(unit, manifest.source_warehouse, unit.available_qty)
+    if manifest.kanban_cycle:
+        cycle = frappe.get_doc("CFG Kanban Cycle", manifest.kanban_cycle)
+        selected = sum(flt(row.dispatch_qty) for row in manifest.lines)
+        remaining = max(flt(cycle.planned_qty) - selected, 0)
+        if flt(unit.available_qty) > remaining + 0.000001:
+            frappe.throw(
+                f"Tag {unit.handling_unit_id} contains {unit.available_qty} {unit.stock_uom}, "
+                f"but Transfer Card {cycle.kanban_card} has only {remaining} "
+                f"{cycle.stock_uom} remaining. A physical Stock Tag must move in full because "
+                "one tag cannot remain in two Warehouses. Split the exact required quantity "
+                "to another active tag first, or use a Transfer Card whose quantity matches "
+                "the full tag."
+            )
     if not event_token:
         frappe.throw("A stable scan event token is required")
     event_key = canonical_key("manifest-dispatch-scan", manifest.name, unit.name, event_token)
@@ -1315,10 +1340,17 @@ def _can_use_untagged_stock(manifest):
     if (manifest.manifest_type != "Internal Warehouse Transfer"
             or not manifest.kanban_cycle or manifest.state != "Draft" or manifest.lines):
         return False
+    return _transfer_tag_policy(manifest) != "Required Physical Tag"
+
+
+def _transfer_tag_policy(manifest):
+    """Return the effective Card policy; generic Manifests remain scan-first."""
+    if not manifest.kanban_cycle:
+        return "Manifest Scan"
     cycle = frappe.get_doc("CFG Kanban Cycle", manifest.kanban_cycle)
     from cfg_kanban.services.trace_policy import effective_trace_policy
     policy = effective_trace_policy(cycle.item_code, manifest.source_company)
-    return (policy.get("warehouse_transfer_tag_policy") or "No Physical Tag") != "Required Physical Tag"
+    return policy.get("warehouse_transfer_tag_policy") or "No Physical Tag"
 
 
 def _priced_line(manifest, row, mode):

@@ -138,6 +138,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const receipt_mode = ["Dispatched", "Awaiting Receipt", "Receipt Document Pending"].includes(m.state) || m.receipt_retry_available;
 		const physical_lines = (m.lines || []).filter((row) => row.line_kind !== "ERP Stock without Physical Tag");
 		const receipt_scanned = physical_lines.filter((row) => row.receipt_scanned).length;
+		const tag_policy = m.transfer_tag_policy && m.transfer_tag_policy !== "Manifest Scan" ?
+			`<div class="alert alert-secondary"><strong>${__("Warehouse Transfer Tags")}:</strong> ${e(m.transfer_tag_policy)}</div>` : "";
 		let mode_notice = `<div class="alert alert-info"><strong>${__("View-only lookup")}</strong> · ${__("Scanning a Stock Tag will show its status and will not change this Manifest.")}</div>`;
 		if (state.scan_mode === "dispatch") mode_notice = `<div class="alert alert-warning"><strong>${__("DISPATCH SCANNING ARMED")}</strong> · ${e(m.name)} · ${__("Scanned tags will be added to this Manifest.")}</div>`;
 		if (state.scan_mode === "receipt") mode_notice = `<div class="alert alert-success"><strong>${__("RECEIPT SCANNING ARMED")}</strong> · ${e(m.name)} · ${__("Only tags listed on this Manifest will be accepted.")}</div>`;
@@ -159,7 +161,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				<strong>${e(m.manifest_type || __("Movement Manifest"))} · ${e(m.logistics_route)}</strong></div><span class="indicator-pill ${state_colour(m.state)}">${e(m.state)}</span></div>
 			<div class="cfg-logistics-route"><div><small>${__("FROM")}</small><strong>${e(m.source_company)}</strong><span>${e(m.source_warehouse)}</span></div>
 				<div class="cfg-logistics-arrow">→</div><div><small>${__("TO")}</small><strong>${e(m.destination_company)}</strong><span>${e(m.destination_warehouse)}</span></div></div>
-			${mode_notice}
+			${mode_notice}${tag_policy}
 			${receipt_mode ? `<div class="cfg-logistics-receipt-progress"><strong>${__("Receipt scans: {0} of {1}", [receipt_scanned, physical_lines.length])}</strong><span>${m.can_receive ? (physical_lines.length ? __("Arm Receipt Scanning and scan every physical tag.") : __("This movement uses ERP stock without physical tags; confirm the physical receipt.")) : __("Switch to an operator assigned to the route's Receipt Responsibility.")}</span></div>` : ""}
 			<div class="cfg-logistics-lines">${lines || `<div class="text-muted p-3">${__("No tags scanned")}</div>`}</div>
 			<div class="cfg-logistics-docs"><span>${e(m.dispatch_document_type || __("Dispatch document"))}: <strong>${e(m.dispatch_stock_entry || m.dispatch_delivery_note || __("Not created"))}</strong></span>
@@ -188,7 +190,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const receipt_state = ["Dispatched", "Awaiting Receipt", "Receipt Document Pending"].includes(m.state) || m.receipt_retry_available;
 		const all_received = Boolean(m.lines.length && m.lines.every((row) =>
 			row.line_kind === "ERP Stock without Physical Tag" || row.receipt_scanned));
-		if (m.can_dispatch && m.state === "Draft") {
+		if (m.can_dispatch && m.state === "Draft" && m.can_scan_dispatch_tags !== false) {
 			buttons.push(state.scan_mode === "dispatch" ?
 				`<button class="btn btn-warning stop-scanning">${__("Stop Dispatch Scanning")}</button>` :
 				`<button class="btn btn-primary arm-dispatch">${__("Start Dispatch Scanning")}</button>`);

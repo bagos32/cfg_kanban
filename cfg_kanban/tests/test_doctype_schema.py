@@ -800,8 +800,16 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("ERP Stock without Physical Tag", logistics)
         self.assertIn("def trigger_transfer_card", logistics)
         self.assertIn("def _receipt_retry_available", logistics)
+        self.assertIn("def _transfer_tag_policy", logistics)
+        self.assertIn("A physical Stock Tag must move in full", logistics)
+        self.assertIn("can_scan_dispatch_tags", logistics)
         self.assertIn('frappe.get_meta(doctype).has_field("status")', logistics)
         self.assertIn('1: "Submitted"', logistics)
+
+        panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
+                 "kanban_logistics.js").read_text()
+        self.assertIn("Warehouse Transfer Tags", panel)
+        self.assertIn("m.can_scan_dispatch_tags !== false", panel)
 
     def test_customer_delivery_session_foundation_is_company_scoped(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}
