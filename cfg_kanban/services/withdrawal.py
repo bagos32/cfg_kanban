@@ -20,6 +20,7 @@ from cfg_kanban.services.trace_policy import NO_TAG, effective_trace_policy
 
 WITHDRAWAL_RESPONSIBILITY = "Stock Withdrawal"
 TOLERANCE = 0.000001
+NON_STOCK_TAG_POLICY = "Required Physical Tag - Kanban Operational Inventory"
 
 
 def release_withdrawal(signal_name):
@@ -29,7 +30,9 @@ def release_withdrawal(signal_name):
     if master.control_type != "Withdrawal":
         frappe.throw("Only a Withdrawal Kanban Master can release stock withdrawal")
     policy = effective_trace_policy(master.item_code, master.company)
-    tag_policy = policy.get("stock_withdrawal_tag_policy") or NO_TAG
+    maintains_stock = bool(frappe.db.get_value("Item", master.item_code, "is_stock_item"))
+    tag_policy = ((policy.get("stock_withdrawal_tag_policy") or NO_TAG)
+                  if maintains_stock else NON_STOCK_TAG_POLICY)
     if not cycle.withdrawal_status:
         cycle.db_set({
             "withdrawal_status": "Requested",
@@ -65,11 +68,12 @@ def get_withdrawal(cycle_name, operator_session_token):
         "CFG Kanban Card", cycle.kanban_card, "card_number"
     ) if cycle.kanban_card else None)
     result["selected_qty"] = sum(flt(row.qty) for row in cycle.withdrawal_allocations)
+    result["non_stock_operational_tracking"] = _is_non_stock_operational_cycle(cycle)
     result["remaining_qty"] = max(flt(cycle.planned_qty) - result["selected_qty"], 0)
     result["can_use_untagged_stock"] = bool(
         cycle.withdrawal_status == "Requested"
         and not cycle.withdrawal_allocations
-        and cycle.withdrawal_tag_policy != "Required Physical Tag"
+        and not _requires_physical_tag(cycle.withdrawal_tag_policy)
     )
     result["can_edit_selection"] = cycle.withdrawal_status == "Requested"
     result["can_prepare"] = bool(
@@ -98,7 +102,7 @@ def select_untagged_stock(cycle_name, event_token, operator_session_token):
     cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
     if cycle.withdrawal_status != "Requested" or cycle.withdrawal_allocations:
         frappe.throw("Untagged stock must be selected before adding any Stock Tags")
-    if cycle.withdrawal_tag_policy == "Required Physical Tag":
+    if _requires_physical_tag(cycle.withdrawal_tag_policy):
         frappe.throw("This Item requires physical Stock Tags for withdrawal")
     _assert_untagged_allowed(cycle.item_code)
     key = canonical_key("withdrawal-untagged", cycle.name, event_token or "")
@@ -218,6 +222,8 @@ def get_withdrawal_requirements(cycle_name, operator_session_token):
     cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
     if cycle.withdrawal_status not in ("Prepared", "Exception"):
         frappe.throw(f"Withdrawal cannot post while it is {cycle.withdrawal_status}")
+    if _is_non_stock_operational_cycle(cycle):
+        return {"doctype": None, "fields": [], "non_stock_operational_tracking": True}
     entry = build_withdrawal_stock_entry(cycle, _withdrawal_payload(cycle))
     return {"doctype": "Stock Entry", "fields": get_required_erp_inputs(entry)}
 
@@ -228,8 +234,15 @@ def confirm_withdrawal(cycle_name, event_token, operator_session_token,
     profile, session = require_operator(operator_session_token, "complete")
     _require_responsibility(profile)
     cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
+    if (cycle.withdrawal_status == "Completed"
+            and _is_non_stock_operational_cycle(cycle)):
+        return get_withdrawal(cycle.name, operator_session_token)
     if cycle.withdrawal_status not in ("Prepared", "Exception"):
         frappe.throw(f"Withdrawal cannot post while it is {cycle.withdrawal_status}")
+    if _is_non_stock_operational_cycle(cycle):
+        return _complete_non_stock_withdrawal(
+            cycle, profile, session, event_token, operator_session_token
+        )
     key = canonical_key("kanban-withdrawal", cycle.name)
     payload = _withdrawal_payload(cycle, required_erp_inputs)
     command, created = insert_once(frappe.get_doc({
@@ -345,6 +358,74 @@ def complete_withdrawal(doc):
         card.db_set("active_cycle", None, update_modified=False)
     record("Stock Withdrawal Posted", card=cycle.kanban_card, cycle=cycle.name,
            qty=cycle.planned_qty, reference_doctype="Stock Entry", reference_name=doc.name)
+
+
+def _complete_non_stock_withdrawal(
+    cycle, profile, session, event_token, operator_session_token
+):
+    """Consume tagged operational supply without fabricating ERPNext stock."""
+    if any(not row.handling_unit for row in cycle.withdrawal_allocations):
+        frappe.throw("Non-stock operational withdrawal requires physical Stock Tags")
+    for row in cycle.withdrawal_allocations:
+        unit = frappe.get_doc("CFG Kanban Handling Unit", row.handling_unit)
+        _validate_unit(cycle, unit)
+        ledger = post_quantity_event(
+            event_type="Stock Withdrawal", qty=row.qty, stock_uom=row.stock_uom,
+            idempotency_key=canonical_key("non-stock-withdrawal", cycle.name, row.name),
+            source_handling_unit=row.handling_unit, item_code=row.item_code,
+            batch_no=row.batch_no, source_company=cycle.company,
+            source_warehouse=cycle.source_warehouse, reference_doctype=cycle.doctype,
+            reference_name=cycle.name, operator=profile.employee,
+            operator_session=session.name, reason=cycle.withdrawal_reason,
+            release_reserved=True,
+        )
+        row.consumed_ledger = ledger.name
+        row.state = "Consumed"
+        if flt(frappe.db.get_value(
+            "CFG Kanban Handling Unit", row.handling_unit, "current_qty"
+        )) <= TOLERANCE:
+            frappe.db.set_value("CFG Kanban Handling Unit", row.handling_unit, {
+                "identity_state": "Empty", "movement_state": "Empty",
+            }, update_modified=False)
+    cycle.withdrawal_status = "Completed"
+    cycle.completed_on = now_datetime()
+    cycle.save(ignore_permissions=True)
+    set_cycle_state(cycle, "Completed", event_type="Non-stock Operational Withdrawal Completed",
+                    reference_doctype=cycle.doctype, reference_name=cycle.name)
+    if cycle.signal:
+        frappe.db.set_value("CFG Kanban Signal", cycle.signal, {
+            "status": "Completed", "erp_reference_doctype": cycle.doctype,
+            "erp_reference_name": cycle.name,
+        }, update_modified=True)
+    if cycle.kanban_card:
+        card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card)
+        if card.current_state == "Withdrawal Requested":
+            transition_card(card, "Available", event_type="Withdrawal Card Recycled",
+                            cycle=cycle.name)
+        card.db_set("active_cycle", None, update_modified=False)
+    record(
+        "Non-stock Operational Withdrawal Posted", card=cycle.kanban_card,
+        cycle=cycle.name, qty=cycle.planned_qty, device_id=canonical_key(
+            "non-stock-withdrawal-confirm", cycle.name, event_token or ""
+        ), reference_doctype=cycle.doctype, reference_name=cycle.name,
+        operator=profile.employee, operator_session=session.name,
+        terminal_user=session.terminal_user,
+        notes="Kanban Handling Unit ledger only; ERPNext Item does not maintain stock",
+    )
+    return get_withdrawal(cycle.name, operator_session_token)
+
+
+def _is_non_stock_operational_cycle(cycle):
+    """Use the release-time policy snapshot; query Item only for legacy open Cycles."""
+    if cycle.withdrawal_tag_policy == NON_STOCK_TAG_POLICY:
+        return True
+    if cycle.withdrawal_tag_policy:
+        return False
+    return not bool(frappe.db.get_value("Item", cycle.item_code, "is_stock_item"))
+
+
+def _requires_physical_tag(tag_policy):
+    return tag_policy in ("Required Physical Tag", NON_STOCK_TAG_POLICY)
 
 
 def validate_withdrawal_stock_entry(doc):

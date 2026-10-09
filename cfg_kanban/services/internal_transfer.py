@@ -39,9 +39,14 @@ def create_transfer_manifest(signal_name):
             "source_signal": signal.name,
             "state": "Draft",
             "preparation_key": key,
+            "inventory_control_mode": (
+                "ERP Stock" if frappe.db.get_value("Item", master.item_code, "is_stock_item")
+                else "Kanban Operational Inventory"
+            ),
         })
         policy = effective_trace_policy(master.item_code, master.company)
-        if (policy.get("warehouse_transfer_tag_policy") or NO_TAG) == NO_TAG:
+        maintains_stock = bool(frappe.db.get_value("Item", master.item_code, "is_stock_item"))
+        if maintains_stock and (policy.get("warehouse_transfer_tag_policy") or NO_TAG) == NO_TAG:
             manifest.append("lines", {
                 "line_kind": "ERP Stock without Physical Tag",
                 "visible_code": "ERP STOCK",

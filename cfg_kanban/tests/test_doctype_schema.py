@@ -970,6 +970,37 @@ class TestDocTypeSchema(TestCase):
             self.assertEqual(company["options"], "Company")
             self.assertEqual(company.get("read_only"), 1)
 
+    def test_non_stock_operational_inventory_uses_tag_ledger_without_erp_stock_entry(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        manifest_fields = {
+            row["fieldname"]: row
+            for row in schemas["CFG Kanban Movement Manifest"]["fields"]
+        }
+        logistics = (APP_ROOT / "api" / "logistics.py").read_text()
+        foundation = (APP_ROOT / "services" / "logistics_foundation.py").read_text()
+        transfer = (APP_ROOT / "services" / "internal_transfer.py").read_text()
+        withdrawal = (APP_ROOT / "services" / "withdrawal.py").read_text()
+        master = (APP_ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_master" /
+                  "cfg_kanban_master.py").read_text()
+        panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
+                 "kanban_logistics.js").read_text()
+        self.assertIn("def _is_non_stock_operational_manifest", logistics)
+        self.assertIn("def _confirm_non_stock_dispatch", logistics)
+        self.assertIn("def _confirm_non_stock_receipt", logistics)
+        self.assertIn('return "Required Physical Tag"', logistics)
+        self.assertEqual(
+            manifest_fields["inventory_control_mode"]["options"],
+            "ERP Stock\nKanban Operational Inventory",
+        )
+        self.assertIn('"inventory_control_mode"', transfer)
+        self.assertIn("ERPNext deliberately has no Bin/Stock Ledger balance", foundation)
+        self.assertIn("maintains_stock and", transfer)
+        self.assertIn("def _complete_non_stock_withdrawal", withdrawal)
+        self.assertIn("NON_STOCK_TAG_POLICY", withdrawal)
+        self.assertNotIn("Withdrawal control requires a stock Item", master)
+        self.assertIn("Kanban operational inventory", panel)
+        self.assertIn("Confirm Tagged Withdrawal", panel)
+
     def test_dashboard_profile_supports_saved_multi_workstation_screens(self):
         profile_path = ROOT / "cfg_kanban_dashboard_profile" / "cfg_kanban_dashboard_profile.json"
         profile = json.loads(profile_path.read_text())

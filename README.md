@@ -30,6 +30,8 @@ The same-Company warehouse replenishment continuation is
 [Package L1 Transfer Kanban System Test](docs/TEST_PACKAGE_L1_TRANSFER_KANBAN.md).
 The controlled consumable/indirect-stock issue continuation is
 [Package L2 Withdrawal Kanban System Test](docs/TEST_PACKAGE_L2_WITHDRAWAL_KANBAN.md).
+The tagged operational-inventory continuation for Items that do not maintain ERPNext stock is
+[Package L2N Non-stock Operational Inventory Test](docs/TEST_PACKAGE_L2_NON_STOCK_OPERATIONAL_INVENTORY.md).
 Package A identity/configuration, Package B intercompany handover, Package C1 customer/vehicle
 session foundation, Package C2A customer tagged-stock reservation, and Package C2B controlled
 customer Delivery Note posting are implemented. Package D1 adds policy-controlled proof of delivery,

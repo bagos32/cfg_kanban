@@ -62,7 +62,8 @@ class CFGKanbanMovementManifest(Document):
             "manifest_type", "logistics_route", "source_company", "source_warehouse", "transit_warehouse",
             "destination_company", "destination_warehouse", "internal_customer",
             "internal_supplier", "selling_price_list", "buying_price_list", "handover_mode",
-            "internal_transfer_mode", "auto_submit_dispatch_dn", "auto_submit_receipt_pr",
+            "internal_transfer_mode", "inventory_control_mode", "auto_submit_dispatch_dn",
+            "auto_submit_receipt_pr",
             "auto_submit_internal_dispatch", "auto_submit_internal_receipt",
         )
         for fieldname in immutable:

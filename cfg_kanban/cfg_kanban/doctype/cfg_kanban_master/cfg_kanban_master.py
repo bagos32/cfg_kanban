@@ -54,8 +54,6 @@ class CFGKanbanMaster(Document):
                     "Source Warehouse and Standard Withdrawal Reason are required for "
                     "Withdrawal control"
                 )
-            if not frappe.db.get_value("Item", self.item_code, "is_stock_item"):
-                frappe.throw("Withdrawal control requires a stock Item")
             warehouse_company = frappe.db.get_value(
                 "Warehouse", self.source_warehouse, "company"
             )

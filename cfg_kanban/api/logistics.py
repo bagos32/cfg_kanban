@@ -20,7 +20,8 @@ from cfg_kanban.services.retagging_auth import can_stock_retag
 
 TERMINAL_STATES = {"Received", "Billing Pending", "Partially Billed", "Billed", "Closed", "Cancelled"}
 MANIFEST_LIST_FIELDS = [
-    "name", "manifest_type", "internal_transfer_mode", "logistics_route", "state",
+    "name", "manifest_type", "internal_transfer_mode", "inventory_control_mode",
+    "logistics_route", "state",
     "kanban_cycle", "source_signal", "source_company", "source_warehouse",
     "destination_company", "destination_warehouse", "total_quantity",
     "total_received_quantity", "dispatch_delivery_note", "receipt_purchase_receipt",
@@ -298,15 +299,21 @@ def get_manifest(manifest_name, operator_session_token):
         frappe.throw("Operator is not assigned to this Logistics Route")
     result = manifest.as_dict()
     internal = manifest.manifest_type == "Internal Warehouse Transfer"
-    result["dispatch_document_type"] = "Stock Entry" if internal else "Delivery Note"
+    non_stock_operational = _is_non_stock_operational_manifest(manifest)
+    result["non_stock_operational_tracking"] = non_stock_operational
+    result["dispatch_document_type"] = (
+        "Kanban Movement" if non_stock_operational
+        else "Stock Entry" if internal else "Delivery Note"
+    )
     result["receipt_document_type"] = (
-        "Stock Entry" if internal and manifest.internal_transfer_mode == "Goods in Transit"
+        None if non_stock_operational
+        else "Stock Entry" if internal and manifest.internal_transfer_mode == "Goods in Transit"
         else "Purchase Receipt" if not internal else None
     )
-    result["dispatch_document_status"] = _document_status(
+    result["dispatch_document_status"] = (None if non_stock_operational else _document_status(
         result["dispatch_document_type"],
         manifest.dispatch_stock_entry if internal else manifest.dispatch_delivery_note,
-    )
+    ))
     result["receipt_document_status"] = _document_status(
         result["receipt_document_type"],
         manifest.receipt_stock_entry if internal else manifest.receipt_purchase_receipt,
@@ -839,6 +846,8 @@ def get_dispatch_requirements(manifest_name, operator_session_token):
     _require_route_responsibility(profile, route.dispatch_responsibility, "dispatch")
     if manifest.state != "Prepared" and not _dispatch_retry_available(manifest):
         frappe.throw(f"Manifest cannot dispatch while it is {manifest.state}")
+    if _is_non_stock_operational_manifest(manifest):
+        return {"doctype": None, "fields": [], "non_stock_operational_tracking": True}
     if manifest.manifest_type == "Internal Warehouse Transfer":
         payload = _internal_transfer_payload(manifest, _dispatch_stage(manifest))
         entry = build_internal_transfer_stock_entry(manifest, payload)
@@ -858,12 +867,19 @@ def confirm_dispatch(
     manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
     route = frappe.get_doc("CFG Kanban Logistics Route", manifest.logistics_route)
     _require_route_responsibility(profile, route.dispatch_responsibility, "dispatch")
+    if (_is_non_stock_operational_manifest(manifest)
+            and manifest.state in ("Awaiting Receipt", "Received")):
+        return get_manifest(manifest.name, operator_session_token)
     if (
         manifest.state not in ("Prepared", "Dispatch Document Pending")
         and not _dispatch_retry_available(manifest)
     ):
         frappe.throw(f"Manifest cannot dispatch while it is {manifest.state}")
     internal = manifest.manifest_type == "Internal Warehouse Transfer"
+    if _is_non_stock_operational_manifest(manifest):
+        return _confirm_non_stock_dispatch(
+            manifest, profile, session, event_token, operator_session_token
+        )
     key = canonical_key("manifest-dispatch", manifest.name)
     payload = (_internal_transfer_payload(manifest, _dispatch_stage(manifest),
                                           required_erp_inputs)
@@ -927,7 +943,7 @@ def scan_receipt_tag(manifest_name, scan_value, event_token, operator_session_to
     route = frappe.get_doc("CFG Kanban Logistics Route", manifest.logistics_route)
     _require_route_responsibility(profile, route.receipt_responsibility, "receipt")
     if manifest.state not in ("Dispatched", "Awaiting Receipt", "Receipt Document Pending"):
-        frappe.throw("Receipt scanning requires a submitted dispatch document")
+        frappe.throw("Receipt scanning requires confirmed dispatch")
     identity = resolve_logistics_scan(scan_value)
     if not identity or identity["identity_type"] != "Handling Unit":
         frappe.throw("The scanned code is not an active Handling Unit")
@@ -1026,6 +1042,8 @@ def confirm_receipt(manifest_name, event_token, operator_session_token):
     manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
     route = frappe.get_doc("CFG Kanban Logistics Route", manifest.logistics_route)
     _require_route_responsibility(profile, route.receipt_responsibility, "receipt")
+    if _is_non_stock_operational_manifest(manifest) and manifest.state == "Received":
+        return get_manifest(manifest.name, operator_session_token)
     if (manifest.state not in ("Dispatched", "Awaiting Receipt", "Receipt Document Pending")
             and not _receipt_retry_available(manifest)):
         frappe.throw(f"Manifest cannot be received while it is {manifest.state}")
@@ -1035,6 +1053,10 @@ def confirm_receipt(manifest_name, event_token, operator_session_token):
     ):
         frappe.throw("Receiving operator must scan every Manifest tag before confirmation")
     internal = manifest.manifest_type == "Internal Warehouse Transfer"
+    if _is_non_stock_operational_manifest(manifest):
+        return _confirm_non_stock_receipt(
+            manifest, profile, session, event_token, operator_session_token
+        )
     if internal and manifest.internal_transfer_mode != "Goods in Transit":
         frappe.throw("Direct internal transfers complete when the dispatch Stock Entry is submitted")
     if internal:
@@ -1330,6 +1352,11 @@ def _validate_transfer_manifest_quantity(manifest, require_exact=False):
 
 
 def _assert_untagged_erp_stock(item_code, warehouse, qty):
+    if not frappe.db.get_value("Item", item_code, "is_stock_item"):
+        frappe.throw(
+            f"{item_code} does not maintain ERPNext stock. Use physical Stock Tags so CFG "
+            "Kanban can control its operational quantity and Warehouse location."
+        )
     tracking = frappe.db.get_value(
         "Item", item_code, ["has_batch_no", "has_serial_no"], as_dict=True
     )
@@ -1352,17 +1379,199 @@ def _can_use_untagged_stock(manifest):
     if (manifest.manifest_type != "Internal Warehouse Transfer"
             or not manifest.kanban_cycle or manifest.state != "Draft" or manifest.lines):
         return False
-    return _transfer_tag_policy(manifest) != "Required Physical Tag"
+    return (not _is_non_stock_operational_manifest(manifest)
+            and _transfer_tag_policy(manifest) != "Required Physical Tag")
 
 
 def _transfer_tag_policy(manifest):
     """Return the effective Card policy; generic Manifests remain scan-first."""
     if not manifest.kanban_cycle:
         return "Manifest Scan"
+    if _is_non_stock_operational_manifest(manifest):
+        return "Required Physical Tag"
     cycle = frappe.get_doc("CFG Kanban Cycle", manifest.kanban_cycle)
     from cfg_kanban.services.trace_policy import effective_trace_policy
     policy = effective_trace_policy(cycle.item_code, manifest.source_company)
     return policy.get("warehouse_transfer_tag_policy") or "No Physical Tag"
+
+
+def _is_non_stock_operational_manifest(manifest):
+    if manifest.manifest_type != "Internal Warehouse Transfer" or not manifest.kanban_cycle:
+        return False
+    if manifest.get("inventory_control_mode"):
+        return manifest.inventory_control_mode == "Kanban Operational Inventory"
+    # Compatibility for a Manifest released before the inventory-mode snapshot existed.
+    item_code = frappe.db.get_value("CFG Kanban Cycle", manifest.kanban_cycle, "item_code")
+    return bool(item_code and not frappe.db.get_value("Item", item_code, "is_stock_item"))
+
+
+def _confirm_non_stock_dispatch(
+    manifest, profile, session, event_token, operator_session_token
+):
+    if any(not row.handling_unit for row in manifest.lines):
+        frappe.throw("Non-stock operational transfer requires physical Stock Tags")
+    destination = (manifest.transit_warehouse
+                   if manifest.internal_transfer_mode == "Goods in Transit"
+                   else manifest.destination_warehouse)
+    if not destination:
+        frappe.throw("Non-stock operational transfer requires a destination Warehouse")
+    if manifest.internal_transfer_mode != "Goods in Transit":
+        _release_non_stock_manifest_reservations(manifest, profile, session, "direct")
+    for row in manifest.lines:
+        unit = frappe.get_doc("CFG Kanban Handling Unit", row.handling_unit)
+        if unit.current_warehouse != manifest.source_warehouse:
+            frappe.throw(f"Tag {unit.handling_unit_id} is no longer in the source Warehouse")
+        post_quantity_event(
+            event_type="Location Transfer", qty=row.dispatch_qty, stock_uom=row.stock_uom,
+            idempotency_key=canonical_key("non-stock-transfer-dispatch", manifest.name, row.name),
+            source_handling_unit=row.handling_unit, item_code=row.item_code,
+            batch_no=row.batch_no, source_company=manifest.source_company,
+            destination_company=manifest.destination_company,
+            source_warehouse=manifest.source_warehouse, destination_warehouse=destination,
+            reference_doctype=manifest.doctype, reference_name=manifest.name,
+            operator=profile.employee, operator_session=session.name,
+            reason="Kanban operational movement for ERPNext non-stock Item",
+        )
+        frappe.db.set_value("CFG Kanban Handling Unit", row.handling_unit, {
+            "current_warehouse": destination,
+            "movement_state": ("Internal Transit" if manifest.internal_transfer_mode == "Goods in Transit"
+                               else "Received"),
+            "state": ("Dispatched" if manifest.internal_transfer_mode == "Goods in Transit"
+                      else "Received"),
+            "last_scan_time": now_datetime(),
+        }, update_modified=False)
+        frappe.db.set_value("CFG Kanban Manifest Line", row.name, {
+            "state": ("In Transit" if manifest.internal_transfer_mode == "Goods in Transit"
+                      else "Received"),
+            "received_qty": (0 if manifest.internal_transfer_mode == "Goods in Transit"
+                             else row.dispatch_qty),
+        }, update_modified=False)
+    _update_non_stock_containers(manifest, destination,
+                                 manifest.internal_transfer_mode == "Goods in Transit")
+    if manifest.internal_transfer_mode == "Goods in Transit":
+        manifest.db_set({"state": "Awaiting Receipt",
+                         "dispatch_key": canonical_key(
+                             "non-stock-transfer-dispatch", manifest.name
+                         ),
+                         "dispatch_confirmed_by": profile.employee,
+                         "dispatch_operator_session": session.name,
+                         "dispatch_confirmed_on": now_datetime()}, update_modified=True)
+        from cfg_kanban.services.state_machine import set_cycle_state, transition_card
+        cycle = frappe.get_doc("CFG Kanban Cycle", manifest.kanban_cycle)
+        cycle.db_set("transfer_status", "In Transit", update_modified=True)
+        set_cycle_state(cycle, "In Transit", event_type="Non-stock Transfer Dispatched",
+                        reference_doctype=manifest.doctype, reference_name=manifest.name)
+        if cycle.kanban_card:
+            card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card)
+            if card.current_state == "Replenishment Requested":
+                transition_card(card, "In Transit", event_type="Non-stock Transfer Dispatched",
+                                cycle=cycle.name)
+        new_state = "Awaiting Receipt"
+    else:
+        manifest.db_set({"state": "Received", "total_received_quantity": manifest.total_quantity,
+                         "dispatch_key": canonical_key(
+                             "non-stock-transfer-dispatch", manifest.name
+                         ),
+                         "dispatch_confirmed_by": profile.employee,
+                         "dispatch_operator_session": session.name,
+                         "dispatch_confirmed_on": now_datetime()}, update_modified=True)
+        from cfg_kanban.services.internal_transfer import complete_transfer_cycle
+        complete_transfer_cycle(manifest, manifest.doctype, manifest.name)
+        new_state = "Received"
+    record(
+        "Non-stock Operational Transfer Dispatched", movement_manifest=manifest.name,
+        previous_state="Prepared", new_state=new_state, qty=manifest.total_quantity,
+        device_id=canonical_key("non-stock-transfer-confirm", manifest.name, event_token or ""),
+        reference_doctype=manifest.doctype, reference_name=manifest.name,
+        operator=profile.employee, operator_session=session.name,
+        terminal_user=session.terminal_user,
+        notes="Handling Unit ledger only; no ERPNext Stock Entry",
+    )
+    return get_manifest(manifest.name, operator_session_token)
+
+
+def _confirm_non_stock_receipt(
+    manifest, profile, session, event_token, operator_session_token
+):
+    if manifest.internal_transfer_mode != "Goods in Transit":
+        frappe.throw("Direct non-stock movement completes during dispatch confirmation")
+    _release_non_stock_manifest_reservations(manifest, profile, session, "receipt")
+    for row in manifest.lines:
+        unit = frappe.get_doc("CFG Kanban Handling Unit", row.handling_unit)
+        if unit.current_warehouse != manifest.transit_warehouse:
+            frappe.throw(f"Tag {unit.handling_unit_id} is no longer in the Transit Warehouse")
+        post_quantity_event(
+            event_type="Location Transfer", qty=row.dispatch_qty, stock_uom=row.stock_uom,
+            idempotency_key=canonical_key("non-stock-transfer-receipt", manifest.name, row.name),
+            source_handling_unit=row.handling_unit, item_code=row.item_code,
+            batch_no=row.batch_no, source_company=manifest.source_company,
+            destination_company=manifest.destination_company,
+            source_warehouse=manifest.transit_warehouse,
+            destination_warehouse=manifest.destination_warehouse,
+            reference_doctype=manifest.doctype, reference_name=manifest.name,
+            operator=profile.employee, operator_session=session.name,
+            reason="Kanban operational receipt for ERPNext non-stock Item",
+        )
+        frappe.db.set_value("CFG Kanban Handling Unit", row.handling_unit, {
+            "current_warehouse": manifest.destination_warehouse,
+            "movement_state": "Received", "state": "Received",
+            "last_scan_time": now_datetime(),
+        }, update_modified=False)
+        frappe.db.set_value("CFG Kanban Manifest Line", row.name, {
+            "state": "Received", "received_qty": row.dispatch_qty,
+        }, update_modified=False)
+    _update_non_stock_containers(manifest, manifest.destination_warehouse, False)
+    manifest.db_set({"state": "Received", "total_received_quantity": manifest.total_quantity,
+                     "receipt_key": canonical_key(
+                         "non-stock-transfer-receipt", manifest.name
+                     ),
+                     "receipt_confirmed_by": profile.employee,
+                     "receipt_operator_session": session.name,
+                     "receipt_confirmed_on": now_datetime()}, update_modified=True)
+    from cfg_kanban.services.internal_transfer import complete_transfer_cycle
+    complete_transfer_cycle(manifest, manifest.doctype, manifest.name)
+    record(
+        "Non-stock Operational Transfer Received", movement_manifest=manifest.name,
+        previous_state="Awaiting Receipt", new_state="Received", qty=manifest.total_quantity,
+        device_id=canonical_key("non-stock-transfer-receipt-confirm", manifest.name,
+                                event_token or ""),
+        reference_doctype=manifest.doctype, reference_name=manifest.name,
+        operator=profile.employee, operator_session=session.name,
+        terminal_user=session.terminal_user,
+        notes="Handling Unit ledger only; no ERPNext Stock Entry",
+    )
+    return get_manifest(manifest.name, operator_session_token)
+
+
+def _release_non_stock_manifest_reservations(manifest, profile, session, suffix):
+    for row in manifest.lines:
+        unit = frappe.get_doc("CFG Kanban Handling Unit", row.handling_unit)
+        if not flt(unit.reserved_qty):
+            continue
+        post_quantity_event(
+            event_type="Unreserve", qty=min(flt(row.dispatch_qty), flt(unit.reserved_qty)),
+            stock_uom=row.stock_uom,
+            idempotency_key=canonical_key("non-stock-transfer-unreserve", suffix,
+                                          manifest.name, row.name),
+            source_handling_unit=row.handling_unit, item_code=row.item_code,
+            batch_no=row.batch_no, source_company=manifest.source_company,
+            source_warehouse=unit.current_warehouse,
+            reference_doctype=manifest.doctype, reference_name=manifest.name,
+            operator=profile.employee, operator_session=session.name,
+            reason="Completed Kanban operational movement",
+        )
+
+
+def _update_non_stock_containers(manifest, warehouse, in_transit):
+    container_names = {row.container_handling_unit for row in manifest.lines
+                       if row.container_handling_unit}
+    for container_name in container_names:
+        frappe.db.set_value("CFG Kanban Handling Unit", container_name, {
+            "current_warehouse": warehouse,
+            "movement_state": "Internal Transit" if in_transit else "Received",
+            "state": "Dispatched" if in_transit else "Received",
+            "last_scan_time": now_datetime(),
+        }, update_modified=False)
 
 
 def _priced_line(manifest, row, mode):

@@ -31,6 +31,10 @@ def assert_erp_stock(unit, warehouse, qty):
     Handling Unit balances are the physical trace layer. ERPNext remains the
     stock authority, so every operational reservation must pass both checks.
     """
+    if not frappe.db.get_value("Item", unit.item_code, "is_stock_item"):
+        # ERPNext deliberately has no Bin/Stock Ledger balance for this Item.
+        # Its physical quantity is controlled only by the CFG Handling Unit ledger.
+        return None
     if unit.batch_no:
         from erpnext.stock.doctype.batch.batch import get_batch_qty
 

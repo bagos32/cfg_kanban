@@ -2444,6 +2444,18 @@ Configuration:
    preparation. **Required Physical Tag** permits only active Stock Tag scans.
 5. Create the Cards normally and assign logistics operators the route Responsibilities.
 
+ERPNext stock mode changes the posting boundary:
+
+- When **Maintain Stock** is enabled on the Item, ERPNext Bin/Stock Ledger and submitted Material
+  Transfer Stock Entries remain authoritative. Tags mirror the confirmed physical movement.
+- When **Maintain Stock** is disabled, CFG Kanban treats the Item as **Kanban operational
+  inventory**. Physical Stock Tags are mandatory, untagged selection is unavailable, and the
+  Handling Unit quantity ledger and Current Warehouse provide the operational trace. Confirmation
+  does not create a fictional ERPNext Stock Entry. Both Direct Transfer and Goods in Transit are
+  supported, including destination receipt scans for the latter. The Manifest stores this inventory
+  control mode as an immutable release-time snapshot, so a later Item setting change cannot switch
+  an active or historical movement between ERP and Kanban inventory logic.
+
 Operation:
 
 1. In **Logistics Operator Panel**, scan the Transfer Card and select **Trigger Transfer Card**.
@@ -2456,9 +2468,10 @@ Operation:
    is already present and ERPNext Warehouse availability is checked during preparation.
 4. Stop scanning and select **Prepare and Reserve**. Tagged lines are reserved in the Kanban ledger;
    untagged lines remain ERPNext stock and are not given a fictional tag.
-5. Select **Confirm Dispatch**. CFG Kanban creates a native ERPNext **Material Transfer Stock Entry**.
-   If auto-submit is off, an authorized ERP user reviews and submits the draft. Kanban does not claim
-   movement from a draft document.
+5. Select **Confirm Dispatch**. For a stock Item, CFG Kanban creates a native ERPNext **Material
+   Transfer Stock Entry**. If auto-submit is off, an authorized ERP user reviews and submits the
+   draft. For a non-stock Item, the panel clearly says **Kanban operational inventory** and updates
+   only the tagged Handling Unit location after operator confirmation.
 6. **Direct Transfer:** submitted Stock Entry feedback moves each tag to the destination, marks the
    Manifest Received, completes the Cycle, and recycles the Card.
 7. **Goods in Transit:** the submitted outward Stock Entry moves tagged units to the Transit
@@ -2513,7 +2526,14 @@ Configuration:
    (`auto_submit_withdrawal_stock_entry`) off during rollout. When enabled, the operator's final
    confirmation submits the native Stock Entry immediately.
 5. Create/print the Card normally. A reusable physical Withdrawal Card represents the standard
-   quantity and returns to Available only after ERPNext confirms the Material Issue.
+   quantity. For a stock Item it returns to Available only after ERPNext confirms the Material
+   Issue. For a non-stock Item it returns after the tagged Kanban withdrawal is confirmed.
+
+For an Item with **Maintain Stock** disabled, physical Stock Tags are compulsory regardless of the
+material-trace policy. No ERPNext Bin balance exists to support an untagged selection. The Handling
+Unit ledger is operational traceability only; it does not create inventory valuation or accounting
+stock. The Withdrawal Cycle stores this choice in its release-time Tag Policy snapshot, so later
+changes to **Maintain Stock** apply only to newly released Cycles.
 
 Operation:
 
@@ -2525,11 +2545,12 @@ Operation:
    stock. For **Optional Physical Tag**, select either **Add Stock Tag** one or more times or **Use ERP
    Stock without Tags**. For **Required Physical Tag**, scan active, released Stock Tags from the
    exact Item, Company, and source Warehouse. The selected total must equal the Card quantity.
-4. Select **Prepare Withdrawal**. The app checks ERPNext stock. Tagged rows are reserved in the
-   handling-unit ledger so another movement cannot consume the same physical quantity.
-5. Select **Create Material Issue**. Any mandatory ERPNext parent or child values not supplied by
-   defaults appear in a controlled dialog. The app creates one idempotent ERPNext Stock Entry whose
-   purpose is **Material Issue**.
+4. Select **Prepare Withdrawal**. For a stock Item the app also checks ERPNext stock. Tagged rows are
+   reserved in the handling-unit ledger so another movement cannot consume the same physical
+   quantity.
+5. For a stock Item, select **Create Material Issue**; the app creates one idempotent ERPNext Stock
+   Entry. For a non-stock Item, select **Confirm Tagged Withdrawal**; it consumes only the Handling
+   Unit balance and creates no Stock Entry.
 6. With auto-submit off, an authorized ERPNext stock user reviews and submits the Draft Stock Entry.
    Draft creation does not reduce ERP stock and does not recycle the Card.
 7. On submission, ERPNext reduces stock, tagged quantity is consumed and its reservation released,

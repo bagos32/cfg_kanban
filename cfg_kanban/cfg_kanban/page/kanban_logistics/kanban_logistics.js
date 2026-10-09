@@ -143,6 +143,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const receipt_scanned = physical_lines.filter((row) => row.receipt_scanned).length;
 		const tag_policy = m.transfer_tag_policy && m.transfer_tag_policy !== "Manifest Scan" ?
 			`<div class="alert alert-secondary"><strong>${__("Warehouse Transfer Tags")}:</strong> ${e(m.transfer_tag_policy)}</div>` : "";
+		const non_stock_notice = m.non_stock_operational_tracking ?
+			`<div class="alert alert-info"><strong>${__("Kanban operational inventory")}</strong> · ${__("This ERPNext Item does not maintain stock. Physical tags and the Handling Unit ledger control quantity and location; no Stock Entry will be created.")}</div>` : "";
 		let mode_notice = `<div class="alert alert-info"><strong>${__("View-only lookup")}</strong> · ${__("Scanning a Stock Tag will show its status and will not change this Manifest.")}</div>`;
 		if (state.scan_mode === "dispatch") mode_notice = `<div class="alert alert-warning"><strong>${__("DISPATCH SCANNING ARMED")}</strong> · ${e(m.name)} · ${__("Scanned tags will be added to this Manifest.")}</div>`;
 		if (state.scan_mode === "receipt") mode_notice = `<div class="alert alert-success"><strong>${__("RECEIPT SCANNING ARMED")}</strong> · ${e(m.name)} · ${__("Only tags listed on this Manifest will be accepted.")}</div>`;
@@ -165,7 +167,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				<strong>${e(m.manifest_type || __("Movement Manifest"))} · ${e(m.logistics_route)}</strong></div><span class="indicator-pill ${state_colour(m.state)}">${e(m.state)}</span></div>
 			<div class="cfg-logistics-route"><div><small>${__("FROM")}</small><strong>${e(m.source_company)}</strong><span>${e(m.source_warehouse)}</span></div>
 				<div class="cfg-logistics-arrow">→</div><div><small>${__("TO")}</small><strong>${e(m.destination_company)}</strong><span>${e(m.destination_warehouse)}</span></div></div>
-			${mode_notice}${tag_policy}
+			${mode_notice}${tag_policy}${non_stock_notice}
 			${receipt_mode ? `<div class="cfg-logistics-receipt-progress"><strong>${__("Receipt scans: {0} of {1}", [receipt_scanned, physical_lines.length])}</strong><span>${m.can_receive ? (physical_lines.length ? __("Arm Receipt Scanning and scan every physical tag.") : __("This movement uses ERP stock without physical tags; confirm the physical receipt.")) : __("Switch to an operator assigned to the route's Receipt Responsibility.")}</span></div>` : ""}
 			<div class="cfg-logistics-lines">${lines || `<div class="text-muted p-3">${__("No tags scanned")}</div>`}</div>
 			<div class="cfg-logistics-docs"><span>${e(m.dispatch_document_type || __("Dispatch document"))}: <strong>${e(m.dispatch_stock_entry || m.dispatch_delivery_note || __("Not created"))}</strong></span>
@@ -720,14 +722,16 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		} else if (!withdrawal) {
 			actions = `<div class="alert alert-warning">${__("The Withdrawal Signal is waiting for supervisor approval.")}</div>`;
 		} else {
+			const non_stock_notice = withdrawal.non_stock_operational_tracking ?
+				`<div class="alert alert-info mt-3"><strong>${__("Kanban operational inventory")}</strong> · ${__("This non-stock Item requires physical tags. Confirmation consumes the Handling Unit balance without creating an ERPNext Material Issue.")}</div>` : "";
 			actions = `<div class="cfg-logistics-toolbar mt-3">
 			${withdrawal.can_edit_selection && withdrawal.withdrawal_tag_policy !== "No Physical Tag" ? `<button class="btn btn-primary add-withdrawal-tag">${__("Add Stock Tag")}</button>` : ""}
 			${withdrawal.can_use_untagged_stock ? `<button class="btn btn-default use-untagged-withdrawal">${__("Use ERP Stock without Tags")}</button>` : ""}
 			${withdrawal.can_prepare ? `<button class="btn btn-warning prepare-withdrawal">${__("Prepare Withdrawal")}</button>` : ""}
-			${withdrawal.can_confirm ? `<button class="btn btn-success confirm-withdrawal">${__("Create Material Issue")}</button>` : ""}
+			${withdrawal.can_confirm ? `<button class="btn btn-success confirm-withdrawal">${withdrawal.non_stock_operational_tracking ? __("Confirm Tagged Withdrawal") : __("Create Material Issue")}</button>` : ""}
 			${withdrawal.withdrawal_stock_entry ? `<button class="btn btn-default open-withdrawal-entry">${__("Open Stock Entry")}</button>` : ""}
 			${withdrawal.can_discard_draft ? `<button class="btn btn-danger discard-withdrawal-draft">${__("Discard Draft and Retry")}</button>` : ""}
-			</div>`;
+			</div>${non_stock_notice}`;
 		}
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
 			<div class="cfg-logistics-tag-head"><div><small>${__("Stock Withdrawal Kanban")}</small>
@@ -811,7 +815,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const response = await frappe.call({
 			method: "cfg_kanban.services.withdrawal.get_withdrawal_requirements",
 			args: { cycle_name: withdrawal.name, operator_session_token: state.token },
-			freeze: true, freeze_message: __("Checking Material Issue requirements..."),
+			freeze: true, freeze_message: withdrawal.non_stock_operational_tracking ?
+				__("Checking tagged operational withdrawal...") : __("Checking Material Issue requirements..."),
 		});
 		const requirements = response.message.fields || [];
 		if (!requirements.length) return submit_withdrawal(card, withdrawal);
@@ -833,7 +838,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			method: "cfg_kanban.services.withdrawal.confirm_withdrawal",
 			args: { cycle_name: withdrawal.name, event_token: unique_token(),
 				operator_session_token: state.token, required_erp_inputs },
-			freeze: true, freeze_message: __("Creating ERPNext Material Issue..."),
+			freeze: true, freeze_message: withdrawal.non_stock_operational_tracking ?
+				__("Consuming tagged operational stock...") : __("Creating ERPNext Material Issue..."),
 		});
 		await lookup_tag(card.card_number || card.card);
 		await refresh_list();
@@ -1995,7 +2001,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 
 	async function confirm_dispatch() {
 		const internal = state.manifest.manifest_type === "Internal Warehouse Transfer";
-		const document_label = internal ? __("Stock Entry") : __("Delivery Note");
+		const document_label = state.manifest.non_stock_operational_tracking ?
+			__("Kanban Movement") : internal ? __("Stock Entry") : __("Delivery Note");
 		const response = await frappe.call({
 			method: "cfg_kanban.api.logistics.get_dispatch_requirements",
 			args: { manifest_name: state.manifest.name, operator_session_token: state.token },
@@ -2005,7 +2012,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const requirements = response.message.fields || [];
 		if (!requirements.length) {
 			return frappe.confirm(internal ?
-				__("Confirm physical movement and create the ERPNext Material Transfer Stock Entry?") :
+				(state.manifest.non_stock_operational_tracking ?
+					__("Confirm physical tagged movement? This non-stock Item will update only the Kanban Handling Unit ledger and location.") :
+					__("Confirm physical movement and create the ERPNext Material Transfer Stock Entry?")) :
 				__("Confirm physical dispatch and create the source-company Delivery Note?"), async () => {
 				await manifest_action("confirm_dispatch", __("Creating {0}...", [document_label]));
 			});
@@ -2076,9 +2085,12 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (state.scan_mode !== "lookup") return scanner_error(__("Stop receipt scanning before confirming receipt."));
 		const internal = state.manifest.manifest_type === "Internal Warehouse Transfer";
 		frappe.confirm(internal ?
-			__("Confirm receipt at the destination Warehouse and create the transit receipt Stock Entry?") :
+			(state.manifest.non_stock_operational_tracking ?
+				__("Confirm every tagged non-stock item was received at the destination Warehouse?") :
+				__("Confirm receipt at the destination Warehouse and create the transit receipt Stock Entry?")) :
 			__("Confirm all scanned tags were received and create the destination Purchase Receipt?"), async () => {
-			await manifest_action("confirm_receipt", internal ? __("Creating receipt Stock Entry...") : __("Creating Purchase Receipt..."));
+			await manifest_action("confirm_receipt", state.manifest.non_stock_operational_tracking ?
+				__("Confirming tagged receipt...") : internal ? __("Creating receipt Stock Entry...") : __("Creating Purchase Receipt..."));
 		});
 	}
 
