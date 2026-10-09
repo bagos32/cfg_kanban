@@ -112,9 +112,12 @@ and the Card can be printed without replacing its identity.
 7. Verify it has one line labelled **ERP Stock without Physical Tag** for exactly `20 Nos`.
    The panel must display **Warehouse Transfer Tags: No Physical Tag** and must not offer
    **Start Dispatch Scanning**. A physical tag scan is not part of this policy mode.
-8. Select **Prepare Manifest**.
-9. Verify the system checks the ERP source balance and changes the Manifest/Cycle to Prepared.
-10. Select **Confirm Dispatch** and satisfy any genuine ERPNext mandatory input displayed by the
+8. Before preparation, select **Remove** on the ERP Stock line. Verify the line disappears without
+   changing ERP stock, then select **Use ERP Stock Without Tags** again. This is the operator's
+   correction path for an accidental untagged selection.
+9. Select **Prepare Manifest**.
+10. Verify the system checks the ERP source balance and changes the Manifest/Cycle to Prepared.
+11. Select **Confirm Dispatch** and satisfy any genuine ERPNext mandatory input displayed by the
     controlled dialog.
 
 Expected automatic-submit result:
@@ -133,6 +136,15 @@ Expected draft-mode result when auto-submit is disabled:
 - Card does not recycle and no stock balance changes;
 - after an authorized ERP user submits that same Stock Entry, the feedback hook completes the
   Manifest/Cycle/Card exactly once.
+
+Cancellation recovery test:
+
+1. Trigger another Transfer Card and leave its Manifest in Draft, or prepare it without creating an
+   ERP Stock Entry.
+2. As an override-authorized supervisor, select **Cancel Manifest**, enter a reason, and confirm.
+3. Verify Manifest, Cycle, and Signal are Cancelled; any prepared physical-tag reservations are
+   released; and the reusable Transfer Card returns to **Available** with no Active Cycle.
+4. Verify the cancelled records and reason remain available for audit. Do not delete them.
 
 ## 6. Direct Transfer with physical tags
 

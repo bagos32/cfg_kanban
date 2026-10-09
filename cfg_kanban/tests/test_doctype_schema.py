@@ -942,6 +942,11 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('scan_mode: "lookup"', logistics_panel)
         self.assertIn("Start Dispatch Scanning", logistics_panel)
         self.assertIn("Recently Completed", logistics_panel)
+        self.assertIn("Done — Clear Screen", logistics_panel)
+        self.assertIn("options?.restore && TERMINAL_STATES.has", logistics_panel)
+        self.assertIn("def remove_dispatch_tag", logistics)
+        self.assertIn("Manifest Dispatch Selection Removed", logistics)
+        self.assertIn("line_name=None", logistics)
         self.assertIn('frappe.set_route("kanban-logistics")', operator_panel)
         self.assertIn('frappe.set_route("kanban-logistics")', task_panel)
         for panel in (logistics_panel, operator_panel, task_panel):

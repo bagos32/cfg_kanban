@@ -1,4 +1,5 @@
 frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
+	const TERMINAL_STATES = new Set(["Received", "Billing Pending", "Partially Billed", "Billed", "Closed", "Cancelled"]);
 	const page = frappe.ui.make_app_page({ parent: wrapper, title: __("Kanban Logistics"), single_column: true });
 	const session_key = "cfg_kanban_operator_session";
 	const last_manifest_key = "cfg_kanban_last_manifest";
@@ -27,6 +28,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		<button class="btn btn-primary new-manifest">${__("New Dispatch Manifest")}</button>
 		<button class="btn btn-warning route-reconciliation">${__("Route Stock Count")}</button>
 		<button class="btn btn-default refresh-logistics">${__("Refresh")}</button>
+		<button class="btn btn-default clear-current">${__("Clear Screen")}</button>
 		<button class="btn btn-default switch-operator">${__("Switch Operator")}</button>
 		<button class="btn btn-default production-panel">${__("Production Panel")}</button>
 		<button class="btn btn-default service-panel">${__("Service Panel")}</button>
@@ -40,6 +42,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	$actions.find(".new-manifest").on("click", new_manifest_dialog);
 	$actions.find(".route-reconciliation").on("click", reconciliation_dialog);
 	$actions.find(".refresh-logistics").on("click", load);
+	$actions.find(".clear-current").on("click", clear_manifest_view);
 	$actions.find(".switch-operator").on("click", identify_operator);
 	$actions.find(".production-panel").on("click", () => frappe.set_route("kanban-operator"));
 	$actions.find(".service-panel").on("click", () => frappe.set_route("kanban-tasks"));
@@ -67,7 +70,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			state.scan_mode = "lookup";
 			render_identity();
 			const last_manifest = state.manifest?.name || state.manifest || localStorage.getItem(last_manifest_key);
-			if (last_manifest) await open_manifest(last_manifest, { quiet: true });
+			if (last_manifest) await open_manifest(last_manifest, { quiet: true, restore: true });
 			else render_active();
 			const last_reconciliation = localStorage.getItem(last_reconciliation_key);
 			if (last_reconciliation) await open_reconciliation(last_reconciliation, { quiet: true });
@@ -153,7 +156,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				${row.container_visible_code ? `<small>${__("Inside container")}: <strong>${e(row.container_visible_code)}</strong></small>` : ""}</div>
 			<div><strong>${format_number(row.dispatch_qty)} ${e(row.stock_uom)}</strong>
 				<small>${row.receipt_scanned ? __("Receipt scan confirmed") : e(row.state)}</small></div>
-				${m.state === "Draft" && state.scan_mode === "dispatch" && row.handling_unit && (!row.container_handling_unit || show_container_remove) ? `<button class="btn btn-xs btn-danger remove-line" data-unit="${e(row.handling_unit)}">${row.container_visible_code ? __("Remove Container") : __("Remove")}</button>` : ""}
+				${m.state === "Draft" && state.scan_mode === "dispatch" && row.handling_unit && (!row.container_handling_unit || show_container_remove) ? `<button class="btn btn-xs btn-danger remove-line" data-unit="${e(row.handling_unit)}" data-line="${e(row.name)}">${row.container_visible_code ? __("Remove Container") : __("Remove")}</button>` : ""}
+				${m.state === "Draft" && !row.handling_unit ? `<button class="btn btn-xs btn-danger remove-line" data-line="${e(row.name)}">${__("Remove")}</button>` : ""}
 			</div>`;
 		}).join("");
 		$active.html(`<div class="frappe-card cfg-logistics-manifest">
@@ -168,7 +172,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				${m.receipt_document_type ? `<span>${e(m.receipt_document_type)}: <strong>${e(m.receipt_stock_entry || m.receipt_purchase_receipt || __("Not created"))}</strong></span>` : ""}</div>
 			<div class="cfg-logistics-actions">${manifest_actions(m)}</div>
 		</div>`);
-		$active.find(".remove-line").on("click", function () { remove_line($(this).data("unit")); });
+		$active.find(".remove-line").on("click", function () {
+			remove_line($(this).data("line"), $(this).data("unit"));
+		});
 		$active.find(".prepare-manifest").on("click", prepare_manifest);
 		$active.find(".use-untagged-stock").on("click", use_untagged_stock);
 		$active.find(".confirm-dispatch").on("click", confirm_dispatch);
@@ -227,7 +233,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (m.receipt_purchase_receipt) buttons.push(`<button class="btn btn-default open-pr">${__("Open Purchase Receipt")}</button>`);
 		if (m.dispatch_stock_entry) buttons.push(`<button class="btn btn-default open-dispatch-se">${__("Open Dispatch Stock Entry")}</button>`);
 		if (m.receipt_stock_entry) buttons.push(`<button class="btn btn-default open-receipt-se">${__("Open Receipt Stock Entry")}</button>`);
-		buttons.push(`<button class="btn btn-default clear-manifest">${__("Clear Viewed Manifest")}</button>`);
+		buttons.push(`<button class="btn btn-default clear-manifest">${TERMINAL_STATES.has(m.state) ? __("Done — Clear Screen") : __("Clear Viewed Manifest")}</button>`);
 		return buttons.join("");
 	}
 
@@ -1912,6 +1918,11 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				manifest_name: name, operator_session_token: state.token,
 			} });
 			state.manifest = response.message;
+			if (options?.restore && TERMINAL_STATES.has(state.manifest.state)) {
+				localStorage.removeItem(last_manifest_key);
+				state.manifest = null;
+				render_active(); focus_scanner(); return false;
+			}
 			localStorage.setItem(last_manifest_key, state.manifest.name);
 			render_active(); focus_scanner(); return true;
 		} catch (error) {
@@ -1961,9 +1972,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		render_active(); focus_scanner();
 	}
 
-	async function remove_line(unit) {
+	async function remove_line(line_name, unit) {
 		const response = await frappe.call({ method: "cfg_kanban.api.logistics.remove_dispatch_tag", args: {
-			manifest_name: state.manifest.name, handling_unit: unit, operator_session_token: state.token,
+			manifest_name: state.manifest.name, line_name, handling_unit: unit,
+			operator_session_token: state.token,
 		} }); state.manifest = response.message; render_active(); await refresh_list(); focus_scanner();
 	}
 
@@ -2083,7 +2095,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			...(extra || {}),
 		}, freeze: true, freeze_message: message });
 		state.manifest = response.message;
-		localStorage.setItem(last_manifest_key, state.manifest.name);
+		if (TERMINAL_STATES.has(state.manifest.state)) localStorage.removeItem(last_manifest_key);
+		else localStorage.setItem(last_manifest_key, state.manifest.name);
 		if ((state.scan_mode === "dispatch" && state.manifest.state !== "Draft") ||
 			(state.scan_mode === "receipt" && !state.manifest.can_receive)) state.scan_mode = "lookup";
 		render_active(); await refresh_list(); focus_scanner();

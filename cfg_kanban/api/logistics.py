@@ -742,16 +742,26 @@ def _scan_dispatch_container(manifest, container, event_token, profile, session,
 
 
 @frappe.whitelist()
-def remove_dispatch_tag(manifest_name, handling_unit, operator_session_token):
+def remove_dispatch_tag(manifest_name, operator_session_token, handling_unit=None, line_name=None):
+    """Remove one Draft selection, including ordinary ERP stock without a physical tag."""
     profile, session = require_operator(operator_session_token, "start")
     manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
     route = frappe.get_doc("CFG Kanban Logistics Route", manifest.logistics_route)
     _require_route_responsibility(profile, route.dispatch_responsibility, "dispatch")
     if manifest.state != "Draft":
-        frappe.throw("Tags can only be removed while the Manifest is Draft")
-    row = next((row for row in manifest.lines if row.handling_unit == handling_unit), None)
+        frappe.throw(
+            "Manifest selections can only be removed while the Manifest is Draft. "
+            "An override-authorized supervisor must cancel a Prepared Manifest to release it."
+        )
+    row = next((row for row in manifest.lines if (
+        (line_name and row.name == line_name)
+        or (handling_unit and row.handling_unit == handling_unit)
+    )), None)
     if not row:
         return get_manifest(manifest.name, operator_session_token)
+    removed_kind = row.line_kind
+    removed_code = row.visible_code or row.handling_unit or "ERP STOCK"
+    removed_qty = row.dispatch_qty
     if row.container_handling_unit:
         for grouped_row in list(manifest.lines):
             if grouped_row.container_handling_unit == row.container_handling_unit:
@@ -759,10 +769,12 @@ def remove_dispatch_tag(manifest_name, handling_unit, operator_session_token):
     else:
         manifest.remove(row)
     manifest.save(ignore_permissions=True)
-    record("Manifest Dispatch Tag Removed", movement_manifest=manifest.name,
-           handling_unit=handling_unit, reference_doctype=manifest.doctype,
+    record("Manifest Dispatch Selection Removed", movement_manifest=manifest.name,
+           handling_unit=handling_unit or None, qty=removed_qty,
+           reference_doctype=manifest.doctype,
            reference_name=manifest.name, operator=profile.employee,
-           operator_session=session.name, terminal_user=session.terminal_user)
+           operator_session=session.name, terminal_user=session.terminal_user,
+           notes=f"{removed_kind}: {removed_code}")
     return get_manifest(manifest.name, operator_session_token)
 
 

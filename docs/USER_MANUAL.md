@@ -2396,16 +2396,23 @@ Receipt steps:
    tag's **Inventory Company** and **Current Warehouse**, and makes destination stock operationally
    available.
 
-The terminal remembers the last viewed Manifest in that browser so a refresh after manual ERP
-submission reopens it. **Recently Completed** is collapsed by default and contains only the latest
-10 authorized terminal-state Manifests; older history remains accessible by scanning a Stock Tag,
+The terminal remembers the last open Manifest in that browser so a refresh after manual ERP
+submission can reopen pending work. A terminal-state Manifest is not restored as the active screen
+after a later page reload. Select **Done — Clear Screen** on a completed Manifest, or the toolbar
+**Clear Screen**, to return immediately to the neutral scanner. **Recently Completed** is collapsed
+by default and contains only the latest 10 authorized terminal-state Manifests; clearing the screen
+does not delete this audit history. Older history remains accessible by scanning a Stock Tag,
 scanning/entering the Manifest number, or using the normal Desk list.
 
 An unused **Draft** or **Prepared** Manifest can be cancelled by an override-authorized operator
-with a reason; prepared reservations are released. After an ERP document exists, use controlled
-ERP cancellation/recovery. Movement Manifests are audit records and cannot be deleted. Package B
-does not itself load a lorry or perform later intercompany billing. Customer Delivery Notes are
-created separately from a confirmed Package C2 Delivery Session as described above.
+with a reason; prepared physical-tag reservations are released. For a Card-triggered Transfer, this
+controlled cancellation also cancels its Signal and Cycle and returns the Card to **Available**.
+While a Manifest is still Draft, both a scanned Stock Tag line and an **ERP Stock without Physical
+Tag** line have a **Remove** correction action. Removal changes only the draft selection; it does not
+move ERP stock. After an ERP document exists, use controlled ERP cancellation/recovery. Movement
+Manifests are audit records and cannot be deleted. Package B does not itself load a lorry or perform
+later intercompany billing. Customer Delivery Notes are created separately from a confirmed Package
+C2 Delivery Session as described above.
 
 ### Transfer Kanban — same-Company Warehouse replenishment
 
