@@ -544,6 +544,12 @@ def _require_responsibility(profile):
 def _stock_entry_status(name):
     if not name or not frappe.db.exists("Stock Entry", name):
         return None
-    return frappe.db.get_value(
-        "Stock Entry", name, ["name", "status", "docstatus"], as_dict=True
+    # Stock Entry has no database `status` column in ERPNext v15. Derive the
+    # operator-facing state from Frappe's authoritative docstatus instead.
+    result = frappe.db.get_value(
+        "Stock Entry", name, ["name", "docstatus"], as_dict=True
     )
+    result["status"] = {0: "Draft", 1: "Submitted", 2: "Cancelled"}.get(
+        result.docstatus, "Unknown"
+    )
+    return result

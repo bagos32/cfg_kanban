@@ -1315,6 +1315,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('"Withdrawal": "Stock Withdrawal"', trigger)
         self.assertIn("get_default_naming_series", gateway)
         self.assertIn('doc.naming_series = get_default_naming_series(doc.doctype)', gateway)
+        self.assertIn('["name", "docstatus"]', service)
+        self.assertNotIn('["name", "status", "docstatus"]', service)
         self.assertIn("def prepare_withdrawal", service)
         self.assertIn("def complete_withdrawal", service)
         self.assertIn("def discard_withdrawal_draft", service)
