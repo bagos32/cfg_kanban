@@ -782,6 +782,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("ERP Stock without Physical Tag", logistics)
         self.assertIn("def trigger_transfer_card", logistics)
         self.assertIn("def _receipt_retry_available", logistics)
+        self.assertIn('frappe.get_meta(doctype).has_field("status")', logistics)
+        self.assertIn('1: "Submitted"', logistics)
 
     def test_customer_delivery_session_foundation_is_company_scoped(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

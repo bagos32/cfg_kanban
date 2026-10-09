@@ -1458,7 +1458,19 @@ def _operator_summary(profile, session):
 def _document_status(doctype, name):
     if not name or not frappe.db.exists(doctype, name):
         return None
-    row = frappe.db.get_value(doctype, name, ["name", "status", "docstatus"], as_dict=True)
+    # Stock Entry does not expose a stored ``status`` column on every supported
+    # ERPNext v15 revision. Query only fields that exist, then provide the
+    # stable display status expected by the Logistics panel.
+    fields = ["name", "docstatus"]
+    if frappe.get_meta(doctype).has_field("status"):
+        fields.insert(1, "status")
+    row = frappe.db.get_value(doctype, name, fields, as_dict=True)
+    if row and not row.get("status"):
+        row["status"] = {
+            0: "Draft",
+            1: "Submitted",
+            2: "Cancelled",
+        }.get(cint(row.docstatus), "Unknown")
     return row
 
 
