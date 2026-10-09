@@ -1,6 +1,7 @@
 import json
 
 import frappe
+from frappe.model.naming import get_default_naming_series
 from frappe.utils import add_to_date, flt, get_datetime, now_datetime
 from erpnext.manufacturing.doctype.work_order.work_order import get_item_details
 
@@ -805,6 +806,14 @@ def create_customer_return_material_receipt(command, payload):
 
 def get_required_erp_inputs(doc):
     """Describe editable mandatory values still missing from an ERP document."""
+    # Frappe normally assigns the first configured naming-series option during
+    # document insertion. CFG preflights mandatory values before insertion, so
+    # resolve that same default here instead of asking a floor operator to choose
+    # accounting document numbering for every transaction.
+    naming_field = doc.meta.get_field("naming_series")
+    if naming_field and not doc.get("naming_series"):
+        doc.naming_series = get_default_naming_series(doc.doctype)
+
     requirements = []
     for field in doc.meta.fields:
         if field.fieldtype == "Table":

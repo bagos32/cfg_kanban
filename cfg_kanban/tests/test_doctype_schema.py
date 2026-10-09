@@ -1313,6 +1313,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('"stock_entry_type": "Material Issue"', gateway)
         self.assertIn("validate_withdrawal_stock_entry", feedback)
         self.assertIn('"Withdrawal": "Stock Withdrawal"', trigger)
+        self.assertIn("get_default_naming_series", gateway)
+        self.assertIn('doc.naming_series = get_default_naming_series(doc.doctype)', gateway)
         self.assertIn("def prepare_withdrawal", service)
         self.assertIn("def complete_withdrawal", service)
         self.assertIn("def discard_withdrawal_draft", service)

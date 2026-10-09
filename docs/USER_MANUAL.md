@@ -2550,7 +2550,9 @@ Operation:
    quantity.
 5. For a stock Item, select **Create Material Issue**; the app creates one idempotent ERPNext Stock
    Entry. For a non-stock Item, select **Confirm Tagged Withdrawal**; it consumes only the Handling
-   Unit balance and creates no Stock Entry.
+   Unit balance and creates no Stock Entry. The stock-item path uses ERPNext's configured default
+   **Stock Entry naming series** automatically; floor operators are not asked to choose document
+   numbering. Administrators maintain that default in ERPNext Document Naming Settings.
 6. With auto-submit off, an authorized ERPNext stock user reviews and submits the Draft Stock Entry.
    Draft creation does not reduce ERP stock and does not recycle the Card.
 7. On submission, ERPNext reduces stock, tagged quantity is consumed and its reservation released,
