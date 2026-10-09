@@ -12,6 +12,11 @@ class TestDocTypeSchema(TestCase):
         for path in ROOT.glob("*/*.json"):
             yield path, json.loads(path.read_text())
 
+    def test_search_fields_fit_frappe_schema_limit(self):
+        for path, schema in self._schemas():
+            with self.subTest(doctype=schema.get("name"), path=path):
+                self.assertLessEqual(len(schema.get("search_fields") or ""), 140)
+
     def test_patch_file_declares_both_frappe_migration_phases(self):
         patches = (APP_ROOT / "patches.txt").read_text()
         self.assertIn("[pre_model_sync]", patches)
