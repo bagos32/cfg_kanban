@@ -41,6 +41,7 @@ only to satisfy this test; first confirm the Warehouse has a submitted ERP stock
 3. Select **Tag Existing ERP Stock** and select `FG-TEST-500ML` plus its Batch when applicable.
 4. Confirm the panel shows ERP actual `100`, active tagged `40`, and available for tagging `60`.
 5. Scan `TST-STK1500`, enter `20`, complete the packing timestamp and adoption reason, then confirm.
+   The entered `20` deliberately represents one container and is lower than the available `60`.
 
 Expected:
 

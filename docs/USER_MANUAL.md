@@ -2473,7 +2473,10 @@ Operator procedure:
    Stock**, **Already Active under Tags**, and **Available for New Tagging** values.
 4. Scan one unused preprinted main tag, enter the physical quantity, Handling Unit Type, packing
    timestamp, expiry snapshot when applicable, and the reason why this stock was not already tagged.
-   For a serial-controlled Item, enter exactly one Serial Number per unit.
+   Enter only the quantity physically contained under that one tag. It may be lower than
+   **Available for New Tagging**. Repeat the procedure with another unused tag for every remaining
+   pallet, basket or container. For a serial-controlled Item, enter exactly one Serial Number per
+   unit.
 5. Confirm the physical Item, Batch, Warehouse, tag and quantity. The app locks the ERP Bin and
    matching Handling Units, recalculates the untagged balance, creates **CFG Kanban Stock Adoption**,
    activates the Handling Unit and posts one immutable quantity-ledger event.

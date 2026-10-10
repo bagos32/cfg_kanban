@@ -971,7 +971,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 					get_query: () => ({ filters: { item: dialog.get_value("item_code") || "" } }),
 					change: () => refresh_existing_stock_context(dialog, warehouse_context, (value) => { adoption_context = value; }) },
 				{ fieldname: "balance", fieldtype: "HTML", options: `<div class="text-muted">${__("Select an Item to check ERP and tagged balances.")}</div>` },
-				{ fieldname: "qty", label: __("Quantity in Stock UOM"), fieldtype: "Float", reqd: 1 },
+				{ fieldname: "qty", label: __("Quantity in this Container (Stock UOM)"), fieldtype: "Float", reqd: 1,
+					description: __("Enter only the physical quantity carried by this tag. It may be lower than the remaining untagged ERP stock.") },
 				{ fieldname: "scan_value", label: __("Unused Preprinted Main Tag"), fieldtype: "Data", reqd: 1 },
 				{ fieldname: "camera_tag", label: __("Scan Tag with Camera"), fieldtype: "Button",
 					click: () => camera_value((value) => dialog.set_value("scan_value", value)) },
@@ -995,9 +996,20 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			],
 			primary_action_label: __("Adopt Existing Stock Tag"),
 			primary_action: async (values) => {
-				if (!adoption_context) return frappe.msgprint(__("Check the ERP stock balance before confirming."));
+				adoption_context = await refresh_existing_stock_context(
+					dialog, warehouse_context, null, { preserve_quantity: true, show_error: true }
+				);
+				if (!adoption_context) return;
+				if (adoption_context.batch_required && !values.batch_no) {
+					return frappe.msgprint(__("Select the exact Batch before confirming this tag."));
+				}
+				if (!(values.qty > 0)) {
+					return frappe.msgprint(__("Enter the positive physical quantity in this container."));
+				}
 				if (values.qty > adoption_context.untagged_qty) {
-					return frappe.msgprint(__("Quantity exceeds the verified untagged ERP stock."));
+					return frappe.msgprint(__("This container quantity exceeds the verified untagged ERP stock of {0} {1}.", [
+						format_number(adoption_context.untagged_qty), adoption_context.stock_uom,
+					]));
 				}
 				const cycle = values.kanban_cycle ? String(values.kanban_cycle).split(" :: ")[0] : null;
 				const response = await frappe.call({
@@ -1024,9 +1036,14 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		dialog.show();
 	}
 
-	async function refresh_existing_stock_context(dialog, warehouse_context, callback) {
+	async function refresh_existing_stock_context(dialog, warehouse_context, callback, options = {}) {
 		const item_code = dialog.get_value("item_code");
-		if (!item_code) return;
+		if (!item_code) {
+			if (callback) callback(null);
+			return null;
+		}
+		if (callback) callback(null);
+		dialog.get_field("balance").$wrapper.html(`<div class="text-muted">${__("Checking live ERP and tagged balances...")}</div>`);
 		try {
 			const response = await frappe.call({
 				method: "cfg_kanban.services.stock_adoption.get_existing_stock_adoption_context",
@@ -1034,7 +1051,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 					batch_no: dialog.get_value("batch_no"), operator_session_token: state.token },
 			});
 			const context = response.message || {};
-			callback(context);
+			if (callback) callback(context);
 			const e = frappe.utils.escape_html;
 			const field = dialog.get_field("balance");
 			field.$wrapper.html(context.batch_required && !context.batch_no ?
@@ -1045,7 +1062,6 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 					${__("Available for New Tagging")}: <strong>${format_number(context.untagged_qty)} ${e(context.stock_uom)}</strong>
 					${context.tagged_excess_qty ? `<br><strong>${__("Stop: active tags exceed ERP stock by {0}.", [format_number(context.tagged_excess_qty)])}</strong>` : ""}
 				</div>`);
-			dialog.set_value("qty", context.untagged_qty || 0);
 			if (dialog.get_field("serial_numbers")) dialog.set_df_property("serial_numbers", "hidden", !context.serial_controlled);
 			if (dialog.get_field("kanban_cycle")) {
 				const options = [""].concat((context.eligible_cycles || []).map((row) =>
@@ -1053,9 +1069,13 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				dialog.set_df_property("kanban_cycle", "options", options.join("\n"));
 				dialog.refresh_field("kanban_cycle");
 			}
+			return context;
 		} catch (error) {
-			callback(null);
-			dialog.get_field("balance").$wrapper.html(`<div class="alert alert-danger">${__("ERP stock balance could not be verified.")}</div>`);
+			if (callback) callback(null);
+			const message = server_error_message(error, __("ERP stock balance could not be verified."));
+			dialog.get_field("balance").$wrapper.html(`<div class="alert alert-danger">${frappe.utils.escape_html(message)}</div>`);
+			if (options.show_error) frappe.msgprint(message);
+			return null;
 		}
 	}
 
