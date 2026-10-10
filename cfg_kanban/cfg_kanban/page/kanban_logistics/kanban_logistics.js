@@ -1067,7 +1067,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				const options = [""].concat((context.eligible_cycles || []).map((row) =>
 					`${row.name} :: ${row.remaining_qty} ${row.stock_uom} ${__("remaining")} :: ${row.status}`));
 				dialog.set_df_property("kanban_cycle", "options", options.join("\n"));
-				dialog.refresh_field("kanban_cycle");
+				dialog.get_field("kanban_cycle").refresh();
 			}
 			return context;
 		} catch (error) {

@@ -1484,6 +1484,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Quantity in this Container", panel)
         self.assertIn("preserve_quantity: true", panel)
         self.assertIn("Checking live ERP and tagged balances", panel)
+        self.assertIn('dialog.get_field("kanban_cycle").refresh()', panel)
+        self.assertNotIn('dialog.refresh_field("kanban_cycle")', panel)
         self.assertIn("untagged_erp_qty", report)
         self.assertIn('"Stock Adoption"', install)
         self.assertIn('"existing_stock_allocated_qty"', install)
