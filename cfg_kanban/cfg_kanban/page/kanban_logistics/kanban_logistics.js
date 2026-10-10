@@ -926,13 +926,13 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const manifests = (context.manifests || []).map((row) => `<div class="frappe-card cfg-logistics-list-row">
 			<div><strong>${e(row.name)}</strong><small>${e(row.manifest_type)} · ${e(row.logistics_route)}</small>
 			<small>${e(row.source_warehouse)} → ${e(row.destination_warehouse)}</small></div>
-			<div><span class="indicator-pill ${indicator(row.state)}">${e(row.state)}</span>
+			<div><span class="indicator-pill ${state_colour(row.state)}">${e(row.state)}</span>
 			<button class="btn btn-primary warehouse-open-manifest" data-name="${e(row.name)}">${__("Open")}</button></div>
 		</div>`).join("") || `<div class="alert alert-light">${__("No authorized open movement Manifests involve this warehouse.")}</div>`;
 		const cards = (context.stock_cards || []).map((row) => `<div class="frappe-card cfg-logistics-list-row">
 			<div><strong>${e(row.item_code)}</strong><small>${e(row.control_type)} · ${e(row.kanban_name || row.kanban_master)}</small>
 			<small>${e(row.source_warehouse || "-")} → ${e(row.destination_warehouse || "-")}</small></div>
-			<div><span class="indicator-pill ${indicator(row.current_state)}">${e(row.current_state)}</span>
+			<div><span class="indicator-pill ${state_colour(row.current_state)}">${e(row.current_state)}</span>
 			<button class="btn btn-default warehouse-open-card" data-number="${e(row.card_number)}">${__("Open Card")}</button></div>
 		</div>`).join("") || `<div class="alert alert-light">${__("No authorized Transfer or Withdrawal cards involve this warehouse.")}</div>`;
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">

@@ -1063,6 +1063,9 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("render_workstation_queue", operator_panel)
         self.assertIn("render_warehouse_operations", logistics_panel)
         self.assertIn("server_error_message", logistics_panel)
+        self.assertIn("state_colour(row.state)", logistics_panel)
+        self.assertIn("state_colour(row.current_state)", logistics_panel)
+        self.assertNotIn("${indicator(row.", logistics_panel)
 
         for print_format in (
             "cfg_workstation_queue_card/cfg_workstation_queue_card.json",
