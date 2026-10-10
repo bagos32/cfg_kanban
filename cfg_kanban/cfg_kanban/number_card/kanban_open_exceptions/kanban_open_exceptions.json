@@ -1,0 +1,16 @@
+{
+ "background_color": "#ffe8e8",
+ "color": "#e74c3c",
+ "doctype": "Number Card",
+ "document_type": "CFG Kanban Exception",
+ "filters_json": "[[\"CFG Kanban Exception\",\"status\",\"in\",[\"Open\",\"Acknowledged\"],false]]",
+ "function": "Count",
+ "is_public": 1,
+ "is_standard": 1,
+ "label": "Open Exceptions",
+ "module": "CFG Kanban",
+ "name": "Kanban Open Exceptions",
+ "show_full_number": 1,
+ "show_percentage_stats": 0,
+ "type": "Document Type"
+}

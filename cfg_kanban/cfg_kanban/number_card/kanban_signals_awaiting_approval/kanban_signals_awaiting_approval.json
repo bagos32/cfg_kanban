@@ -1,0 +1,16 @@
+{
+ "background_color": "#fff4de",
+ "color": "#f39c12",
+ "doctype": "Number Card",
+ "document_type": "CFG Kanban Signal",
+ "filters_json": "[[\"CFG Kanban Signal\",\"status\",\"=\",\"Waiting Approval\",false]]",
+ "function": "Count",
+ "is_public": 1,
+ "is_standard": 1,
+ "label": "Signals Awaiting Approval",
+ "module": "CFG Kanban",
+ "name": "Kanban Signals Awaiting Approval",
+ "show_full_number": 1,
+ "show_percentage_stats": 0,
+ "type": "Document Type"
+}

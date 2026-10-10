@@ -35,10 +35,10 @@ class TestDocTypeSchema(TestCase):
         self.assertEqual(shortcuts["Logistics Operator Panel"], "kanban-logistics")
         self.assertEqual(shortcuts["Material Genealogy Explorer"],
                          "material-genealogy")
-        self.assertEqual(shortcuts["Production Signals"], "kanban-supervisor")
+        self.assertEqual(shortcuts["Production Supervisor Action Center"],
+                         "kanban-supervisor")
         self.assertEqual(shortcuts["Maintenance Register"],
                          "Kanban Maintenance Register")
-        self.assertEqual(shortcuts["Private Media Evidence"], "CFG Kanban Media")
         self.assertEqual(shortcuts["Operator Profiles"], "CFG Kanban Operator Profile")
         self.assertEqual(links["Logistics Routes"], "CFG Kanban Logistics Route")
         self.assertEqual(links["Customer Scan Points"], "CFG Kanban Customer Scan Point")
@@ -46,35 +46,19 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Delivery Session")
         self.assertEqual(links["Customer Delivery Allocations"],
                          "CFG Kanban Delivery Allocation")
-        self.assertEqual(shortcuts["Customer Delivery Sessions"],
-                         "CFG Kanban Delivery Session")
-        self.assertEqual(shortcuts["Customer Delivery Allocations"],
-                         "CFG Kanban Delivery Allocation")
         self.assertEqual(links["Customer Delivery Proofs"],
                          "CFG Kanban Delivery Proof")
-        self.assertEqual(shortcuts["Customer Delivery Proofs"],
-                         "CFG Kanban Delivery Proof")
         self.assertEqual(links["Customer Return Cases"],
-                         "CFG Kanban Return Case")
-        self.assertEqual(shortcuts["Customer Return Cases"],
                          "CFG Kanban Return Case")
         self.assertEqual(links["Stock Tag Families"], "CFG Kanban Tag Family")
         self.assertEqual(links["Stock Tag Range Registries"],
                          "CFG Kanban Tag Range Registry")
-        self.assertEqual(shortcuts["Stock Tag Range Registries"],
-                         "CFG Kanban Tag Range Registry")
-        self.assertEqual(shortcuts["Handling Unit Quantity Ledger"],
-                         "CFG Kanban Handling Unit Quantity Ledger")
         self.assertEqual(links["Operational Inventory Balance"],
                          "Kanban Operational Inventory Balance")
         self.assertEqual(shortcuts["Operational Inventory Balance"],
                          "Kanban Operational Inventory Balance")
-        self.assertEqual(shortcuts["Container Content History"],
-                         "CFG Kanban Container Content")
         self.assertEqual(links["Container Content History"],
                          "CFG Kanban Container Content")
-        self.assertEqual(shortcuts["Handling Unit Serial History"],
-                         "CFG Kanban Handling Unit Serial")
         self.assertEqual(links["Handling Unit Serial History"],
                          "CFG Kanban Handling Unit Serial")
         self.assertEqual(links["Movement Manifests"],
@@ -85,14 +69,45 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Route Reconciliation")
         self.assertEqual(links["Material Trace Policies"],
                          "CFG Kanban Material Trace Policy")
-        self.assertEqual(shortcuts["Material Trace Policies"],
-                         "CFG Kanban Material Trace Policy")
         self.assertEqual(links["Supplier Receipt Dispositions"],
                          "CFG Kanban Receipt Disposition")
         self.assertEqual(links["Material Genealogy"],
                          "CFG Kanban Material Trace")
         self.assertEqual(links["Material Genealogy Explorer"],
                          "material-genealogy")
+        self.assertEqual(
+            {row["number_card_name"] for row in workspace["number_cards"]},
+            {"Kanban Signals Awaiting Approval", "Kanban Open Exceptions",
+             "Kanban Service Attention", "Kanban Logistics Attention"},
+        )
+        self.assertEqual(workspace["charts"][0]["chart_name"],
+                         "Active Kanban Cycles by Status")
+        content = json.loads(workspace["content"])
+        self.assertEqual(content[0]["data"]["text"].split("<br>")[0],
+                         '<span class="h4"><b>Operational Attention</b></span>')
+
+    def test_workspace_attention_widgets_are_standard_records(self):
+        cards_root = APP_ROOT / "cfg_kanban" / "number_card"
+        expected_cards = {
+            "kanban_signals_awaiting_approval": ("CFG Kanban Signal", "Waiting Approval"),
+            "kanban_open_exceptions": ("CFG Kanban Exception", "Acknowledged"),
+            "kanban_service_attention": ("CFG Kanban Task", "Awaiting Verification"),
+            "kanban_logistics_attention": ("CFG Kanban Movement Manifest", "Exception"),
+        }
+        for folder, (doctype, expected_filter) in expected_cards.items():
+            card = json.loads((cards_root / folder / f"{folder}.json").read_text())
+            self.assertEqual(card["doctype"], "Number Card")
+            self.assertEqual(card["document_type"], doctype)
+            self.assertTrue(card["is_standard"])
+            self.assertIn(expected_filter, card["filters_json"])
+
+        chart_path = (APP_ROOT / "cfg_kanban" / "dashboard_chart" /
+                      "active_kanban_cycles_by_status" /
+                      "active_kanban_cycles_by_status.json")
+        chart = json.loads(chart_path.read_text())
+        self.assertEqual(chart["document_type"], "CFG Kanban Cycle")
+        self.assertEqual(chart["chart_type"], "Group By")
+        self.assertEqual(chart["group_by_based_on"], "status")
 
     def test_supervisor_action_centre_exposes_visual_approval_queue(self):
         page_root = APP_ROOT / "cfg_kanban" / "page" / "kanban_supervisor"
@@ -1006,6 +1021,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Confirm Tagged Withdrawal", panel)
 
     def test_operational_inventory_report_aggregates_tag_balances(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
         report_root = (APP_ROOT / "cfg_kanban" / "report" /
                        "kanban_operational_inventory_balance")
         report = json.loads(
@@ -1020,6 +1036,14 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("sum(hu.available_qty) as available_qty", source)
         self.assertIn("group by hu.inventory_company, hu.current_warehouse", source)
         self.assertIn('default: "Kanban Operational Inventory"', client)
+        handling_permissions = {
+            row["role"]: row for row in schemas["CFG Kanban Handling Unit"]["permissions"]
+        }
+        for role in (
+            "Manufacturing User", "Manufacturing Manager", "Stock User",
+            "Stock Manager", "System Manager",
+        ):
+            self.assertEqual(handling_permissions[role].get("report"), 1)
 
     def test_dashboard_profile_supports_saved_multi_workstation_screens(self):
         profile_path = ROOT / "cfg_kanban_dashboard_profile" / "cfg_kanban_dashboard_profile.json"

@@ -1,0 +1,15 @@
+{
+ "chart_name": "Active Kanban Cycles by Status",
+ "chart_type": "Group By",
+ "doctype": "Dashboard Chart",
+ "document_type": "CFG Kanban Cycle",
+ "filters_json": "[[\"CFG Kanban Cycle\",\"status\",\"not in\",[\"Completed\",\"Cancelled\"],false]]",
+ "group_by_based_on": "status",
+ "group_by_type": "Count",
+ "is_public": 1,
+ "is_standard": 1,
+ "module": "CFG Kanban",
+ "name": "Active Kanban Cycles by Status",
+ "number_of_groups": 20,
+ "type": "Bar"
+}

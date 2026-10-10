@@ -64,10 +64,10 @@
   {"fieldname":"void_reason","label":"Void / Replacement Reason","fieldtype":"Small Text","read_only":1}
  ],
  "permissions":[
-  {"role":"Manufacturing User","read":1,"create":1,"write":1,"print":1},
-  {"role":"Stock User","read":1,"create":1,"write":1,"print":1},
-  {"role":"Manufacturing Manager","read":1,"create":1,"write":1,"delete":1,"print":1},
-  {"role":"Stock Manager","read":1,"create":1,"write":1,"delete":1,"print":1},
-  {"role":"System Manager","read":1,"create":1,"write":1,"delete":1,"print":1}
+  {"role":"Manufacturing User","read":1,"create":1,"write":1,"print":1,"report":1},
+  {"role":"Stock User","read":1,"create":1,"write":1,"print":1,"report":1},
+  {"role":"Manufacturing Manager","read":1,"create":1,"write":1,"delete":1,"print":1,"report":1},
+  {"role":"Stock Manager","read":1,"create":1,"write":1,"delete":1,"print":1,"report":1},
+  {"role":"System Manager","read":1,"create":1,"write":1,"delete":1,"print":1,"report":1}
  ]
 }
