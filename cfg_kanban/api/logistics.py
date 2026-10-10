@@ -31,6 +31,7 @@ MANIFEST_LIST_FIELDS = [
 INTERNAL_TRANSFER_RESPONSIBILITY = "Internal Warehouse Transfer"
 SUPPLIER_RECEIVING_RESPONSIBILITY = "Supplier Receiving"
 STOCK_WITHDRAWAL_RESPONSIBILITY = "Stock Withdrawal"
+STOCK_ADOPTION_RESPONSIBILITY = "Stock Adoption"
 
 
 @frappe.whitelist()
@@ -248,6 +249,13 @@ def get_warehouse_operations_context(card, profile):
         "stock_cards": stock_cards,
         "can_receive_supplier": bool(
             view_all or SUPPLIER_RECEIVING_RESPONSIBILITY in responsibilities
+        ),
+        "can_adopt_stock": bool(
+            view_all or STOCK_ADOPTION_RESPONSIBILITY in responsibilities
+        ),
+        "can_allocate_adopted_stock": bool(
+            (view_all or STOCK_ADOPTION_RESPONSIBILITY in responsibilities)
+            and cint(profile.get("can_override"))
         ),
     }
 

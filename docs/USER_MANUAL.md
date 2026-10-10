@@ -2441,10 +2441,58 @@ Current Warehouse, Item and Stock UOM and displays:
 - **Released Available** and **Hold / Restricted** quantities; and
 - the number of physical tags included in the balance.
 
+For an ERP stock Item the report also displays **ERP Actual Qty**, **All Active Tagged**,
+**Untagged ERP Qty**, and **Tagged Excess**. These columns are the stock-adoption control:
+`Untagged ERP Qty = max(ERP Actual Qty - all active tagged quantity, 0)`. A positive Tagged Excess
+is an exception that must be investigated; it is not another source of stock.
+
 The default **Inventory Control Mode** filter is **Kanban Operational Inventory**, meaning Items
 whose ERPNext **Maintain Stock** setting is disabled. Select **ERP Stock** or clear the filter to
 review tagged stock Items. When all displayed rows use one UOM, the report header also shows the
 combined Total, Reserved and Available quantities. It deliberately does not combine unlike UOMs.
+
+### Tag finished goods that already exist in ERPNext
+
+Use this procedure only when finished stock is already posted in ERPNext but has no physical CFG
+Stock Tag. It creates identity and audit evidence; it never creates stock or records new production.
+
+Prerequisites:
+
+1. Register an active main-tag family or an active **CFG Kanban Tag Range Registry**.
+2. Create and print a permanent **Warehouse Operations** Location Card for the exact Warehouse.
+3. Assign **Stock Adoption** responsibility to the operator. A supervisor who may allocate the
+   adopted tag to a Cycle also needs **Supervisor Override** permission.
+4. ERPNext must show positive actual stock in that Company/Warehouse. Batch- and serial-controlled
+   Items require their exact Batch and Serial Numbers.
+
+Operator procedure:
+
+1. Open **CFG Kanban → Logistics Operator Panel** and identify the operator.
+2. Scan the Warehouse Operations Card. Select **Tag Existing ERP Stock**.
+3. Select the finished Item and, when required, its exact Batch. Read the displayed **ERP Actual
+   Stock**, **Already Active under Tags**, and **Available for New Tagging** values.
+4. Scan one unused preprinted main tag, enter the physical quantity, Handling Unit Type, packing
+   timestamp, expiry snapshot when applicable, and the reason why this stock was not already tagged.
+   For a serial-controlled Item, enter exactly one Serial Number per unit.
+5. Confirm the physical Item, Batch, Warehouse, tag and quantity. The app locks the ERP Bin and
+   matching Handling Units, recalculates the untagged balance, creates **CFG Kanban Stock Adoption**,
+   activates the Handling Unit and posts one immutable quantity-ledger event.
+
+The same retry event cannot create a duplicate adoption. A tag cannot be adopted if it is already
+active, outside an active registered range, or would make active tagged quantity exceed ERP stock.
+
+An authorized supervisor may select an eligible Cycle while adopting, or later allocate the adopted
+record through the controlled API. Allocation is limited to a Production Master using **Stock
+Replenishment**, the same Company, Item, Stock UOM and destination Warehouse, an open Cycle without
+a Work Order, and the remaining Cycle target. The entire tag is reserved; split it first when only
+part is required. Make-to-Order Cycles reject existing-stock allocation. Allocation updates the
+Cycle's **Existing Stock Allocated Qty** and status but deliberately does not update Actual Good Qty,
+Job Cards or ERP production. Release the allocation with a mandatory reason before using the tag for
+another purpose.
+
+Desk audit is available at **CFG Kanban → Existing Stock Adoptions**. The Handling Unit retains
+**Origin ERP DocType = CFG Kanban Stock Adoption**, and the Event History and quantity ledger retain
+the operator, session, balance snapshot and reason.
 
 ### Intercompany Movement Manifest — exact operating procedure
 
@@ -2715,6 +2763,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.37 | 10 October 2026 | Added Warehouse-card adoption of already-posted ERP finished stock, locked ERP-versus-tag balance validation, preprinted tag activation, exact Batch/Serial checks, supervisor reservation to eligible stock-replenishment Cycles, allocation release, Cycle allocation indicators, audit records, and ERP/tag/untagged report columns |
 | 1.36 | 9 October 2026 | Exposed QR printing on every master-backed Card, separated Card identity replacement from printing, recorded Card print time/user, and labelled Transfer and Withdrawal print formats correctly |
 | 1.35 | 9 October 2026 | Added controlled Withdrawal Kanban for non-BOM consumables, independent Stock Withdrawal responsibility, optional tagged/untagged selection, tag reservation, native ERPNext Material Issue posting, submission feedback, Card recycling, cancellation safeguards, Logistics-panel operation, and an independent L2 system test |
 | 1.34 | 9 October 2026 | Added Transfer Kanban release into Logistics Movement Manifests, explicit internal versus intercompany route modes, direct and Goods-in-Transit Material Transfer Stock Entries, optional no-tag ERP-stock lines, ERP-submission feedback, Card/Cycle completion, cancellation safeguards, and scan-card Manifest lookup |

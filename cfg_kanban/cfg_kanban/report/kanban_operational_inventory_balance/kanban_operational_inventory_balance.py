@@ -66,6 +66,29 @@ def execute(filters=None):
         values,
         as_dict=True,
     )
+    for row in data:
+        if row.inventory_control_mode != "ERP Stock" or not row.warehouse:
+            row["erp_actual_qty"] = None
+            row["all_active_tagged_qty"] = row.total_qty
+            row["untagged_erp_qty"] = None
+            row["tagged_excess_qty"] = None
+            continue
+        erp_qty = flt(frappe.db.get_value(
+            "Bin", {"item_code": row.item_code, "warehouse": row.warehouse}, "actual_qty"
+        ))
+        tagged_qty = flt(frappe.db.sql(
+            """
+            select coalesce(sum(current_qty), 0)
+            from `tabCFG Kanban Handling Unit`
+            where inventory_company=%s and current_warehouse=%s and item_code=%s
+              and tag_kind!='Reusable Container' and identity_state='Active'
+            """,
+            (row.company, row.warehouse, row.item_code),
+        )[0][0])
+        row["erp_actual_qty"] = erp_qty
+        row["all_active_tagged_qty"] = tagged_qty
+        row["untagged_erp_qty"] = max(erp_qty - tagged_qty, 0)
+        row["tagged_excess_qty"] = max(tagged_qty - erp_qty, 0)
     return columns, data, None, None, _summary(data)
 
 
@@ -78,6 +101,10 @@ def _columns():
         {"label": _("UOM"), "fieldname": "stock_uom", "fieldtype": "Link", "options": "UOM", "width": 85},
         {"label": _("Inventory Control"), "fieldname": "inventory_control_mode", "width": 190},
         {"label": _("Active Tags"), "fieldname": "tag_count", "fieldtype": "Int", "width": 95},
+        {"label": _("ERP Actual Qty"), "fieldname": "erp_actual_qty", "fieldtype": "Float", "width": 120},
+        {"label": _("All Active Tagged"), "fieldname": "all_active_tagged_qty", "fieldtype": "Float", "width": 130},
+        {"label": _("Untagged ERP Qty"), "fieldname": "untagged_erp_qty", "fieldtype": "Float", "width": 130},
+        {"label": _("Tagged Excess"), "fieldname": "tagged_excess_qty", "fieldtype": "Float", "width": 110},
         {"label": _("Total Quantity"), "fieldname": "total_qty", "fieldtype": "Float", "width": 125},
         {"label": _("Reserved Quantity"), "fieldname": "reserved_qty", "fieldtype": "Float", "width": 135},
         {"label": _("Available Quantity"), "fieldname": "available_qty", "fieldtype": "Float", "width": 135},

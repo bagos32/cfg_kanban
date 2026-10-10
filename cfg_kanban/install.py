@@ -44,6 +44,10 @@ def _ensure_responsibilities():
             "Split tagged quantity to an unused tag or transfer quantity between active tags "
             "inside the same Company and ERP warehouse."
         ),
+        "Stock Adoption": (
+            "Bind preprinted physical tags to verified, previously untagged ERPNext stock and "
+            "optionally reserve a complete adopted tag for an eligible Kanban Cycle."
+        ),
         "Customer Delivery": "Deliver stock to an identified Customer Site.",
         "Customer Return": (
             "Record a customer-site Temporary Return Note or wrong Delivery Note correction."
@@ -216,6 +220,20 @@ def _custom_fields():
             {"fieldname": "sales_minimum_shortage_qty", "label": "Minimum Shortage to Propose", "fieldtype": "Float", "insert_after": "mto_order_consolidation", "module": "CFG Kanban"},
             {"fieldname": "sales_safety_stock_qty", "label": "Legacy Sales Safety Stock Qty", "fieldtype": "Float", "read_only": 1, "hidden": 1, "insert_after": "sales_minimum_shortage_qty", "module": "CFG Kanban"},
             {"fieldname": "sales_max_cards_per_order", "label": "Maximum Cards per Sales Order", "fieldtype": "Int", "default": "10", "insert_after": "sales_minimum_shortage_qty", "module": "CFG Kanban"},
+        ],
+        "CFG Kanban Cycle": [
+            {"fieldname": "existing_stock_section", "label": "Existing ERP Stock Allocation",
+             "fieldtype": "Section Break", "insert_after": "runtime_allocation",
+             "module": "CFG Kanban", "collapsible": 1},
+            {"fieldname": "existing_stock_allocated_qty",
+             "label": "Existing Stock Allocated Qty", "fieldtype": "Float",
+             "default": "0", "read_only": 1, "in_list_view": 1,
+             "insert_after": "existing_stock_section", "module": "CFG Kanban"},
+            {"fieldname": "existing_stock_allocation_status",
+             "label": "Existing Stock Allocation Status", "fieldtype": "Select",
+             "options": "\nPartially Allocated\nFully Allocated", "read_only": 1,
+             "in_standard_filter": 1, "insert_after": "existing_stock_allocated_qty",
+             "module": "CFG Kanban"},
         ],
         "CFG Kanban Card": [
             {"fieldname": "reserved_for_demand", "label": "Reserved for Sales Demand", "fieldtype": "Link", "options": "CFG Kanban Demand", "read_only": 1, "insert_after": "active_cycle", "module": "CFG Kanban"},

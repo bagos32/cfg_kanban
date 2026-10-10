@@ -105,6 +105,11 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
 - Submitted Purchase Receipt tag activation that derives Item, Batch, Company, Warehouse and UOM
   from ERPNext, supports multiple physical containers without exceeding confirmed quantity, and
   keeps an immutable ERP-origin reference on every activated Handling Unit.
+- Controlled adoption of finished stock that was already posted in ERPNext before physical tagging.
+  A Warehouse Operations Card shows ERP actual, active-tagged and remaining-untagged quantities;
+  an authorized operator may bind only that remaining quantity to an unused preprinted main tag.
+  A supervisor may reserve a complete adopted tag for an eligible stock-replenishment Cycle, but
+  the allocation never reports production, updates a Job Card, creates stock, or closes the Cycle.
 - Draft Stock Entry tracing for Manufacture, Repack, Material Transfer, Material Transfer for
   Manufacture, and Material Consumption for Manufacture. Tagged inputs are reserved before
   submission; submitted ERPNext entries confirm consumption/transfer and activate staged

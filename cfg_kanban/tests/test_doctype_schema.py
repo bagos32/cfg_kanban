@@ -1452,3 +1452,35 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("render_withdrawal_card", panel)
         self.assertIn('"cfg_withdrawal_cycle"', install)
         self.assertIn('"cfg_withdrawal_allocation"', install)
+
+    def test_existing_stock_adoption_is_audited_and_never_reports_production(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        adoption = {row["fieldname"]: row for row in
+                    schemas["CFG Kanban Stock Adoption"]["fields"]}
+        self.assertTrue({
+            "status", "company", "warehouse", "item_code", "stock_uom", "batch_no",
+            "adopted_qty", "visible_tag_code", "handling_unit", "erp_qty_at_adoption",
+            "tagged_qty_before", "untagged_qty_before", "remaining_untagged_qty",
+            "kanban_cycle", "cycle_allocated_qty", "adoption_reason",
+            "adopted_by_operator", "operator_session", "adoption_key",
+        }.issubset(adoption))
+        self.assertTrue(adoption["adoption_key"].get("unique"))
+        self.assertFalse(adoption["handling_unit"].get("reqd", 0))
+
+        service = (APP_ROOT / "services" / "stock_adoption.py").read_text()
+        panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
+                 "kanban_logistics.js").read_text()
+        report = (APP_ROOT / "cfg_kanban" / "report" /
+                  "kanban_operational_inventory_balance" /
+                  "kanban_operational_inventory_balance.py").read_text()
+        install = (APP_ROOT / "install.py").read_text()
+        self.assertIn("for update", service.lower())
+        self.assertIn("active_tagged_qty", service)
+        self.assertIn('event_type="Reserve"', service)
+        self.assertIn('event_type="Unreserve"', service)
+        self.assertNotIn("actual_good_qty", service)
+        self.assertIn("Tag Existing ERP Stock", panel)
+        self.assertIn("ERP Actual Stock", panel)
+        self.assertIn("untagged_erp_qty", report)
+        self.assertIn('"Stock Adoption"', install)
+        self.assertIn('"existing_stock_allocated_qty"', install)
