@@ -65,6 +65,10 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Tag Range Registry")
         self.assertEqual(shortcuts["Handling Unit Quantity Ledger"],
                          "CFG Kanban Handling Unit Quantity Ledger")
+        self.assertEqual(links["Operational Inventory Balance"],
+                         "Kanban Operational Inventory Balance")
+        self.assertEqual(shortcuts["Operational Inventory Balance"],
+                         "Kanban Operational Inventory Balance")
         self.assertEqual(shortcuts["Container Content History"],
                          "CFG Kanban Container Content")
         self.assertEqual(links["Container Content History"],
@@ -1000,6 +1004,22 @@ class TestDocTypeSchema(TestCase):
         self.assertNotIn("Withdrawal control requires a stock Item", master)
         self.assertIn("Kanban operational inventory", panel)
         self.assertIn("Confirm Tagged Withdrawal", panel)
+
+    def test_operational_inventory_report_aggregates_tag_balances(self):
+        report_root = (APP_ROOT / "cfg_kanban" / "report" /
+                       "kanban_operational_inventory_balance")
+        report = json.loads(
+            (report_root / "kanban_operational_inventory_balance.json").read_text()
+        )
+        source = (report_root / "kanban_operational_inventory_balance.py").read_text()
+        client = (report_root / "kanban_operational_inventory_balance.js").read_text()
+        self.assertEqual(report["ref_doctype"], "CFG Kanban Handling Unit")
+        self.assertEqual(report["report_type"], "Script Report")
+        self.assertIn("sum(hu.current_qty) as total_qty", source)
+        self.assertIn("sum(hu.reserved_qty) as reserved_qty", source)
+        self.assertIn("sum(hu.available_qty) as available_qty", source)
+        self.assertIn("group by hu.inventory_company, hu.current_warehouse", source)
+        self.assertIn('default: "Kanban Operational Inventory"', client)
 
     def test_dashboard_profile_supports_saved_multi_workstation_screens(self):
         profile_path = ROOT / "cfg_kanban_dashboard_profile" / "cfg_kanban_dashboard_profile.json"

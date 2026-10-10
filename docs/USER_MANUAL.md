@@ -2340,6 +2340,23 @@ from Desk. Current, reserved, and available quantities can be rebuilt from their
 destination deltas. Package B uses these rows to reserve Manifest quantities and audit the
 intercompany location/ownership transition.
 
+### Kanban Operational Inventory Balance report
+
+Open **CFG Kanban → Operational Inventory Balance** when a combined quantity is required rather
+than one row per physical tag. The report groups active Handling Units by Inventory Company,
+Current Warehouse, Item and Stock UOM and displays:
+
+- **Total Quantity** — combined current quantity across all included tags;
+- **Reserved Quantity** — quantity committed to open controlled transactions;
+- **Available Quantity** — total quantity currently free for another transaction;
+- **Released Available** and **Hold / Restricted** quantities; and
+- the number of physical tags included in the balance.
+
+The default **Inventory Control Mode** filter is **Kanban Operational Inventory**, meaning Items
+whose ERPNext **Maintain Stock** setting is disabled. Select **ERP Stock** or clear the filter to
+review tagged stock Items. When all displayed rows use one UOM, the report header also shows the
+combined Total, Reserved and Available quantities. It deliberately does not combine unlike UOMs.
+
 ### Intercompany Movement Manifest — exact operating procedure
 
 The dedicated page is **CFG Kanban → Logistics Operator Panel** (`/app/kanban-logistics`). It accepts
