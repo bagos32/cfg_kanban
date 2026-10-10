@@ -60,6 +60,9 @@ frappe.ui.form.on("CFG Kanban Card", {
 				indicator: "orange",
 			});
 		}
+		if (frm.doc.card_type !== "Workstation Queue Card" && frm.doc.queue_company) {
+			frm.set_value("queue_company", null);
+		}
 	},
 	refresh(frm) {
 		frm.trigger("card_type");
@@ -80,6 +83,16 @@ frappe.ui.form.on("CFG Kanban Card", {
 			frm.add_custom_button(__("Print Supplier Receiving Location Card"), () => cfg_card_print(frm,
 				"CFG Supplier Receiving Location Card"), __("Print Kanban"));
 			frm.add_custom_button(__("Open Logistics Panel"), () => frappe.set_route("kanban-logistics"));
+		}
+		if (frm.doc.card_type === "Location Card" && frm.doc.location_purpose === "Warehouse Operations") {
+			frm.add_custom_button(__("Print Warehouse Operations Card"), () => cfg_card_print(frm,
+				"CFG Warehouse Operations Card"), __("Print Kanban"));
+			frm.add_custom_button(__("Open Logistics Panel"), () => frappe.set_route("kanban-logistics"));
+		}
+		if (frm.doc.card_type === "Workstation Queue Card") {
+			frm.add_custom_button(__("Print Workstation Queue Card"), () => cfg_card_print(frm,
+				"CFG Workstation Queue Card"), __("Print Kanban"));
+			frm.add_custom_button(__("Open Production Operator Panel"), () => frappe.set_route("kanban-operator"));
 		}
 		if (frm.doc.active) {
 			frm.add_custom_button(__("Replace Card Identity"), () => cfg_replace_card(frm),

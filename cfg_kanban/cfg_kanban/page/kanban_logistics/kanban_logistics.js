@@ -620,6 +620,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			render_supplier_receiving(state.lookup.supplier_receiving);
 			return;
 		}
+		if (state.lookup.warehouse_operations) {
+			render_warehouse_operations(state.lookup.warehouse_operations);
+			return;
+		}
 		if (state.lookup.return_case) {
 			render_return_case(state.lookup.return_case);
 			return;
@@ -907,6 +911,45 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		$lookup.find(".receive-supplier").on("click", function () {
 			const row = (context.pending_orders || []).find((value) => value.cycle === $(this).data("cycle"));
 			if (row) supplier_receipt_dialog(row, !direct);
+		});
+	}
+
+	function render_warehouse_operations(context) {
+		const e = frappe.utils.escape_html;
+		const can_override = Boolean(state.operator?.permissions?.override);
+		const receipts = (context.pending_orders || []).map((row) => `<div class="frappe-card cfg-logistics-list-row warehouse-receipt-row">
+			<div><strong>${e(row.item_code)}</strong><small>${e(row.supplier)} · ${e(row.purchase_order)}</small>
+			<small>${__("Purchase Card")}: ${e(row.card_number || "-")} · ${e(row.purchase_status)}</small></div>
+			<div><strong>${format_number(row.outstanding_qty)} ${e(row.purchase_uom)} ${__("outstanding")}</strong>
+			${can_override ? `<button class="btn btn-primary warehouse-receive-order" data-cycle="${e(row.cycle)}">${__("Supervisor Select")}</button>` : `<small>${__("Scan the Purchase Kanban card to receive")}</small>`}</div>
+		</div>`).join("") || `<div class="alert alert-light">${context.can_receive_supplier ? __("No submitted Purchase Orders are awaiting receipt here.") : __("Supplier Receiving is outside this operator's responsibility.")}</div>`;
+		const manifests = (context.manifests || []).map((row) => `<div class="frappe-card cfg-logistics-list-row">
+			<div><strong>${e(row.name)}</strong><small>${e(row.manifest_type)} · ${e(row.logistics_route)}</small>
+			<small>${e(row.source_warehouse)} → ${e(row.destination_warehouse)}</small></div>
+			<div><span class="indicator-pill ${indicator(row.state)}">${e(row.state)}</span>
+			<button class="btn btn-primary warehouse-open-manifest" data-name="${e(row.name)}">${__("Open")}</button></div>
+		</div>`).join("") || `<div class="alert alert-light">${__("No authorized open movement Manifests involve this warehouse.")}</div>`;
+		const cards = (context.stock_cards || []).map((row) => `<div class="frappe-card cfg-logistics-list-row">
+			<div><strong>${e(row.item_code)}</strong><small>${e(row.control_type)} · ${e(row.kanban_name || row.kanban_master)}</small>
+			<small>${e(row.source_warehouse || "-")} → ${e(row.destination_warehouse || "-")}</small></div>
+			<div><span class="indicator-pill ${indicator(row.current_state)}">${e(row.current_state)}</span>
+			<button class="btn btn-default warehouse-open-card" data-number="${e(row.card_number)}">${__("Open Card")}</button></div>
+		</div>`).join("") || `<div class="alert alert-light">${__("No authorized Transfer or Withdrawal cards involve this warehouse.")}</div>`;
+		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
+			<div class="cfg-logistics-tag-head"><div><small>${__("Warehouse Operations Point")}</small>
+			<h3>${e(context.location_reference || context.warehouse)}</h3><strong>${e(context.warehouse)} · ${e(context.company || "-")}</strong></div>
+			<button class="btn btn-default close-lookup">${__("Close")}</button></div>
+			<div class="alert alert-info mt-3">${__("This permanent card is a read-only warehouse access point. Opening a listed transaction does not modify it until the operator explicitly confirms an action.")}</div>
+			<h4>${__("Pending Supplier Receipts")}</h4><div class="cfg-supplier-receipts">${receipts}</div>
+			<h4 class="mt-4">${__("Open Warehouse Movements")}</h4><div>${manifests}</div>
+			<h4 class="mt-4">${__("Transfer and Withdrawal Cards")}</h4><div>${cards}</div>
+		</div>`);
+		$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
+		$lookup.find(".warehouse-open-manifest").on("click", function () { open_manifest($(this).data("name")); });
+		$lookup.find(".warehouse-open-card").on("click", function () { lookup_tag($(this).data("number")); });
+		$lookup.find(".warehouse-receive-order").on("click", function () {
+			const row = (context.pending_orders || []).find((value) => value.cycle === $(this).data("cycle"));
+			if (row) supplier_receipt_dialog(row, true);
 		});
 	}
 

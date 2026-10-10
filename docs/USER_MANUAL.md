@@ -71,8 +71,9 @@ much* to produce. Card Type decides *what a scan does*.
 | Physical Batch Card | Same trigger model for a batch-sized quantity | Yes, after Automatic or Approval release | Production Master, BOM, warehouses |
 | Process Kanban | Selects an eligible open Job Card for the same Item and controlled Operation | No; allocates against an existing submitted Work Order/Job Card | Controlled Operation on Card and matching Operation Profile |
 | Station Kanban | Same runtime allocation, restricted to one eligible Workstation | No | Controlled Operation and Eligible Workstation |
+| Workstation Queue Card | Shows all operator-authorized active, paused, ready, waiting, and blocked work for one Company and Workstation | Never | Queue Company and Current Station; no Master |
 | Asset Card | Finds open standalone Service Tasks for one Asset | Never | Asset; no Master required |
-| Location Card | Finds open standalone Service Tasks for one location text | Never | Location Reference; no Master required |
+| Location Card | Opens service work, supplier receiving, or a warehouse operations view according to Location Purpose | Never | Location Reference and, for logistics purposes, Current Warehouse; no Master |
 | Task Card | Finds open standalone Service Tasks from one Task Schedule | Never | Task Schedule; no Master required |
 
 A Purchase Replenishment, Transfer, or Withdrawal Master uses a **Physical Unit Card** or
@@ -86,6 +87,11 @@ and available upstream input. A Station Kanban adds an exact Workstation match. 
 according to **Runtime Selection Priority**, but an authorised operator may choose another eligible
 candidate and must give an Override Reason. One card-sized Cycle is then created for the effective
 quantity; it does not mirror every Job Card on that Work Order.
+
+A **Workstation Queue Card** is different: it is a permanent access identity, carries no item or
+quantity, and never allocates work by itself. Scan it in the Production Operator Panel to see the
+operator-authorized queue for its exact Company and Workstation. Select **Open** on a queue row to
+load that row's own production Card and continue through the existing controlled actions.
 
 ## 3. Roles and responsibilities
 
@@ -629,14 +635,18 @@ Complete:
 | Asset (`asset`) | Required only for Asset Card |
 | Location Reference (`location_reference`) | Required only for Location Card |
 | Task Schedule (`task_schedule`) | Required only for a standalone service Task Card; leave it out of Purchase, Transfer, and Withdrawal cards |
+| Queue Company (`queue_company`) | Required only for Workstation Queue Card |
+| Current Station (`current_station`) | Required only for Workstation Queue Card |
+| Location Purpose (`location_purpose`) | General Service Point, Supplier Receiving, or Warehouse Operations |
+| Current Warehouse (`current_warehouse`) | Required for Supplier Receiving and Warehouse Operations Location Cards |
 | Active (`active`) | Yes |
 | Revision (`revision`) | Start with 1 |
 
 Exact **Card Type** (`card_type`) options are: `Physical Unit Card`, `Physical Batch Card`,
-`Process Kanban`, `Station Kanban`, `Asset Card`, `Location Card`, and `Task Card`. The first four
-are master-backed operational cards; their Master Control Type decides whether the Card controls
-Production, Purchase Replenishment, Transfer, or Withdrawal. The final three are service identity
-cards and do not trigger production.
+`Process Kanban`, `Station Kanban`, `Workstation Queue Card`, `Asset Card`, `Location Card`, and
+`Task Card`. The first four card types are Master-backed operational cards; their Master Control
+Type decides whether the Card controls Production, Purchase Replenishment, Transfer, or Withdrawal.
+Workstation Queue, Asset, Location, and Task cards are permanent identities without a Kanban Master.
 **Card Behaviour** (`card_behavior`), current state, QR, UUID, active Cycle, handoff mode, and most
 location/status fields are derived or system-maintained.
 
@@ -655,6 +665,12 @@ For Standard Card on A4 stock, select four pages per sheet and duplex printing i
 dialog. Always test front/back orientation before a production print run.
 
 The first print increments Print Count. Every reprint requires a reason and creates an Event.
+
+For permanent access cards use their specific saved-card print action:
+
+- **Workstation Queue Card:** Print Kanban → Print Workstation Queue Card.
+- **Supplier Receiving Location Card:** Print Kanban → Print Supplier Receiving Location Card.
+- **Warehouse Operations Location Card:** Print Kanban → Print Warehouse Operations Card.
 
 ### Step 6 — Trigger the first replenishment
 
@@ -1980,6 +1996,25 @@ Material Request, Purchase Order, and Purchase Receipt receive app-owned read-on
 fully received PO rows, and over-receipt create a visible **CFG Kanban Exception** and block the
 purchase Cycle. A purchase Signal with an effective PO or submitted Receipt will not be silently
 rolled back; resolve the ERP purchasing record and reconcile instead.
+
+### Permanent warehouse operations card
+
+For a broader warehouse view, create another **Location Card**, set **Location Purpose** to
+**Warehouse Operations**, and select the exact **Current Warehouse**. Save it and use **Print
+Kanban → Print Warehouse Operations Card**. Scan it only in the Logistics Operator Panel.
+
+It displays data already authorized by the logged-in Operator Profile:
+
+- submitted supplier orders awaiting receipt at this warehouse, when the operator has Supplier
+  Receiving responsibility;
+- open Movement Manifests whose source or destination is this warehouse and whose route is within
+  the operator's responsibilities; and
+- active Transfer and Withdrawal cards involving this warehouse.
+
+The warehouse card is a read-only access point. Scanning it never receives stock, creates a
+Manifest, or consumes a Card. The operator must open the exact listed transaction and explicitly
+confirm its controlled action. For normal receiving, scan the original Purchase Kanban Card after
+reviewing the warehouse queue; only an authorized supervisor receives cardless selection.
 
 ## 24. Reconciliation and recovery decision table
 

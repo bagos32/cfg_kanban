@@ -133,13 +133,26 @@ def get_scanner_command_sheet(quantity_steps=None):
 
 @frappe.whitelist()
 def get_card_context(token, operator_session_token=None):
-    require_operator(operator_session_token)
+    profile, _session = require_operator(operator_session_token)
     card_name = frappe.db.get_value(
         "CFG Kanban Card", {"qr_code": token}, "name"
     ) or frappe.db.get_value("CFG Kanban Card", {"card_number": token}, "name")
     if not card_name:
         frappe.throw("Kanban card was not found")
     card = frappe.get_doc("CFG Kanban Card", card_name)
+    if card.card_type == "Workstation Queue Card":
+        if not card.active or card.blocked:
+            frappe.throw("Workstation Queue Card is inactive or blocked")
+        require_operator(operator_session_token, workstation=card.current_station)
+        return {
+            "card": card.as_dict(), "master": {}, "cycle": None,
+            "effective_work_order": None, "work_order_attention": None,
+            "selected_job_card": None, "executions": [], "work_orders": [],
+            "route_warnings": [], "operation_summaries": [],
+            "production_stock_entries": [], "process_tasks": [], "service_tasks": [],
+            "service_identity_card": False, "workstation_queue_card": True,
+            "workstation_queue": _workstation_queue_context(card, profile),
+        }
     if card.card_type in ("Asset Card", "Location Card", "Task Card"):
         task_filters = {"status": ["not in", ("Completed", "Cancelled")]}
         if card.card_type == "Asset Card":
@@ -279,6 +292,93 @@ def get_card_context(token, operator_session_token=None):
         "process_tasks": process_tasks,
         "service_tasks": [],
         "service_identity_card": False,
+        "workstation_queue_card": False,
+    }
+
+
+def _workstation_queue_context(card, profile):
+    """Return a read-only, operator-scoped queue for one permanent workstation card."""
+    rows = frappe.get_all(
+        "CFG Kanban Dispatch Queue",
+        filters={
+            "workstation": card.current_station,
+            "dispatch_status": ["not in", ("Completed", "Cancelled")],
+        },
+        fields=[
+            "name", "process_execution", "kanban_cycle", "kanban_master", "item_code",
+            "target_qty", "work_order", "job_card", "operation", "workstation",
+            "dispatch_status", "readiness", "queue_position", "system_priority",
+            "supervisor_priority", "expedite", "sequence_source", "creation",
+        ],
+        order_by="queue_position asc, creation asc",
+        limit_page_length=500,
+    )
+    allowed_operations = {
+        row.operation for row in profile.allowed_operations if row.operation
+    }
+    master_names = {row.kanban_master for row in rows if row.kanban_master}
+    masters = {
+        row.name: row for row in frappe.get_all(
+            "CFG Kanban Master",
+            filters={"name": ["in", list(master_names) or ["__none__"]]},
+            fields=["name", "company"], limit_page_length=500,
+        )
+    }
+    cycle_names = {row.kanban_cycle for row in rows if row.kanban_cycle}
+    cycles = {
+        row.name: row for row in frappe.get_all(
+            "CFG Kanban Cycle",
+            filters={"name": ["in", list(cycle_names) or ["__none__"]]},
+            fields=["name", "kanban_card", "status", "priority"],
+            limit_page_length=500,
+        )
+    }
+    card_names = {row.kanban_card for row in cycles.values() if row.kanban_card}
+    cards = {
+        row.name: row for row in frappe.get_all(
+            "CFG Kanban Card",
+            filters={"name": ["in", list(card_names) or ["__none__"]]},
+            fields=["name", "card_number", "qr_code"], limit_page_length=500,
+        )
+    }
+    execution_names = {row.process_execution for row in rows if row.process_execution}
+    executions = {
+        row.name: row for row in frappe.get_all(
+            "CFG Kanban Process Execution",
+            filters={"name": ["in", list(execution_names) or ["__none__"]]},
+            fields=["name", "good_qty", "processed_qty", "reject_qty", "target_qty"],
+            limit_page_length=500,
+        )
+    }
+    visible = []
+    for row in rows:
+        master = masters.get(row.kanban_master) or frappe._dict()
+        if card.queue_company and master.company != card.queue_company:
+            continue
+        if allowed_operations and row.operation not in allowed_operations:
+            continue
+        cycle = cycles.get(row.kanban_cycle) or frappe._dict()
+        production_card = cards.get(cycle.kanban_card) or frappe._dict()
+        execution = executions.get(row.process_execution) or frappe._dict()
+        row.update({
+            "cycle_status": cycle.status,
+            "priority": row.supervisor_priority or cycle.priority or row.system_priority or "Normal",
+            "kanban_card": cycle.kanban_card,
+            "card_number": production_card.card_number,
+            "card_qr_code": production_card.qr_code,
+            "good_qty": flt(execution.good_qty),
+            "processed_qty": flt(execution.processed_qty),
+            "reject_qty": flt(execution.reject_qty),
+            "target_qty": flt(execution.target_qty or row.target_qty),
+        })
+        visible.append(row)
+    return {
+        "company": card.queue_company,
+        "workstation": card.current_station,
+        "active": [row for row in visible if row.dispatch_status == "In Progress"],
+        "paused": [row for row in visible if row.dispatch_status == "Paused"],
+        "queue": [row for row in visible if row.dispatch_status not in ("In Progress", "Paused")],
+        "total": len(visible),
     }
 
 

@@ -640,7 +640,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}
 		const { card, master, cycle, effective_work_order, work_order_attention, selected_job_card,
 			executions, operation_summaries, production_stock_entries, process_tasks, service_tasks,
-			service_identity_card, work_orders, route_warnings } = state.context;
+			service_identity_card, workstation_queue_card, workstation_queue,
+			work_orders, route_warnings } = state.context;
+		if (workstation_queue_card) {
+			render_workstation_queue(card, workstation_queue || {});
+			return;
+		}
 		const cycle_label = cycle ? `${document_link("cfg-kanban-cycle", cycle.name)}${status_line(cycle.status)}` : __("No active cycle");
 		const work_order_label = effective_work_order
 			? `${document_link("work-order", effective_work_order.name)}${status_line(effective_work_order.status, effective_work_order.docstatus)}`
@@ -725,6 +730,52 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		tasks.forEach((task) => $section.append(`<div class="frappe-card p-3 mb-2"><strong>${e(task.task_name)}</strong>
 			<span class="indicator-pill ${indicator(task.status)} ml-2">${e(task.status)}</span><br>
 			<small>${__("Priority")}: ${e(task.priority)} · ${__("Due")}: ${e(task.due_on || "-")}</small></div>`));
+	}
+
+	function render_workstation_queue(card, queue) {
+		const e = frappe.utils.escape_html;
+		const active = queue.active || [];
+		const paused = queue.paused || [];
+		const waiting = queue.queue || [];
+		$root.append(`<div class="cfg-work-section-heading"><div><h3>${__("Workstation Queue")}</h3>
+			<small>${__("Permanent station view. Scan another production card at any time.")}</small></div>
+			<span class="indicator-pill blue">${e(queue.total || 0)} ${__("Open")}</span></div>
+			<div class="frappe-card p-4 mb-4 cfg-active-production-card">
+				<div class="d-flex justify-content-between align-items-start flex-wrap"><div>
+					<div class="d-flex align-items-center flex-wrap"><h3 class="mr-3 mb-1">${e(queue.workstation || card.current_station)}</h3>
+					<span class="indicator-pill blue mb-1">${__("Workstation Queue Card")}</span></div>
+					<strong>${e(queue.company || card.queue_company || "-")}</strong><br>
+					<small class="text-muted">${e(card.card_number)} · ${__("Read-only queue access; production remains controlled by its own card and Cycle.")}</small>
+				</div><button class="btn btn-default refresh-station-queue">${__("Refresh Queue")}</button></div>
+			</div>`);
+		$root.find(".refresh-station-queue").on("click", () => load_card(card.qr_code));
+		render_workstation_queue_group(__("Active Work"), active, "blue", true);
+		render_workstation_queue_group(__("Paused Work"), paused, "orange", true);
+		render_workstation_queue_group(__("Ready and Upcoming Queue"), waiting, "green", false);
+	}
+
+	function render_workstation_queue_group(title, rows, colour, active) {
+		const e = frappe.utils.escape_html;
+		const $section = $(`<div class="cfg-station-queue-group mb-4"><div class="cfg-work-section-heading">
+			<div><h4>${e(title)}</h4></div><span class="indicator-pill ${colour}">${rows.length}</span></div></div>`).appendTo($root);
+		if (!rows.length) {
+			$section.append(`<div class="frappe-card p-3 text-muted">${active ? __("No work in this state.") : __("The station queue is empty.")}</div>`);
+			return;
+		}
+		rows.forEach((row, index) => {
+			const can_open = Boolean(row.card_qr_code || row.card_number);
+			const position = active ? "" : `<strong class="cfg-queue-position">#${index + 1}</strong>`;
+			const $row = $(`<div class="frappe-card p-3 mb-2 cfg-station-queue-row">
+				<div class="row align-items-center"><div class="col-md-1">${position}</div>
+				<div class="col-md-3"><strong>${e(row.item_code || "-")}</strong><br><small>${e(row.operation || "-")}</small></div>
+				<div class="col-md-2"><span class="indicator-pill ${indicator(row.dispatch_status)}">${e(row.dispatch_status)}</span><br><small>${e(row.readiness || "")}</small></div>
+				<div class="col-md-2"><small>${__("Good / Target")}</small><div>${e(row.good_qty || 0)} / ${e(row.target_qty || 0)}</div><small>${__("Reject")}: ${e(row.reject_qty || 0)}</small></div>
+				<div class="col-md-3"><small>${__("Work Order")}</small><div>${document_link("work-order", row.work_order)}</div><small>${__("Job Card")}: ${document_link("job-card", row.job_card)}</small></div>
+				<div class="col-md-1 text-right">${can_open ? `<button class="btn btn-primary btn-sm open-queued-work" data-token="${e(row.card_qr_code || row.card_number)}">${__("Open")}</button>` : `<small class="text-muted">${__("No card")}</small>`}</div>
+				</div><div class="mt-2"><small>${__("Priority")}: ${e(row.priority || "Normal")} · ${__("Cycle")}: ${e(row.kanban_cycle || "-")} · ${__("Queue source")}: ${e(row.sequence_source || "-")}</small></div>
+			</div>`).appendTo($section);
+			$row.find(".open-queued-work").on("click", function () { load_card($(this).data("token")); });
+		});
 	}
 
 	function render_production_stock_entries(entries, work_order) {

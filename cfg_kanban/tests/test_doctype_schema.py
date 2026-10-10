@@ -1013,7 +1013,7 @@ class TestDocTypeSchema(TestCase):
         card_controller = (APP_ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_card" /
                            "cfg_kanban_card.py").read_text()
         card_form = (APP_ROOT / "public" / "js" / "cfg_kanban_card.js").read_text()
-        self.assertIn("Service identity cards cannot use a Kanban Master", card_controller)
+        self.assertIn("Permanent identity cards cannot use a Kanban Master", card_controller)
         self.assertIn('("Purchase Replenishment", "Transfer", "Withdrawal")', card_controller)
         self.assertIn("Task Schedule is not required", card_form)
 
@@ -1024,6 +1024,48 @@ class TestDocTypeSchema(TestCase):
                            if row["fieldname"] == "company")
             self.assertEqual(company["options"], "Company")
             self.assertEqual(company.get("read_only"), 1)
+
+    def test_permanent_workstation_and_warehouse_access_cards_are_wired(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        card_fields = {
+            row["fieldname"]: row for row in schemas["CFG Kanban Card"]["fields"]
+        }
+        card_types = card_fields["card_type"]["options"].splitlines()
+        purposes = card_fields["location_purpose"]["options"].splitlines()
+        behaviours = card_fields["card_behavior"]["options"].splitlines()
+        self.assertIn("Workstation Queue Card", card_types)
+        self.assertIn("Warehouse Operations", purposes)
+        self.assertIn("WORKSTATION_QUEUE_CARD", behaviours)
+        self.assertEqual(card_fields["queue_company"]["options"], "Company")
+        self.assertEqual(card_fields["current_station"]["options"], "Workstation")
+
+        controller = (APP_ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_card" /
+                      "cfg_kanban_card.py").read_text()
+        operator = (APP_ROOT / "api" / "operator.py").read_text()
+        logistics = (APP_ROOT / "api" / "logistics.py").read_text()
+        scan = (APP_ROOT / "api" / "scan.py").read_text()
+        card_form = (APP_ROOT / "public" / "js" / "cfg_kanban_card.js").read_text()
+        operator_panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_operator" /
+                          "kanban_operator.js").read_text()
+        logistics_panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
+                           "kanban_logistics.js").read_text()
+        self.assertIn("Queue Company is required", controller)
+        self.assertIn("def _workstation_queue_context", operator)
+        self.assertIn("allowed_operations", operator)
+        self.assertIn("def get_warehouse_operations_context", logistics)
+        self.assertIn("_authorized_route_names(profile)", logistics)
+        self.assertIn('"Workstation Queue Card"', scan)
+        self.assertIn("Permanent access cards do not create production Cycles", scan)
+        self.assertIn("CFG Workstation Queue Card", card_form)
+        self.assertIn("CFG Warehouse Operations Card", card_form)
+        self.assertIn("render_workstation_queue", operator_panel)
+        self.assertIn("render_warehouse_operations", logistics_panel)
+
+        for print_format in (
+            "cfg_workstation_queue_card/cfg_workstation_queue_card.json",
+            "cfg_warehouse_operations_card/cfg_warehouse_operations_card.json",
+        ):
+            self.assertTrue((APP_ROOT / "cfg_kanban" / "print_format" / print_format).exists())
 
     def test_non_stock_operational_inventory_uses_tag_ledger_without_erp_stock_entry(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

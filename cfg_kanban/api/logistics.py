@@ -171,6 +171,88 @@ def get_supplier_receiving_context(scan_value, operator_session_token):
     }
 
 
+def get_warehouse_operations_context(card, profile):
+    """Build an operator-scoped operational view for one permanent Warehouse card."""
+    if (card.card_type != "Location Card" or
+            card.get("location_purpose") != "Warehouse Operations" or
+            not card.current_warehouse):
+        frappe.throw("This Location Card is not configured as a Warehouse Operations point")
+    if not card.active or card.blocked:
+        frappe.throw("Warehouse Operations Card is inactive or blocked")
+    responsibilities = _responsibilities(profile)
+    view_all = _can_view_all(profile)
+    route_names = _authorized_route_names(profile)
+    manifests = _manifest_summaries(
+        route_names,
+        {"state": ["not in", list(TERMINAL_STATES)]},
+        limit=200,
+    )
+    manifests = [row for row in manifests if card.current_warehouse in (
+        row.source_warehouse, row.destination_warehouse
+    )]
+    masters = frappe.get_all(
+        "CFG Kanban Master",
+        filters={
+            "active": 1,
+            "control_type": ["in", ("Transfer", "Withdrawal")],
+        },
+        fields=[
+            "name", "kanban_name", "company", "control_type", "item_code",
+            "source_warehouse", "destination_warehouse", "logistics_route",
+        ],
+        limit_page_length=1000,
+    )
+    master_map = {}
+    for master in masters:
+        if card.current_warehouse not in (master.source_warehouse, master.destination_warehouse):
+            continue
+        if master.control_type == "Transfer" and master.logistics_route not in route_names:
+            continue
+        if (master.control_type == "Withdrawal" and not view_all and
+                STOCK_WITHDRAWAL_RESPONSIBILITY not in responsibilities):
+            continue
+        master_map[master.name] = master
+    cards = frappe.get_all(
+        "CFG Kanban Card",
+        filters={
+            "kanban_master": ["in", list(master_map) or ["__none__"]],
+            "active": 1,
+        },
+        fields=["name", "card_number", "kanban_master", "current_state", "active_cycle",
+                "blocked", "kanban_qty", "stock_uom"],
+        order_by="modified desc",
+        limit_page_length=500,
+    )
+    stock_cards = []
+    for row in cards:
+        master = master_map.get(row.kanban_master)
+        if not master:
+            continue
+        row.update({
+            "kanban_name": master.kanban_name,
+            "control_type": master.control_type,
+            "item_code": master.item_code,
+            "source_warehouse": master.source_warehouse,
+            "destination_warehouse": master.destination_warehouse,
+        })
+        stock_cards.append(row)
+    return {
+        "mode": "warehouse_operations",
+        "location_card": card.name,
+        "location_reference": card.location_reference,
+        "warehouse": card.current_warehouse,
+        "company": frappe.db.get_value("Warehouse", card.current_warehouse, "company"),
+        "pending_orders": (_pending_supplier_receipts(card.current_warehouse)
+                           if view_all or SUPPLIER_RECEIVING_RESPONSIBILITY in responsibilities
+                           else []),
+        "manifests": manifests,
+        "stock_cards": stock_cards,
+        "can_receive_supplier": bool(
+            view_all or SUPPLIER_RECEIVING_RESPONSIBILITY in responsibilities
+        ),
+    }
+
+
 @frappe.whitelist()
 def receive_supplier_purchase(cycle_name, delivered_qty, accepted_qty, rejected_qty=0,
                               supplier_delivery_note=None, event_token=None,
@@ -385,6 +467,10 @@ def lookup_logistics_tag(scan_value, operator_session_token):
         master = (frappe.get_doc("CFG Kanban Master", card.kanban_master)
                   if card.kanban_master else None)
         result = {"identity": {"identity_type": "Kanban Card", "name": card_name}}
+        if (card.card_type == "Location Card" and
+                card.get("location_purpose") == "Warehouse Operations"):
+            result["warehouse_operations"] = get_warehouse_operations_context(card, profile)
+            return result
         if master and master.control_type == "Transfer":
             route = frappe.get_doc("CFG Kanban Logistics Route", master.logistics_route)
             responsibilities = _responsibilities(profile)

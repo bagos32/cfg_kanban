@@ -316,6 +316,20 @@ Card, workstation, nominal quantity, effective quantity, and final good/reject/n
 Cycle returns the reusable Card to Available while leaving an incompletely fulfilled ERPNext Job Card
 open for another Cycle. ERPNext Job Card completion remains the manufacturing system-of-record event.
 
+### Permanent workstation and warehouse access cards
+
+Use a **Workstation Queue Card** as a fixed production-station identity. It has no Kanban Master,
+item, or quantity. Scanning it in the Production Operator Panel shows only work matching its Queue
+Company and Current Station, further restricted by the active operator's allowed workstations and
+operations. Opening a row loads that work's own production Card; the queue card never creates or
+allocates a Cycle.
+
+Use a **Location Card** with Location Purpose **Warehouse Operations** as a fixed logistics access
+point. Scanning it in the Logistics Operator Panel shows authorized pending supplier receipts, open
+warehouse movements, and Transfer/Withdrawal cards involving its Current Warehouse. It is also
+read-only: stock changes still require the exact controlled receiving, Manifest, Transfer, or
+Withdrawal confirmation.
+
 ## Custom fields and fixtures
 
 `after_install` creates app-owned, read-only traceability fields on Work Order, Job Card, and Stock

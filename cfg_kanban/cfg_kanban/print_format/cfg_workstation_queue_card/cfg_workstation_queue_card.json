@@ -1,0 +1,19 @@
+{
+ "doctype": "Print Format",
+ "name": "CFG Workstation Queue Card",
+ "module": "CFG Kanban",
+ "doc_type": "CFG Kanban Card",
+ "standard": "Yes",
+ "custom_format": 1,
+ "print_format_type": "Jinja",
+ "print_format_builder": 0,
+ "disabled": 0,
+ "raw_printing": 0,
+ "show_section_headings": 0,
+ "margin_top": 0,
+ "margin_bottom": 0,
+ "margin_left": 0,
+ "margin_right": 0,
+ "html": "<div class='station-card'><div class='band'>PRODUCTION WORKSTATION QUEUE</div><div class='body'><div><small>WORKSTATION</small><h1>{{ doc.current_station }}</h1><h2>{{ doc.queue_company }}</h2><div class='instruction'>SCAN IN THE PRODUCTION OPERATOR PANEL TO VIEW ACTIVE, READY, WAITING, AND BLOCKED WORK FOR THIS STATION</div></div><div class='qr'><img src='{{ get_qr_svg(doc.qr_code or doc.card_number, 220) }}'><strong>{{ doc.card_number }}</strong></div></div><div class='foot'>Permanent workstation identity · Rev {{ doc.revision }} · Does not create a production cycle</div></div>",
+ "css": "@page{size:A6 landscape;margin:5mm}body{font-family:Arial,sans-serif;color:#111}.station-card{height:95mm;border:1.5mm solid #111;padding:4mm;box-sizing:border-box}.band{background:#1d4ed8;color:#fff;font-size:18px;font-weight:800;padding:3mm}.body{display:grid;grid-template-columns:1fr 48mm;gap:5mm;margin-top:4mm}.body small{font-weight:700}.body h1{font-size:25px;margin:2mm 0}.body h2{font-size:17px;margin:1mm 0}.instruction{border:1mm solid #1d4ed8;padding:3mm;font-size:11px;font-weight:800;margin-top:4mm}.qr{text-align:center}.qr img{width:43mm;height:43mm}.qr strong{display:block;font-size:10px;word-break:break-all}.foot{border-top:.5mm solid #111;margin-top:3mm;padding-top:2mm;font-size:9px;font-weight:700}"
+}

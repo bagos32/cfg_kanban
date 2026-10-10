@@ -13,6 +13,7 @@ class CFGKanbanCard(Document):
         production_types = ("Physical Unit Card", "Physical Batch Card",
                             "Process Kanban", "Station Kanban")
         service_types = ("Asset Card", "Location Card", "Task Card")
+        permanent_access_types = ("Workstation Queue Card",)
         behaviour = {
             "Physical Unit Card": "TRAVELLING_CARD",
             "Physical Batch Card": "TRAVELLING_CARD",
@@ -21,12 +22,14 @@ class CFGKanbanCard(Document):
             "Asset Card": "ASSET_CARD",
             "Location Card": "LOCATION_CARD",
             "Task Card": "TASK_CARD",
+            "Workstation Queue Card": "WORKSTATION_QUEUE_CARD",
         }
         self.card_behavior = behaviour.get(self.card_type)
-        if self.card_type in service_types and self.kanban_master:
+        if self.card_type in service_types + permanent_access_types and self.kanban_master:
             frappe.throw(
-                "Service identity cards cannot use a Kanban Master. For Purchase, Transfer, or "
-                "Withdrawal control, use a Physical Unit Card or Physical Batch Card."
+                "Permanent identity cards cannot use a Kanban Master. For Purchase, Transfer, "
+                "Withdrawal, or production quantity control, use the corresponding physical or "
+                "runtime Kanban card."
             )
         if self.card_type in production_types and not self.kanban_master:
             frappe.throw("Kanban Master is required for a production card")
@@ -49,13 +52,21 @@ class CFGKanbanCard(Document):
             frappe.throw("Asset is required for an Asset Card")
         if self.card_type == "Location Card" and not self.location_reference:
             frappe.throw("Location Reference is required for a Location Card")
-        if self.card_type == "Location Card" and self.get("location_purpose") == "Supplier Receiving":
+        if (self.card_type == "Location Card" and
+                self.get("location_purpose") in ("Supplier Receiving", "Warehouse Operations")):
             if not self.current_warehouse:
-                frappe.throw("Current Warehouse is required for a Supplier Receiving Location Card")
+                frappe.throw("Current Warehouse is required for an operational Location Card")
             warehouse_company = frappe.db.get_value("Warehouse", self.current_warehouse, "company")
             if self.company and warehouse_company != self.company:
-                frappe.throw("Supplier Receiving Location Card company must match its Current Warehouse")
+                frappe.throw("Location Card company must match its Current Warehouse")
             self.company = warehouse_company
+        if self.card_type == "Workstation Queue Card":
+            if not self.get("queue_company"):
+                frappe.throw("Queue Company is required for a Workstation Queue Card")
+            if not self.current_station:
+                frappe.throw("Current Station is required for a Workstation Queue Card")
+        else:
+            self.queue_company = None
         if self.card_type == "Task Card" and not self.task_schedule:
             frappe.throw("Task Schedule is required for a Task Card")
         if self.card_type != "Task Card":
