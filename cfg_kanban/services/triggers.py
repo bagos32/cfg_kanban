@@ -46,6 +46,7 @@ def consume_card(card_name, *, device_id=None, event_token=None, trusted_operato
     signal, created = insert_once(frappe.get_doc({
         "doctype": "CFG Kanban Signal", "signal_type": signal_type,
         "kanban_master": master.name, "kanban_card": card.name, "kanban_cycle": cycle.name,
+        "trigger_source": "Physical Card",
         "item_code": master.item_code, "requested_qty": cycle.planned_qty, "stock_uom": master.stock_uom,
         "status": "Validated" if automatic_release else "Waiting Approval",
         "priority": master.default_priority, "automation_level": master.automation_level,

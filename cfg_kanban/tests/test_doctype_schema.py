@@ -452,6 +452,42 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Create Purchase Order", commands)
         self.assertIn("Create Purchase Receipt", commands)
 
+    def test_inventory_threshold_replenishment_contract_is_explicit(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        master = {row["fieldname"]: row for row in schemas["CFG Kanban Master"]["fields"]}
+        self.assertTrue({
+            "enable_inventory_threshold_trigger", "inventory_balance_source",
+            "inventory_threshold_source", "inventory_reorder_point_qty", "inventory_target_qty",
+            "inventory_max_cards_per_run", "last_threshold_check_on",
+            "last_observed_balance_qty", "last_threshold_result",
+        }.issubset(master))
+        self.assertEqual(master["inventory_balance_source"].get("read_only"), 1)
+        self.assertIn(
+            "ERPNext Warehouse Reorder Level",
+            master["inventory_threshold_source"]["options"].splitlines(),
+        )
+
+        signal = {row["fieldname"]: row for row in schemas["CFG Kanban Signal"]["fields"]}
+        self.assertTrue({
+            "trigger_source", "balance_source", "observed_balance_qty",
+            "reorder_point_qty", "target_stock_qty",
+        }.issubset(signal))
+        self.assertIn("Inventory Threshold", signal["trigger_source"]["options"].splitlines())
+
+        service = (APP_ROOT / "services" / "inventory_threshold.py").read_text()
+        self.assertIn("def evaluate_inventory_thresholds", service)
+        self.assertIn("def evaluate_master_now", service)
+        self.assertIn("ERPNext Projected Quantity", service)
+        self.assertIn("Kanban Operational Inventory", service)
+        self.assertIn("def get_threshold_configuration", service)
+        self.assertIn("OPEN_SIGNAL_STATES", service)
+
+        hooks = (APP_ROOT / "hooks.py").read_text()
+        self.assertIn(
+            "cfg_kanban.services.inventory_threshold.evaluate_inventory_thresholds",
+            hooks,
+        )
+
         settings = {row["fieldname"]: row for row in
                     schemas["CFG Kanban Settings"]["fields"]}
         self.assertTrue({"maximum_purchase_automation", "maximum_auto_submit_po_value"}

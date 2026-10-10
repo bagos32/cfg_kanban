@@ -74,6 +74,9 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 			? `<div><small>${__("Planned supplier order")}</small><strong>${number(row.purchase_replenishment_qty)} ${e(row.purchase_uom)}</strong>
 			<small>1 ${e(row.purchase_uom)} = ${number(row.purchase_uom_conversion_factor || 1)} ${e(row.stock_uom || "")}</small>
 			<small>${e(row.purchase_execution_mode || "Material Request Only")}</small></div>` : "";
+		const threshold_detail = row.trigger_source === "Inventory Threshold"
+			? `<div><small>${__("Threshold balance")}</small><strong>${number(row.observed_balance_qty)} ${e(row.stock_uom || "")}</strong>
+			<small>${e(row.balance_source || "")} · ${__("reorder below {0}; target {1}", [number(row.reorder_point_qty), number(row.target_stock_qty)])}</small></div>` : "";
 		const error = row.error_message ? `<div class="alert alert-danger cfg-inline-alert">${e(row.error_message)}</div>` : "";
 		const blocked = row.cycle_blocked ? `<span class="indicator-pill red">${__("Cycle blocked")}</span>` : "";
 		const can_act = state.data.permissions?.can_approve_signals;
@@ -84,9 +87,10 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 			<span class="indicator-pill ${status_indicator(row.status)}">${e(row.status)}</span>${blocked}</div>
 			<small>${e(relative_time(row.requested_on))}</small></header>
 			<h3>${e(row.item_code)} <small>${e(row.item_name || "")}</small></h3>
-			<div class="cfg-signal-type">${e(row.signal_type)} · ${e(row.company || "")}</div>
+			<div class="cfg-signal-type">${e(row.signal_type)} · ${e(row.trigger_source || __("Manual / legacy"))} · ${e(row.company || "")}</div>
 			<div class="cfg-action-facts">
-				<div><small>${__("Card demand")}</small><strong>${number(row.requested_qty)} ${e(row.stock_uom || "")}</strong><small>${e(row.kanban_card || __("Digital signal"))}</small></div>
+				<div><small>${__("Replenishment demand")}</small><strong>${number(row.requested_qty)} ${e(row.stock_uom || "")}</strong><small>${e(row.kanban_card || __("Digital signal"))}</small></div>
+				${threshold_detail}
 				${purchase_detail}
 				<div><small>${purchase ? __("Supplier") : __("BOM")}</small><strong>${e((purchase ? row.supplier : row.bom) || "-")}</strong><small>${e(row.master_name || "")}</small></div>
 				<div><small>${__("Destination")}</small><strong>${e(row.destination_warehouse || "-")}</strong><small>${e(row.source_warehouse || "")}</small></div>

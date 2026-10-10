@@ -1,6 +1,10 @@
 from unittest import TestCase
 
-from cfg_kanban.services.demand_math import calculate_mto_plan, calculate_recommendation
+from cfg_kanban.services.demand_math import (
+    calculate_mto_plan,
+    calculate_recommendation,
+    calculate_threshold_replenishment,
+)
 
 
 class TestDemandRecommendation(TestCase):
@@ -23,3 +27,13 @@ class TestDemandRecommendation(TestCase):
 
     def test_mto_disallows_extra_without_po_authorization(self):
         self.assertEqual(calculate_mto_plan(1000, 5, False, 10), (0, 1000, 1000, 1000))
+
+    def test_threshold_does_not_trigger_at_or_above_reorder_point(self):
+        self.assertEqual(calculate_threshold_replenishment(20, 20, 100, 25, 10), (0, 0))
+        self.assertEqual(calculate_threshold_replenishment(21, 20, 100, 25, 10), (0, 0))
+
+    def test_threshold_rounds_to_replenishment_quantity(self):
+        self.assertEqual(calculate_threshold_replenishment(19, 20, 100, 25, 10), (4, 100))
+
+    def test_threshold_respects_per_trigger_safety_cap(self):
+        self.assertEqual(calculate_threshold_replenishment(0, 20, 1000, 25, 3), (3, 75))

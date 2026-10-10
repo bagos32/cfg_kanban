@@ -202,7 +202,8 @@ def approve_demand(demand_name):
     signal_key = canonical_key("sales-demand-signal", demand.name)
     signal, _ = insert_once(frappe.get_doc({"doctype": "CFG Kanban Signal",
         "signal_type": "Production Replenishment", "kanban_master": master.name,
-        "kanban_cycle": cycle.name, "sales_demand": demand.name, "item_code": master.item_code,
+        "kanban_cycle": cycle.name, "sales_demand": demand.name,
+        "trigger_source": "Sales Order", "item_code": master.item_code,
         "requested_qty": demand.recommended_qty, "stock_uom": master.stock_uom,
         "status": "Validated", "priority": master.default_priority,
         "automation_level": "Approval", "requested_on": now_datetime(),

@@ -122,6 +122,7 @@ class CFGKanbanMaster(Document):
                          + ", ".join(unknown_tasks))
         validate_condition_definitions(self.operator_field_definitions)
         self._validate_sales_demand_configuration()
+        self._validate_inventory_threshold_configuration()
 
     def _set_item_and_purchase_uom(self):
         if not self.item_code:
@@ -165,3 +166,71 @@ class CFGKanbanMaster(Document):
             (self.get("demand_scope_value") or "")), None)
         if duplicate:
             frappe.throw(f"Sales demand configuration duplicates active Kanban Master {duplicate}")
+
+    def _validate_inventory_threshold_configuration(self):
+        if not self.get("enable_inventory_threshold_trigger"):
+            return
+        if self.control_type not in ("Production", "Purchase Replenishment", "Transfer"):
+            frappe.throw(
+                "Automatic inventory threshold triggering is available only for Production, "
+                "Purchase Replenishment, and Transfer Masters"
+            )
+        if not self.destination_warehouse:
+            frappe.throw("Destination Warehouse is required for automatic threshold triggering")
+        warehouse_company = frappe.db.get_value(
+            "Warehouse", self.destination_warehouse, "company"
+        )
+        if warehouse_company != self.company:
+            frappe.throw(
+                f"Destination Warehouse belongs to {warehouse_company}, not {self.company}"
+            )
+        if cint(self.get("inventory_max_cards_per_run")) <= 0:
+            frappe.throw("Maximum Replenishment Quantities per Trigger must be positive")
+        is_stock_item = cint(frappe.db.get_value("Item", self.item_code, "is_stock_item"))
+        self.inventory_balance_source = (
+            "ERPNext Projected Quantity" if is_stock_item
+            else "Kanban Operational Inventory"
+        )
+        if not is_stock_item and self.control_type == "Production":
+            frappe.throw(
+                "A non-stock Item cannot use Production threshold replenishment. "
+                "Use Purchase Replenishment or Transfer with Kanban Operational Inventory."
+            )
+        threshold_source = self.get("inventory_threshold_source") or "Kanban Master Override"
+        if not is_stock_item and threshold_source != "Kanban Master Override":
+            frappe.throw(
+                "Non-stock Items must use Kanban Master Override because ERPNext does not "
+                "maintain a Warehouse Bin or reorder level for them"
+            )
+        if threshold_source == "Kanban Master Override":
+            reorder_point = flt(self.get("inventory_reorder_point_qty"))
+            target = flt(self.get("inventory_target_qty"))
+            if reorder_point < 0:
+                frappe.throw("Inventory Reorder Point cannot be negative")
+            if target <= reorder_point:
+                frappe.throw("Replenish Up To quantity must be greater than the Reorder Point")
+        else:
+            reorder = frappe.db.get_value(
+                "Item Reorder",
+                {"parent": self.item_code, "warehouse": self.destination_warehouse},
+                ["warehouse_reorder_level", "warehouse_reorder_qty"],
+                as_dict=True,
+            )
+            if not reorder or flt(reorder.warehouse_reorder_level) <= 0:
+                frappe.throw(
+                    "An ERPNext Item Reorder row with a positive Warehouse Reorder Level is "
+                    "required for the selected destination Warehouse"
+                )
+        duplicates = frappe.get_all("CFG Kanban Master", filters={
+            "name": ["!=", self.name],
+            "active": 1,
+            "enable_inventory_threshold_trigger": 1,
+            "company": self.company,
+            "item_code": self.item_code,
+            "destination_warehouse": self.destination_warehouse,
+        }, pluck="name", limit_page_length=2)
+        if duplicates:
+            frappe.throw(
+                "Automatic threshold control for this Company, Item, and destination "
+                f"Warehouse is already owned by Kanban Master {duplicates[0]}"
+            )

@@ -55,6 +55,8 @@ def _signal_actions(limit):
             "item_code", "requested_qty", "stock_uom", "status", "priority",
             "automation_level", "requested_on", "validated_on", "command",
             "erp_reference_doctype", "erp_reference_name", "error_message",
+            "trigger_source", "balance_source", "observed_balance_qty",
+            "reorder_point_qty", "target_stock_qty",
         ],
         order_by="requested_on asc",
         limit_page_length=limit,

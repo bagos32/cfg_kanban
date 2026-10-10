@@ -100,6 +100,7 @@ scheduler_events = {
     "hourly": [
         "cfg_kanban.services.standalone_tasks.generate_due_tasks",
         "cfg_kanban.services.standalone_tasks.update_overdue_tasks",
+        "cfg_kanban.services.inventory_threshold.evaluate_inventory_thresholds",
     ]
 }
 

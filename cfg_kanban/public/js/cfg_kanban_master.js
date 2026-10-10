@@ -48,6 +48,22 @@ frappe.ui.form.on("CFG Kanban Master", {
 	refresh(frm) {
 		frm.trigger("production_policy");
 		refresh_purchase_uom(frm);
+		if (!frm.is_new() && frm.doc.enable_inventory_threshold_trigger) {
+			frm.add_custom_button(__("Evaluate Threshold Now"), async () => {
+				const response = await frappe.call({
+					method: "cfg_kanban.services.inventory_threshold.evaluate_master_now",
+					args: { master_name: frm.doc.name },
+					freeze: true,
+					freeze_message: __("Evaluating warehouse inventory..."),
+				});
+				const result = response.message || {};
+				await frm.reload_doc();
+				const detail = result.signal
+					? __("{0}. Signal {1} was selected.", [result.status, result.signal])
+					: result.status;
+				frappe.msgprint({ title: __("Threshold Evaluation"), message: detail, indicator: result.signal ? "orange" : "blue" });
+			}, __("Inventory Control"));
+		}
 		if (frm.doc.production_policy === "Customer Make-to-Order") {
 			frm.set_intro(__("MTO mode creates one digital cycle and Batch per Sales Order line. It does not reserve reusable cards or use reorder stock."), "blue");
 		} else if (frm.doc.control_type === "Withdrawal") {

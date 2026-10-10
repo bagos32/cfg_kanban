@@ -30,3 +30,17 @@ def calculate_mto_plan(outstanding_qty, master_tolerance_pct, po_allows_extra,
     maximum = outstanding * (1 + effective_pct / 100)
     planned = maximum if plan_to_maximum else outstanding
     return effective_pct, outstanding, maximum, planned
+
+
+def calculate_threshold_replenishment(balance, reorder_point, target, replenishment_qty,
+                                      max_replenishments):
+    """Return whole-card demand only after the balance crosses the reorder point."""
+    balance = float(balance or 0)
+    reorder_point = float(reorder_point or 0)
+    target = float(target or 0)
+    replenishment_qty = float(replenishment_qty or 0)
+    maximum = int(max_replenishments or 0)
+    if balance >= reorder_point or replenishment_qty <= 0 or maximum <= 0:
+        return 0, 0
+    count = min(maximum, math.ceil(max(0, target - balance) / replenishment_qty))
+    return count, count * replenishment_qty

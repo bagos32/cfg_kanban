@@ -1813,6 +1813,60 @@ verification, disposition, reconciliation, recovery, or exception actions.
 
 ## 23. Buyer-owned purchase replenishment
 
+## Automatic inventory threshold replenishment
+
+Automatic threshold replenishment is optional. It creates a **digital Cycle and Signal** when the
+destination Warehouse balance falls below a configured minimum. It does not consume, reserve, or
+change the state of a reusable physical Kanban Card.
+
+Configure these exact fields on **CFG Kanban Master**:
+
+| Form label | Fieldname | Purpose |
+|---|---|---|
+| Enable Automatic Threshold Trigger | `enable_inventory_threshold_trigger` | Includes the active Master in hourly evaluation |
+| Inventory Balance Source | `inventory_balance_source` | System-set from the Item type |
+| Inventory Threshold Source | `inventory_threshold_source` | Use Master override quantities or the Item Reorder row for the destination Warehouse |
+| Reorder Point (Stock UOM) | `inventory_reorder_point_qty` | Trigger when observed balance is strictly below this value |
+| Replenish Up To (Stock UOM) | `inventory_target_qty` | Quantity the generated demand attempts to reach |
+| Maximum Replenishment Quantities per Trigger | `inventory_max_cards_per_run` | Caps one generated Signal |
+| Automation Level | `automation_level` | Automatic, Approval, or Signal Only behaviour inherited by the generated Signal |
+
+For an ERPNext stock Item, the balance source is **ERPNext Projected Quantity** from the Item and
+destination Warehouse `Bin`. The threshold can come from the Master override or from the exact
+ERPNext **Item Reorder** row for that Warehouse. With the ERPNext source, the reorder point is the
+Warehouse Reorder Level and the target is that level plus Warehouse Reorder Qty; when Reorder Qty is
+zero, one Master Replenishment Qty is used. ERPNext remains the inventory system of record. Do not
+enable ERPNext automatic reorder execution and CFG Kanban automatic threshold triggering for the
+same Item/Warehouse pair, because both controllers could create purchasing demand.
+
+For a non-stock Item, the balance source is **Kanban Operational Inventory**. It is the sum of
+released, active and available CFG Kanban Handling Unit quantities for the same Company, Item, and
+destination Warehouse. This balance never creates an ERPNext Stock Ledger quantity. Non-stock
+threshold control is supported for **Purchase Replenishment** and **Transfer**, but not Production.
+
+Only one active threshold controller is allowed for a Company, Item, and destination Warehouse.
+While its Signal is Open, Validated, Waiting Approval, Executing, Blocked, or Failed, another
+threshold Signal is not created. This prevents hourly duplicate demand. Cancellation or completion
+allows a later evaluation to create a new episode when the balance is still below the threshold.
+
+The requested quantity is calculated as whole Kanban replenishment quantities:
+
+```text
+required quantity = Replenish Up To - observed balance
+number of replenishments = round required quantity upward / Replenishment Qty
+requested quantity = number of replenishments × Replenishment Qty
+```
+
+The configured maximum limits the number created in one Signal. Purchase minimum order quantities,
+pack multiples, and supplier UOM conversion are still applied later by the existing Purchase
+Replenishment workflow.
+
+The scheduler evaluates enabled Masters hourly. For setup and testing, save the Master and select
+**Inventory Control → Evaluate Threshold Now**. The Master records the last check time, observed
+balance, and result. Threshold-created Signals appear in the **Production Supervisor Action Center**
+with the observed balance, reorder point, target, and balance source. Approval and cancellation use
+the normal Signal controls.
+
 Use **Control Type** (`control_type`) = **Purchase Replenishment** when the item is bought from a
 normal third-party supplier. This V1 flow does not represent buyer-directed contract manufacturing;
 that richer vendor execution model remains V2.
