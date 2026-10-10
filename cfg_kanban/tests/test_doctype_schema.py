@@ -1053,6 +1053,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def _workstation_queue_context", operator)
         self.assertIn("allowed_operations", operator)
         self.assertIn("def get_warehouse_operations_context", logistics)
+        self.assertIn("def _resolve_kanban_card_scan", logistics)
+        self.assertIn('(\"qr_code\", \"uuid\", \"card_number\", \"name\")', logistics)
         self.assertIn("_authorized_route_names(profile)", logistics)
         self.assertIn('"Workstation Queue Card"', scan)
         self.assertIn("Permanent access cards do not create production Cycles", scan)
@@ -1060,6 +1062,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("CFG Warehouse Operations Card", card_form)
         self.assertIn("render_workstation_queue", operator_panel)
         self.assertIn("render_warehouse_operations", logistics_panel)
+        self.assertIn("server_error_message", logistics_panel)
 
         for print_format in (
             "cfg_workstation_queue_card/cfg_workstation_queue_card.json",

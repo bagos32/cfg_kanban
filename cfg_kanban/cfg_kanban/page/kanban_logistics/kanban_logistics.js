@@ -1955,7 +1955,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			else if (state.lookup.preferred_manifest) await open_manifest(state.lookup.preferred_manifest, { keep_lookup: true });
 			else clear_manifest_view({ keep_lookup: true });
 			$scanner.find(".scanner-message").html(`<small class="text-success">${__("Status loaded: {0}", [frappe.utils.escape_html(raw)])}</small>`);
-		} catch (error) { scanner_error(__("Tag status could not be loaded.")); }
+		} catch (error) {
+			scanner_error(server_error_message(error, __("Tag status could not be loaded.")));
+		}
 		focus_scanner();
 	}
 
@@ -2250,8 +2252,28 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	}
 
 	function scanner_error(message) {
-		$scanner.find(".scanner-message").html(`<small class="text-danger">${message}</small>`);
+		const safe_message = frappe.utils.escape_html(message || __("Unexpected scanner error"));
+		$scanner.find(".scanner-message").html(`<small class="text-danger">${safe_message}</small>`);
 		frappe.show_alert({ message, indicator: "red" }, 6); focus_scanner();
+	}
+
+	function server_error_message(error, fallback) {
+		if (error?.message && !String(error.message).includes("There was an error")) {
+			return String(error.message);
+		}
+		const response = error?.responseJSON || error;
+		if (response?._server_messages) {
+			try {
+				const messages = JSON.parse(response._server_messages)
+					.map((value) => {
+						const parsed = typeof value === "string" ? JSON.parse(value) : value;
+						return parsed?.message || parsed;
+					})
+					.filter(Boolean);
+				if (messages.length) return messages.join(" ");
+			} catch (_ignored) { /* Fall through to the stable fallback. */ }
+		}
+		return fallback;
 	}
 
 	function focus_scanner() {

@@ -140,8 +140,7 @@ def get_supplier_receiving_context(scan_value, operator_session_token):
     """Resolve either a warehouse receiving point or its exact Purchase Kanban card."""
     profile, _session = require_operator(operator_session_token)
     _require_supplier_receiving(profile)
-    card_name = (frappe.db.get_value("CFG Kanban Card", {"qr_code": scan_value}, "name")
-                 or frappe.db.get_value("CFG Kanban Card", {"card_number": scan_value}, "name"))
+    card_name = _resolve_kanban_card_scan(scan_value)
     if not card_name:
         frappe.throw("Scan a Supplier Receiving Location Card or Purchase Kanban card")
     card = frappe.get_doc("CFG Kanban Card", card_name)
@@ -460,8 +459,7 @@ def use_untagged_transfer_stock(manifest_name, event_token, operator_session_tok
 def lookup_logistics_tag(scan_value, operator_session_token):
     """Read-only tag lookup. This endpoint never changes a Manifest or balance."""
     profile, _session = require_operator(operator_session_token)
-    card_name = (frappe.db.get_value("CFG Kanban Card", {"qr_code": scan_value}, "name")
-                 or frappe.db.get_value("CFG Kanban Card", {"card_number": scan_value}, "name"))
+    card_name = _resolve_kanban_card_scan(scan_value)
     if card_name:
         card = frappe.get_doc("CFG Kanban Card", card_name)
         master = (frappe.get_doc("CFG Kanban Master", card.kanban_master)
@@ -611,6 +609,27 @@ def lookup_logistics_tag(scan_value, operator_session_token):
         result["manifests"] = manifests
         result["preferred_manifest"] = manifests[0].name if manifests else None
     return result
+
+
+def _resolve_kanban_card_scan(scan_value):
+    """Resolve every supported physical identity for a Kanban Card.
+
+    Permanent Warehouse/Location cards have existed with QR payloads sourced
+    from either ``qr_code`` or ``uuid``.  Card Number and document Name remain
+    useful typed fallbacks.  Keeping this resolver in one place prevents the
+    supplier-receiving and general logistics paths from interpreting the same
+    printed card differently.
+    """
+    value = str(scan_value or "").strip()
+    if not value:
+        frappe.throw("Scan or enter a Kanban Card identity")
+    for fieldname in ("qr_code", "uuid", "card_number", "name"):
+        card_name = frappe.db.get_value(
+            "CFG Kanban Card", {fieldname: value}, "name"
+        )
+        if card_name:
+            return card_name
+    return None
 
 
 @frappe.whitelist()
