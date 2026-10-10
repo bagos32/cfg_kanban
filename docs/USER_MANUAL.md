@@ -1282,6 +1282,25 @@ unreserved, unloaded, and in the same Company and Warehouse. The serials and qua
 parent, while the used child identity becomes **Empty** and is not reusable. Later movement,
 reservation, container loading, consumption, or other quantity activity blocks this shortcut.
 
+### Permanent Customer Site QR cards
+
+Create one **CFG Kanban Customer Scan Point** for every customer delivery address that drivers must
+identify independently. In **Permanent Customer Site Identity**, enter a globally unique **Printed
+Customer Site Code** such as `CUSTSITE-CUST001-MAIN`; this exact readable value is the QR and Code
+128 payload. Complete the Selling Company, Customer, Delivery Address, selling Price List, Delivery
+Note policy, and proof policy, then save.
+
+On the saved form, select **Print Customer Site QR**. The A6 landscape card prints the site name,
+Customer, exact delivery address, Selling Company, route, proof policy, QR, readable site code, and
+Code 128 barcode. Fix the card permanently at the correct receiving location. Do not print or use
+the hidden **Internal UUID Alias** as the operational code.
+
+To test it, open the **Logistics Operator Panel** in normal lookup mode and scan the printed card.
+The panel must identify the exact Customer Site and display its Selling Company, Customer, address,
+route, proof policy, and eligible Company-specific vehicle Warehouses before it offers **Start
+Customer Delivery**. Never allocate stock if the displayed Customer or address differs from the
+physical site.
+
 ## 12. Scanner-first floor operation
 
 The Kanban Operator page supports both a fixed USB/Bluetooth keyboard-wedge scanner and the device

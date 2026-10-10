@@ -142,6 +142,32 @@ class TestDocTypeSchema(TestCase):
             self.assertIn("STOCK TRANSFER", print_format["html"])
             self.assertIn("STOCK WITHDRAWAL", print_format["html"])
 
+    def test_customer_scan_point_has_visible_printable_site_identity(self):
+        schema = json.loads((
+            ROOT / "cfg_kanban_customer_scan_point" /
+            "cfg_kanban_customer_scan_point.json"
+        ).read_text())
+        fields = {row["fieldname"]: row for row in schema["fields"]}
+        self.assertEqual(fields["identity_section"]["fieldtype"], "Section Break")
+        self.assertTrue(fields["site_code"]["reqd"])
+        self.assertTrue(fields["site_code"]["unique"])
+        self.assertFalse(fields["site_code"].get("hidden", 0))
+
+        javascript = (
+            APP_ROOT / "public" / "js" /
+            "cfg_kanban_customer_scan_point.js"
+        ).read_text()
+        self.assertIn('__("Print Customer Site QR")', javascript)
+        self.assertIn('CFG Customer Site Card', javascript)
+
+        print_format = json.loads((
+            APP_ROOT / "cfg_kanban" / "print_format" /
+            "cfg_customer_site_card" / "cfg_customer_site_card.json"
+        ).read_text())
+        self.assertEqual(print_format["doc_type"], "CFG Kanban Customer Scan Point")
+        self.assertIn("get_qr_svg(doc.site_code", print_format["html"])
+        self.assertIn("get_code128_svg(doc.site_code", print_format["html"])
+
     def test_material_genealogy_explorer_is_read_only_and_printable(self):
         page = json.loads((
             APP_ROOT / "cfg_kanban" / "page" / "material_genealogy" /
