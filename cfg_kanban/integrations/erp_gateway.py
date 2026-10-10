@@ -978,6 +978,9 @@ def create_intercompany_purchase_receipt(command, payload):
         "posting_date": now_datetime().date(),
         "set_warehouse": payload["warehouse"],
         "buying_price_list": payload["price_list"],
+        # Keep ERPNext's native parent reference as well as CFG's manifest
+        # reference so the standard Connections view can resolve the pair.
+        "inter_company_reference": payload["counterpart_document"],
         "cfg_kanban_controlled": 1,
         "cfg_logistics_route": manifest.logistics_route,
         "cfg_movement_manifest": manifest.name,
@@ -985,18 +988,7 @@ def create_intercompany_purchase_receipt(command, payload):
         "cfg_counterpart_document": payload.get("counterpart_document"),
         "cfg_requested_operator": command.requested_by_operator,
         "cfg_scan_event": command.idempotency_key,
-        "items": [{
-            "item_code": row["item_code"],
-            "qty": row["qty"],
-            "received_qty": row["qty"],
-            "uom": row["uom"],
-            "warehouse": payload["warehouse"],
-            "batch_no": row.get("batch_no"),
-            "rate": row["rate"],
-            "price_list_rate": row["rate"],
-            "cfg_handling_unit": row["handling_unit"],
-            "cfg_manifest_line": row["manifest_line"],
-        } for row in payload["items"]],
+        "items": _intercompany_purchase_receipt_items(payload),
     })
     receipt.set_missing_values()
     receipt.insert(ignore_permissions=True)
@@ -1013,6 +1005,44 @@ def create_intercompany_purchase_receipt(command, payload):
         "movement_manifest": manifest.name,
     }
     return receipt
+
+
+def _intercompany_purchase_receipt_items(payload):
+    """Map every receipt row back to its exact source Delivery Note row."""
+    delivery_note = payload.get("counterpart_document")
+    if not delivery_note:
+        frappe.throw("Intercompany Purchase Receipt requires its source Delivery Note")
+
+    items = []
+    for row in payload["items"]:
+        delivery_note_item = frappe.db.get_value(
+            "CFG Kanban Manifest Line", row["manifest_line"], "delivery_note_item"
+        )
+        source_parent = (
+            frappe.db.get_value("Delivery Note Item", delivery_note_item, "parent")
+            if delivery_note_item else None
+        )
+        if not delivery_note_item or source_parent != delivery_note:
+            frappe.throw(
+                "Manifest line {0} is not linked to Delivery Note {1}. "
+                "Reconcile the dispatch document before receiving.".format(
+                    row["manifest_line"], delivery_note
+                )
+            )
+        items.append({
+            "item_code": row["item_code"],
+            "qty": row["qty"],
+            "received_qty": row["qty"],
+            "uom": row["uom"],
+            "warehouse": payload["warehouse"],
+            "batch_no": row.get("batch_no"),
+            "rate": row["rate"],
+            "price_list_rate": row["rate"],
+            "delivery_note_item": delivery_note_item,
+            "cfg_handling_unit": row["handling_unit"],
+            "cfg_manifest_line": row["manifest_line"],
+        })
+    return items
 
 
 def _link_manifest_erp_rows(manifest_name, erp_document, target_field):

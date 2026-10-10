@@ -2556,7 +2556,9 @@ Receipt steps:
    disabled, review and submit the draft in ERPNext.
 6. Only submitted Purchase Receipt feedback changes the Manifest to **Received**, transfers the
    tag's **Inventory Company** and **Current Warehouse**, and makes destination stock operationally
-   available.
+   available. The generated Purchase Receipt also retains ERPNext's native **Inter Company
+   Reference** and line-level **Delivery Note Item** references, so the standard Connections tabs
+   on both documents show the complete Delivery Note ↔ Purchase Receipt relationship.
 
 The terminal remembers the last open Manifest in that browser so a refresh after manual ERP
 submission can reopen pending work. A terminal-state Manifest is not restored as the active screen

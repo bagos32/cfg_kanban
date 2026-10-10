@@ -983,6 +983,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('@handler("Create Intercompany Delivery Note")', gateway)
         self.assertIn('@handler("Create Intercompany Purchase Receipt")', gateway)
         self.assertIn("build_intercompany_delivery_note", gateway)
+        self.assertIn('"inter_company_reference": payload["counterpart_document"]', gateway)
+        self.assertIn('"delivery_note_item": delivery_note_item', gateway)
         self.assertIn("get_required_erp_inputs", gateway)
         self.assertIn("apply_required_erp_inputs", gateway)
         self.assertIn("Sales Team allocated percentage must total 100%", gateway)

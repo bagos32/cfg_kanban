@@ -561,6 +561,9 @@ Expected before Purchase Receipt submission:
 Expected after Purchase Receipt submission:
 
 - Manifest becomes **Received**;
+- Purchase Receipt **Inter Company Reference** points to the source Delivery Note;
+- every Purchase Receipt Item points to its exact source Delivery Note Item, and each document's
+  ERPNext **Connections** tab shows the other document;
 - destination Company stock is available in the Sales Lorry Warehouse;
 - Handling Unit **Inventory Company** becomes Sales Company;
 - Handling Unit **Current Warehouse** becomes the Sales Lorry Warehouse;
