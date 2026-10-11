@@ -966,12 +966,21 @@ class TestDocTypeSchema(TestCase):
                  schemas["CFG Kanban Delivery Proof"]["fields"]}
         self.assertTrue({
             "delivery_session", "delivery_note", "proof_policy", "disposition",
-            "recipient_name", "unattended_reason", "latitude", "longitude",
+            "recipient_name", "unattended_reason", "location_captured",
+            "latitude", "longitude",
             "photo_count", "signature_count", "attachment_count", "submitted_on",
             "submitted_by_operator", "idempotency_key", "media_evidence_html",
         }.issubset(proof))
         self.assertEqual(proof["delivery_session"].get("unique"), 1)
         self.assertEqual(proof["idempotency_key"].get("unique"), 1)
+        self.assertEqual(proof["location_captured"]["fieldtype"], "Check")
+
+        delivery_proof_service = (
+            APP_ROOT / "services" / "delivery_proof.py"
+        ).read_text()
+        self.assertIn("return 0, 0, False", delivery_proof_service)
+        self.assertIn('"location_captured": 1 if location_captured else 0',
+                      delivery_proof_service)
 
         command = {row["fieldname"]: row for row in
                    schemas["CFG ERP Command"]["fields"]}

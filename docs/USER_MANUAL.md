@@ -2182,7 +2182,9 @@ the separate wrong-DN correction workflow can post stock through an ERPNext Retu
     **CFG Kanban Delivery Proof**, links it to the session, and changes the session to **Closed**.
 18. Supervisors open **Customer Delivery Proofs** from the CFG Kanban workspace to see the immutable
     policy snapshot, recipient/disposition, submitter, capture time/GPS, thumbnails, and temporary
-    **Open Original** links. Presigned URLs are generated on demand and are never stored.
+    **Open Original** links. Presigned URLs are generated on demand and are never stored. When GPS is
+    optional and was not captured, **GPS Location Captured** is off; stored zero coordinate fields are
+    only database-safe placeholders and must not be interpreted as a real `0,0` delivery location.
 19. If ERPNext rejects creation or submission, the session becomes **Exception** without consuming
     tagged quantity. Correct the ERP prerequisite and retry **Create Delivery Note**.
 20. Cancel a submitted controlled Delivery Note only after the goods are physically returned to the

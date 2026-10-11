@@ -121,8 +121,11 @@ def submit_delivery_proof(proof_name, disposition, event_token,
         if proof.require_photo and not counts["photo"]:
             frappe.throw(_("Unattended delivery photograph is required"))
 
-    lat, lng = _validate_location(latitude, longitude, proof.require_gps and
-                                  disposition != "No Proof Recorded")
+    lat, lng, location_captured = _validate_location(
+        latitude,
+        longitude,
+        proof.require_gps and disposition != "No Proof Recorded",
+    )
     submitted_on = now_datetime()
     key = canonical_key("customer-delivery-proof", proof.name, event_token)
     existing = frappe.db.get_value(
@@ -137,7 +140,11 @@ def submit_delivery_proof(proof_name, disposition, event_token,
         "unattended_reason": (unattended_reason or "").strip() or None,
         "latitude": lat,
         "longitude": lng,
-        "location_accuracy": flt(location_accuracy) if location_accuracy not in (None, "") else None,
+        "location_accuracy": (
+            flt(location_accuracy)
+            if location_captured and location_accuracy not in (None, "") else 0
+        ),
+        "location_captured": 1 if location_captured else 0,
         "captured_on": submitted_on,
         "notes": notes,
         "photo_count": counts["photo"],
@@ -174,11 +181,13 @@ def _validate_location(latitude, longitude, required):
     if latitude in (None, "") or longitude in (None, ""):
         if required:
             frappe.throw(_("GPS location is required by this proof policy"))
-        return None, None
+        # Frappe Float columns are non-nullable.  The separate capture flag keeps
+        # this storage-safe zero from being interpreted as a real 0,0 coordinate.
+        return 0, 0, False
     lat, lng = flt(latitude), flt(longitude)
     if not -90 <= lat <= 90 or not -180 <= lng <= 180:
         frappe.throw(_("Invalid proof geolocation"))
-    return lat, lng
+    return lat, lng, True
 
 
 def _require_responsibility(profile):
