@@ -19,16 +19,21 @@ class CFGKanbanHandlingUnit(Document):
             self.handling_unit_id = normalize_physical_code(self.handling_unit_id)
         except ValueError as exc:
             frappe.throw(str(exc))
-        self._materialize_range_family()
-        if self.tag_kind != "Reusable Container" and not self.tag_family:
-            frappe.throw(
-                "A Stock Tag must be registered in an exact Tag Family or covered by an "
-                "active Tag Range Registry"
-            )
+        if self.tag_kind == "Reusable Container":
+            self._clear_stock_tag_identity()
+            self._clear_reusable_stock_context()
+        else:
+            self._materialize_range_family()
+            if not self.tag_family:
+                frappe.throw(
+                    "A Stock Tag must be registered in an exact Tag Family or covered by an "
+                    "active Tag Range Registry"
+                )
         validate_physical_code_namespace(
             self.handling_unit_id, "Handling Unit", tag_family=self.tag_family
         )
-        self._bind_tag_identity()
+        if self.tag_kind != "Reusable Container":
+            self._bind_tag_identity()
         self.opaque_token = self.opaque_token or str(uuid.uuid4())
         if not self.handling_unit_id:
             self.handling_unit_id = self.name
@@ -77,8 +82,13 @@ class CFGKanbanHandlingUnit(Document):
         )
 
     def validate(self):
+        if self.tag_kind == "Reusable Container":
+            self._clear_stock_tag_identity()
+            if self.is_new():
+                self._clear_reusable_stock_context()
         self._copy_parent_context()
-        self._copy_cycle_context()
+        if self.tag_kind != "Reusable Container":
+            self._copy_cycle_context()
         # Frappe assigns autonames after before_insert and before validate. Set the
         # self-referencing root here so a new main tag never persists a blank root.
         if self.tag_kind == "Main Stock Tag" and not self.root_handling_unit:
@@ -203,6 +213,31 @@ class CFGKanbanHandlingUnit(Document):
             "CFG Kanban Tag Family", self.tag_family, "range_registry"
         )
         self.flags.tag_identity_row = identity.name
+
+    def _clear_stock_tag_identity(self):
+        """Keep a permanent reusable container independent from stock-tag identity."""
+        self.tag_range_registry = None
+        self.tag_family = None
+        self.parent_handling_unit = None
+        self.root_handling_unit = None
+        self.child_index = 0
+
+    def _clear_reusable_stock_context(self):
+        """A newly registered reusable container does not carry Item quantity itself."""
+        self.kanban_cycle = None
+        self.kanban_card = None
+        self.item_code = None
+        self.qty = 0
+        self.stock_uom = None
+        self.container_count = 0
+        self.batch_no = None
+        self.serial_count = 0
+        self.work_order = None
+        self.current_operation = None
+        self.origin_reference_doctype = None
+        self.origin_reference_name = None
+        self.origin_reference_row = None
+        self.activation_key = None
 
     def _materialize_range_family(self):
         if self.tag_kind == "Reusable Container":

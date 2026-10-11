@@ -589,6 +589,10 @@ class TestDocTypeSchema(TestCase):
                       handling["inventory_company"]["mandatory_depends_on"])
         self.assertIn("tag_kind!='Reusable Container'",
                       handling["current_warehouse"]["mandatory_depends_on"])
+        self.assertIn("tag_kind!='Reusable Container'",
+                      handling["item_code"]["mandatory_depends_on"])
+        self.assertIn("tag_kind!='Reusable Container'",
+                      handling["stock_uom"]["mandatory_depends_on"])
         self.assertEqual(handling["current_warehouse"]["read_only_depends_on"],
                          "eval:!doc.__islocal")
         self.assertTrue({"origin_reference_doctype", "origin_reference_name",
@@ -610,6 +614,17 @@ class TestDocTypeSchema(TestCase):
             self.assertFalse(permission.get("create", 0))
             self.assertFalse(permission.get("write", 0))
             self.assertFalse(permission.get("delete", 0))
+
+    def test_reusable_container_skips_stock_tag_identity_binding(self):
+        doctype_root = ROOT / "cfg_kanban_handling_unit"
+        controller = (doctype_root / "cfg_kanban_handling_unit.py").read_text()
+        form_script = (APP_ROOT / "public" / "js" /
+                       "cfg_kanban_handling_unit.js").read_text()
+        self.assertIn('if self.tag_kind != "Reusable Container":\n            self._bind_tag_identity()',
+                      controller)
+        self.assertIn('if (frm.doc.tag_kind === "Reusable Container") return;',
+                      form_script)
+        self.assertIn("_clear_stock_tag_identity", controller)
 
     def test_material_trace_policy_keeps_physical_tags_optional(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

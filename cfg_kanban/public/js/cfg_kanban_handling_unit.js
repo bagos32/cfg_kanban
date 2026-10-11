@@ -14,6 +14,35 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 			name: ["in", frm._cfg_cycle_operations.length ? frm._cfg_cycle_operations : ["__none__"]],
 		} }));
 	},
+	async tag_kind(frm) {
+		if (!frm.is_new() || frm.doc.tag_kind !== "Reusable Container") return;
+		frm._cfg_resolving_tag = true;
+		try {
+			await frm.set_value({
+				tag_range_registry: null,
+				tag_family: null,
+				parent_handling_unit: null,
+				root_handling_unit: null,
+				child_index: 0,
+				kanban_cycle: null,
+				kanban_card: null,
+				item_code: null,
+				short_description: null,
+				qty: 0,
+				stock_uom: null,
+				container_count: 0,
+				batch_no: null,
+				work_order: null,
+				current_operation: null,
+			});
+			frappe.show_alert({
+				message: __("Reusable containers are permanent physical identities; Item, UOM and quantity belong to the Stock Tags loaded inside."),
+				indicator: "blue",
+			}, 8);
+		} finally {
+			frm._cfg_resolving_tag = false;
+		}
+	},
 	async kanban_cycle(frm) {
 		if (!frm.doc.kanban_cycle) return;
 		const [{ message: cycle }, { message: operations }] = await Promise.all([
@@ -34,6 +63,7 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 	},
 	async handling_unit_id(frm) {
 		if (!frm.is_new() || frm._cfg_resolving_tag || !frm.doc.handling_unit_id) return;
+		if (frm.doc.tag_kind === "Reusable Container") return;
 		frm._cfg_resolving_tag = true;
 		try {
 			await frm.set_value({
