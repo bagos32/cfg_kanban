@@ -626,6 +626,27 @@ class TestDocTypeSchema(TestCase):
                       form_script)
         self.assertIn("_clear_stock_tag_identity", controller)
 
+    def test_reusable_container_card_uses_loaded_content_quantity(self):
+        service = (APP_ROOT / "services" / "container_contents.py").read_text()
+        panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
+                 "kanban_logistics.js").read_text()
+        form = (APP_ROOT / "public" / "js" /
+                "cfg_kanban_handling_unit.js").read_text()
+        self.assertIn('"content_summary": content_summary', service)
+        self.assertIn("def _summarize_current_contents", service)
+        self.assertIn("live_current_qty", service)
+        self.assertIn("Loaded Content Quantity", panel)
+        self.assertIn("container_quantity", panel)
+        self.assertIn("show_container_content_quantity(frm)", form)
+        self.assertIn("Loaded contents: {0} ({1} Stock Tags)", form)
+        print_format = json.loads((
+            APP_ROOT / "cfg_kanban" / "print_format" /
+            "cfg_kanban_handling_unit_tag" /
+            "cfg_kanban_handling_unit_tag.json"
+        ).read_text())
+        self.assertIn("LIVE CONTENTS", print_format["html"])
+        self.assertIn("SCAN CARD FOR QUANTITY", print_format["html"])
+
     def test_material_trace_policy_keeps_physical_tags_optional(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}
         policy = {row["fieldname"]: row for row in

@@ -50,7 +50,8 @@ genealogy can be tested later without changing this production route.
 - CFG Kanban controls the production signal, Cycle, operator execution, WIP handoff, physical tag
   activation, and container-membership evidence.
 - A **Reusable Container** is only a permanent physical identity. It never carries an Item quantity
-  directly.
+  directly. Its scanned card displays the computed live total of the Stock Tags loaded inside; the
+  container record's own `Current Qty` remains zero to prevent double counting.
 - A **Main Stock Tag** carries the Item, Batch, quantity, Company, and ERP warehouse.
 
 Therefore the correct final structure is:

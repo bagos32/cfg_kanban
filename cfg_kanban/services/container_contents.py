@@ -423,6 +423,8 @@ def _container_result(container, include_history):
         order_by="loaded_on asc",
         limit_page_length=500,
     )
+    _attach_live_balances(current)
+    content_summary = _summarize_current_contents(current)
     history = []
     if include_history:
         history = frappe.get_all(
@@ -451,7 +453,64 @@ def _container_result(container, include_history):
             "quality_state": container.quality_state,
         },
         "current_contents": current,
+        "content_summary": content_summary,
         "history": history,
+    }
+
+
+def _attach_live_balances(current_contents):
+    """Add the live tag balances without moving quantity onto the container identity."""
+    names = [row.content_handling_unit for row in current_contents
+             if row.content_handling_unit]
+    if not names:
+        return
+    balances = {
+        row.name: row
+        for row in frappe.get_all(
+            "CFG Kanban Handling Unit",
+            filters={"name": ["in", names]},
+            fields=["name", "current_qty", "reserved_qty", "available_qty", "stock_uom"],
+            limit_page_length=500,
+        )
+    }
+    for row in current_contents:
+        balance = balances.get(row.content_handling_unit)
+        row["live_current_qty"] = flt(balance.current_qty) if balance else flt(row.qty)
+        row["live_reserved_qty"] = flt(balance.reserved_qty) if balance else 0
+        row["live_available_qty"] = (
+            flt(balance.available_qty) if balance else flt(row.qty)
+        )
+        row["live_stock_uom"] = balance.stock_uom if balance else row.stock_uom
+
+
+def _summarize_current_contents(current_contents):
+    """Summarize loaded Stock Tags by UOM for safe display on a container card.
+
+    Reusable containers never own stock balances.  Their displayed content quantity
+    is therefore derived from the active Stock Tags currently loaded inside them.
+    Grouping by UOM prevents invalid totals when mixed content is permitted.
+    """
+    grouped = {}
+    for row in current_contents:
+        uom = row.get("live_stock_uom") or row.get("stock_uom") or _("Unspecified UOM")
+        values = grouped.setdefault(uom, {
+            "stock_uom": uom,
+            "current_qty": 0.0,
+            "reserved_qty": 0.0,
+            "available_qty": 0.0,
+        })
+        values["current_qty"] += flt(
+            row.get("live_current_qty")
+            if row.get("live_current_qty") is not None else row.get("qty")
+        )
+        values["reserved_qty"] += flt(row.get("live_reserved_qty"))
+        values["available_qty"] += flt(
+            row.get("live_available_qty")
+            if row.get("live_available_qty") is not None else row.get("qty")
+        )
+    return {
+        "tag_count": len(current_contents),
+        "by_uom": list(grouped.values()),
     }
 
 

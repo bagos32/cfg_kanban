@@ -131,6 +131,7 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 	refresh(frm) {
 		if (frm.doc.kanban_cycle) frm.trigger("kanban_cycle");
 		if (frm.is_new()) return;
+		if (frm.doc.tag_kind === "Reusable Container") show_container_content_quantity(frm);
 		if (frm.doc.tag_kind !== "Reusable Container" && !frm.doc.current_warehouse) {
 			frm.add_custom_button(__("Assign Initial Warehouse"), () => {
 				assign_initial_warehouse(frm);
@@ -192,6 +193,25 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 		}
 	},
 });
+
+async function show_container_content_quantity(frm) {
+	try {
+		const response = await frappe.call({
+			method: "cfg_kanban.services.container_contents.get_container_contents",
+			args: { container_scan: frm.doc.handling_unit_id, include_history: 0 },
+		});
+		const summary = (response.message || {}).content_summary || { tag_count: 0, by_uom: [] };
+		const quantities = (summary.by_uom || []).map((row) =>
+			`${format_number(row.current_qty)} ${frappe.utils.escape_html(row.stock_uom || "")}`
+		).join(" + ") || __("Empty");
+		frm.dashboard.add_indicator(
+			__("Loaded contents: {0} ({1} Stock Tags)", [quantities, summary.tag_count || 0]),
+			summary.tag_count ? "green" : "grey"
+		);
+	} catch (error) {
+		// The standard form remains usable when the current user cannot read contents.
+	}
+}
 
 async function tag_to_tag_transfer(frm) {
 	const response = await frappe.call({

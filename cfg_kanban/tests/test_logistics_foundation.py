@@ -11,9 +11,35 @@ from cfg_kanban.services.physical_identity import (
     parse_tag_range_code,
     validate_tag_range_definition,
 )
+from cfg_kanban.services.container_contents import _summarize_current_contents
 
 
 class TestHandlingUnitQuantityMath(TestCase):
+    def test_reusable_container_content_summary_groups_live_quantity_by_uom(self):
+        summary = _summarize_current_contents([
+            {
+                "stock_uom": "Kg", "qty": 50,
+                "live_stock_uom": "Kg", "live_current_qty": 50,
+                "live_reserved_qty": 10, "live_available_qty": 40,
+            },
+            {
+                "stock_uom": "Kg", "qty": 50,
+                "live_stock_uom": "Kg", "live_current_qty": 50,
+                "live_reserved_qty": 0, "live_available_qty": 50,
+            },
+            {
+                "stock_uom": "Nos", "qty": 2,
+                "live_stock_uom": "Nos", "live_current_qty": 2,
+                "live_reserved_qty": 0, "live_available_qty": 2,
+            },
+        ])
+        self.assertEqual(summary["tag_count"], 3)
+        by_uom = {row["stock_uom"]: row for row in summary["by_uom"]}
+        self.assertEqual(by_uom["Kg"]["current_qty"], 100)
+        self.assertEqual(by_uom["Kg"]["reserved_qty"], 10)
+        self.assertEqual(by_uom["Kg"]["available_qty"], 90)
+        self.assertEqual(by_uom["Nos"]["current_qty"], 2)
+
     def test_preprinted_range_parses_main_and_detachable_children(self):
         registry = {
             "prefix": "FZD-STK",

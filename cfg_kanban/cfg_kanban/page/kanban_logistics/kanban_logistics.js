@@ -658,6 +658,13 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const movement = state.lookup.last_movement;
 		const container_status = state.lookup.container_status || {};
 		const membership = container_status.active_membership;
+		const container_summary = container_status.content_summary || { tag_count: 0, by_uom: [] };
+		const container_quantity = (container_summary.by_uom || []).map((row) =>
+			`${format_number(row.current_qty)} ${e(row.stock_uom || "")}`
+		).join(" + ") || __("Empty");
+		const container_availability = (container_summary.by_uom || []).map((row) =>
+			`${format_number(row.available_qty)} / ${format_number(row.reserved_qty)} ${e(row.stock_uom || "")}`
+		).join(" + ") || "-";
 		const serials = state.lookup.active_serial_numbers || [];
 		const manifests = (state.lookup.manifests || []).map((manifest) =>
 			`<button class="btn btn-default lookup-manifest" data-name="${e(manifest.name)}"><strong>${e(manifest.name)}</strong> · ${e(manifest.state)}</button>`
@@ -672,7 +679,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<strong>${__("Physically inside reusable container")}: ${e(membership.container_visible_code)}</strong><br>
 			<small>${__("Unload this Stock Tag from the container before moving, consuming, replacing, or voiding it independently.")}</small></div>` : "";
 		const content_notice = container_status.mode === "container" ? `<div class="alert alert-info mt-3">
-			<strong>${__("Current contents")}: ${(container_status.current_contents || []).length} ${__("complete Stock Tags")}</strong><br>
+			<strong>${__("Current contents")}: ${container_summary.tag_count || 0} ${__("complete Stock Tags")} · ${container_quantity}</strong><br>
 			<small>${__("Container membership is physical grouping only. ERP stock remains recorded against each Stock Tag.")}</small>
 			${state.lookup.can_manage_container ? "" : `<br><small>${__("Container Loading responsibility is required to change contents.")}</small>`}</div>` : "";
 		const serial_notice = serials.length ? `<div class="alert alert-success mt-3"><strong>${serials.length} ${__("exact ERPNext Serial Numbers")}</strong><br>
@@ -682,15 +689,15 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<div class="mt-2"><button class="btn btn-primary split-unused-tag">${__("Split to New Tag")}</button>
 			<button class="btn btn-warning transfer-active-tag">${__("Move to Active Tag")}</button></div></div>` : "";
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
-			<div class="cfg-logistics-tag-head"><div><small>${__("Scanned Tag Status")}</small><h3>${e(unit.visible_code)}</h3><strong>${e(unit.item_code || __("No item assigned"))}</strong></div>
+			<div class="cfg-logistics-tag-head"><div><small>${__("Scanned Tag Status")}</small><h3>${e(unit.visible_code)}</h3><strong>${e(unit.item_code || (unit.tag_kind === "Reusable Container" ? __("Reusable Container") : __("No item assigned")))}</strong></div>
 				<div>${container_action}<button class="btn btn-default explore-genealogy" data-code="${e(unit.visible_code)}">${__("Full Genealogy")}</button>
 				<button class="btn btn-default close-lookup">${__("Close")}</button></div></div>
 			<div class="cfg-logistics-tag-grid">
 				<div><small>${__("Batch")}</small><strong>${e(unit.batch_no || __("No Batch"))}</strong></div>
 				<div><small>${__("Company")}</small><strong>${e(unit.inventory_company || "-")}</strong></div>
 				<div><small>${__("Location")}</small><strong>${e(unit.current_warehouse || unit.physical_custodian || __("In Transit / Unassigned"))}</strong></div>
-				<div><small>${__("Quantity")}</small><strong>${format_number(unit.current_qty)} ${e(unit.stock_uom || "")}</strong></div>
-				<div><small>${__("Available / Reserved")}</small><strong>${format_number(unit.available_qty)} / ${format_number(unit.reserved_qty)}</strong></div>
+				<div><small>${unit.tag_kind === "Reusable Container" ? __("Loaded Content Quantity") : __("Quantity")}</small><strong>${unit.tag_kind === "Reusable Container" ? container_quantity : `${format_number(unit.current_qty)} ${e(unit.stock_uom || "")}`}</strong></div>
+				<div><small>${__("Available / Reserved")}</small><strong>${unit.tag_kind === "Reusable Container" ? container_availability : `${format_number(unit.available_qty)} / ${format_number(unit.reserved_qty)}`}</strong></div>
 				<div><small>${__("Lifecycle")}</small><strong>${e(unit.identity_state)} · ${e(unit.movement_state)} · ${e(unit.quality_state)}</strong></div>
 			</div>
 			${membership_notice}${content_notice}${serial_notice}${retag_actions}
@@ -2010,14 +2017,18 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 
 	function render_container_dialog(dialog, status) {
 		const e = frappe.utils.escape_html;
+		const summary = status.content_summary || { tag_count: 0, by_uom: [] };
+		const quantity_summary = (summary.by_uom || []).map((row) =>
+			`${format_number(row.current_qty)} ${e(row.stock_uom || "")}`
+		).join(" + ") || __("Empty");
 		const current = (status.current_contents || []).map((row) => `<tr>
 			<td><strong>${e(row.content_visible_code)}</strong></td><td>${e(row.item_code || "-")}</td>
-			<td>${e(row.batch_no || __("No Batch"))}</td><td>${format_number(row.qty)} ${e(row.stock_uom || "")}</td>
+			<td>${e(row.batch_no || __("No Batch"))}</td><td>${format_number(row.live_current_qty)} ${e(row.live_stock_uom || row.stock_uom || "")}</td>
 			<td>${e(display_datetime(row.loaded_on))}</td><td><button class="btn btn-xs btn-danger unload-content" data-code="${e(row.content_visible_code)}">${__("Unload")}</button></td></tr>`).join("");
 		const history = (status.history || []).slice(0, 20).map((row) => `<tr>
 			<td>${e(row.content_visible_code)}</td><td>${e(row.item_code || "-")}</td><td>${format_number(row.qty)} ${e(row.stock_uom || "")}</td>
 			<td>${e(display_datetime(row.unloaded_on))}</td><td>${e(row.unload_reason || "-")}</td></tr>`).join("");
-		const html = `<div class="cfg-container-summary"><strong>${(status.current_contents || []).length} ${__("Stock Tags currently loaded")}</strong>
+		const html = `<div class="cfg-container-summary"><strong>${summary.tag_count || 0} ${__("Stock Tags currently loaded")} · ${quantity_summary}</strong>
 			<span>${e(status.container.inventory_company || "-")} · ${e(status.container.current_warehouse || "-")}</span></div>
 			<h5>${__("Current Contents")}</h5><div class="table-responsive"><table class="table table-bordered"><thead><tr><th>${__("Tag")}</th><th>${__("Item")}</th><th>${__("Batch")}</th><th>${__("Quantity")}</th><th>${__("Loaded")}</th><th></th></tr></thead>
 			<tbody>${current || `<tr><td colspan="6" class="text-muted">${__("Container is empty")}</td></tr>`}</tbody></table></div>

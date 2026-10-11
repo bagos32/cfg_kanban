@@ -1209,7 +1209,11 @@ or Child Stock Tag and remains backed by ERPNext stock.
 The first content tag assigns a blank container's **Inventory Company** and **Current Warehouse**.
 Every later content tag must match them. When mixed content is disabled, it must also match the Item
 and Batch already inside. Loading/unloading does not create Stock Entry quantity: it records a
-physical membership episode. A Stock Tag cannot be consumed, transferred, dispatched, received,
+physical membership episode. The scanned container card and the Handling Unit form dashboard show
+the **computed live quantity of the loaded Stock Tags**, grouped by UOM when necessary. The
+container's own **Current Qty** remains zero by design; copying the same quantity onto both the
+container and its Stock Tags would double-count operational stock. A Stock Tag cannot be consumed,
+transferred, dispatched, received,
 replaced, or voided independently while loaded, and a nonempty container cannot be replaced or
 voided. Managers can review **Container Content History** or **Reusable Container Episodes** in the
 Material Genealogy Explorer.
