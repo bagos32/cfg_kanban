@@ -491,7 +491,15 @@ def _summarize_current_contents(current_contents):
     Grouping by UOM prevents invalid totals when mixed content is permitted.
     """
     grouped = {}
+    item_codes = []
+    batch_numbers = []
     for row in current_contents:
+        item_code = row.get("item_code")
+        batch_no = row.get("batch_no")
+        if item_code and item_code not in item_codes:
+            item_codes.append(item_code)
+        if batch_no and batch_no not in batch_numbers:
+            batch_numbers.append(batch_no)
         uom = row.get("live_stock_uom") or row.get("stock_uom") or _("Unspecified UOM")
         values = grouped.setdefault(uom, {
             "stock_uom": uom,
@@ -510,6 +518,8 @@ def _summarize_current_contents(current_contents):
         )
     return {
         "tag_count": len(current_contents),
+        "item_codes": item_codes,
+        "batch_numbers": batch_numbers,
         "by_uom": list(grouped.values()),
     }
 

@@ -665,6 +665,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const container_availability = (container_summary.by_uom || []).map((row) =>
 			`${format_number(row.available_qty)} / ${format_number(row.reserved_qty)} ${e(row.stock_uom || "")}`
 		).join(" + ") || "-";
+		const container_items = (container_summary.item_codes || []).map((value) => e(value)).join(", ") || __("Empty Container");
+		const container_batches = (container_summary.batch_numbers || []).map((value) => e(value)).join(", ") || __("No Batch");
 		const serials = state.lookup.active_serial_numbers || [];
 		const manifests = (state.lookup.manifests || []).map((manifest) =>
 			`<button class="btn btn-default lookup-manifest" data-name="${e(manifest.name)}"><strong>${e(manifest.name)}</strong> · ${e(manifest.state)}</button>`
@@ -689,11 +691,11 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<div class="mt-2"><button class="btn btn-primary split-unused-tag">${__("Split to New Tag")}</button>
 			<button class="btn btn-warning transfer-active-tag">${__("Move to Active Tag")}</button></div></div>` : "";
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
-			<div class="cfg-logistics-tag-head"><div><small>${__("Scanned Tag Status")}</small><h3>${e(unit.visible_code)}</h3><strong>${e(unit.item_code || (unit.tag_kind === "Reusable Container" ? __("Reusable Container") : __("No item assigned")))}</strong></div>
+			<div class="cfg-logistics-tag-head"><div><small>${__("Scanned Tag Status")}</small><h3>${e(unit.visible_code)}</h3><strong>${unit.tag_kind === "Reusable Container" ? container_items : e(unit.item_code || __("No item assigned"))}</strong></div>
 				<div>${container_action}<button class="btn btn-default explore-genealogy" data-code="${e(unit.visible_code)}">${__("Full Genealogy")}</button>
 				<button class="btn btn-default close-lookup">${__("Close")}</button></div></div>
 			<div class="cfg-logistics-tag-grid">
-				<div><small>${__("Batch")}</small><strong>${e(unit.batch_no || __("No Batch"))}</strong></div>
+				<div><small>${unit.tag_kind === "Reusable Container" ? __("Loaded Batch") : __("Batch")}</small><strong>${unit.tag_kind === "Reusable Container" ? container_batches : e(unit.batch_no || __("No Batch"))}</strong></div>
 				<div><small>${__("Company")}</small><strong>${e(unit.inventory_company || "-")}</strong></div>
 				<div><small>${__("Location")}</small><strong>${e(unit.current_warehouse || unit.physical_custodian || __("In Transit / Unassigned"))}</strong></div>
 				<div><small>${unit.tag_kind === "Reusable Container" ? __("Loaded Content Quantity") : __("Quantity")}</small><strong>${unit.tag_kind === "Reusable Container" ? container_quantity : `${format_number(unit.current_qty)} ${e(unit.stock_uom || "")}`}</strong></div>

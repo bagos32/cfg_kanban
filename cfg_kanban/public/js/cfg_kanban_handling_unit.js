@@ -204,10 +204,15 @@ async function show_container_content_quantity(frm) {
 		const quantities = (summary.by_uom || []).map((row) =>
 			`${format_number(row.current_qty)} ${frappe.utils.escape_html(row.stock_uom || "")}`
 		).join(" + ") || __("Empty");
+		const batches = (summary.batch_numbers || [])
+			.map((value) => frappe.utils.escape_html(value)).join(", ") || __("No Batch");
 		frm.dashboard.add_indicator(
 			__("Loaded contents: {0} ({1} Stock Tags)", [quantities, summary.tag_count || 0]),
 			summary.tag_count ? "green" : "grey"
 		);
+		if (summary.tag_count) {
+			frm.dashboard.add_indicator(__("Loaded batch: {0}", [batches]), "blue");
+		}
 	} catch (error) {
 		// The standard form remains usable when the current user cannot read contents.
 	}

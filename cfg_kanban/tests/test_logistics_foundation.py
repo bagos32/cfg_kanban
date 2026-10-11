@@ -18,22 +18,27 @@ class TestHandlingUnitQuantityMath(TestCase):
     def test_reusable_container_content_summary_groups_live_quantity_by_uom(self):
         summary = _summarize_current_contents([
             {
+                "item_code": "RW Noodle", "batch_no": "RWNO-TEST-001",
                 "stock_uom": "Kg", "qty": 50,
                 "live_stock_uom": "Kg", "live_current_qty": 50,
                 "live_reserved_qty": 10, "live_available_qty": 40,
             },
             {
+                "item_code": "RW Noodle", "batch_no": "RWNO-TEST-001",
                 "stock_uom": "Kg", "qty": 50,
                 "live_stock_uom": "Kg", "live_current_qty": 50,
                 "live_reserved_qty": 0, "live_available_qty": 50,
             },
             {
+                "item_code": "Tray", "batch_no": "TRAY-001",
                 "stock_uom": "Nos", "qty": 2,
                 "live_stock_uom": "Nos", "live_current_qty": 2,
                 "live_reserved_qty": 0, "live_available_qty": 2,
             },
         ])
         self.assertEqual(summary["tag_count"], 3)
+        self.assertEqual(summary["item_codes"], ["RW Noodle", "Tray"])
+        self.assertEqual(summary["batch_numbers"], ["RWNO-TEST-001", "TRAY-001"])
         by_uom = {row["stock_uom"]: row for row in summary["by_uom"]}
         self.assertEqual(by_uom["Kg"]["current_qty"], 100)
         self.assertEqual(by_uom["Kg"]["reserved_qty"], 10)

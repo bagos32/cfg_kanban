@@ -636,9 +636,12 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def _summarize_current_contents", service)
         self.assertIn("live_current_qty", service)
         self.assertIn("Loaded Content Quantity", panel)
+        self.assertIn("Loaded Batch", panel)
+        self.assertIn("container_batches", panel)
         self.assertIn("container_quantity", panel)
         self.assertIn("show_container_content_quantity(frm)", form)
         self.assertIn("Loaded contents: {0} ({1} Stock Tags)", form)
+        self.assertIn("Loaded batch: {0}", form)
         print_format = json.loads((
             APP_ROOT / "cfg_kanban" / "print_format" /
             "cfg_kanban_handling_unit_tag" /

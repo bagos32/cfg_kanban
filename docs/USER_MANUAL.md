@@ -1210,7 +1210,9 @@ The first content tag assigns a blank container's **Inventory Company** and **Cu
 Every later content tag must match them. When mixed content is disabled, it must also match the Item
 and Batch already inside. Loading/unloading does not create Stock Entry quantity: it records a
 physical membership episode. The scanned container card and the Handling Unit form dashboard show
-the **computed live quantity of the loaded Stock Tags**, grouped by UOM when necessary. The
+the **computed live quantity, Item, and Batch of the loaded Stock Tags**, grouped when necessary.
+If several Batches are loaded, every distinct Batch is shown rather than assigning one misleading
+Batch to the reusable-container identity. The
 container's own **Current Qty** remains zero by design; copying the same quantity onto both the
 container and its Stock Tags would double-count operational stock. A Stock Tag cannot be consumed,
 transferred, dispatched, received,
