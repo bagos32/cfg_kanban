@@ -1293,6 +1293,25 @@ class TestDocTypeSchema(TestCase):
                          "specification_reference", "allow_conditional_release"}
                         .issubset(profile))
 
+    def test_operation_configuration_is_visible_only_for_production_master(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        schema = schemas["CFG Kanban Master"]
+        master = {row["fieldname"]: row for row in schema["fields"]}
+        production_condition = "eval:doc.control_type=='Production'"
+        self.assertEqual(master["production_control_section"]["fieldtype"],
+                         "Section Break")
+        self.assertEqual(master["production_control_section"]["depends_on"],
+                         production_condition)
+        for fieldname in ("operation_profiles", "process_task_profiles",
+                          "operator_field_definitions"):
+            self.assertEqual(master[fieldname]["depends_on"], production_condition)
+        self.assertLess(schema["field_order"].index("rejected_warehouse"),
+                        schema["field_order"].index("production_control_section"))
+        self.assertLess(schema["field_order"].index("production_control_section"),
+                        schema["field_order"].index("operation_profiles"))
+        self.assertEqual(master["remarks_section"]["fieldtype"], "Section Break")
+        self.assertNotIn("depends_on", master["remarks_section"])
+
     def test_process_task_runtime_is_auditable_and_filterable(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}
         task = {row["fieldname"]: row for row in
