@@ -18,6 +18,21 @@ def _link_value(value):
     return None if value.lower() in EMPTY_LINK_VALUES else value
 
 
+def _cycle_for_work_order(work_order):
+    work_order = _link_value(work_order)
+    if not work_order:
+        return None
+    cycle = _link_value(
+        frappe.db.get_value("Work Order", work_order, "cfg_kanban_cycle")
+    )
+    if cycle:
+        return cycle
+    # Recovery path for older records where only Cycle.work_order was populated.
+    return _link_value(
+        frappe.db.get_value("CFG Kanban Cycle", {"work_order": work_order}, "name")
+    )
+
+
 def _cycle(doc):
     cycle = _link_value(getattr(doc, "cfg_kanban_cycle", None))
     if cycle:
@@ -40,9 +55,7 @@ def _cycle(doc):
                 return cycle
             work_order = work_order or _link_value(job_context.work_order)
     if work_order:
-        return _link_value(
-            frappe.db.get_value("Work Order", work_order, "cfg_kanban_cycle")
-        )
+        return _cycle_for_work_order(work_order)
     return None
 
 
@@ -75,6 +88,38 @@ def prepare_stock_entry(doc, method=None):
     doc.cfg_kanban_controlled = 1
     if doc.meta.has_field("cfg_kanban_signal"):
         doc.cfg_kanban_signal = cycle.signal or None
+
+
+@frappe.whitelist()
+def get_stock_entry_kanban_context(work_order=None, job_card=None):
+    """Expose the audited production context to a newly mapped Stock Entry form."""
+    work_order = _link_value(work_order)
+    job_card = _link_value(job_card)
+    if job_card:
+        job = frappe.get_doc("Job Card", job_card)
+        job.check_permission("read")
+        work_order = work_order or _link_value(job.work_order)
+    if not work_order:
+        return {}
+
+    work_order_doc = frappe.get_doc("Work Order", work_order)
+    work_order_doc.check_permission("read")
+    cycle_name = _cycle_for_work_order(work_order_doc.name)
+    if not cycle_name:
+        return {}
+    cycle = frappe.db.get_value(
+        "CFG Kanban Cycle", cycle_name,
+        ["name", "signal", "kanban_card", "status"], as_dict=True,
+    )
+    if not cycle:
+        frappe.throw(f"CFG Kanban Cycle {cycle_name} linked to Work Order {work_order} was not found")
+    return {
+        "cfg_kanban_controlled": 1,
+        "cfg_kanban_cycle": cycle.name,
+        "cfg_kanban_signal": cycle.signal,
+        "kanban_card": cycle.kanban_card,
+        "cycle_status": cycle.status,
+    }
 
 
 def prepare_work_order(doc, method=None):

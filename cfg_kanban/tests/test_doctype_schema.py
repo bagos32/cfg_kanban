@@ -779,6 +779,9 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('"before_validate": "cfg_kanban.integrations.erp_feedback.prepare_stock_entry"',
                       hooks)
         self.assertIn("def prepare_stock_entry(", feedback)
+        self.assertIn("def get_stock_entry_kanban_context(", feedback)
+        self.assertIn("def _cycle_for_work_order(", feedback)
+        self.assertIn('{"work_order": work_order}, "name"', feedback)
         self.assertIn('"Job Card", job_card, ["cfg_kanban_cycle", "work_order"]',
                       feedback)
         self.assertIn('EMPTY_LINK_VALUES = {"", "none", "null", "undefined"}',
@@ -790,6 +793,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def abandon_draft_trace(", service)
         self.assertIn("Discard Entire Draft Trace", form)
         self.assertIn("No Physical Tag rows remain normal ERPNext stock", form)
+        self.assertIn("populate_kanban_production_context(frm)", form)
+        self.assertIn("get_stock_entry_kanban_context", form)
 
         operator_api = (APP_ROOT / "api" / "operator.py").read_text()
         operator_panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_operator" /

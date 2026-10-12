@@ -7,7 +7,8 @@ const CFG_TRACE_PURPOSES = [
 ];
 
 frappe.ui.form.on("Stock Entry", {
-	refresh(frm) {
+	async refresh(frm) {
+		await populate_kanban_production_context(frm);
 		const purpose = frm.doc.purpose || frm.doc.stock_entry_type;
 		if (frm.is_new() || !CFG_TRACE_PURPOSES.includes(purpose) || frm.doc.docstatus > 1) return;
 		const label = purpose === "Material Transfer" ? __("Handling Unit Transfer Trace") :
@@ -15,7 +16,31 @@ frappe.ui.form.on("Stock Entry", {
 		frm.add_custom_button(label, () => production_trace_dialog(frm),
 			__("CFG Kanban"));
 	},
+	work_order(frm) {
+		return populate_kanban_production_context(frm, true);
+	},
+	job_card(frm) {
+		return populate_kanban_production_context(frm, true);
+	},
 });
+
+async function populate_kanban_production_context(frm, force = false) {
+	if (frm.doc.docstatus > 0 || (!frm.doc.work_order && !frm.doc.job_card)) return;
+	const source_key = `${frm.doc.work_order || ""}::${frm.doc.job_card || ""}`;
+	if (!force && frm.__cfg_kanban_context_key === source_key && frm.doc.cfg_kanban_cycle) return;
+	frm.__cfg_kanban_context_key = source_key;
+	const response = await frappe.call({
+		method: "cfg_kanban.integrations.erp_feedback.get_stock_entry_kanban_context",
+		args: { work_order: frm.doc.work_order, job_card: frm.doc.job_card },
+	});
+	const context = response.message || {};
+	if (!context.cfg_kanban_cycle) return;
+	await frm.set_value({
+		cfg_kanban_controlled: context.cfg_kanban_controlled,
+		cfg_kanban_cycle: context.cfg_kanban_cycle,
+		cfg_kanban_signal: context.cfg_kanban_signal || null,
+	});
+}
 
 async function production_trace_dialog(frm) {
 	let plan = await load_production_trace_plan(frm.doc.name);
