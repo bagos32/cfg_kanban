@@ -763,11 +763,13 @@ ERPNext `total_completed_qty` reaches `for_quantity`. Otherwise the Job Card rem
 authorised Complete action or a valid manual ERPNext submission.
 
 Submitting a linked Manufacture Stock Entry records an Event and moves the Cycle to **Waiting FG
-Receipt**.
-
-> Physical replenishment limitation: Manufacture Stock Entry feedback currently moves the Cycle to
-> Waiting FG Receipt, but the final FG receipt confirmation and reusable physical-card return are
-> not yet implemented as one automatic closure action.
+Receipt**. A Physical Unit or Physical Batch production Card is then recycled automatically only
+after ERPNext proves all of the following: the effective Work Order is submitted and Completed, all
+of its active Job Cards are Completed, submitted Manufacture output linked to the Cycle has reached
+the effective Cycle quantity, and the **Before Cycle Close** Process Task gate is open. The Cycle is
+marked Completed and the Card moves through In Production → Produced → Available with Active Cycle
+cleared. If ERP events arrived in a different order, scanning the physical Card again performs the
+same idempotent reconciliation; it never manufactures or completes ERP documents by itself.
 
 ### Close a Process/Station runtime allocation
 
@@ -1455,7 +1457,9 @@ Available
 
 Blocked can be entered from operational states. Inactive is used for retired/replaced cards.
 Runtime Process/Station closure drives Produced → Available. The physical replenishment flow does
-not yet have one final automatic FG-receipt/card-return action, so do not force these states manually.
+the same automatically after ERPNext Work Order, Job Card, finished-goods receipt, and Process Task
+evidence are complete. Scanning an older stuck physical Card retries this reconciliation. Do not
+force these states manually.
 
 Cycle states:
 

@@ -796,6 +796,18 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Camera Scan Output Tag", operator_panel)
         self.assertIn("operator_session_token: state.session_token", operator_panel)
 
+        self.assertIn("def reconcile_physical_production_cycle(", feedback)
+        self.assertIn("def _submitted_finished_goods_qty(", feedback)
+        self.assertIn('work_order.status != "Completed"', feedback)
+        self.assertIn('"status": ["!=", "Completed"]', feedback)
+        self.assertIn('evaluate_gate(cycle.name, "Before Cycle Close")', feedback)
+        self.assertIn('event_type="Physical Production Cycle Completed"', feedback)
+        self.assertIn('event_type="Physical Production Card Recycled"', feedback)
+        self.assertIn('card.db_set("active_cycle", None', feedback)
+        self.assertIn("reconcile_physical_production_cycle(card.active_cycle)", operator_api)
+        self.assertIn('"production_reconciliation": production_reconciliation', operator_api)
+        self.assertIn("Production card is waiting to recycle", operator_panel)
+
     def test_same_company_tagged_warehouse_transfer_is_guided_by_erp_stock_entry(self):
         service = (APP_ROOT / "services" / "production_trace.py").read_text()
         stock_entry_form = (APP_ROOT / "public" / "js" / "stock_entry.js").read_text()

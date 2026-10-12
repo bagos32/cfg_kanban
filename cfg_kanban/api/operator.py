@@ -140,6 +140,11 @@ def get_card_context(token, operator_session_token=None):
     if not card_name:
         frappe.throw("Kanban card was not found")
     card = frappe.get_doc("CFG Kanban Card", card_name)
+    production_reconciliation = None
+    if card.active_cycle and card.card_type in ("Physical Unit Card", "Physical Batch Card"):
+        from cfg_kanban.integrations.erp_feedback import reconcile_physical_production_cycle
+        production_reconciliation = reconcile_physical_production_cycle(card.active_cycle)
+        card.reload()
     if card.card_type == "Workstation Queue Card":
         if not card.active or card.blocked:
             frappe.throw("Workstation Queue Card is inactive or blocked")
@@ -293,6 +298,7 @@ def get_card_context(token, operator_session_token=None):
         "service_tasks": [],
         "service_identity_card": False,
         "workstation_queue_card": False,
+        "production_reconciliation": production_reconciliation,
     }
 
 

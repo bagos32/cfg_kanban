@@ -641,7 +641,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const { card, master, cycle, effective_work_order, work_order_attention, selected_job_card,
 			executions, operation_summaries, production_stock_entries, process_tasks, service_tasks,
 			service_identity_card, workstation_queue_card, workstation_queue,
-			work_orders, route_warnings } = state.context;
+			work_orders, route_warnings, production_reconciliation } = state.context;
 		if (workstation_queue_card) {
 			render_workstation_queue(card, workstation_queue || {});
 			return;
@@ -674,6 +674,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		</div>`);
 		(route_warnings || []).forEach((warning) => $root.append(
 			`<div class="alert alert-warning">${e(warning)}</div>`));
+		if (production_reconciliation?.completed) {
+			$root.append(`<div class="alert alert-success"><strong>${__("Production cycle completed")}</strong><br>
+				${__("ERPNext completion was verified and this reusable Card is Available for its next production cycle.")}</div>`);
+		} else if (production_reconciliation?.reason &&
+			cycle && ["Production Complete", "Waiting FG Receipt"].includes(cycle.status)) {
+			$root.append(`<div class="alert alert-warning"><strong>${__("Production card is waiting to recycle")}</strong><br>
+				${e(production_reconciliation.reason)}</div>`);
+		}
 		if (work_order_attention) {
 			const attention_class = work_order_attention.severity === "info" ? "alert-info" : "alert-warning";
 			const button_class = work_order_attention.severity === "info" ? "btn-info" : "btn-warning";

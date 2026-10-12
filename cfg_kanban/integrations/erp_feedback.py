@@ -31,6 +31,8 @@ def on_work_order_update(doc, method=None):
     cycle = frappe.get_doc("CFG Kanban Cycle", doc.cfg_kanban_cycle)
     if cycle.work_order and cycle.work_order != doc.name:
         return
+    if cycle.status == "Completed":
+        return
     _sync_job_cards(doc, cycle)
     if doc.docstatus == 1 and doc.status == "Not Started":
         _mark_released(cycle, doc)
@@ -42,6 +44,9 @@ def on_work_order_update(doc, method=None):
     elif doc.status == "Completed":
         set_cycle_state(cycle, "Production Complete", event_type="Work Order Completed",
                         reference_doctype=doc.doctype, reference_name=doc.name)
+        reconcile_physical_production_cycle(
+            cycle.name, reference_doctype=doc.doctype, reference_name=doc.name
+        )
 
 
 def _mark_released(cycle, work_order):
@@ -208,9 +213,156 @@ def on_stock_entry_submit(doc, method=None):
     cycle = frappe.get_doc("CFG Kanban Cycle", doc.cfg_kanban_cycle)
     record("Stock Entry Submitted", cycle=cycle.name, card=cycle.kanban_card,
            reference_doctype=doc.doctype, reference_name=doc.name)
+    if cycle.status == "Completed":
+        return
     if doc.stock_entry_type == "Manufacture":
         _update_mto_output(doc, cycle)
         set_cycle_state(cycle, "Waiting FG Receipt", event_type="Manufacture Submitted")
+        reconcile_physical_production_cycle(
+            cycle.name, reference_doctype=doc.doctype, reference_name=doc.name
+        )
+
+
+def reconcile_physical_production_cycle(
+    cycle_name, reference_doctype=None, reference_name=None
+):
+    """Close a travelling production-card cycle only after ERPNext proves completion."""
+    cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
+    if not cycle.kanban_card:
+        return {"completed": False, "reason": "Cycle has no physical Kanban Card"}
+    card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card)
+    if card.card_type not in ("Physical Unit Card", "Physical Batch Card"):
+        return {"completed": False, "reason": "Runtime cards use runtime allocation closure"}
+    master = frappe.get_doc("CFG Kanban Master", cycle.kanban_master)
+    if master.control_type != "Production":
+        return {"completed": False, "reason": "Cycle is not Production control"}
+    if card.active_cycle != cycle.name:
+        return {"completed": False, "reason": "Card does not identify this as its active Cycle"}
+    if cycle.status in ("Cancelled", "Blocked", "Hold") or card.blocked:
+        return {"completed": False, "reason": "Cycle or Card requires supervisor attention"}
+
+    if cycle.status == "Completed":
+        return _release_completed_physical_card(
+            cycle, card, reference_doctype, reference_name
+        )
+    if not cycle.work_order:
+        return {"completed": False, "reason": "Cycle has no effective Work Order"}
+    work_order = frappe.db.get_value(
+        "Work Order", cycle.work_order, ["name", "docstatus", "status"], as_dict=True
+    )
+    if not work_order or work_order.docstatus != 1 or work_order.status != "Completed":
+        return {"completed": False, "reason": "ERPNext Work Order is not Completed"}
+
+    incomplete_jobs = frappe.get_all(
+        "Job Card",
+        filters={"work_order": cycle.work_order, "docstatus": ["<", 2],
+                 "status": ["!=", "Completed"]},
+        pluck="name",
+    )
+    if incomplete_jobs:
+        return {
+            "completed": False,
+            "reason": "ERPNext Job Card(s) are not Completed: " + ", ".join(incomplete_jobs),
+        }
+
+    received_qty = _submitted_finished_goods_qty(cycle.name, cycle.item_code)
+    required_qty = flt(cycle.effective_cycle_qty or cycle.planned_qty)
+    if received_qty + 0.000001 < required_qty:
+        return {
+            "completed": False,
+            "reason": (f"Submitted Manufacture receipt is {received_qty} {cycle.stock_uom}; "
+                       f"Cycle requires {required_qty} {cycle.stock_uom}"),
+            "received_qty": received_qty,
+            "required_qty": required_qty,
+        }
+
+    from cfg_kanban.services.process_tasks import evaluate_gate
+    gate = evaluate_gate(cycle.name, "Before Cycle Close")
+    if not gate["open"]:
+        blockers = ", ".join(
+            f"{row['task_name']} ({row['status']})" for row in gate["blockers"]
+        )
+        return {
+            "completed": False,
+            "reason": f"Before Cycle Close is blocked by: {blockers}",
+        }
+    if card.current_state not in ("Production Released", "In Production", "Produced", "Available"):
+        return {
+            "completed": False,
+            "reason": f"Card state {card.current_state} requires controlled reconciliation",
+        }
+
+    cycle.db_set({
+        "actual_good_qty": received_qty,
+        "completed_on": now_datetime(),
+    }, update_modified=True)
+    set_cycle_state(
+        cycle, "Completed", event_type="Physical Production Cycle Completed",
+        reference_doctype=reference_doctype or "Work Order",
+        reference_name=reference_name or cycle.work_order,
+    )
+    return _release_completed_physical_card(
+        cycle, card, reference_doctype or "Work Order",
+        reference_name or cycle.work_order,
+    )
+
+
+def _release_completed_physical_card(
+    cycle, card, reference_doctype=None, reference_name=None
+):
+    if card.current_state == "Production Released":
+        transition_card(
+            card, "In Production", event_type="Physical Production Reconciled",
+            cycle=cycle.name,
+        )
+        card.reload()
+    if card.current_state == "In Production":
+        transition_card(
+            card, "Produced", event_type="Finished Goods Received",
+            cycle=cycle.name,
+        )
+        card.reload()
+    if card.current_state == "Produced":
+        transition_card(
+            card, "Available", event_type="Physical Production Card Recycled",
+            cycle=cycle.name,
+        )
+        card.reload()
+    if card.current_state != "Available":
+        return {
+            "completed": False,
+            "reason": f"Card state {card.current_state} requires controlled reconciliation",
+        }
+    if card.active_cycle == cycle.name:
+        card.db_set("active_cycle", None, update_modified=False)
+    record(
+        "Physical Production Card Released",
+        card=card.name,
+        cycle=cycle.name,
+        reference_doctype=reference_doctype,
+        reference_name=reference_name,
+        notes="ERPNext Work Order, Job Cards, and submitted finished-goods receipt are complete",
+    )
+    return {
+        "completed": True,
+        "cycle": cycle.name,
+        "card": card.name,
+        "card_state": "Available",
+        "received_qty": flt(cycle.actual_good_qty),
+    }
+
+
+def _submitted_finished_goods_qty(cycle_name, item_code):
+    return flt(frappe.db.sql("""
+        select coalesce(sum(sed.qty), 0)
+        from `tabStock Entry Detail` sed
+        inner join `tabStock Entry` se on se.name=sed.parent
+        where se.docstatus=1
+          and se.cfg_kanban_cycle=%s
+          and se.stock_entry_type='Manufacture'
+          and sed.item_code=%s
+          and ifnull(sed.t_warehouse, '') != ''
+    """, (cycle_name, item_code))[0][0])
 
 
 def validate_stock_entry(doc, method=None):
