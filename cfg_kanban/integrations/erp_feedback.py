@@ -7,16 +7,74 @@ from cfg_kanban.services.operation_summary import (ensure_summary, ready_executi
 from cfg_kanban.services.state_machine import set_cycle_state, transition_card
 
 
+EMPTY_LINK_VALUES = {"", "none", "null", "undefined"}
+
+
+def _link_value(value):
+    """Return a usable Link value without accepting browser/string null markers."""
+    if value is None:
+        return None
+    value = str(value).strip()
+    return None if value.lower() in EMPTY_LINK_VALUES else value
+
+
 def _cycle(doc):
-    cycle = getattr(doc, "cfg_kanban_cycle", None)
+    cycle = _link_value(getattr(doc, "cfg_kanban_cycle", None))
     if cycle:
         return cycle
-    # ERPNext's Work Order -> Manufacture Stock Entry mapper may not copy custom
-    # fields on older sites. The effective Work Order remains a unique, audited
-    # bridge back to its Kanban Cycle.
-    if getattr(doc, "doctype", None) == "Stock Entry" and getattr(doc, "work_order", None):
-        return frappe.db.get_value("Work Order", doc.work_order, "cfg_kanban_cycle")
+    if getattr(doc, "doctype", None) != "Stock Entry":
+        return None
+
+    # ERPNext creates consumption/transfer entries from either a Job Card or its
+    # Work Order and does not consistently copy custom fields between versions.
+    # Both documents are audited bridges back to the owning Kanban Cycle.
+    work_order = _link_value(getattr(doc, "work_order", None))
+    job_card = _link_value(getattr(doc, "job_card", None))
+    if job_card:
+        job_context = frappe.db.get_value(
+            "Job Card", job_card, ["cfg_kanban_cycle", "work_order"], as_dict=True
+        )
+        if job_context:
+            cycle = _link_value(job_context.cfg_kanban_cycle)
+            if cycle:
+                return cycle
+            work_order = work_order or _link_value(job_context.work_order)
+    if work_order:
+        return _link_value(
+            frappe.db.get_value("Work Order", work_order, "cfg_kanban_cycle")
+        )
     return None
+
+
+def prepare_stock_entry(doc, method=None):
+    """Attach ERPNext-generated production Stock Entries to their Kanban Cycle.
+
+    This runs before Link validation so a Material Consumption Stock Entry made
+    from a Job Card cannot persist the literal text ``None`` as a Cycle link.
+    Unrelated ERPNext Stock Entries remain untouched.
+    """
+    for fieldname in ("cfg_kanban_cycle", "cfg_kanban_signal"):
+        if doc.meta.has_field(fieldname) and not _link_value(doc.get(fieldname)):
+            doc.set(fieldname, None)
+
+    cycle_name = _cycle(doc)
+    if not cycle_name:
+        return
+    if not frappe.db.exists("CFG Kanban Cycle", cycle_name):
+        frappe.throw(f"CFG Kanban Cycle {cycle_name} linked to this Stock Entry was not found")
+
+    cycle = frappe.db.get_value(
+        "CFG Kanban Cycle", cycle_name, ["name", "signal", "work_order"], as_dict=True
+    )
+    if doc.get("work_order") and cycle.work_order and doc.work_order != cycle.work_order:
+        frappe.throw(
+            f"Stock Entry Work Order {doc.work_order} does not belong to "
+            f"CFG Kanban Cycle {cycle.name}"
+        )
+    doc.cfg_kanban_cycle = cycle.name
+    doc.cfg_kanban_controlled = 1
+    if doc.meta.has_field("cfg_kanban_signal"):
+        doc.cfg_kanban_signal = cycle.signal or None
 
 
 def prepare_work_order(doc, method=None):
@@ -216,9 +274,10 @@ def on_stock_entry_submit(doc, method=None):
     if doc.get("cfg_return_case"):
         from cfg_kanban.integrations.return_stock_feedback import on_submit
         on_submit(doc)
-    if not _cycle(doc):
+    cycle_name = _cycle(doc)
+    if not cycle_name:
         return
-    cycle = frappe.get_doc("CFG Kanban Cycle", doc.cfg_kanban_cycle)
+    cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
     record("Stock Entry Submitted", cycle=cycle.name, card=cycle.kanban_card,
            reference_doctype=doc.doctype, reference_name=doc.name)
     if cycle.status == "Completed":
@@ -389,9 +448,10 @@ def validate_stock_entry(doc, method=None):
     if doc.get("cfg_return_case"):
         from cfg_kanban.integrations.return_stock_feedback import validate
         validate(doc)
-    if not _cycle(doc) or doc.stock_entry_type != "Manufacture":
+    cycle_name = _cycle(doc)
+    if not cycle_name or doc.stock_entry_type != "Manufacture":
         return
-    cycle = frappe.get_doc("CFG Kanban Cycle", doc.cfg_kanban_cycle)
+    cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
     from cfg_kanban.services.process_tasks import assert_gate_open
     assert_gate_open(cycle.name, "Before FG Release")
     if cycle.get("production_policy") != "Customer Make-to-Order":
@@ -459,9 +519,10 @@ def on_stock_entry_cancel(doc, method=None):
 
 
 def _block(doc, reason):
-    if not _cycle(doc):
+    cycle_name = _cycle(doc)
+    if not cycle_name:
         return
-    cycle = frappe.get_doc("CFG Kanban Cycle", doc.cfg_kanban_cycle)
+    cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
     cycle.db_set({"status": "Blocked", "blocked": 1})
     if cycle.kanban_card:
         card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card)

@@ -776,6 +776,13 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("validate_stock_entry_trace(doc)", feedback)
         self.assertIn("confirm_stock_entry_trace(doc)", feedback)
         self.assertIn("reverse_stock_entry_trace(doc)", feedback)
+        self.assertIn('"before_validate": "cfg_kanban.integrations.erp_feedback.prepare_stock_entry"',
+                      hooks)
+        self.assertIn("def prepare_stock_entry(", feedback)
+        self.assertIn('"Job Card", job_card, ["cfg_kanban_cycle", "work_order"]',
+                      feedback)
+        self.assertIn('EMPTY_LINK_VALUES = {"", "none", "null", "undefined"}',
+                      feedback)
         self.assertIn('event_type="Production Consume"', service)
         self.assertIn('event_type="Production Output Reversal"', service)
         self.assertIn("Serial and Batch Entry", service)
@@ -798,7 +805,7 @@ class TestDocTypeSchema(TestCase):
 
         self.assertIn("def reconcile_physical_production_cycle(", feedback)
         self.assertIn("def _submitted_finished_goods_qty(", feedback)
-        self.assertIn('getattr(doc, "doctype", None) == "Stock Entry"', feedback)
+        self.assertIn('getattr(doc, "doctype", None) != "Stock Entry"', feedback)
         self.assertIn("se.cfg_kanban_cycle=%s or se.work_order=%s", feedback)
         self.assertIn('work_order.status != "Completed"', feedback)
         self.assertIn('"status": ["!=", "Completed"]', feedback)

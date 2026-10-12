@@ -76,6 +76,7 @@ doc_events = {
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_job_card_cancel",
     },
     "Stock Entry": {
+        "before_validate": "cfg_kanban.integrations.erp_feedback.prepare_stock_entry",
         "before_submit": "cfg_kanban.integrations.erp_feedback.validate_stock_entry",
         "on_submit": "cfg_kanban.integrations.erp_feedback.on_stock_entry_submit",
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_stock_entry_cancel",
