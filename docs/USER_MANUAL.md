@@ -1047,8 +1047,13 @@ quantity redistribution.
 In **Kanban Logistics**, identify the operator and scan the source Stock Tag in normal lookup mode.
 The tag status card shows a **Stock Retagging** block only for an authorized operator:
 
-- **Split to New Tag** moves a stated quantity to a new unused main Stock Tag. Use this when one
-  basket/bin is physically divided and the second basket has not yet been activated.
+- **Split to New Main Tag** moves a stated quantity to a different unused main Stock Tag. Use this
+  when one basket/bin is physically divided and the second basket uses an independent printed tag.
+- **Split to Detachable Child** is shown for a main Stock Tag. It moves a stated quantity to one
+  unused preprinted child from the same Tag Family, for example `STK1000` to `STK1000-1`. Scan the
+  main tag first, select this action, enter the quantity, and then scan the detachable child. The
+  child becomes an active Stock Tag with the same Item, Batch, Company, Warehouse, UOM, quality,
+  cycle, and operation context. The main tag remains its genealogy parent.
 - **Move to Active Tag** moves a stated quantity into another already-active matching Stock Tag.
   Use this when consolidating or moving loose quantity between two tagged bins.
 
@@ -1060,8 +1065,11 @@ different ERPNext Warehouses, use the tagged Material Transfer workflow instead.
 
 The Logistics panel rejects retagging when the source is reserved, loaded in a reusable container,
 on an open Manifest or customer allocation, quarantined, serial-controlled, or otherwise in an
-incompatible process state. Active-to-active transfer additionally requires matching Item, Batch,
-UOM, Company, Warehouse, quality state, operation, and movement state.
+incompatible process state. A detachable child must be unused and belong to the scanned main tag's
+Tag Family; another family's child and an already activated child are rejected. Serial-controlled
+stock continues to use **Split Exact Serials to Child Tag** on the Handling Unit form so the exact
+ERPNext Serial Numbers are preserved. Active-to-active transfer additionally requires matching
+Item, Batch, UOM, Company, Warehouse, quality state, operation, and movement state.
 
 In this first receiving slice, **Required Physical Tag** makes the missing tagged balance visible
 but does not block native Purchase Receipt submission. Do not interpret it as an accounting hold.

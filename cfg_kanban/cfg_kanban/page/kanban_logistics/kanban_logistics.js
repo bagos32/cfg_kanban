@@ -688,7 +688,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<small>${serials.map((value) => e(value)).join(", ")}</small></div>` : "";
 		const retag_actions = state.lookup.can_retag && unit.tag_kind !== "Reusable Container" ? `<div class="alert alert-primary mt-3 cfg-logistics-retagging">
 			<strong>${__("Stock Retagging")}</strong><br><small>${__("Same-warehouse physical quantity control. ERPNext stock does not move.")}</small>
-			<div class="mt-2"><button class="btn btn-primary split-unused-tag">${__("Split to New Tag")}</button>
+			<div class="mt-2"><button class="btn btn-primary split-unused-tag">${__("Split to New Main Tag")}</button>
+			${unit.tag_kind === "Main Stock Tag" ? `<button class="btn btn-primary split-child-tag">${__("Split to Detachable Child")}</button>` : ""}
 			<button class="btn btn-warning transfer-active-tag">${__("Move to Active Tag")}</button></div></div>` : "";
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
 			<div class="cfg-logistics-tag-head"><div><small>${__("Scanned Tag Status")}</small><h3>${e(unit.visible_code)}</h3><strong>${unit.tag_kind === "Reusable Container" ? container_items : e(unit.item_code || __("No item assigned"))}</strong></div>
@@ -716,6 +717,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		});
 		$lookup.find(".manage-container").on("click", manage_container_dialog);
 		$lookup.find(".split-unused-tag").on("click", () => open_stock_retagging_dialog("split"));
+		$lookup.find(".split-child-tag").on("click", () => open_stock_retagging_dialog("child"));
 		$lookup.find(".transfer-active-tag").on("click", () => open_stock_retagging_dialog("transfer"));
 	}
 
@@ -1168,10 +1170,14 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	async function open_stock_retagging_dialog(mode) {
 		if (!state.lookup?.handling_unit || !state.lookup.can_retag) return;
 		const unit = state.lookup.handling_unit;
-		const is_split = mode === "split";
-		const plan_method = is_split ?
-			"cfg_kanban.services.tag_to_tag_transfer.get_stock_tag_split_plan" :
-			"cfg_kanban.services.tag_to_tag_transfer.get_tag_to_tag_transfer_plan";
+		const is_new_main = mode === "split";
+		const is_child = mode === "child";
+		const is_split = is_new_main || is_child;
+		const plan_method = is_child ?
+			"cfg_kanban.services.tag_to_tag_transfer.get_child_tag_split_plan" :
+			(is_new_main ?
+				"cfg_kanban.services.tag_to_tag_transfer.get_stock_tag_split_plan" :
+				"cfg_kanban.services.tag_to_tag_transfer.get_tag_to_tag_transfer_plan");
 		const response = await frappe.call({
 			method: plan_method,
 			args: { source_handling_unit: unit.name, operator_session_token: state.token },
@@ -1185,37 +1191,44 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		}
 		const event_token = unique_token();
 		const e = frappe.utils.escape_html;
+		const child_codes = (plan.unused_child_tags || []).map((row) => row.visible_code);
 		const dialog = new frappe.ui.Dialog({
-			title: is_split ? __("Split Quantity to New Tag") : __("Move Quantity to Active Tag"),
+			title: is_child ? __("Split Quantity to Detachable Child") :
+				(is_new_main ? __("Split Quantity to New Main Tag") : __("Move Quantity to Active Tag")),
 			fields: [
 				{ fieldname: "summary", fieldtype: "HTML", options: `<div class="alert alert-info">
 					<strong>${e(plan.source_tag)}</strong> · ${e(plan.item_code)} · ${format_number(plan.available_qty)} ${e(plan.stock_uom)}<br>
-					${e(plan.company)} · ${e(plan.warehouse)}<br><small>${is_split ?
-						__("Destination must be a new unused main Stock Tag.") :
-						__("Destination must be an active tag with matching stock and process context.")}</small></div>` },
+					${e(plan.company)} · ${e(plan.warehouse)}<br><small>${is_child ?
+						__("Destination must be one unused detachable child from this main Tag Family: {0}", [child_codes.join(", ")]) :
+						(is_new_main ? __("Destination must be a new unused main Stock Tag.") :
+						__("Destination must be an active tag with matching stock and process context."))}</small></div>` },
 				{ fieldname: "qty", label: __("Quantity Moving"), fieldtype: "Float", reqd: 1 },
 				{ fieldname: "reason", label: __("Physical Movement Reason"), fieldtype: "Small Text", reqd: 1 },
-				{ fieldname: "destination_scan_value", label: is_split ? __("New Unused Destination Tag") : __("Active Destination Tag"),
+				{ fieldname: "destination_scan_value", label: is_child ? __("Unused Detachable Child Tag") :
+					(is_new_main ? __("New Unused Main Tag") : __("Active Destination Tag")),
 					fieldtype: "Data", reqd: 1 },
 				{ fieldname: "camera_destination", label: __("Scan Destination with Camera"), fieldtype: "Button",
 					click: () => camera_value((value) => dialog.set_value("destination_scan_value", value)) },
 			],
 			primary_action_label: __("Review Retagging"),
 			primary_action: (values) => stock_retagging_review(
-				dialog, plan, values, event_token, is_split
+				dialog, plan, values, event_token, mode
 			),
 		});
 		dialog.show();
 	}
 
-	function stock_retagging_review(source_dialog, plan, values, event_token, is_split) {
+	function stock_retagging_review(source_dialog, plan, values, event_token, mode) {
 		const e = frappe.utils.escape_html;
+		const is_child = mode === "child";
+		const is_split = mode === "split" || is_child;
 		let review;
 		review = new frappe.ui.Dialog({
 			title: __("Confirm Physical Stock Retagging"),
 			fields: [
 				{ fieldname: "summary", fieldtype: "HTML", options: `<div class="alert alert-warning">
-					${__("Action")}: <strong>${is_split ? __("Split to new tag") : __("Move to active tag")}</strong><br>
+					${__("Action")}: <strong>${is_child ? __("Split to detachable child") :
+						(is_split ? __("Split to new main tag") : __("Move to active tag"))}</strong><br>
 					${__("Source")}: <strong>${e(plan.source_tag)}</strong><br>
 					${__("Destination")}: <strong>${e(values.destination_scan_value)}</strong><br>
 					${__("Quantity")}: <strong>${format_number(values.qty)} ${e(plan.stock_uom)}</strong><br>
@@ -1231,9 +1244,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			primary_action: async () => {
 				review.disable_primary_action();
 				try {
-					const method = is_split ?
-						"cfg_kanban.services.tag_to_tag_transfer.split_to_unused_tag" :
-						"cfg_kanban.services.tag_to_tag_transfer.transfer_between_active_tags";
+					const method = is_child ?
+						"cfg_kanban.services.tag_to_tag_transfer.split_to_unused_child_tag" :
+						(is_split ? "cfg_kanban.services.tag_to_tag_transfer.split_to_unused_tag" :
+							"cfg_kanban.services.tag_to_tag_transfer.transfer_between_active_tags");
 					const response = await frappe.call({ method, args: {
 						source_handling_unit: plan.source_handling_unit,
 						destination_scan_value: values.destination_scan_value,
