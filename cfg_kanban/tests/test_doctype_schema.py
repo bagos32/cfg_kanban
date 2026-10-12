@@ -798,6 +798,8 @@ class TestDocTypeSchema(TestCase):
 
         self.assertIn("def reconcile_physical_production_cycle(", feedback)
         self.assertIn("def _submitted_finished_goods_qty(", feedback)
+        self.assertIn('getattr(doc, "doctype", None) == "Stock Entry"', feedback)
+        self.assertIn("se.cfg_kanban_cycle=%s or se.work_order=%s", feedback)
         self.assertIn('work_order.status != "Completed"', feedback)
         self.assertIn('"status": ["!=", "Completed"]', feedback)
         self.assertIn('evaluate_gate(cycle.name, "Before Cycle Close")', feedback)

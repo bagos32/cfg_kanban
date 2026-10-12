@@ -678,7 +678,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			$root.append(`<div class="alert alert-success"><strong>${__("Production cycle completed")}</strong><br>
 				${__("ERPNext completion was verified and this reusable Card is Available for its next production cycle.")}</div>`);
 		} else if (production_reconciliation?.reason &&
-			cycle && ["Production Complete", "Waiting FG Receipt"].includes(cycle.status)) {
+			cycle && (["Production Complete", "Waiting FG Receipt"].includes(cycle.status) ||
+				effective_work_order?.status === "Completed")) {
 			$root.append(`<div class="alert alert-warning"><strong>${__("Production card is waiting to recycle")}</strong><br>
 				${e(production_reconciliation.reason)}</div>`);
 		}

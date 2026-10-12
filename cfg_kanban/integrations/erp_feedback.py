@@ -8,7 +8,15 @@ from cfg_kanban.services.state_machine import set_cycle_state, transition_card
 
 
 def _cycle(doc):
-    return getattr(doc, "cfg_kanban_cycle", None)
+    cycle = getattr(doc, "cfg_kanban_cycle", None)
+    if cycle:
+        return cycle
+    # ERPNext's Work Order -> Manufacture Stock Entry mapper may not copy custom
+    # fields on older sites. The effective Work Order remains a unique, audited
+    # bridge back to its Kanban Cycle.
+    if getattr(doc, "doctype", None) == "Stock Entry" and getattr(doc, "work_order", None):
+        return frappe.db.get_value("Work Order", doc.work_order, "cfg_kanban_cycle")
+    return None
 
 
 def prepare_work_order(doc, method=None):
@@ -265,7 +273,9 @@ def reconcile_physical_production_cycle(
             "reason": "ERPNext Job Card(s) are not Completed: " + ", ".join(incomplete_jobs),
         }
 
-    received_qty = _submitted_finished_goods_qty(cycle.name, cycle.item_code)
+    received_qty = _submitted_finished_goods_qty(
+        cycle.name, cycle.work_order, cycle.item_code
+    )
     required_qty = flt(cycle.effective_cycle_qty or cycle.planned_qty)
     if received_qty + 0.000001 < required_qty:
         return {
@@ -352,17 +362,17 @@ def _release_completed_physical_card(
     }
 
 
-def _submitted_finished_goods_qty(cycle_name, item_code):
+def _submitted_finished_goods_qty(cycle_name, work_order, item_code):
     return flt(frappe.db.sql("""
         select coalesce(sum(sed.qty), 0)
         from `tabStock Entry Detail` sed
         inner join `tabStock Entry` se on se.name=sed.parent
         where se.docstatus=1
-          and se.cfg_kanban_cycle=%s
+          and (se.cfg_kanban_cycle=%s or se.work_order=%s)
           and se.stock_entry_type='Manufacture'
           and sed.item_code=%s
           and ifnull(sed.t_warehouse, '') != ''
-    """, (cycle_name, item_code))[0][0])
+    """, (cycle_name, work_order, item_code))[0][0])
 
 
 def validate_stock_entry(doc, method=None):
