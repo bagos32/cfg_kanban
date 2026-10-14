@@ -793,9 +793,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (!flow) return;
 		const e = frappe.utils.escape_html;
 		const shortage_count = (flow.materials || []).filter((row) => row.shortage_qty > 0.000001).length;
+		const restricted_attention = Boolean(flow.restricted_material_attention);
 		const $section = $(`<div class="cfg-production-material-section"><div class="d-flex justify-content-between align-items-center flex-wrap">
 			<h4>${__("Production Material Control")}</h4>
-			<span class="indicator-pill ${shortage_count ? "red" : "green"}">${shortage_count ? __("{0} Shortage(s)", [shortage_count]) : __("Stock Checked")}</span>
+			<span class="indicator-pill ${shortage_count || restricted_attention ? "red" : "green"}">${shortage_count ? __("{0} Visible Shortage(s)", [shortage_count]) : restricted_attention ? __("Restricted Material Attention") : __("Stock Checked")}</span>
 		</div><div class="frappe-card p-3 mb-3">
 			<div class="row"><div class="col-md-4"><small>${__("Material mode")}</small><br><strong>${e(flow.mode)}</strong></div>
 			<div class="col-md-3"><small>${__("WIP Warehouse")}</small><br>${e(flow.wip_warehouse || __("Skipped"))}</div>
@@ -803,6 +804,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<div class="col-md-2 text-right cfg-production-material-actions"></div></div>
 			<div class="table-responsive mt-3">${production_material_table(flow.materials || [])}</div>
 		</div></div>`).appendTo($root);
+		if (flow.restricted_materials_present) {
+			$section.append(`<div class="alert ${restricted_attention ? "alert-warning" : "alert-info"}">${restricted_attention
+				? __("A restricted production component needs attention. Contact an authorized material controller; its identity is intentionally hidden.")
+				: __("Restricted BOM component(s) are included automatically by ERPNext and are intentionally hidden from this operator view.")}</div>`);
+		}
 		const $actions = $section.find(".cfg-production-material-actions");
 		if (flow.work_order_docstatus !== 1) {
 			$section.append(`<div class="alert alert-warning">${__("Submit the effective ERPNext Work Order before preparing material transfers or Manufacture receipt.")}</div>`);
@@ -810,13 +816,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}
 		if (state.operator.permissions.material_transfer &&
 			flow.mode === "Transfer to WIP by Work Order" &&
-			(flow.materials || []).some((row) => row.pending_qty > 0.000001)) {
+			flow.has_pending_materials) {
 			add_action($actions, __("Prepare WIP Transfer"), "btn-primary", () =>
 				production_material_dialog(flow, null, flow.materials));
 		}
 		if (state.operator.permissions.material_transfer && flow.mode === "Transfer to WIP by Job Card") {
 			(flow.jobs || []).forEach((job) => {
-				if (!(job.materials || []).some((row) => row.pending_qty > 0.000001)) return;
+				if (!job.has_pending_materials) return;
 				const $job = $(`<div class="frappe-card p-3 mb-2"><div class="row align-items-center">
 					<div class="col-md-4"><strong>${e(job.operation)}</strong><br><small>${document_link("job-card", job.name)} · ${e(job.workstation || "-")}</small></div>
 					<div class="col-md-5">${production_material_table(job.materials || [])}</div>
@@ -824,6 +830,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				add_action($job.find(".cfg-job-material-action"), __("Prepare Operation Materials"),
 					job.has_shortage ? "btn-warning" : "btn-primary", () =>
 					production_material_dialog(flow, job, job.materials));
+				if (job.restricted_materials_present) {
+					$job.append(`<div class="mt-2 text-muted"><small>${__("Restricted operation material is included server-side and is not displayed.")}</small></div>`);
+				}
 			});
 		}
 		if (state.operator.permissions.production_receipt &&

@@ -72,6 +72,8 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
   WIP transfer, operation-specific Job Card transfer, or Skip-WIP direct consumption. The Operator
   panel shows live ERP stock/shortages, captures actual quantities, prepares native ERPNext Stock
   Entries, and supports controlled Draft review or operator-confirmed submission.
+- Optional Hidden Item Settings compatibility filters restricted BOM components from unauthorized
+  Kanban material views while ERPNext continues to process them server-side.
 - Dynamic operator field definitions stored on the master and snapshotted as execution values.
 - Production-linked Process Tasks for preparation, sanitation, quality, clearance, and verification
   gates without creating fake ERPNext Job Cards.

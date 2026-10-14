@@ -84,6 +84,7 @@ frappe.ui.form.on("CFG Kanban Master", {
 			}, __("Inventory Control"));
 		}
 		if (frm.doc.control_type === "Production" && frm.doc.bom) {
+			window.setTimeout(() => hide_restricted_material_flow_rows(frm), 0);
 			frm.add_custom_button(__("Refresh BOM Material Flow"), () => load_bom_material_flow(frm, {
 				confirm_replace: true,
 				preserve_sources: true,
@@ -158,12 +159,16 @@ async function load_bom_material_flow(frm, options = {}) {
 			if (preserved_source) row.source_warehouse = preserved_source;
 		});
 		frm.refresh_field("material_flow_rules");
+		hide_restricted_material_flow_rows(frm);
 		const missing_operation = rows.filter((row) => !row.operation);
 		const missing_warehouse = (frm.doc.material_flow_rules || [])
 			.filter((row) => !row.source_warehouse);
 		const warnings = [];
 		if (missing_operation.length) warnings.push(__("{0} component(s) have no Item Operation.", [missing_operation.length]));
 		if (missing_warehouse.length) warnings.push(__("{0} component(s) still need a Source Warehouse.", [missing_warehouse.length]));
+		if (response.message.restricted_components_present) {
+			warnings.push(__("Restricted BOM component(s) are hidden and will remain server-managed."));
+		}
 		frappe.show_alert({
 			message: warnings.length ? warnings.join(" ") : __("BOM material flow synchronized"),
 			indicator: warnings.length ? "orange" : "green",
@@ -171,6 +176,16 @@ async function load_bom_material_flow(frm, options = {}) {
 	} finally {
 		frm.__cfg_loading_material_flow = false;
 	}
+}
+
+function hide_restricted_material_flow_rows(frm) {
+	if (!frappe.boot || frappe.boot.show_hidden_items) return;
+	const hidden_items = frappe.boot.hidden_items || [];
+	if (!hidden_items.length || !frm.fields_dict.material_flow_rules) return;
+	const hidden = new Set(hidden_items);
+	(frm.fields_dict.material_flow_rules.grid.grid_rows || []).forEach((grid_row) => {
+		grid_row.wrapper.toggle(!hidden.has(grid_row.doc.item_code));
+	});
 }
 
 function material_flow_key(row) {

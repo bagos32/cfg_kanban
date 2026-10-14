@@ -3,6 +3,7 @@ from frappe.model.document import Document
 from frappe.utils import cint, flt
 
 from cfg_kanban.services.dynamic_forms import validate_condition_definitions
+from cfg_kanban.services.hidden_items import get_hidden_item_policy
 from cfg_kanban.services.purchase_uom import calculate_purchase_quantities
 from cfg_kanban.services.uom_conversion import get_item_purchase_uom
 
@@ -121,6 +122,7 @@ class CFGKanbanMaster(Document):
             frappe.throw("Dynamic operator fields reference unknown Process Tasks: "
                          + ", ".join(unknown_tasks))
         validate_condition_definitions(self.operator_field_definitions)
+        self._protect_restricted_material_flow_rules()
         self._validate_production_material_flow()
         self._validate_sales_demand_configuration()
         self._validate_inventory_threshold_configuration()
@@ -131,6 +133,9 @@ class CFGKanbanMaster(Document):
         if not self.bom:
             frappe.throw("BOM is required for Production control")
         bom = frappe.get_doc("BOM", self.bom)
+        hidden_policy = get_hidden_item_policy()
+        restricted_items = (hidden_policy["items"]
+                            if not hidden_policy["can_view"] else set())
         if bom.docstatus != 1 or not bom.is_active:
             frappe.throw("Production requires an active submitted BOM")
         if bom.item != self.item_code or bom.company != self.company:
@@ -140,11 +145,20 @@ class CFGKanbanMaster(Document):
         if mode == "Transfer to WIP by Job Card":
             if not bom.with_operations:
                 frappe.throw("Job Card material transfer requires With Operations on the BOM")
-            missing = [row.item_code for row in bom.items if not row.operation]
+            missing = [row.item_code for row in bom.items
+                       if not row.operation and row.item_code not in restricted_items]
+            restricted_missing = any(
+                not row.operation and row.item_code in restricted_items for row in bom.items
+            )
             if missing:
                 frappe.throw(
                     "Every BOM component needs Item Operation for Job Card transfer: "
                     + ", ".join(missing)
+                )
+            if restricted_missing:
+                frappe.throw(
+                    "A restricted BOM component has no Item Operation. Ask an authorized "
+                    "Hidden Item user to correct the ERPNext BOM."
                 )
         if mode != "Skip WIP Transfer" and not self.wip_warehouse:
             frappe.throw("WIP Warehouse is required when materials transfer to WIP")
@@ -152,9 +166,14 @@ class CFGKanbanMaster(Document):
             frappe.throw("Destination Warehouse is required for manufactured output")
 
         bom_keys = {(row.item_code, row.operation or "") for row in bom.items}
+        visible_bom_keys = {key for key in bom_keys if key[0] not in restricted_items}
         rule_keys = []
         for row in self.material_flow_rules:
             key = (row.item_code, row.operation or "")
+            if row.item_code in restricted_items:
+                # Existing restricted mappings remain server-side execution data. They are not
+                # required in the filtered editor shown to an unauthorized user.
+                continue
             rule_keys.append(key)
             if key not in bom_keys:
                 frappe.throw(
@@ -166,8 +185,8 @@ class CFGKanbanMaster(Document):
         if len(rule_keys) != len(set(rule_keys)):
             frappe.throw("BOM Component Material Flow cannot repeat the same Item and Operation")
 
-        if self.material_flow_rules:
-            missing_rules = bom_keys - set(rule_keys)
+        if rule_keys:
+            missing_rules = visible_bom_keys - set(rule_keys)
             if missing_rules:
                 detail = ", ".join(
                     f"{item} / {operation or 'No Operation'}"
@@ -181,6 +200,43 @@ class CFGKanbanMaster(Document):
         ):
             if warehouse:
                 _validate_warehouse_company(warehouse, self.company, label)
+
+    def _protect_restricted_material_flow_rules(self):
+        if self.control_type != "Production":
+            return
+        policy = get_hidden_item_policy()
+        restricted_items = policy["items"] if not policy["can_view"] else set()
+        if not restricted_items:
+            return
+        if self.is_new():
+            # The filtered BOM preview never supplies these rows. Discard a manually injected
+            # restricted row rather than accepting an unauthorized source-Warehouse override.
+            self.set("material_flow_rules", [
+                row for row in self.material_flow_rules
+                if row.item_code not in restricted_items
+            ])
+            return
+
+        stored_bom = frappe.db.get_value(self.doctype, self.name, "bom")
+        if stored_bom != self.bom and (
+                _bom_contains_items(stored_bom, restricted_items)
+                or _bom_contains_items(self.bom, restricted_items)):
+            frappe.throw(
+                "This Master contains restricted BOM components. An authorized Hidden Item "
+                "user must change or resynchronize its BOM."
+            )
+        stored_rows = frappe.get_all(
+            "CFG Kanban Material Flow Rule",
+            filters={"parent": self.name, "parenttype": self.doctype},
+            fields=["name", "item_code", "operation", "source_warehouse",
+                    "bom_qty", "stock_uom", "idx"],
+            order_by="idx asc",
+        )
+        protected_rows = [row for row in stored_rows
+                          if row.item_code in restricted_items]
+        visible_rows = [row.as_dict() for row in self.material_flow_rules
+                        if row.item_code not in restricted_items]
+        self.set("material_flow_rules", visible_rows + protected_rows)
 
     def _set_item_and_purchase_uom(self):
         if not self.item_code:
@@ -308,6 +364,15 @@ def _validate_warehouse_company(warehouse, company, label):
         frappe.throw(f"{label}: select an enabled non-group Warehouse")
 
 
+def _bom_contains_items(bom, items):
+    if not bom or not items:
+        return False
+    return bool(frappe.db.exists("BOM Item", {
+        "parent": bom,
+        "item_code": ["in", list(items)],
+    }))
+
+
 @frappe.whitelist()
 def get_bom_material_flow_preview(bom, company, default_source_warehouse=None):
     """Return the exact BOM Item-operation map for the editable Master child table."""
@@ -317,8 +382,15 @@ def get_bom_material_flow_preview(bom, company, default_source_warehouse=None):
         frappe.throw("Select an active submitted BOM")
     if doc.company != company:
         frappe.throw(f"BOM belongs to {doc.company}, not {company}")
+    hidden_policy = get_hidden_item_policy()
+    restricted_items = (hidden_policy["items"]
+                        if not hidden_policy["can_view"] else set())
     rows_by_key = {}
+    restricted_components_present = False
     for row in doc.items:
+        if row.item_code in restricted_items:
+            restricted_components_present = True
+            continue
         source = row.get("source_warehouse") or default_source_warehouse
         key = (row.item_code, row.operation or "")
         if key in rows_by_key:
@@ -336,4 +408,5 @@ def get_bom_material_flow_preview(bom, company, default_source_warehouse=None):
         "transfer_material_against": doc.get("transfer_material_against"),
         "with_operations": bool(doc.with_operations),
         "rows": list(rows_by_key.values()),
+        "restricted_components_present": restricted_components_present,
     }

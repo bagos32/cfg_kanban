@@ -4,6 +4,7 @@ from erpnext.stock.utils import get_stock_balance
 
 from cfg_kanban.integrations.erp_gateway import execute_command
 from cfg_kanban.services.events import record
+from cfg_kanban.services.hidden_items import get_hidden_item_policy
 from cfg_kanban.services.idempotency import canonical_key, insert_once
 from cfg_kanban.services.operator_auth import require_operator
 
@@ -26,23 +27,46 @@ def apply_master_material_flow(work_order, master):
         if rule:
             row.source_warehouse = rule.source_warehouse
 
+    hidden_policy = get_hidden_item_policy()
+    restricted_items = (hidden_policy["items"]
+                        if not hidden_policy["can_view"] else set())
     if work_order.transfer_material_against == "Job Card" and not work_order.skip_transfer:
-        missing = [row.item_code for row in work_order.required_items if not row.operation]
+        missing = [row.item_code for row in work_order.required_items
+                   if not row.operation and row.item_code not in restricted_items]
+        restricted_missing = any(
+            not row.operation and row.item_code in restricted_items
+            for row in work_order.required_items
+        )
         if missing:
             frappe.throw(
                 "Job Card material transfer requires Item Operation on every BOM component: "
                 + ", ".join(missing)
+            )
+        if restricted_missing:
+            frappe.throw(
+                "A restricted production component has no Item Operation. Contact an "
+                "authorized material controller."
             )
     # The default mode preserves ERPNext's own Work Order behaviour for existing Masters.
     # Explicit Kanban modes (or an explicit component map) require deterministic sources.
     if mode == "Follow ERPNext BOM / Work Order" and not rules:
         return
     missing_warehouses = [row.item_code for row in work_order.required_items
-                          if not row.source_warehouse]
+                          if not row.source_warehouse
+                          and row.item_code not in restricted_items]
+    restricted_missing_warehouse = any(
+        not row.source_warehouse and row.item_code in restricted_items
+        for row in work_order.required_items
+    )
     if missing_warehouses:
         frappe.throw(
             "Source Warehouse is missing for required material: "
             + ", ".join(missing_warehouses)
+        )
+    if restricted_missing_warehouse:
+        frappe.throw(
+            "A restricted production component has no Source Warehouse. Contact an "
+            "authorized material controller."
         )
 
 
@@ -51,8 +75,13 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
     require_operator(operator_session_token)
     cycle, master, work_order = _production_context(cycle_name)
     mode = _effective_mode(master, work_order)
-    rows = [_work_order_material_row(row, work_order.wip_warehouse, mode)
-            for row in work_order.required_items]
+    hidden_policy = get_hidden_item_policy()
+    restricted_items = (hidden_policy["items"]
+                        if not hidden_policy["can_view"] else set())
+    all_rows = [_work_order_material_row(row, work_order.wip_warehouse, mode)
+                for row in work_order.required_items]
+    restricted_rows = [row for row in all_rows if row["item_code"] in restricted_items]
+    rows = [row for row in all_rows if row["item_code"] not in restricted_items]
     jobs = []
     for job in frappe.get_all(
         "Job Card",
@@ -66,10 +95,24 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
             fields=["item_code", "source_warehouse", "required_qty", "transferred_qty", "uom"],
             order_by="idx asc",
         )
-        material_rows = [_job_material_row(row, work_order.wip_warehouse) for row in items]
+        all_material_rows = [_job_material_row(row, work_order.wip_warehouse)
+                             for row in items]
+        restricted_job_rows = [row for row in all_material_rows
+                               if row["item_code"] in restricted_items]
+        material_rows = [row for row in all_material_rows
+                         if row["item_code"] not in restricted_items]
         jobs.append({**job, "materials": material_rows,
                      "pending_material_qty": sum(row["pending_qty"] for row in material_rows),
-                     "has_shortage": any(row["shortage_qty"] > 0 for row in material_rows)})
+                     "has_pending_materials": any(
+                         row["pending_qty"] > 0.000001 for row in all_material_rows
+                     ),
+                     "restricted_materials_present": bool(restricted_job_rows),
+                     "restricted_material_attention": any(
+                         row["shortage_qty"] > 0.000001 for row in restricted_job_rows
+                     ),
+                     "has_shortage": any(
+                         row["shortage_qty"] > 0.000001 for row in all_material_rows
+                     )})
 
     incomplete_jobs = [row["name"] for row in jobs if row["status"] != "Completed"]
     remaining_output = max(0, flt(work_order.qty) - flt(work_order.produced_qty))
@@ -91,7 +134,12 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
         "remaining_output_qty": remaining_output,
         "materials": rows,
         "jobs": jobs,
-        "has_shortage": any(row["shortage_qty"] > 0 for row in rows),
+        "has_pending_materials": any(row["pending_qty"] > 0.000001 for row in all_rows),
+        "restricted_materials_present": bool(restricted_rows),
+        "restricted_material_attention": any(
+            row["shortage_qty"] > 0.000001 for row in restricted_rows
+        ),
+        "has_shortage": any(row["shortage_qty"] > 0 for row in all_rows),
         "all_job_cards_completed": not incomplete_jobs and bool(jobs),
         "incomplete_job_cards": incomplete_jobs,
         "material_transfer_posting_mode": master.get("material_transfer_posting_mode")
@@ -133,9 +181,19 @@ def prepare_material_transfer(cycle_name, lines, job_card=None, event_token=None
         operator_session_token, "material_transfer", execution=execution,
         operation=operation, workstation=workstation,
     )
-    normalized = _validated_confirmation_lines(lines)
+    hidden_policy = get_hidden_item_policy()
+    server_manage_restricted = bool(
+        hidden_policy["items"] and not hidden_policy["can_view"]
+    )
+    normalized = _validated_confirmation_lines(
+        lines, allow_empty=server_manage_restricted
+    )
+    if server_manage_restricted and any(
+            row["item_code"] in hidden_policy["items"] for row in normalized):
+        frappe.throw("Restricted production components are managed server-side")
     confirmation = _validated_confirmation(confirmation)
-    if not normalized:
+    if not normalized and not _has_pending_restricted_material(
+            work_order, hidden_policy["items"], job_card=job_card):
         frappe.throw("At least one positive material quantity is required")
     for row in normalized:
         _assert_warehouse_company(row["source_warehouse"], work_order.company)
@@ -162,6 +220,7 @@ def prepare_material_transfer(cycle_name, lines, job_card=None, event_token=None
             "submit": submit,
             "operator": profile.employee,
             "confirmation": confirmation,
+            "server_manage_restricted_items": server_manage_restricted,
         }),
         "requested_on": now_datetime(),
         "created_by_system": 1,
@@ -200,7 +259,14 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
     if incomplete:
         frappe.throw("Complete the ERPNext Job Card(s) before receiving output: "
                      + ", ".join(incomplete))
+    hidden_policy = get_hidden_item_policy()
+    server_manage_restricted = bool(
+        hidden_policy["items"] and not hidden_policy["can_view"]
+    )
     normalized = _validated_confirmation_lines(lines or [], allow_empty=True)
+    if server_manage_restricted and any(
+            row["item_code"] in hidden_policy["items"] for row in normalized):
+        frappe.throw("Restricted production components are managed server-side")
     confirmation = _validated_confirmation(confirmation)
     for row in normalized:
         _assert_warehouse_company(row["source_warehouse"], work_order.company)
@@ -228,6 +294,7 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
             "submit": submit,
             "operator": profile.employee,
             "confirmation": confirmation,
+            "server_manage_restricted_items": server_manage_restricted,
         }),
         "requested_on": now_datetime(),
         "created_by_system": 1,
@@ -354,6 +421,18 @@ def _job_material_row(row, wip_warehouse):
 
 def _balance(item_code, warehouse):
     return flt(get_stock_balance(item_code, warehouse)) if warehouse else 0
+
+
+def _has_pending_restricted_material(work_order, restricted_items, job_card=None):
+    if not restricted_items:
+        return False
+    rows = (frappe.get_doc("Job Card", job_card).items
+            if job_card else work_order.required_items)
+    return any(
+        row.item_code in restricted_items
+        and flt(row.required_qty) - flt(row.transferred_qty) > 0.000001
+        for row in rows
+    )
 
 
 def _validated_confirmation_lines(lines, allow_empty=False):

@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.38
+**Guide version:** 1.39
 
 **Updated:** 14 October 2026
 
@@ -737,6 +737,25 @@ For `Transfer to WIP by Job Card`, ERPNext's BOM **With Operations** must be ena
 Item row must have **Item Operation**. Expand each BOM Item row to see that field. It means “this
 component is first required by this operation”; the Operation table alone does not assign materials
 to Job Cards. CFG Kanban deliberately refuses to guess this relationship.
+
+#### Optional restricted/secret BOM components
+
+When the site provides **Hidden Item Settings**, CFG Kanban follows its existing User allow-list
+without importing or depending on the customization app. Administrator and Users listed in that
+setting see the complete BOM material mapping. Other users see only permitted components; the
+Master editor and Operator Panel show a neutral restricted-material notice instead of the Item
+identity, warehouse, quantity, or stock balance.
+
+Restricted components are not removed from ERPNext. Work Orders, Job Cards and native Stock Entry
+mappers still include them server-side. During a Kanban material transfer or Manufacture receipt,
+ERPNext retains their mapped quantities and Warehouses while the operator confirms only visible
+components. If a restricted component lacks an Item Operation, Source Warehouse, or sufficient
+stock, the operator receives a generic attention message and an authorized material controller must
+correct it. An unauthorized user cannot change a restricted component mapping or switch a Master
+between BOMs containing restricted components.
+
+If **Hidden Item Settings** is not installed, all components behave normally and no additional setup
+is required.
 
 The four modes behave as follows:
 
@@ -2863,6 +2882,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.39 | 14 October 2026 | Added optional, dependency-free compatibility with Hidden Item Settings: user allow-list visibility, filtered Kanban BOM previews and Operator material responses, protected restricted Master mappings, neutral attention messages, and server-managed inclusion in native ERPNext production Stock Entries |
 | 1.38 | 14 October 2026 | Added per-BOM-component source Warehouses, ERPNext Item Operation validation, Work Order-wide and Job Card-specific WIP transfer modes, Skip-WIP direct consumption, live stock/shortage display, operator-confirmed Draft/automatic posting, duplicate-draft protection, controlled Stock Entry submission, and the revised RW Noodle acceptance flow |
 | 1.37 | 10 October 2026 | Added Warehouse-card adoption of already-posted ERP finished stock, locked ERP-versus-tag balance validation, preprinted tag activation, exact Batch/Serial checks, supervisor reservation to eligible stock-replenishment Cycles, allocation release, Cycle allocation indicators, audit records, and ERP/tag/untagged report columns |
 | 1.36 | 9 October 2026 | Exposed QR printing on every master-backed Card, separated Card identity replacement from printing, recorded Card print time/user, and labelled Transfer and Withdrawal print formats correctly |
