@@ -728,9 +728,10 @@ On a Production **CFG Kanban Master**, configure these exact fields:
 | Manufacture Receipt Posting (`manufacture_posting_mode`) | Keeps the Manufacture entry in Draft for Batch/tag review, or submits it after operator confirmation |
 | BOM Component Material Flow (`material_flow_rules`) | Read-only BOM Item/Operation snapshot plus the controlled source Warehouse for every component |
 
-Select **Production Material → Load BOM Material Flow** after choosing the submitted BOM. The table
-must be reloaded whenever the BOM's component or Item Operation mapping changes. Set the actual
-source Warehouse on every row.
+Selecting a submitted BOM automatically synchronizes **BOM Component Material Flow**. New, removed,
+or operation-reassigned components follow the selected BOM immediately; matching Source Warehouse
+selections are preserved. Set the actual source Warehouse on every row. Use **Production Material →
+Refresh BOM Material Flow** for an explicit refresh when reviewing an older Master.
 
 For `Transfer to WIP by Job Card`, ERPNext's BOM **With Operations** must be enabled and every BOM
 Item row must have **Item Operation**. Expand each BOM Item row to see that field. It means “this

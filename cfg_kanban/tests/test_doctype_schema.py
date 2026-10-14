@@ -1654,6 +1654,8 @@ class TestDocTypeSchema(TestCase):
             APP_ROOT / "cfg_kanban" / "page" / "kanban_operator" /
             "kanban_operator.js"
         ).read_text()
+        master_form = (APP_ROOT / "public" / "js" /
+                       "cfg_kanban_master.js").read_text()
 
         self.assertIn("Every BOM component needs Item Operation", master_controller)
         self.assertIn("def get_bom_material_flow_preview", master_controller)
@@ -1671,3 +1673,6 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Production Material Control", panel)
         self.assertIn("Prepare Operation Materials", panel)
         self.assertIn("Prepare Manufacture Receipt", panel)
+        self.assertIn("async bom(frm)", master_form)
+        self.assertIn("BOM material flow synchronized", master_form)
+        self.assertIn("preserve_sources: true", master_form)

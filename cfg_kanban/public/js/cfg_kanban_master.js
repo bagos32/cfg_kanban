@@ -37,11 +37,18 @@ frappe.ui.form.on("CFG Kanban Master", {
 		refresh_purchase_uom(frm);
 		frm.trigger("refresh");
 	},
-	bom(frm) {
-		if (frm.doc.control_type === "Production" && frm.doc.bom &&
-			!(frm.doc.material_flow_rules || []).length) {
-			frm.set_intro(__("Load BOM Material Flow to verify the Item Operation and source Warehouse for every component."), "orange");
+	async bom(frm) {
+		if (frm.doc.control_type !== "Production") return;
+		if (!frm.doc.bom) {
+			frm.clear_table("material_flow_rules");
+			frm.refresh_field("material_flow_rules");
+			return;
 		}
+		await load_bom_material_flow(frm, {
+			confirm_replace: false,
+			preserve_sources: true,
+			automatic: true,
+		});
 	},
 	production_material_mode(frm) {
 		set_production_material_intro(frm);
@@ -77,9 +84,19 @@ frappe.ui.form.on("CFG Kanban Master", {
 			}, __("Inventory Control"));
 		}
 		if (frm.doc.control_type === "Production" && frm.doc.bom) {
-			frm.add_custom_button(__("Load BOM Material Flow"), () => load_bom_material_flow(frm),
+			frm.add_custom_button(__("Refresh BOM Material Flow"), () => load_bom_material_flow(frm, {
+				confirm_replace: true,
+				preserve_sources: true,
+			}),
 				__("Production Material"));
 			set_production_material_intro(frm);
+			if (!(frm.doc.material_flow_rules || []).length) {
+				load_bom_material_flow(frm, {
+					confirm_replace: false,
+					preserve_sources: true,
+					automatic: true,
+				});
+			}
 		}
 		if (frm.doc.production_policy === "Customer Make-to-Order") {
 			frm.set_intro(__("MTO mode creates one digital cycle and Batch per Sales Order line. It does not reserve reusable cards or use reorder stock."), "blue");
@@ -101,40 +118,63 @@ function set_production_material_intro(frm) {
 	frm.set_intro(messages[mode], "blue");
 }
 
-async function load_bom_material_flow(frm) {
+async function load_bom_material_flow(frm, options = {}) {
 	if (!frm.doc.bom || !frm.doc.company) {
-		frappe.msgprint(__("Select Company and BOM first."));
+		if (!options.automatic) frappe.msgprint(__("Select Company and BOM first."));
 		return;
 	}
-	if ((frm.doc.material_flow_rules || []).length) {
+	if (frm.__cfg_loading_material_flow) return;
+	if (options.confirm_replace && (frm.doc.material_flow_rules || []).length) {
 		const confirmed = await new Promise((resolve) => {
-			frappe.confirm(__("Replace the existing component flow rows from the selected BOM?"),
+			frappe.confirm(__("Refresh the component list from the selected BOM? Matching Source Warehouse selections will be preserved."),
 				() => resolve(true), () => resolve(false));
 		});
 		if (!confirmed) return;
 	}
-	const response = await frappe.call({
-		method: "cfg_kanban.cfg_kanban.doctype.cfg_kanban_master.cfg_kanban_master.get_bom_material_flow_preview",
-		args: { bom: frm.doc.bom, company: frm.doc.company,
-			default_source_warehouse: frm.doc.source_warehouse },
-		freeze: true,
-		freeze_message: __("Loading BOM components and operations..."),
-	});
-	frm.clear_table("material_flow_rules");
-	(response.message.rows || []).forEach((value) => {
-		const row = frm.add_child("material_flow_rules");
-		Object.assign(row, value);
-	});
-	frm.refresh_field("material_flow_rules");
-	const missing_operation = (response.message.rows || []).filter((row) => !row.operation);
-	const missing_warehouse = (response.message.rows || []).filter((row) => !row.source_warehouse);
-	const warnings = [];
-	if (missing_operation.length) warnings.push(__("{0} component(s) have no Item Operation.", [missing_operation.length]));
-	if (missing_warehouse.length) warnings.push(__("{0} component(s) still need a Source Warehouse.", [missing_warehouse.length]));
-	frappe.show_alert({
-		message: warnings.length ? warnings.join(" ") : __("BOM material flow loaded"),
-		indicator: warnings.length ? "orange" : "green",
-	});
+	const source_by_component = {};
+	if (options.preserve_sources) {
+		(frm.doc.material_flow_rules || []).forEach((row) => {
+			source_by_component[material_flow_key(row)] = row.source_warehouse;
+		});
+	}
+	frm.__cfg_loading_material_flow = true;
+	try {
+		const selected_bom = frm.doc.bom;
+		const response = await frappe.call({
+			method: "cfg_kanban.cfg_kanban.doctype.cfg_kanban_master.cfg_kanban_master.get_bom_material_flow_preview",
+			args: { bom: selected_bom, company: frm.doc.company,
+				default_source_warehouse: frm.doc.source_warehouse },
+			freeze: !options.automatic,
+			freeze_message: __("Loading BOM components and operations..."),
+		});
+		// Ignore a late response when the user selected another BOM while this request was running.
+		if (frm.doc.bom !== selected_bom) return;
+		const rows = response.message.rows || [];
+		frm.clear_table("material_flow_rules");
+		rows.forEach((value) => {
+			const row = frm.add_child("material_flow_rules");
+			Object.assign(row, value);
+			const preserved_source = source_by_component[material_flow_key(value)];
+			if (preserved_source) row.source_warehouse = preserved_source;
+		});
+		frm.refresh_field("material_flow_rules");
+		const missing_operation = rows.filter((row) => !row.operation);
+		const missing_warehouse = (frm.doc.material_flow_rules || [])
+			.filter((row) => !row.source_warehouse);
+		const warnings = [];
+		if (missing_operation.length) warnings.push(__("{0} component(s) have no Item Operation.", [missing_operation.length]));
+		if (missing_warehouse.length) warnings.push(__("{0} component(s) still need a Source Warehouse.", [missing_warehouse.length]));
+		frappe.show_alert({
+			message: warnings.length ? warnings.join(" ") : __("BOM material flow synchronized"),
+			indicator: warnings.length ? "orange" : "green",
+		});
+	} finally {
+		frm.__cfg_loading_material_flow = false;
+	}
+}
+
+function material_flow_key(row) {
+	return `${row.item_code || ""}::${row.operation || ""}`;
 }
 
 async function refresh_purchase_uom(frm) {

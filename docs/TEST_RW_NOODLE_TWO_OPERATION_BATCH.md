@@ -326,10 +326,11 @@ Open **CFG Kanban Master → New**:
 | Material Transfer Posting | `Create Draft for Review` for the first test |
 | Manufacture Receipt Posting | `Create Draft for Tag / Batch Review` |
 
-Under **Production Material**, select **Load BOM Material Flow**. Confirm that every BOM component
-appears with its ERPNext **Item Operation**, then select the real **Source Warehouse** for each
-component. Do not type or reinterpret the operation in Kanban: correct it on the ERPNext BOM Item
-row and reload the table.
+After selecting the BOM, confirm that **BOM Component Material Flow** is populated automatically.
+Every BOM component must appear with its ERPNext **Item Operation**. Select the real **Source
+Warehouse** for each component. Do not type or reinterpret the operation in Kanban: correct it on
+the ERPNext BOM Item row, then reselect the BOM or use **Production Material → Refresh BOM Material
+Flow**.
 
 For a simpler Work Order-wide transfer test, use `Transfer to WIP by Work Order`. Use `Skip WIP
 Transfer` only where the approved ERPNext process consumes inputs directly through the final
