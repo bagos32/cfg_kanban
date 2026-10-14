@@ -1,0 +1,14 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Material Flow Rule",
+ "module": "CFG Kanban",
+ "istable": 1,
+ "field_order": ["item_code", "operation", "source_warehouse", "bom_qty", "stock_uom"],
+ "fields": [
+  {"fieldname":"item_code","label":"BOM Component","fieldtype":"Link","options":"Item","reqd":1,"read_only":1,"in_list_view":1,"columns":3},
+  {"fieldname":"operation","label":"Item Operation","fieldtype":"Link","options":"Operation","read_only":1,"in_list_view":1,"columns":2,"description":"Copied from the ERPNext BOM Item operation. This determines which Job Card receives the component."},
+  {"fieldname":"source_warehouse","label":"Source Warehouse","fieldtype":"Link","options":"Warehouse","reqd":1,"in_list_view":1,"columns":3,"description":"Per-component source used on the Work Order and production Stock Entry."},
+  {"fieldname":"bom_qty","label":"BOM Qty","fieldtype":"Float","read_only":1,"in_list_view":1,"columns":2},
+  {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM","read_only":1,"in_list_view":1,"columns":2}
+ ]
+}

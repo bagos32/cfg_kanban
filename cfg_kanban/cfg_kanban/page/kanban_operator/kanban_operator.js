@@ -639,7 +639,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			return;
 		}
 		const { card, master, cycle, effective_work_order, work_order_attention, selected_job_card,
-			executions, operation_summaries, production_stock_entries, process_tasks, service_tasks,
+			executions, operation_summaries, production_stock_entries, production_material_flow,
+			process_tasks, service_tasks,
 			service_identity_card, workstation_queue_card, workstation_queue,
 			work_orders, route_warnings, production_reconciliation } = state.context;
 		if (workstation_queue_card) {
@@ -726,6 +727,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			$("<button class='btn btn-default mr-2'>" + __("View Timeline") + "</button>")
 				.appendTo($actions).on("click", () => show_timeline(cycle.name));
 		}
+		render_production_material_flow(production_material_flow);
 		render_production_stock_entries(production_stock_entries || [], effective_work_order);
 		render_process_tasks(process_tasks || []);
 		render_summaries(operation_summaries || []);
@@ -787,6 +789,143 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		});
 	}
 
+	function render_production_material_flow(flow) {
+		if (!flow) return;
+		const e = frappe.utils.escape_html;
+		const shortage_count = (flow.materials || []).filter((row) => row.shortage_qty > 0.000001).length;
+		const $section = $(`<div class="cfg-production-material-section"><div class="d-flex justify-content-between align-items-center flex-wrap">
+			<h4>${__("Production Material Control")}</h4>
+			<span class="indicator-pill ${shortage_count ? "red" : "green"}">${shortage_count ? __("{0} Shortage(s)", [shortage_count]) : __("Stock Checked")}</span>
+		</div><div class="frappe-card p-3 mb-3">
+			<div class="row"><div class="col-md-4"><small>${__("Material mode")}</small><br><strong>${e(flow.mode)}</strong></div>
+			<div class="col-md-3"><small>${__("WIP Warehouse")}</small><br>${e(flow.wip_warehouse || __("Skipped"))}</div>
+			<div class="col-md-3"><small>${__("Output Warehouse")}</small><br>${e(flow.output_warehouse || "-")}</div>
+			<div class="col-md-2 text-right cfg-production-material-actions"></div></div>
+			<div class="table-responsive mt-3">${production_material_table(flow.materials || [])}</div>
+		</div></div>`).appendTo($root);
+		const $actions = $section.find(".cfg-production-material-actions");
+		if (flow.work_order_docstatus !== 1) {
+			$section.append(`<div class="alert alert-warning">${__("Submit the effective ERPNext Work Order before preparing material transfers or Manufacture receipt.")}</div>`);
+			return;
+		}
+		if (state.operator.permissions.material_transfer &&
+			flow.mode === "Transfer to WIP by Work Order" &&
+			(flow.materials || []).some((row) => row.pending_qty > 0.000001)) {
+			add_action($actions, __("Prepare WIP Transfer"), "btn-primary", () =>
+				production_material_dialog(flow, null, flow.materials));
+		}
+		if (state.operator.permissions.material_transfer && flow.mode === "Transfer to WIP by Job Card") {
+			(flow.jobs || []).forEach((job) => {
+				if (!(job.materials || []).some((row) => row.pending_qty > 0.000001)) return;
+				const $job = $(`<div class="frappe-card p-3 mb-2"><div class="row align-items-center">
+					<div class="col-md-4"><strong>${e(job.operation)}</strong><br><small>${document_link("job-card", job.name)} · ${e(job.workstation || "-")}</small></div>
+					<div class="col-md-5">${production_material_table(job.materials || [])}</div>
+					<div class="col-md-3 text-right cfg-job-material-action"></div></div></div>`).appendTo($section);
+				add_action($job.find(".cfg-job-material-action"), __("Prepare Operation Materials"),
+					job.has_shortage ? "btn-warning" : "btn-primary", () =>
+					production_material_dialog(flow, job, job.materials));
+			});
+		}
+		if (state.operator.permissions.production_receipt &&
+			flow.all_job_cards_completed && flow.remaining_output_qty > 0.000001) {
+			add_action($actions, __("Prepare Manufacture Receipt"), "btn-success", () =>
+				manufacture_receipt_dialog(flow));
+		} else if (flow.incomplete_job_cards && flow.incomplete_job_cards.length) {
+			$section.append(`<div class="alert alert-info">${__("Manufacture receipt becomes available after these Job Cards are completed")}: ${flow.incomplete_job_cards.map((name) => document_link("job-card", name)).join(", ")}</div>`);
+		}
+	}
+
+	function production_material_table(rows) {
+		const e = frappe.utils.escape_html;
+		if (!rows.length) return `<small class="text-muted">${__("No operation-specific materials")}</small>`;
+		return `<table class="table table-bordered table-sm mb-0"><thead><tr><th>${__("Item")}</th><th>${__("Operation")}</th>
+			<th>${__("Source")}</th><th>${__("Required / Pending")}</th><th>${__("Available")}</th></tr></thead><tbody>${rows.map((row) =>
+			`<tr class="${row.shortage_qty > 0.000001 ? "text-danger" : ""}"><td>${e(row.item_code)}</td><td>${e(row.operation || "-")}</td>
+			<td>${e(row.source_warehouse || "-")}</td><td>${e(row.required_qty)} / ${e(row.pending_qty)} ${e(row.stock_uom || "")}</td>
+			<td>${e(row.available_qty)}${row.wip_available_qty !== undefined ? `<br><small>${__("WIP")}: ${e(row.wip_available_qty)}</small>` : ""}${row.shortage_qty > 0.000001 ? `<br><strong>${__("Short")}: ${e(row.shortage_qty)}</strong>` : ""}</td></tr>`).join("")}</tbody></table>`;
+	}
+
+	function material_confirmation_fields() {
+		return [
+			{ fieldname: "item_code", label: __("Item"), fieldtype: "Link", options: "Item", read_only: 1, in_list_view: 1, columns: 3 },
+			{ fieldname: "operation", label: __("Operation"), fieldtype: "Link", options: "Operation", read_only: 1, in_list_view: 1, columns: 2 },
+			{ fieldname: "source_warehouse", label: __("Source Warehouse"), fieldtype: "Link", options: "Warehouse", reqd: 1, in_list_view: 1, columns: 3 },
+			{ fieldname: "available_qty", label: __("Available"), fieldtype: "Float", read_only: 1, in_list_view: 1, columns: 2 },
+			{ fieldname: "qty", label: __("Actual Qty"), fieldtype: "Float", reqd: 1, in_list_view: 1, columns: 2 },
+		];
+	}
+
+	function production_material_dialog(flow, job, rows) {
+		const data = rows.filter((row) => row.pending_qty > 0.000001).map((row) => ({
+			item_code: row.item_code, operation: job ? job.operation : row.operation,
+			source_warehouse: row.source_warehouse, available_qty: row.available_qty,
+			qty: row.pending_qty,
+		}));
+		const dialog = new frappe.ui.Dialog({
+			title: job ? __("Confirm Materials for {0}", [job.operation]) : __("Confirm Work Order Material Transfer"),
+			size: "extra-large",
+			fields: [
+				{ fieldtype: "HTML", options: `<div class="alert alert-info">${__("Verify the physical Source Warehouse and actual quantity. ERPNext stock remains authoritative. Posting policy")}: <strong>${frappe.utils.escape_html(flow.material_transfer_posting_mode)}</strong></div>` },
+				{ fieldname: "materials", fieldtype: "Table", label: __("Confirmed Materials"),
+					cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true,
+					fields: material_confirmation_fields(), data },
+				{ fieldname: "confirmation", label: __("Operator Confirmation / Notes"), fieldtype: "Small Text", reqd: 1 },
+			],
+			primary_action_label: flow.material_transfer_posting_mode === "Submit on Operator Confirmation" ? __("Confirm and Submit Transfer") : __("Create Draft Transfer"),
+			primary_action: async (values) => {
+				const lines = (values.materials || []).map((row) => ({ item_code: row.item_code,
+					source_warehouse: row.source_warehouse, qty: row.qty }));
+				await frappe.call({ method: "cfg_kanban.services.production_material_flow.prepare_material_transfer", args: {
+					cycle_name: flow.cycle, job_card: job && job.name, lines,
+					confirmation: values.confirmation,
+					event_token: frappe.utils.get_random(24), operator_session_token: state.session_token,
+				}, freeze: true, freeze_message: __("Preparing ERPNext material transfer...") });
+				dialog.hide();
+				await load_card(state.context.card.qr_code);
+			},
+		});
+		dialog.show();
+	}
+
+	function manufacture_receipt_dialog(flow) {
+		const direct = flow.mode === "Skip WIP Transfer";
+		const data = (flow.materials || []).map((row) => ({
+			item_code: row.item_code, operation: row.operation,
+			source_warehouse: direct ? row.source_warehouse : flow.wip_warehouse,
+			available_qty: direct ? row.available_qty : row.wip_available_qty,
+			qty: Math.max(0, (row.required_qty || 0) - (row.consumed_qty || 0)),
+		}));
+		const dialog = new frappe.ui.Dialog({
+			title: __("Confirm Manufacture Receipt"), size: "extra-large",
+			fields: [
+				{ fieldtype: "HTML", options: `<div class="alert alert-warning">${__("Verify actual input consumption and accepted finished quantity before creating the ERPNext Manufacture entry. Posting policy")}: <strong>${frappe.utils.escape_html(flow.manufacture_posting_mode)}</strong></div>` },
+				{ fieldname: "output_qty", label: __("Accepted Finished Quantity"), fieldtype: "Float", reqd: 1, default: flow.remaining_output_qty },
+				{ fieldname: "target_warehouse", label: __("Finished Goods Warehouse"), fieldtype: "Link", options: "Warehouse", reqd: 1, default: flow.output_warehouse },
+				{ fieldname: "batch_no", label: __("Finished Batch"), fieldtype: "Link", options: "Batch", default: flow.planned_batch,
+					get_query: () => ({ filters: { item: flow.production_item } }),
+					description: __("Required when the finished Item is batch-controlled. Leave blank only when ERPNext can select/create it under the approved Item policy.") },
+				{ fieldname: "materials", fieldtype: "Table", label: __("Actual Input Consumption"),
+					cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true,
+					fields: material_confirmation_fields(), data },
+				{ fieldname: "confirmation", label: __("Operator Confirmation / Notes"), fieldtype: "Small Text", reqd: 1 },
+			],
+			primary_action_label: flow.manufacture_posting_mode === "Submit on Operator Confirmation" ? __("Confirm and Submit Manufacture") : __("Create Draft Manufacture"),
+			primary_action: async (values) => {
+				const lines = (values.materials || []).map((row) => ({ item_code: row.item_code,
+					source_warehouse: row.source_warehouse, qty: row.qty }));
+				await frappe.call({ method: "cfg_kanban.services.production_material_flow.prepare_manufacture_receipt", args: {
+					cycle_name: flow.cycle, output_qty: values.output_qty, target_warehouse: values.target_warehouse,
+					batch_no: values.batch_no, lines, confirmation: values.confirmation,
+					event_token: frappe.utils.get_random(24),
+					operator_session_token: state.session_token,
+				}, freeze: true, freeze_message: __("Preparing ERPNext Manufacture receipt...") });
+				dialog.hide();
+				await load_card(state.context.card.qr_code);
+			},
+		});
+		dialog.show();
+	}
+
 	function render_production_stock_entries(entries, work_order) {
 		if (!work_order) return;
 		const e = frappe.utils.escape_html;
@@ -815,6 +954,19 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				row.trace_status === "Confirmed" ? __("View Confirmed Trace") : __("View ERP-Only Entry");
 			const css = row.can_stage_trace ? "btn-primary" : "btn-default";
 			add_action($actions, label, css, () => operator_material_trace_dialog(row.name));
+			const can_submit = row.submit_permission === "material_transfer" ?
+				state.operator.permissions.material_transfer : state.operator.permissions.production_receipt;
+			if (row.can_submit && can_submit) {
+				add_action($actions, __("Submit ERP Entry"), "btn-success", () => {
+					frappe.confirm(__("Submit {0}? ERPNext stock will change only if all validations pass.", [row.name]), async () => {
+						await frappe.call({ method: "cfg_kanban.services.production_material_flow.submit_production_stock_entry", args: {
+							stock_entry: row.name, event_token: frappe.utils.get_random(24),
+							operator_session_token: state.session_token,
+						}, freeze: true, freeze_message: __("Submitting ERPNext stock entry...") });
+						await load_card(state.context.card.qr_code);
+					});
+				});
+			}
 		});
 	}
 

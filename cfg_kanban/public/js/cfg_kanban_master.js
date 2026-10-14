@@ -19,6 +19,9 @@ frappe.ui.form.on("CFG Kanban Master", {
 			destination_warehouse: frm.doc.destination_warehouse || "",
 			active: 1,
 		} }));
+		frm.set_query("source_warehouse", "material_flow_rules", () => ({ filters: {
+			company: frm.doc.company || "", is_group: 0, disabled: 0,
+		} }));
 	},
 	item_code(frm) {
 		if (!frm.doc.item_code) return;
@@ -33,6 +36,15 @@ frappe.ui.form.on("CFG Kanban Master", {
 	control_type(frm) {
 		refresh_purchase_uom(frm);
 		frm.trigger("refresh");
+	},
+	bom(frm) {
+		if (frm.doc.control_type === "Production" && frm.doc.bom &&
+			!(frm.doc.material_flow_rules || []).length) {
+			frm.set_intro(__("Load BOM Material Flow to verify the Item Operation and source Warehouse for every component."), "orange");
+		}
+	},
+	production_material_mode(frm) {
+		set_production_material_intro(frm);
 	},
 	purchase_uom: refresh_purchase_uom,
 	replenishment_qty: refresh_purchase_uom,
@@ -64,6 +76,11 @@ frappe.ui.form.on("CFG Kanban Master", {
 				frappe.msgprint({ title: __("Threshold Evaluation"), message: detail, indicator: result.signal ? "orange" : "blue" });
 			}, __("Inventory Control"));
 		}
+		if (frm.doc.control_type === "Production" && frm.doc.bom) {
+			frm.add_custom_button(__("Load BOM Material Flow"), () => load_bom_material_flow(frm),
+				__("Production Material"));
+			set_production_material_intro(frm);
+		}
 		if (frm.doc.production_policy === "Customer Make-to-Order") {
 			frm.set_intro(__("MTO mode creates one digital cycle and Batch per Sales Order line. It does not reserve reusable cards or use reorder stock."), "blue");
 		} else if (frm.doc.control_type === "Withdrawal") {
@@ -71,6 +88,54 @@ frappe.ui.form.on("CFG Kanban Master", {
 		}
 	},
 });
+
+function set_production_material_intro(frm) {
+	if (frm.doc.control_type !== "Production") return;
+	const mode = frm.doc.production_material_mode || "Follow ERPNext BOM / Work Order";
+	const messages = {
+		"Transfer to WIP by Job Card": __("Each Job Card receives only BOM components whose Item Operation matches that Job Card. Prepare those materials before completing the Job Card."),
+		"Transfer to WIP by Work Order": __("All required BOM materials are transferred to WIP together for the Work Order."),
+		"Skip WIP Transfer": __("No WIP transfer is created. The final Manufacture entry consumes inputs directly from their configured source Warehouses."),
+		"Follow ERPNext BOM / Work Order": __("ERPNext BOM and Work Order settings decide whether transfer is against the Work Order or Job Card. Kanban still applies the per-component source Warehouses."),
+	};
+	frm.set_intro(messages[mode], "blue");
+}
+
+async function load_bom_material_flow(frm) {
+	if (!frm.doc.bom || !frm.doc.company) {
+		frappe.msgprint(__("Select Company and BOM first."));
+		return;
+	}
+	if ((frm.doc.material_flow_rules || []).length) {
+		const confirmed = await new Promise((resolve) => {
+			frappe.confirm(__("Replace the existing component flow rows from the selected BOM?"),
+				() => resolve(true), () => resolve(false));
+		});
+		if (!confirmed) return;
+	}
+	const response = await frappe.call({
+		method: "cfg_kanban.cfg_kanban.doctype.cfg_kanban_master.cfg_kanban_master.get_bom_material_flow_preview",
+		args: { bom: frm.doc.bom, company: frm.doc.company,
+			default_source_warehouse: frm.doc.source_warehouse },
+		freeze: true,
+		freeze_message: __("Loading BOM components and operations..."),
+	});
+	frm.clear_table("material_flow_rules");
+	(response.message.rows || []).forEach((value) => {
+		const row = frm.add_child("material_flow_rules");
+		Object.assign(row, value);
+	});
+	frm.refresh_field("material_flow_rules");
+	const missing_operation = (response.message.rows || []).filter((row) => !row.operation);
+	const missing_warehouse = (response.message.rows || []).filter((row) => !row.source_warehouse);
+	const warnings = [];
+	if (missing_operation.length) warnings.push(__("{0} component(s) have no Item Operation.", [missing_operation.length]));
+	if (missing_warehouse.length) warnings.push(__("{0} component(s) still need a Source Warehouse.", [missing_warehouse.length]));
+	frappe.show_alert({
+		message: warnings.length ? warnings.join(" ") : __("BOM material flow loaded"),
+		indicator: warnings.length ? "orange" : "green",
+	});
+}
 
 async function refresh_purchase_uom(frm) {
 	if (frm.doc.control_type !== "Purchase Replenishment" || !frm.doc.item_code) return;

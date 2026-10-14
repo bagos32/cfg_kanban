@@ -109,7 +109,7 @@ Use separate identities where practical.
 |---|---|
 | Manufacturing manager/supervisor | Configure Master/Card, approve Signal, review Work Order and Job Cards |
 | Production operator | Scan the Card, start operations, and report progress |
-| Stock or manufacturing user | Create, review, and submit the ERPNext Stock Entry |
+| Stock or manufacturing user | Review Draft production Stock Entries and resolve ERPNext validation issues |
 | Logistics/container operator | Load the two finished Stock Tags into the reusable containers |
 
 The production operator needs an active **CFG Kanban Operator Profile** with:
@@ -157,6 +157,10 @@ Open the active submitted BOM for `RW Noodle` and confirm:
 
 - **With Operations** is enabled.
 - The BOM has all actual raw-material rows and valid quantities.
+- Expand every row under **Items** and set **Item Operation** to the operation that first uses that
+  component. For example, ingredients added at the kettle use `Cooking`; a component introduced
+  only at the tank uses `Moulding`. This field is visible only when **With Operations** is enabled
+  and the Item row is expanded; it is not normally shown as a grid column.
 - Its operation table contains these rows in order:
 
 | Sequence | Operation | Workstation |
@@ -318,6 +322,18 @@ Open **CFG Kanban Master → New**:
 | Allow Partial Output | Yes |
 | Use ERP BOM Operations | Yes |
 | Revision | 1 |
+| Production Material Mode | `Transfer to WIP by Job Card` for this acceptance test |
+| Material Transfer Posting | `Create Draft for Review` for the first test |
+| Manufacture Receipt Posting | `Create Draft for Tag / Batch Review` |
+
+Under **Production Material**, select **Load BOM Material Flow**. Confirm that every BOM component
+appears with its ERPNext **Item Operation**, then select the real **Source Warehouse** for each
+component. Do not type or reinterpret the operation in Kanban: correct it on the ERPNext BOM Item
+row and reload the table.
+
+For a simpler Work Order-wide transfer test, use `Transfer to WIP by Work Order`. Use `Skip WIP
+Transfer` only where the approved ERPNext process consumes inputs directly through the final
+Manufacture Stock Entry.
 
 Add these **Operation Profiles**.
 
@@ -455,14 +471,26 @@ Stop the test if any row is missing. Do not manually create an unrelated second 
 
 ### F5. Satisfy the ERPNext material-transfer prerequisite
 
-Inspect **Skip Transfer** on the generated Work Order:
+Return to **Kanban Operator** and rescan the production Card. Under **Production Material
+Control**, confirm the mode, WIP Warehouse, per-component source Warehouse, required quantity,
+pending quantity, live ERP stock, and any shortage.
 
-- If **Skip Transfer is enabled**, continue to Phase G. ERPNext permits direct material
-  consumption during Manufacture.
-- If **Skip Transfer is disabled**, use the Work Order's standard ERPNext action to create and
-  submit **Material Transfer for Manufacture** for the required materials before operation
-  execution. Confirm the transfer goes from `<Raw Material Warehouse>` to
-  `<Production WIP Warehouse>`.
+Because this test uses `Transfer to WIP by Job Card`, select **Prepare Operation Materials** on the
+Cooking Job Card. Verify every physical source and actual quantity, enter an operator confirmation,
+and create the transfer. With the recommended Draft policy, review the resulting Draft **Material
+Transfer for Manufacture**, then use **Submit ERP Entry** in the Operator panel. Cooking cannot
+start until that ERP transfer is submitted.
+
+Before starting Moulding, repeat the same action for any BOM components whose **Item Operation** is
+`Moulding`. If Moulding has no operation-specific components, ERPNext correctly shows no material
+rows for that Job Card.
+
+Alternative behavior:
+
+- `Transfer to WIP by Work Order`: use **Prepare WIP Transfer** once before the first Job Card.
+- `Skip WIP Transfer`: no WIP transfer is created; live input quantities are reconfirmed in the
+  final Manufacture dialog and consumed from their configured source Warehouses.
+- `Follow ERPNext BOM / Work Order`: existing ERPNext Work Order settings remain authoritative.
 
 Because this first test sets raw materials to **No Physical Tag**, no Handling Unit input scan is
 required. ERPNext stock remains authoritative.
@@ -542,12 +570,21 @@ Expected result:
 - Moulding Job Card completed quantity is `100` and status is Completed/submitted.
 - Both Process Executions remain linked to the same Cycle and Work Order.
 
-## 14. Phase I — Create the ERPNext Manufacture entry
+## 14. Phase I — Prepare the ERPNext Manufacture entry from Kanban
 
-From the effective Work Order, create the standard ERPNext **Manufacture** Stock Entry for the full
-accepted quantity.
+After both Job Cards are completed, rescan the production Card. Under **Production Material
+Control**, select **Prepare Manufacture Receipt**. Confirm:
 
-Before saving, verify:
+- accepted finished quantity `100`;
+- finished-goods Warehouse `<Finished Goods Warehouse>`;
+- the intended finished Batch when the Item is batch-controlled;
+- actual quantities consumed for every input row; and
+- a meaningful operator confirmation note.
+
+Select **Create Draft Manufacture**. CFG Kanban uses ERPNext's native Work Order mapping; it does
+not construct an independent material accounting transaction.
+
+Open the generated Draft and verify:
 
 - Purpose/Stock Entry Type is exactly `Manufacture`.
 - Company matches the Cycle.
@@ -558,7 +595,8 @@ Before saving, verify:
 - If RW Noodle is batch-controlled, the output row contains one valid Batch, for example
   `RWNO-TEST-001`.
 
-Save the Stock Entry as **Draft**. Do not submit it before staging both output tags.
+The resulting Stock Entry remains **Draft** under the recommended policy. Do not submit it before
+staging both output tags.
 
 Expected operator-panel result: after rescanning the batch Card, **Production Material Trace** lists
 the Draft Manufacture Stock Entry with action **Scan Material Tags**.
@@ -614,8 +652,10 @@ the Stock Entry. Never edit or delete a confirmed Handling Unit to correct a Dra
 
 ## 16. Phase K — Submit the Manufacture Stock Entry
 
-The authorized Stock/Manufacturing user must open and review the ERPNext Stock Entry. The floor
-Operator panel deliberately does not submit ERP stock.
+The authorized Stock/Manufacturing user reviews the ERPNext Stock Entry. An operator with Complete
+permission can then use **Submit ERP Entry** in the Kanban Operator panel. If the Master uses
+`Submit on Operator Confirmation`, the same validations run and the entry is submitted directly;
+use that option only after the route is proven and output Batch/tag prerequisites can be satisfied.
 
 Confirm:
 
@@ -636,10 +676,10 @@ Expected result:
 - Both tags show the Work Order and submitted Manufacture Stock Entry as origin evidence.
 - Both tags have `available_qty = 50` and `reserved_qty = 0`.
 - The Cycle receives Manufacture Stock Entry feedback.
-
-Current expected limitation: the Cycle may show **Waiting FG Receipt** after Manufacture submission.
-The app does not yet combine final FG receipt confirmation and return of the reusable physical
-Kanban Card into one automatic closure action. This is not a failure of output tag activation.
+- When the Work Order, all Job Cards, accepted output quantity, and closing Process Task gates are
+  complete, the Cycle becomes **Completed** and the reusable physical Card returns to
+  **Available**. If it remains **Waiting FG Receipt**, use the displayed reconciliation reason;
+  do not delete or manually detach the Cycle.
 
 ## 17. Phase L — Load the two stock tags into the fixed reusable containers
 
@@ -682,6 +722,8 @@ The test passes only when every applicable check below is true.
 
 - [ ] One submitted Work Order exists for the test Cycle.
 - [ ] The Work Order has required materials and both operation rows.
+- [ ] Each required material carries the intended Item Operation and source Warehouse.
+- [ ] Submitted Material Transfer for Manufacture entries cover the relevant Job Card materials.
 - [ ] One Cooking Job Card exists at Kettle and is completed for 100.
 - [ ] One Moulding Job Card exists at Moulding Tank and is completed for 100.
 - [ ] One submitted Manufacture Stock Entry posts 100 RW Noodle to the FG warehouse.
@@ -739,7 +781,7 @@ Stop the test instead of bypassing control when any of these occurs:
 | Second 50-unit tag is rejected | **Allow Receipt Quantity Across Multiple Tags** must be enabled |
 | Stock Entry submission is blocked | Required tag coverage must total the ERP output row exactly |
 | Container rejects Stock Tag | Company/warehouse mismatch, tag reserved, tag already loaded, mixed-content policy |
-| Cycle remains Waiting FG Receipt | Current known physical-card closure limitation; verify tags and ERP stock separately |
+| Cycle remains Waiting FG Receipt | Work Order/Job Card status, accepted Manufacture quantity, active Card/Cycle link, and Before Cycle Close Process Task gates |
 
 Do not solve a failed test by deleting Cycle, Progress, Event, Material Trace, or Handling Unit
 history. Record the failing reference and use controlled cancellation, reconciliation, or recovery.

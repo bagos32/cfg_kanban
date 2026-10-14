@@ -1617,3 +1617,57 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("untagged_erp_qty", report)
         self.assertIn('"Stock Adoption"', install)
         self.assertIn('"existing_stock_allocated_qty"', install)
+
+    def test_production_material_flow_is_bom_mapped_and_operator_controlled(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        master = {row["fieldname"]: row for row in
+                  schemas["CFG Kanban Master"]["fields"]}
+        rule = {row["fieldname"]: row for row in
+                schemas["CFG Kanban Material Flow Rule"]["fields"]}
+        command_options = next(
+            row["options"] for row in schemas["CFG ERP Command"]["fields"]
+            if row["fieldname"] == "command_type"
+        )
+
+        self.assertEqual(master["material_flow_rules"]["options"],
+                         "CFG Kanban Material Flow Rule")
+        self.assertIn("Transfer to WIP by Job Card",
+                      master["production_material_mode"]["options"])
+        self.assertIn("Skip WIP Transfer",
+                      master["production_material_mode"]["options"])
+        self.assertTrue({"item_code", "operation", "source_warehouse",
+                         "bom_qty", "stock_uom"}.issubset(rule))
+        self.assertTrue(rule["item_code"].get("read_only"))
+        self.assertTrue(rule["operation"].get("read_only"))
+        self.assertIn("Create Production Material Transfer", command_options)
+        self.assertIn("Create Production Manufacture Receipt", command_options)
+        self.assertIn("Submit Production Stock Entry", command_options)
+
+        master_controller = (
+            APP_ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_master" /
+            "cfg_kanban_master.py"
+        ).read_text()
+        service = (APP_ROOT / "services" / "production_material_flow.py").read_text()
+        gateway = (APP_ROOT / "integrations" / "erp_gateway.py").read_text()
+        operator = (APP_ROOT / "api" / "operator.py").read_text()
+        panel = (
+            APP_ROOT / "cfg_kanban" / "page" / "kanban_operator" /
+            "kanban_operator.js"
+        ).read_text()
+
+        self.assertIn("Every BOM component needs Item Operation", master_controller)
+        self.assertIn("def get_bom_material_flow_preview", master_controller)
+        self.assertIn("def apply_master_material_flow", service)
+        self.assertIn("def prepare_material_transfer", service)
+        self.assertIn("def prepare_manufacture_receipt", service)
+        self.assertIn("Operator Confirmation / Notes is required", service)
+        self.assertIn("Draft {purpose} {existing} already exists", service)
+        self.assertIn('@handler("Create Production Material Transfer")', gateway)
+        self.assertIn('@handler("Create Production Manufacture Receipt")', gateway)
+        self.assertIn("make_job_transfer", gateway)
+        self.assertIn("make_work_order_entry", gateway)
+        self.assertIn("get_stock_balance", gateway)
+        self.assertIn("_assert_materials_ready_for_job_card", operator)
+        self.assertIn("Production Material Control", panel)
+        self.assertIn("Prepare Operation Materials", panel)
+        self.assertIn("Prepare Manufacture Receipt", panel)

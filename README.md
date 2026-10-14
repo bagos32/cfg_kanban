@@ -30,6 +30,9 @@ The same-Company warehouse replenishment continuation is
 [Package L1 Transfer Kanban System Test](docs/TEST_PACKAGE_L1_TRANSFER_KANBAN.md).
 The controlled consumable/indirect-stock issue continuation is
 [Package L2 Withdrawal Kanban System Test](docs/TEST_PACKAGE_L2_WITHDRAWAL_KANBAN.md).
+The production material-transfer, two-operation execution, Manufacture receipt, finished-output
+tagging, and reusable-container acceptance flow is
+[RW Noodle Two-Operation Batch Production Test](docs/TEST_RW_NOODLE_TWO_OPERATION_BATCH.md).
 The tagged operational-inventory continuation for Items that do not maintain ERPNext stock is
 [Package L2N Non-stock Operational Inventory Test](docs/TEST_PACKAGE_L2_NON_STOCK_OPERATIONAL_INVENTORY.md).
 Package A identity/configuration, Package B intercompany handover, Package C1 customer/vehicle
@@ -65,6 +68,10 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
 - Global settings, Kanban masters, physical/digital cards, and replenishment cycles.
 - Per-operation profiles with dependency/start rules, parallel operation support, full-batch,
   physical-card, automatic, and digital-quantity handoffs.
+- Per-BOM-component source Warehouses and explicit production material modes for Work Order-wide
+  WIP transfer, operation-specific Job Card transfer, or Skip-WIP direct consumption. The Operator
+  panel shows live ERP stock/shortages, captures actual quantities, prepares native ERPNext Stock
+  Entries, and supports controlled Draft review or operator-confirmed submission.
 - Dynamic operator field definitions stored on the master and snapshotted as execution values.
 - Production-linked Process Tasks for preparation, sanitation, quality, clearance, and verification
   gates without creating fake ERPNext Job Cards.

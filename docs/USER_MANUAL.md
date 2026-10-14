@@ -1,9 +1,9 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.32
+**Guide version:** 1.38
 
-**Updated:** 4 October 2026
+**Updated:** 14 October 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
@@ -714,6 +714,53 @@ creates the Job Cards according to its BOM and manufacturing rules.
 When ERPNext creates Job Cards, CFG Kanban mirrors matching BOM Operations into **CFG Kanban
 Process Execution** records. Operations missing from the Master profile are not mirrored.
 
+### Configure material movement and consumption
+
+ERPNext still owns every material transfer, consumption, and finished-goods receipt. CFG Kanban
+adds a controlled floor workflow around ERPNext's native Work Order and Job Card mappings.
+
+On a Production **CFG Kanban Master**, configure these exact fields:
+
+| Screen label (`fieldname`) | Meaning |
+|---|---|
+| Production Material Mode (`production_material_mode`) | Selects native Work Order transfer, operation-specific Job Card transfer, direct consumption without WIP, or legacy ERPNext-following behavior |
+| Material Transfer Posting (`material_transfer_posting_mode`) | Keeps each Material Transfer for Manufacture in Draft for review, or submits it after operator confirmation |
+| Manufacture Receipt Posting (`manufacture_posting_mode`) | Keeps the Manufacture entry in Draft for Batch/tag review, or submits it after operator confirmation |
+| BOM Component Material Flow (`material_flow_rules`) | Read-only BOM Item/Operation snapshot plus the controlled source Warehouse for every component |
+
+Select **Production Material → Load BOM Material Flow** after choosing the submitted BOM. The table
+must be reloaded whenever the BOM's component or Item Operation mapping changes. Set the actual
+source Warehouse on every row.
+
+For `Transfer to WIP by Job Card`, ERPNext's BOM **With Operations** must be enabled and every BOM
+Item row must have **Item Operation**. Expand each BOM Item row to see that field. It means “this
+component is first required by this operation”; the Operation table alone does not assign materials
+to Job Cards. CFG Kanban deliberately refuses to guess this relationship.
+
+The four modes behave as follows:
+
+| Production Material Mode | Floor behavior |
+|---|---|
+| Follow ERPNext BOM / Work Order | Preserves the Work Order's native transfer policy. Existing Masters remain compatible; loaded component source rules are still applied. |
+| Transfer to WIP by Work Order | **Prepare WIP Transfer** appears once for all required materials. Submit that ERP entry before starting a Job Card. |
+| Transfer to WIP by Job Card | **Prepare Operation Materials** appears per Job Card and contains only BOM components assigned to its Item Operation. Submit that operation's transfer before starting it. |
+| Skip WIP Transfer | No transfer is made. The final Manufacture entry consumes confirmed inputs directly from their configured source Warehouses. |
+
+After scanning the production Card, **Production Material Control** shows live ERP stock,
+required/transferred/consumed/pending quantities, shortages, WIP Warehouse, and output Warehouse.
+The operator verifies source Warehouses and actual quantities and must enter **Operator
+Confirmation / Notes**. When a posting policy creates a Draft, **Submit ERP Entry** performs the
+controlled submission; the app blocks a second draft for the same Cycle/purpose/Job Card.
+
+The app blocks Job Card Start while the relevant submitted ERP material transfer is still pending.
+After every Job Card is completed, **Prepare Manufacture Receipt** becomes available. The operator
+confirms accepted output, output Warehouse, optional finished Batch, and actual input consumption.
+The resulting ERPNext Manufacture Stock Entry is the accounting event. Tagged and untagged
+materials may coexist; physical-tag genealogy remains an additional trace layer and never replaces
+ERP stock.
+
+For the complete two-operation example, use `docs/TEST_RW_NOODLE_TWO_OPERATION_BATCH.md`.
+
 ### Start work
 
 In **Kanban Operator**, scan the reusable card and locate the Process Execution. When its status is
@@ -1098,7 +1145,9 @@ For a Draft Stock Entry:
 5. If the complete ERP draft will be discarded, select **Discard Entire Draft Trace**, enter the
    reason, and only then delete the Draft Stock Entry. This releases all tag reservations and keeps
    the Material Trace as Abandoned audit history without retaining a link that blocks ERP deletion.
-6. Submit the Stock Entry through ERPNext. Only then does the trace become Confirmed. Consumption
+6. Submit the Stock Entry through ERPNext or use **Submit ERP Entry** in the scanned Card's
+   Production Material Trace section when the operator has the required action permission. Only
+   then does the trace become Confirmed. Consumption
    reduces input-tag balance; Material Transfer for Manufacture updates the tag's Warehouse; and
    Manufacture/Repack activates output tags from the ERP-confirmed output.
 
@@ -1723,6 +1772,12 @@ exact Select values are:
 - **Output Reporting Mode**: `Completion Only`, `Incremental`.
 - **Handoff Mode**: `Physical Card Handoff`, `Digital Quantity Handoff`, `Full Batch Handoff`,
   `Automatic Handoff`.
+
+**BOM Component Material Flow** (`material_flow_rules`) is loaded from the selected ERPNext BOM.
+Its exact row fields are **BOM Component** (`item_code`, read-only), **Item Operation**
+(`operation`, read-only), **Source Warehouse** (`source_warehouse`), **BOM Qty** (`bom_qty`,
+read-only), and **Stock UOM** (`stock_uom`, read-only). Edit the Item/Operation relationship in the
+BOM, not in this snapshot. The Master refuses missing component rows after this table is loaded.
 
 **Process Task Profiles** (`process_task_profiles`) exact setup fields are **Task Key**
 (`task_key`), **Task Name** (`task_name`), **Sequence** (`sequence`), **Category**
@@ -2807,6 +2862,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.38 | 14 October 2026 | Added per-BOM-component source Warehouses, ERPNext Item Operation validation, Work Order-wide and Job Card-specific WIP transfer modes, Skip-WIP direct consumption, live stock/shortage display, operator-confirmed Draft/automatic posting, duplicate-draft protection, controlled Stock Entry submission, and the revised RW Noodle acceptance flow |
 | 1.37 | 10 October 2026 | Added Warehouse-card adoption of already-posted ERP finished stock, locked ERP-versus-tag balance validation, preprinted tag activation, exact Batch/Serial checks, supervisor reservation to eligible stock-replenishment Cycles, allocation release, Cycle allocation indicators, audit records, and ERP/tag/untagged report columns |
 | 1.36 | 9 October 2026 | Exposed QR printing on every master-backed Card, separated Card identity replacement from printing, recorded Card print time/user, and labelled Transfer and Withdrawal print formats correctly |
 | 1.35 | 9 October 2026 | Added controlled Withdrawal Kanban for non-BOM consumables, independent Stock Withdrawal responsibility, optional tagged/untagged selection, tag reservation, native ERPNext Material Issue posting, submission feedback, Card recycling, cancellation safeguards, Logistics-panel operation, and an independent L2 system test |

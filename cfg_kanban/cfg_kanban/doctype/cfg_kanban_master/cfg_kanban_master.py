@@ -121,8 +121,66 @@ class CFGKanbanMaster(Document):
             frappe.throw("Dynamic operator fields reference unknown Process Tasks: "
                          + ", ".join(unknown_tasks))
         validate_condition_definitions(self.operator_field_definitions)
+        self._validate_production_material_flow()
         self._validate_sales_demand_configuration()
         self._validate_inventory_threshold_configuration()
+
+    def _validate_production_material_flow(self):
+        if self.control_type != "Production":
+            return
+        if not self.bom:
+            frappe.throw("BOM is required for Production control")
+        bom = frappe.get_doc("BOM", self.bom)
+        if bom.docstatus != 1 or not bom.is_active:
+            frappe.throw("Production requires an active submitted BOM")
+        if bom.item != self.item_code or bom.company != self.company:
+            frappe.throw("BOM Item and Company must match the Kanban Master")
+
+        mode = self.get("production_material_mode") or "Follow ERPNext BOM / Work Order"
+        if mode == "Transfer to WIP by Job Card":
+            if not bom.with_operations:
+                frappe.throw("Job Card material transfer requires With Operations on the BOM")
+            missing = [row.item_code for row in bom.items if not row.operation]
+            if missing:
+                frappe.throw(
+                    "Every BOM component needs Item Operation for Job Card transfer: "
+                    + ", ".join(missing)
+                )
+        if mode != "Skip WIP Transfer" and not self.wip_warehouse:
+            frappe.throw("WIP Warehouse is required when materials transfer to WIP")
+        if not self.destination_warehouse:
+            frappe.throw("Destination Warehouse is required for manufactured output")
+
+        bom_keys = {(row.item_code, row.operation or "") for row in bom.items}
+        rule_keys = []
+        for row in self.material_flow_rules:
+            key = (row.item_code, row.operation or "")
+            rule_keys.append(key)
+            if key not in bom_keys:
+                frappe.throw(
+                    f"Material Flow row {row.idx} ({row.item_code} / "
+                    f"{row.operation or 'No Operation'}) is not in BOM {bom.name}"
+                )
+            _validate_warehouse_company(row.source_warehouse, self.company,
+                                        f"Material Flow row {row.idx}")
+        if len(rule_keys) != len(set(rule_keys)):
+            frappe.throw("BOM Component Material Flow cannot repeat the same Item and Operation")
+
+        if self.material_flow_rules:
+            missing_rules = bom_keys - set(rule_keys)
+            if missing_rules:
+                detail = ", ".join(
+                    f"{item} / {operation or 'No Operation'}"
+                    for item, operation in sorted(missing_rules)
+                )
+                frappe.throw("Reload BOM Material Flow; missing component rows: " + detail)
+        for warehouse, label in (
+            (self.source_warehouse, "Source Warehouse"),
+            (self.wip_warehouse, "WIP Warehouse"),
+            (self.destination_warehouse, "Destination Warehouse"),
+        ):
+            if warehouse:
+                _validate_warehouse_company(warehouse, self.company, label)
 
     def _set_item_and_purchase_uom(self):
         if not self.item_code:
@@ -234,3 +292,48 @@ class CFGKanbanMaster(Document):
                 "Automatic threshold control for this Company, Item, and destination "
                 f"Warehouse is already owned by Kanban Master {duplicates[0]}"
             )
+
+
+def _validate_warehouse_company(warehouse, company, label):
+    if not warehouse:
+        frappe.throw(f"{label}: Source Warehouse is required")
+    details = frappe.db.get_value(
+        "Warehouse", warehouse, ["company", "is_group", "disabled"], as_dict=True
+    )
+    if not details:
+        frappe.throw(f"{label}: Warehouse {warehouse} was not found")
+    if details.company != company:
+        frappe.throw(f"{label}: Warehouse belongs to {details.company}, not {company}")
+    if details.is_group or details.disabled:
+        frappe.throw(f"{label}: select an enabled non-group Warehouse")
+
+
+@frappe.whitelist()
+def get_bom_material_flow_preview(bom, company, default_source_warehouse=None):
+    """Return the exact BOM Item-operation map for the editable Master child table."""
+    frappe.has_permission("CFG Kanban Master", ptype="write", throw=True)
+    doc = frappe.get_doc("BOM", bom)
+    if doc.docstatus != 1 or not doc.is_active:
+        frappe.throw("Select an active submitted BOM")
+    if doc.company != company:
+        frappe.throw(f"BOM belongs to {doc.company}, not {company}")
+    rows_by_key = {}
+    for row in doc.items:
+        source = row.get("source_warehouse") or default_source_warehouse
+        key = (row.item_code, row.operation or "")
+        if key in rows_by_key:
+            rows_by_key[key]["bom_qty"] += flt(row.qty)
+        else:
+            rows_by_key[key] = {
+                "item_code": row.item_code,
+                "operation": row.operation,
+                "source_warehouse": source,
+                "bom_qty": flt(row.qty),
+                "stock_uom": row.stock_uom,
+            }
+    return {
+        "bom": doc.name,
+        "transfer_material_against": doc.get("transfer_material_against"),
+        "with_operations": bool(doc.with_operations),
+        "rows": list(rows_by_key.values()),
+    }

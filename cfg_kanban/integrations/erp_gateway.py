@@ -65,6 +65,8 @@ def create_work_order(command, payload):
     if not work_order.required_items:
         frappe.throw(f"BOM {work_order.bom_no} did not provide any required material rows")
     master = frappe.get_doc("CFG Kanban Master", cycle.kanban_master)
+    from cfg_kanban.services.production_material_flow import apply_master_material_flow
+    apply_master_material_flow(work_order, master)
     if master.operation_profiles and not work_order.operations:
         frappe.throw(f"BOM {work_order.bom_no} has no operations. Enable With Operations and "
                      "configure the ERPNext BOM route before creating a Kanban Work Order.")
@@ -1065,6 +1067,13 @@ def reload_draft_work_order_bom(work_order_name):
     if work_order.docstatus != 0:
         frappe.throw("BOM details can only be reloaded into a Draft Work Order")
     work_order.get_items_and_operations_from_bom()
+    master = frappe.get_doc(
+        "CFG Kanban Master",
+        frappe.db.get_value("CFG Kanban Cycle", work_order.cfg_kanban_cycle,
+                            "kanban_master"),
+    )
+    from cfg_kanban.services.production_material_flow import apply_master_material_flow
+    apply_master_material_flow(work_order, master)
     if not work_order.operations:
         frappe.throw(f"BOM {work_order.bom_no} has no operations. Enable With Operations and add the route first.")
     work_order.save()
@@ -1210,6 +1219,129 @@ def complete_job_card(command, payload):
         frappe.throw(f"ERPNext did not complete Job Card {job_card.name}; current status is {job_card.status}")
     job_card._cfg_command_result = _job_card_result(job_card, action="completed")
     return job_card
+
+
+@handler("Create Production Material Transfer")
+def create_production_material_transfer(command, payload):
+    from erpnext.manufacturing.doctype.job_card.job_card import make_stock_entry as make_job_transfer
+    from erpnext.manufacturing.doctype.work_order.work_order import make_stock_entry as make_work_order_entry
+
+    work_order = frappe.get_doc("Work Order", payload["work_order"])
+    if work_order.docstatus != 1:
+        frappe.throw("Material transfer requires a submitted Work Order")
+    job_card = payload.get("job_card")
+    if job_card:
+        job = frappe.get_doc("Job Card", job_card)
+        if job.work_order != work_order.name or job.docstatus != 0:
+            frappe.throw("Material transfer requires an editable Job Card from this Work Order")
+        entry = make_job_transfer(job.name)
+    else:
+        entry = frappe.get_doc(make_work_order_entry(
+            work_order.name, "Material Transfer for Manufacture", qty=work_order.qty
+        ))
+    _apply_confirmed_production_lines(entry, payload.get("lines") or [])
+    entry.cfg_kanban_controlled = 1
+    entry.cfg_kanban_cycle = command.kanban_cycle
+    entry.cfg_kanban_signal = command.source_signal
+    entry.insert(ignore_permissions=True)
+    if payload.get("submit"):
+        entry.submit()
+    return entry
+
+
+@handler("Create Production Manufacture Receipt")
+def create_production_manufacture_receipt(command, payload):
+    from erpnext.manufacturing.doctype.work_order.work_order import make_stock_entry
+
+    work_order = frappe.get_doc("Work Order", payload["work_order"])
+    if work_order.docstatus != 1:
+        frappe.throw("Manufacture receipt requires a submitted Work Order")
+    entry = frappe.get_doc(make_stock_entry(
+        work_order.name, "Manufacture", qty=flt(payload["output_qty"])
+    ))
+    confirmed = payload.get("lines") or []
+    if confirmed:
+        _apply_confirmed_production_lines(entry, confirmed, input_only=True)
+    target = payload["target_warehouse"]
+    batch_no = payload.get("batch_no")
+    for row in entry.items:
+        if row.t_warehouse and not row.s_warehouse:
+            row.t_warehouse = target
+            if batch_no and row.item_code == work_order.production_item:
+                row.batch_no = batch_no
+    entry.to_warehouse = target
+    entry.cfg_kanban_controlled = 1
+    entry.cfg_kanban_cycle = command.kanban_cycle
+    entry.cfg_kanban_signal = command.source_signal
+    entry.insert(ignore_permissions=True)
+    if payload.get("submit"):
+        entry.submit()
+    return entry
+
+
+@handler("Submit Production Stock Entry")
+def submit_production_stock_entry(command, payload):
+    entry = frappe.get_doc("Stock Entry", payload["stock_entry"])
+    if entry.docstatus == 1:
+        return entry
+    if entry.docstatus != 0 or entry.get("cfg_kanban_cycle") != command.kanban_cycle:
+        frappe.throw("ERP Command can submit only its own Draft production Stock Entry")
+    if entry.purpose not in ("Material Transfer for Manufacture", "Manufacture",
+                             "Material Consumption for Manufacture"):
+        frappe.throw("Stock Entry is not a supported production transaction")
+    entry.submit()
+    return entry
+
+
+def _apply_confirmed_production_lines(entry, confirmed, input_only=False):
+    """Restrict operator confirmation to rows generated by ERPNext's native mapper."""
+    remaining = {}
+    for value in confirmed:
+        key = (value.get("item_code"), value.get("source_warehouse"))
+        remaining[key] = remaining.get(key, 0) + flt(value.get("qty"))
+    expected_items = {row.item_code for row in entry.items
+                      if row.s_warehouse and (not input_only or not row.t_warehouse)}
+    unexpected = {item for item, _warehouse in remaining if item not in expected_items}
+    if unexpected:
+        frappe.throw("Confirmed material is outside the ERPNext production mapping: "
+                     + ", ".join(sorted(unexpected)))
+    applied = {}
+    applied_rows = {}
+    for row in entry.items:
+        if not row.s_warehouse or (input_only and row.t_warehouse):
+            continue
+        candidates = [(key, qty) for key, qty in remaining.items()
+                      if key[0] == row.item_code and qty > 0]
+        if not candidates:
+            frappe.throw(f"Confirm the actual quantity and Source Warehouse for {row.item_code}")
+        key, qty = candidates[0]
+        mapped_qty = flt(row.qty)
+        applied_qty = min(qty, mapped_qty)
+        row.s_warehouse = key[1]
+        row.qty = applied_qty
+        applied[key] = applied.get(key, 0) + applied_qty
+        applied_rows[key] = row
+        remaining[key] = max(0, qty - applied_qty)
+    if input_only:
+        # ERPNext Manufacture supports recording actual consumption above the BOM estimate.
+        # Keep that variance on the native mapped row and let ERPNext validate it on save/submit.
+        for key, qty in remaining.items():
+            if qty > 0.000001 and key in applied_rows:
+                applied_rows[key].qty = flt(applied_rows[key].qty) + qty
+                applied[key] = applied.get(key, 0) + qty
+                remaining[key] = 0
+    unused = [item for (item, _warehouse), qty in remaining.items() if qty > 0.000001]
+    if unused:
+        frappe.throw("Confirmed quantity could not be mapped to ERP rows: "
+                     + ", ".join(sorted(unused)))
+    from erpnext.stock.utils import get_stock_balance
+    for (item_code, warehouse), qty in applied.items():
+        available = flt(get_stock_balance(item_code, warehouse))
+        if qty > available + 0.000001:
+            frappe.throw(
+                f"Insufficient ERPNext stock for {item_code} in {warehouse}: "
+                f"confirmed {qty}, available {available}"
+            )
 
 
 def _job_card_result(job_card, action, **details):

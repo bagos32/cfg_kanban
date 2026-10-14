@@ -18,6 +18,8 @@ ACTION_FLAGS = {
     "task_start": "can_start",
     "task_complete": "can_complete",
     "task_verify": "can_verify_tasks",
+    "material_transfer": "can_start",
+    "production_receipt": "can_complete",
 }
 
 
