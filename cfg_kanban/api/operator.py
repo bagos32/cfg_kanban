@@ -1,3 +1,5 @@
+import hashlib
+
 import frappe
 from frappe.utils import cint, flt, get_url, now_datetime
 
@@ -134,9 +136,7 @@ def get_scanner_command_sheet(quantity_steps=None):
 @frappe.whitelist()
 def get_card_context(token, operator_session_token=None):
     profile, _session = require_operator(operator_session_token)
-    card_name = frappe.db.get_value(
-        "CFG Kanban Card", {"qr_code": token}, "name"
-    ) or frappe.db.get_value("CFG Kanban Card", {"card_number": token}, "name")
+    card_name = _resolve_card_name(token)
     if not card_name:
         frappe.throw("Kanban card was not found")
     card = frappe.get_doc("CFG Kanban Card", card_name)
@@ -311,6 +311,86 @@ def get_card_context(token, operator_session_token=None):
         "workstation_queue_card": False,
         "production_reconciliation": production_reconciliation,
     }
+
+
+@frappe.whitelist()
+def get_card_live_revision(token, operator_session_token=None):
+    """Return a cheap change token without rebuilding the operator card context."""
+    require_operator(operator_session_token)
+    card_name = _resolve_card_name(token)
+    if not card_name:
+        frappe.throw("Kanban card was not found")
+    card = frappe.db.get_value(
+        "CFG Kanban Card", card_name,
+        ["name", "card_type", "current_state", "active_cycle", "current_station",
+         "task_schedule", "asset", "location_reference", "modified"],
+        as_dict=True,
+    )
+    markers = [
+        f"card:{card.name}:{card.current_state}:{card.active_cycle or ''}:{card.modified}"
+    ]
+    signal_modified = frappe.db.get_value(
+        "CFG Kanban Signal", {"kanban_card": card.name}, "max(modified)"
+    )
+    if signal_modified:
+        markers.append(f"signal:{signal_modified}")
+
+    cycle = None
+    if card.active_cycle:
+        cycle = frappe.db.get_value(
+            "CFG Kanban Cycle", card.active_cycle,
+            ["name", "status", "work_order", "modified"], as_dict=True,
+        )
+    if cycle:
+        markers.append(f"cycle:{cycle.name}:{cycle.status}:{cycle.modified}")
+        for doctype, filters in (
+            ("CFG Kanban Process Execution", {"kanban_cycle": cycle.name}),
+            ("CFG Kanban Operation Summary", {"kanban_cycle": cycle.name}),
+            ("CFG Kanban Process Task", {"kanban_cycle": cycle.name}),
+            ("CFG ERP Command", {"kanban_cycle": cycle.name}),
+        ):
+            modified = frappe.db.get_value(doctype, filters, "max(modified)")
+            if modified:
+                markers.append(f"{doctype}:{modified}")
+        if cycle.work_order:
+            for doctype, filters in (
+                ("Work Order", {"name": cycle.work_order}),
+                ("Job Card", {"work_order": cycle.work_order, "docstatus": ["<", 2]}),
+                ("Stock Entry", {"work_order": cycle.work_order, "docstatus": ["<", 2]}),
+            ):
+                modified = frappe.db.get_value(doctype, filters, "max(modified)")
+                if modified:
+                    markers.append(f"{doctype}:{modified}")
+    elif card.card_type == "Workstation Queue Card" and card.current_station:
+        modified = frappe.db.get_value(
+            "CFG Kanban Dispatch Queue",
+            {"workstation": card.current_station,
+             "dispatch_status": ["not in", ("Completed", "Cancelled")]},
+            "max(modified)",
+        )
+        if modified:
+            markers.append(f"queue:{modified}")
+    elif card.card_type in ("Asset Card", "Location Card", "Task Card"):
+        filters = {"status": ["not in", ("Completed", "Cancelled")]}
+        if card.card_type == "Asset Card":
+            filters["asset"] = card.asset
+        elif card.card_type == "Location Card":
+            filters["location"] = card.location_reference
+        else:
+            filters["task_schedule"] = card.task_schedule
+        modified = frappe.db.get_value("CFG Kanban Task", filters, "max(modified)")
+        if modified:
+            markers.append(f"task:{modified}")
+
+    revision = hashlib.sha256("|".join(markers).encode("utf-8")).hexdigest()
+    return {"card": card.name, "revision": revision, "checked_at": now_datetime()}
+
+
+def _resolve_card_name(token):
+    return (
+        frappe.db.get_value("CFG Kanban Card", {"qr_code": token}, "name")
+        or frappe.db.get_value("CFG Kanban Card", {"card_number": token}, "name")
+    )
 
 
 def _workstation_queue_context(card, profile):

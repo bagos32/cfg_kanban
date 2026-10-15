@@ -228,6 +228,22 @@ session across parallel tabs. If an operator logs in or switches identity on one
 latest identity. Refreshing operational data never signs the ERPNext terminal user out. A stale tab
 cannot delete a newer session created in another tab.
 
+### Live production-card updates and current-work navigation
+
+After a production Card is scanned, the Production Operator Panel checks a lightweight change
+revision approximately every 12 seconds. Supervisor approval, Cycle release, Job Card/operation
+status, Process Task, ERP command, Work Order, and production Stock Entry changes therefore appear
+without rescanning the Card. The complete Card context is downloaded only when that revision changes.
+
+The compact sticky **Current action** strip shows **Connecting**, **Live**, **Checking**, or a retry
+warning, followed by the most relevant blocking, in-progress, or ready action. **Go to current work**
+scrolls directly to that operation/task/material block. When an external update changes actionable
+work, the panel flashes, shows a short update alert, and normally scrolls to the new current action.
+It preserves the operator's position instead when they recently touched or manually scrolled the
+screen. Automatic checking also pauses while a dialog is open and resumes when the page is visible.
+Use **Refresh** on the Current action strip for an immediate check; scanning remains available at all
+times and scanner focus is restored after live navigation.
+
 ### Operation work, production Process Tasks, and maintenance Tasks
 
 These are different records and must not be used interchangeably.

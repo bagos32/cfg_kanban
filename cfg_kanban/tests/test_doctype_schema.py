@@ -1118,6 +1118,15 @@ class TestDocTypeSchema(TestCase):
             self.assertIn("sync_session_from_storage", panel)
             self.assertIn("stored_token ===", panel)
         self.assertIn("Refresh Operator Session", operator_panel)
+        self.assertIn("get_card_live_revision", operator_panel)
+        self.assertIn("check_live_updates", operator_panel)
+        self.assertIn("Go to current work", operator_panel)
+        self.assertIn("scrollIntoView", operator_panel)
+
+        operator_api = (APP_ROOT / "api" / "operator.py").read_text()
+        self.assertIn("def get_card_live_revision", operator_api)
+        self.assertIn('hashlib.sha256', operator_api)
+        self.assertIn('"CFG Kanban Process Execution"', operator_api)
 
         card_controller = (APP_ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_card" /
                            "cfg_kanban_card.py").read_text()

@@ -239,6 +239,73 @@
 	display: block;
 }
 
+.cfg-live-current-action {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 7px 12px;
+	border: 1px solid var(--border-color);
+	border-top: 0;
+	border-left: 5px solid var(--blue-500);
+	border-radius: 0 0 var(--border-radius) var(--border-radius);
+	background: var(--card-bg);
+}
+
+.cfg-live-action-copy,
+.cfg-live-action-buttons {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+}
+
+.cfg-live-action-copy {
+	min-width: 0;
+}
+
+.cfg-live-action-copy > div {
+	min-width: 0;
+}
+
+.cfg-live-action-copy small,
+.cfg-live-action-copy strong,
+.cfg-live-action-copy span:not(.indicator-pill) {
+	display: block;
+}
+
+.cfg-live-action-copy strong,
+.cfg-live-action-copy span:not(.indicator-pill) {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.cfg-live-action-copy small {
+	font-size: 10px;
+	line-height: 1;
+	text-transform: uppercase;
+}
+
+.cfg-live-action-copy strong {
+	font-size: 14px;
+	line-height: 1.25;
+}
+
+.cfg-live-action-copy span:not(.indicator-pill) {
+	max-width: 560px;
+	font-size: 11px;
+	color: var(--text-muted);
+}
+
+.cfg-live-update-flash {
+	animation: cfg-live-update-pulse 1.1s ease-in-out 2;
+}
+
+@keyframes cfg-live-update-pulse {
+	0%, 100% { box-shadow: none; }
+	50% { box-shadow: inset 0 0 0 4px rgba(59, 130, 246, 0.5); }
+}
+
 .cfg-work-section-heading {
 	display: flex;
 	align-items: center;
@@ -299,6 +366,22 @@
 }
 
 @media (max-width: 767px) {
+	.cfg-live-current-action {
+		align-items: stretch;
+		flex-direction: column;
+		gap: 6px;
+		padding: 7px 9px;
+	}
+
+	.cfg-live-action-buttons {
+		display: grid;
+		grid-template-columns: 1fr auto;
+	}
+
+	.cfg-live-action-buttons .btn {
+		min-height: 34px;
+	}
+
 	.cfg-panel-switcher {
 		align-items: stretch;
 		flex-direction: column;

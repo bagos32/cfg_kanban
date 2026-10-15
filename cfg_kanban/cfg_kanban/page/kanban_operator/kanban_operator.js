@@ -6,11 +6,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	});
 
 	const session_key = "cfg_kanban_operator_session";
+	const live_poll_ms = 12000;
+	const manual_scroll_guard_ms = 8000;
 	const state = { context: null, operator: null, access: null,
 		session_token: localStorage.getItem(session_key), awaiting_operator_scan: false,
 		active_progress_dialog: null, active_material_trace_dialog: null,
 		pending_process_task: null, scanner_message: __("Scanner ready"),
-		modal_scan_buffer: "", modal_scan_at: 0 };
+		modal_scan_buffer: "", modal_scan_at: 0, live_revision: null,
+		live_request: false, live_timer: null, live_checked_at: null,
+		last_operator_interaction_at: 0, auto_scrolling: false, current_live_focus: null };
 	const scan = page.add_field({
 		label: __("Fixed scanner input — scan any card"),
 		fieldtype: "Data",
@@ -26,6 +30,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	const $scanner_status = $(`<div class="cfg-scanner-status" aria-live="polite"></div>`)
 		.appendTo($sticky_header);
 	const $operator_identity = $("<div class='cfg-production-identity'></div>").appendTo($sticky_header);
+	const $current_action = $("<div class='cfg-live-current-action'></div>")
+		.appendTo($sticky_header).hide();
 	const $root = $("<div class='cfg-kanban-operator cfg-active-work-region mt-3'></div>").appendTo(page.main);
 	const $panel_switcher = $(`<div class="cfg-panel-switcher mt-3 mb-3">
 		<div><strong>${__("Production Operator Panel")}</strong><small>${__("Use this panel for production cards, operations, and process tasks.")}</small></div>
@@ -50,6 +56,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	page.add_inner_button(__("Camera Scan (F4)"), scan_kanban_qr);
 	page.add_inner_button(__("Scanner Help (F1)"), show_scanner_help);
 	install_scanner_shortcuts();
+	install_live_updates();
 
 	async function load_console() {
 		const response = await frappe.call({ method: "cfg_kanban.api.operator.get_console_access" });
@@ -107,8 +114,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		state.session_token = stored_token;
 		state.operator = null;
 		state.context = null;
+		state.live_revision = null;
+		state.current_live_focus = null;
 		state.awaiting_operator_scan = false;
 		$operator_identity.empty();
+		$current_action.hide().empty();
 		return true;
 	}
 
@@ -118,8 +128,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		state.session_token = null;
 		state.operator = null;
 		state.context = null;
+		state.live_revision = null;
+		state.current_live_focus = null;
 		state.awaiting_operator_scan = false;
 		$operator_identity.empty();
+		$current_action.hide().empty();
 	}
 
 	function activate_operator(message) {
@@ -157,7 +170,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	function clear_for_next_card() {
 		scan.set_value("");
 		state.context = null;
+		state.live_revision = null;
+		state.current_live_focus = null;
 		state.awaiting_operator_scan = false;
+		$current_action.hide().empty();
 		set_scanner_message(__("Ready for next Kanban card"), "green");
 		render();
 		focus_scanner();
@@ -280,6 +296,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	async function process_scan(raw_value) {
 		const value = String(raw_value || "").trim();
 		if (!value) return;
+		state.last_operator_interaction_at = Date.now();
 		scan.set_value("");
 		if (await dispatch_scanner_command(value)) return;
 		if (!state.operator || state.awaiting_operator_scan) {
@@ -444,6 +461,187 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}, 80);
 	}
 
+	function install_live_updates() {
+		if (state.live_timer) window.clearInterval(state.live_timer);
+		state.live_timer = window.setInterval(check_live_updates, live_poll_ms);
+		$(document).off("visibilitychange.cfg_kanban_live").on("visibilitychange.cfg_kanban_live", () => {
+			if (!document.hidden) window.setTimeout(check_live_updates, 500);
+		});
+		$(wrapper).off("wheel.cfg_kanban_live touchstart.cfg_kanban_live pointerdown.cfg_kanban_live")
+			.on("wheel.cfg_kanban_live touchstart.cfg_kanban_live pointerdown.cfg_kanban_live", () => {
+				if (!state.auto_scrolling) state.last_operator_interaction_at = Date.now();
+			});
+	}
+
+	async function check_live_updates(force) {
+		if (state.live_request || document.hidden || !$(wrapper).is(":visible") ||
+			!state.operator || !state.context || !state.context.card ||
+			(!force && $(".modal:visible").length)) return;
+		state.live_request = true;
+		set_live_connection(__("Checking"), "orange");
+		try {
+			const response = await frappe.call({
+				method: "cfg_kanban.api.operator.get_card_live_revision",
+				args: { token: state.context.card.qr_code || state.context.card.card_number,
+					operator_session_token: state.session_token },
+				error: () => {},
+			});
+			const live = response.message || {};
+			state.live_checked_at = live.checked_at;
+			if (!state.live_revision) {
+				state.live_revision = live.revision;
+				set_live_connection(__("Live"), "green");
+				return;
+			}
+			if (live.revision === state.live_revision) {
+				set_live_connection(__("Live"), "green");
+				return;
+			}
+			await refresh_live_card(live.revision);
+		} catch (error) {
+			set_live_connection(__("Connection interrupted — retrying"), "red");
+		} finally {
+			state.live_request = false;
+		}
+	}
+
+	async function refresh_live_card(revision) {
+		const old_context = state.context;
+		const card_token = old_context.card.qr_code || old_context.card.card_number;
+		const response = await frappe.call({
+			method: "cfg_kanban.api.operator.get_card_context",
+			args: { token: card_token, operator_session_token: state.session_token },
+			error: () => {},
+		});
+		if (!state.context || state.context.card.name !== old_context.card.name) return;
+		const old_focus = current_live_action(old_context)?.key;
+		const scroll_container = live_scroll_container();
+		const previous_scroll = scroll_container ? scroll_container.scrollTop : 0;
+		const recent_manual_interaction =
+			Date.now() - state.last_operator_interaction_at < manual_scroll_guard_ms;
+		state.context = response.message;
+		state.live_revision = revision;
+		const message = describe_live_change(old_context, state.context);
+		render();
+		set_live_connection(__("Live — updated"), "green");
+		$root.addClass("cfg-live-update-flash");
+		window.setTimeout(() => $root.removeClass("cfg-live-update-flash"), 2200);
+		frappe.show_alert({ message, indicator: "blue" }, 7);
+		const new_focus = current_live_action(state.context)?.key;
+		window.requestAnimationFrame(() => {
+			if (recent_manual_interaction && scroll_container) {
+				scroll_container.scrollTop = previous_scroll;
+			} else if (new_focus && (new_focus !== old_focus || message)) {
+				scroll_to_live_action(false);
+			}
+		});
+		focus_scanner();
+	}
+
+	function set_live_connection(label, colour) {
+		const $status = $current_action.find(".cfg-live-connection");
+		if (!$status.length) return;
+		$status.attr("class", `indicator-pill ${colour || "green"} cfg-live-connection`)
+			.text(label);
+	}
+
+	function current_live_action(context) {
+		if (!context || !context.card) return null;
+		if (context.work_order_attention?.severity === "warning") {
+			return { key: "work-order-attention", title: __("Work Order attention required"),
+				detail: context.work_order_attention.message, status: __("Attention"), colour: "orange" };
+		}
+		const blocking_task = (context.process_tasks || []).find((row) =>
+			row.blocking && ["Blocked", "Awaiting Verification"].includes(row.status));
+		if (blocking_task) return { key: `task:${blocking_task.name}`, title: blocking_task.task_name,
+			detail: __("Blocking process task requires attention"), status: blocking_task.status,
+			colour: indicator(blocking_task.status) };
+		const active_execution = (context.executions || []).find((row) => row.status === "In Progress");
+		if (active_execution) return execution_live_action(active_execution);
+		const active_task = (context.process_tasks || []).find((row) => row.status === "In Progress");
+		if (active_task) return { key: `task:${active_task.name}`, title: active_task.task_name,
+			detail: active_task.workstation || active_task.linked_operation || __("Process task"),
+			status: active_task.status, colour: "blue" };
+		const ready_execution = (context.executions || []).find((row) => row.status === "Ready");
+		if (ready_execution) return execution_live_action(ready_execution);
+		const ready_task = (context.process_tasks || []).find((row) => row.status === "Ready");
+		if (ready_task) return { key: `task:${ready_task.name}`, title: ready_task.task_name,
+			detail: ready_task.workstation || ready_task.linked_operation || __("Process task"),
+			status: ready_task.status, colour: "green" };
+		const flow = context.production_material_flow;
+		if (flow?.has_shortage || flow?.restricted_material_attention || flow?.has_pending_materials ||
+			(flow?.all_job_cards_completed && flow?.remaining_output_qty > 0.000001)) {
+			return { key: "production-material", title: __("Production material control"),
+				detail: flow.has_shortage ? __("Material shortage requires attention") :
+					flow.all_job_cards_completed ? __("Manufacture receipt is ready") :
+					__("Material preparation is pending"),
+				status: flow.has_shortage ? __("Attention") : __("Ready"),
+				colour: flow.has_shortage ? "orange" : "green" };
+		}
+		return { key: "active-card", title: context.card.card_number,
+			detail: context.cycle ? `${__("Cycle")}: ${context.cycle.status}` : __("Waiting for activation"),
+			status: context.card.current_state, colour: indicator(context.card.current_state) };
+	}
+
+	function execution_live_action(row) {
+		return { key: `execution:${row.name}`, title: `${row.sequence}.${row.lane_sequence || 1} ${row.operation}`,
+			detail: `${row.workstation || __("No workstation")} · ${row.good_qty || 0} / ${row.target_qty || row.allocated_qty || 0}`,
+			status: row.status, colour: indicator(row.status) };
+	}
+
+	function render_live_current_action() {
+		const action = current_live_action(state.context);
+		if (!state.operator || !action) {
+			$current_action.hide().empty();
+			return;
+		}
+		state.current_live_focus = action.key;
+		const e = frappe.utils.escape_html;
+		$current_action.html(`<div class="cfg-live-action-copy">
+			<span class="indicator-pill ${action.colour} cfg-live-connection">${state.live_checked_at ? __("Live") : __("Connecting")}</span>
+			<div><small>${__("Current action")}</small><strong>${e(action.title)}</strong>
+				<span>${e(action.detail || "")}</span></div>
+			<span class="indicator-pill ${action.colour}">${e(action.status)}</span></div>
+			<div class="cfg-live-action-buttons"><button class="btn btn-primary btn-sm cfg-go-current-work">${__("Go to current work")}</button>
+			<button class="btn btn-default btn-sm cfg-refresh-live">${__("Refresh")}</button></div>`).show();
+		$current_action.find(".cfg-go-current-work").on("click", () => scroll_to_live_action(true));
+		$current_action.find(".cfg-refresh-live").on("click", () => check_live_updates(true));
+	}
+
+	function scroll_to_live_action(force) {
+		if (!state.current_live_focus || (!force &&
+			Date.now() - state.last_operator_interaction_at < manual_scroll_guard_ms)) return;
+		const target = $root.find("[data-live-focus]").filter((index, element) =>
+			$(element).attr("data-live-focus") === state.current_live_focus).get(0);
+		if (!target) return;
+		state.auto_scrolling = true;
+		target.scrollIntoView({ behavior: "smooth", block: "center" });
+		window.setTimeout(() => { state.auto_scrolling = false; focus_scanner(); }, 900);
+	}
+
+	function live_scroll_container() {
+		return $root.closest(".layout-main-section-wrapper").get(0) || document.scrollingElement;
+	}
+
+	function describe_live_change(before, after) {
+		if (!before.cycle && after.cycle) return __("Supervisor approval received — production has been released");
+		const old_executions = Object.fromEntries((before.executions || []).map((row) => [row.name, row]));
+		const changed_execution = (after.executions || []).find((row) =>
+			!old_executions[row.name] || old_executions[row.name].status !== row.status);
+		if (changed_execution) return __("{0} is now {1}", [changed_execution.operation, changed_execution.status]);
+		const old_tasks = Object.fromEntries((before.process_tasks || []).map((row) => [row.name, row]));
+		const changed_task = (after.process_tasks || []).find((row) =>
+			!old_tasks[row.name] || old_tasks[row.name].status !== row.status);
+		if (changed_task) return __("{0} is now {1}", [changed_task.task_name, changed_task.status]);
+		if (before.effective_work_order?.status !== after.effective_work_order?.status) {
+			return __("Work Order status changed to {0}", [after.effective_work_order?.status || __("Not assigned")]);
+		}
+		if (before.cycle?.status !== after.cycle?.status) {
+			return __("Kanban Cycle status changed to {0}", [after.cycle?.status || __("Completed")]);
+		}
+		return __("The open Kanban card was updated");
+	}
+
 	function set_scanner_message(message, color) {
 		state.scanner_message = message;
 		const indicator_color = color || "green";
@@ -584,8 +782,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				freeze_message: __("Loading Kanban card..."),
 			});
 			state.context = response.message;
+			state.live_revision = null;
+			state.live_checked_at = null;
 			set_scanner_message(__("Card loaded. Scan another card at any time."), "green");
 			render();
+			window.setTimeout(check_live_updates, 500);
 		} finally {
 			focus_scanner();
 		}
@@ -599,6 +800,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			state.awaiting_operator_scan ? "orange" : "green");
 		$card_camera.toggle(Boolean(state.operator));
 		if (!state.operator) {
+			$current_action.hide().empty();
 			$operator_identity.html(`<div class="cfg-production-identity-empty">
 				<strong>${__("No active operator")}</strong><small>${__("Scan an operator credential to begin.")}</small></div>
 				<button class="btn btn-default btn-sm refresh-shared-session">${__("Refresh Session")}</button>`);
@@ -630,6 +832,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				.appendTo($root).on("click", show_development_proxy_login);
 		}
 		if (!state.context) {
+			$current_action.hide().empty();
 			$root.append(`<div class="cfg-work-section-heading"><div><h3>${__("Active Work")}</h3>
 				<small>${__("The scanned production card and its current execution appear here.")}</small></div>
 				<span class="indicator-pill grey">0 ${__("Active")}</span></div>
@@ -645,6 +848,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			work_orders, route_warnings, production_reconciliation } = state.context;
 		if (workstation_queue_card) {
 			render_workstation_queue(card, workstation_queue || {});
+			render_live_current_action();
 			return;
 		}
 		const cycle_label = cycle ? `${document_link("cfg-kanban-cycle", cycle.name)}${status_line(cycle.status)}` : __("No active cycle");
@@ -657,7 +861,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		$root.append(`<div class="cfg-work-section-heading"><div><h3>${__("Active Work")}</h3>
 			<small>${__("Current scanned production card, ERP status, tasks and execution lanes.")}</small></div>
 			<span class="indicator-pill blue">1 ${__("Selected")}</span></div>
-			<div class="frappe-card p-4 mb-4 cfg-active-production-card">
+			<div class="frappe-card p-4 mb-4 cfg-active-production-card" data-live-focus="active-card">
 			<div class="d-flex justify-content-between align-items-start flex-wrap">
 				<div><div class="d-flex align-items-center flex-wrap"><h3 class="mr-3 mb-1">${e(card.card_number)}</h3>
 					<span class="indicator-pill blue mb-1">${e(card.card_type || __("Unspecified Card Type"))}</span></div>
@@ -687,7 +891,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (work_order_attention) {
 			const attention_class = work_order_attention.severity === "info" ? "alert-info" : "alert-warning";
 			const button_class = work_order_attention.severity === "info" ? "btn-info" : "btn-warning";
-			$root.append(`<div class="alert ${attention_class} d-flex justify-content-between align-items-center flex-wrap">
+			$root.append(`<div class="alert ${attention_class} d-flex justify-content-between align-items-center flex-wrap" data-live-focus="work-order-attention">
 				<div><strong>${__("ERP Work Order attention required")}</strong><br>${e(work_order_attention.message)}</div>
 				<a class="btn ${button_class} btn-sm mt-2" href="/app/work-order/${encodeURIComponent(work_order_attention.work_order)}">${__("Open Work Order")}</a>
 			</div>`);
@@ -709,6 +913,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				});
 			}
 			render_service_tasks(service_tasks || []);
+			render_live_current_action();
 			return;
 		}
 		if (!cycle && card.current_state === "Available" && state.operator.permissions.consume) {
@@ -732,6 +937,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		render_process_tasks(process_tasks || []);
 		render_summaries(operation_summaries || []);
 		render_executions(executions || []);
+		render_live_current_action();
 	}
 
 	function render_service_tasks(tasks) {
@@ -751,7 +957,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		$root.append(`<div class="cfg-work-section-heading"><div><h3>${__("Workstation Queue")}</h3>
 			<small>${__("Permanent station view. Scan another production card at any time.")}</small></div>
 			<span class="indicator-pill blue">${e(queue.total || 0)} ${__("Open")}</span></div>
-			<div class="frappe-card p-4 mb-4 cfg-active-production-card">
+			<div class="frappe-card p-4 mb-4 cfg-active-production-card" data-live-focus="active-card">
 				<div class="d-flex justify-content-between align-items-start flex-wrap"><div>
 					<div class="d-flex align-items-center flex-wrap"><h3 class="mr-3 mb-1">${e(queue.workstation || card.current_station)}</h3>
 					<span class="indicator-pill blue mb-1">${__("Workstation Queue Card")}</span></div>
@@ -794,7 +1000,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const e = frappe.utils.escape_html;
 		const shortage_count = (flow.materials || []).filter((row) => row.shortage_qty > 0.000001).length;
 		const restricted_attention = Boolean(flow.restricted_material_attention);
-		const $section = $(`<div class="cfg-production-material-section"><div class="d-flex justify-content-between align-items-center flex-wrap">
+		const $section = $(`<div class="cfg-production-material-section" data-live-focus="production-material"><div class="d-flex justify-content-between align-items-center flex-wrap">
 			<h4>${__("Production Material Control")}</h4>
 			<span class="indicator-pill ${shortage_count || restricted_attention ? "red" : "green"}">${shortage_count ? __("{0} Visible Shortage(s)", [shortage_count]) : restricted_attention ? __("Restricted Material Attention") : __("Stock Checked")}</span>
 		</div><div class="frappe-card p-3 mb-3">
@@ -1174,7 +1380,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			const reuse = task.reused_from_task
 				? `<div class="text-success"><small>${__("Valid completion reused from")}: ${e(task.reused_from_task)}</small></div>` : "";
 			const qc = task.qc_controlled ? `<div><small>${__("QC")}: <strong>${e(task.qc_result || "Pending")}</strong>${task.sample_id ? ` · ${__("Sample")}: ${e(task.sample_id)}` : ""}</small></div>` : "";
-			const $row = $(`<div class="frappe-card p-3 mb-2"><div class="row align-items-center">
+			const $row = $(`<div class="frappe-card p-3 mb-2" data-live-focus="task:${e(task.name)}"><div class="row align-items-center">
 				<div class="col-md-4"><strong>${e(task.sequence)}. ${e(task.task_name)}</strong><br>
 					<small>${e(task.task_type || "")} · ${e(task.trigger_point || "")}</small>
 					${task.linked_operation ? `<div class="text-muted">${__("Operation")}: ${e(task.linked_operation)}</div>` : ""}${qc}${reuse}</div>
@@ -1494,7 +1700,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const e = frappe.utils.escape_html;
 		const $section = $("<div><h4>" + __("Job Card Execution Lanes") + "</h4></div>").appendTo($root);
 		executions.forEach((row) => {
-			const $row = $(`<div class="frappe-card p-3 mb-2">
+			const $row = $(`<div class="frappe-card p-3 mb-2" data-live-focus="execution:${e(row.name)}">
 				<div class="row align-items-center">
 				<div class="col-md-3"><strong>${e(row.sequence)}.${e(row.lane_sequence || 1)} ${e(row.operation)}</strong><div class="text-muted">${e(row.workstation || "")}</div>
 					<small>${__("Job Card")}: ${document_link("job-card", row.job_card)}</small>
