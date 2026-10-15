@@ -194,6 +194,8 @@ def get_card_context(token, operator_session_token=None):
     work_order_attention = None
     process_tasks = []
     if cycle:
+        from cfg_kanban.integrations.erp_feedback import reconcile_cycle_job_card_progress
+        reconcile_cycle_job_card_progress(cycle.name)
         ensure_tasks(cycle.name)
         refresh_task_readiness(cycle.name)
         process_tasks = frappe.get_all(
@@ -303,6 +305,7 @@ def get_card_context(token, operator_session_token=None):
         "work_orders": work_orders,
         "route_warnings": route_warnings,
         "operation_summaries": operation_summaries,
+        "production_progress": _production_progress(operation_summaries),
         "production_stock_entries": production_stock_entries,
         "production_material_flow": production_material_flow,
         "process_tasks": process_tasks,
@@ -310,6 +313,26 @@ def get_card_context(token, operator_session_token=None):
         "service_identity_card": False,
         "workstation_queue_card": False,
         "production_reconciliation": production_reconciliation,
+    }
+
+
+def _production_progress(summaries):
+    """Return a compact route-level view without replacing per-operation results."""
+    if not summaries:
+        return None
+    rows = sorted(summaries, key=lambda row: (flt(row.sequence), row.operation or ""))
+    route_target = sum(flt(row.target_qty) for row in rows)
+    route_good = sum(min(flt(row.good_qty), flt(row.target_qty)) for row in rows)
+    final = rows[-1]
+    return {
+        "route_good_qty": route_good,
+        "route_target_qty": route_target,
+        "route_percent": min(100, (route_good / route_target * 100) if route_target else 0),
+        "completed_operations": sum(row.status == "Completed" for row in rows),
+        "operation_count": len(rows),
+        "final_operation": final.operation,
+        "final_good_qty": flt(final.good_qty),
+        "final_target_qty": flt(final.target_qty),
     }
 
 

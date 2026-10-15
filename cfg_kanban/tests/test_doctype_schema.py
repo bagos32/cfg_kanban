@@ -1123,11 +1123,20 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Go to current work", operator_panel)
         self.assertIn("scrollIntoView", operator_panel)
         self.assertIn("preventScroll: true", operator_panel)
+        self.assertIn("Overall route progress", operator_panel)
 
         operator_api = (APP_ROOT / "api" / "operator.py").read_text()
         self.assertIn("def get_card_live_revision", operator_api)
         self.assertIn('hashlib.sha256', operator_api)
         self.assertIn('"CFG Kanban Process Execution"', operator_api)
+        self.assertIn("def _production_progress", operator_api)
+
+        feedback = (APP_ROOT / "integrations" / "erp_feedback.py").read_text()
+        self.assertIn("def _release_mirrored_job_card_progress", feedback)
+        self.assertIn("def reconcile_cycle_job_card_progress", feedback)
+        self.assertIn("if not execution_doc.runtime_allocation", feedback)
+        self.assertIn("releasable_increment", feedback)
+        self.assertIn("reconcile_cycle_job_card_progress(cycle.name)", operator_api)
 
         card_controller = (APP_ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_card" /
                            "cfg_kanban_card.py").read_text()

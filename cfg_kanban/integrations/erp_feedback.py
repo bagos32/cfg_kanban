@@ -3,7 +3,8 @@ from frappe.utils import flt, now_datetime
 
 from cfg_kanban.services.events import record
 from cfg_kanban.services.operation_summary import (ensure_summary, ready_executions,
-                                                    ready_next_sequential_lane, recalculate)
+                                                    ready_next_sequential_lane, recalculate,
+                                                    refresh_destination)
 from cfg_kanban.services.state_machine import set_cycle_state, transition_card
 
 
@@ -275,30 +276,92 @@ def on_work_order_cancel(doc, method=None):
 
 
 def on_job_card_update(doc, method=None):
-    if not _cycle(doc):
+    cycle_name = _cycle(doc)
+    if not cycle_name:
         return
+    _sync_job_card_execution(doc, cycle_name, emit_event=True)
+
+
+def reconcile_cycle_job_card_progress(cycle_name):
+    """Repair a main production Cycle from its authoritative ERP Job Cards."""
+    rows = frappe.get_all(
+        "CFG Kanban Process Execution",
+        filters={"kanban_cycle": cycle_name},
+        fields=["job_card", "runtime_allocation"],
+    )
+    job_cards = {row.job_card for row in rows if row.job_card and not row.runtime_allocation}
+    for job_card in job_cards:
+        if frappe.db.exists("Job Card", job_card):
+            _sync_job_card_execution(frappe.get_doc("Job Card", job_card), cycle_name,
+                                     emit_event=False)
+
+
+def _sync_job_card_execution(doc, cycle_name, emit_event=False):
     execution = frappe.db.get_value("CFG Kanban Process Execution", {
-        "job_card": doc.name, "kanban_cycle": doc.cfg_kanban_cycle,
+        "job_card": doc.name, "kanban_cycle": cycle_name,
     }, "name")
-    if execution:
-        execution_doc = frappe.get_doc("CFG Kanban Process Execution", execution)
-        status = "Completed" if doc.status == "Completed" else "In Progress" if doc.status == "Work In Progress" else None
-        if status:
-            values = {"status": status}
-            # A runtime execution is one card-sized allocation, while the Job Card
-            # quantity is cumulative across multiple reusable-card cycles.
-            if status == "Completed" and not execution_doc.runtime_allocation:
-                values.update({"good_qty": flt(doc.total_completed_qty), "processed_qty": flt(doc.total_completed_qty)})
-            frappe.db.set_value("CFG Kanban Process Execution", execution, values)
-            if status == "Completed":
-                from cfg_kanban.services.progress import complete_execution_handoff
-                from cfg_kanban.services.process_tasks import evaluate_gate
-                complete_execution_handoff(execution)
-                evaluate_gate(doc.cfg_kanban_cycle, "After Operation Complete", doc.operation)
-                ready_next_sequential_lane(frappe.get_doc("CFG Kanban Process Execution", execution))
-            recalculate(doc.cfg_kanban_cycle, doc.operation)
-        record("Job Card Feedback", cycle=doc.cfg_kanban_cycle, execution=execution,
+    if not execution:
+        return False
+    execution_doc = frappe.get_doc("CFG Kanban Process Execution", execution)
+    status = ("Completed" if doc.status == "Completed" else
+              "In Progress" if doc.status == "Work In Progress" else None)
+    values = {"status": status} if status and status != execution_doc.status else {}
+    # The production Cycle is the Work Order/Job Card overview. A separate
+    # Process or Station Card owns only its card-sized runtime allocation.
+    # Mirror ERPNext's cumulative Job Card result into the non-runtime
+    # execution so both cards show one authoritative quantity without
+    # posting it to ERPNext a second time.
+    if not execution_doc.runtime_allocation:
+        erp_good_qty = flt(doc.total_completed_qty)
+        erp_processed_qty = erp_good_qty + flt(execution_doc.reject_qty)
+        if flt(execution_doc.good_qty) != erp_good_qty:
+            values["good_qty"] = erp_good_qty
+        if flt(execution_doc.processed_qty) != erp_processed_qty:
+            values["processed_qty"] = erp_processed_qty
+    became_completed = status == "Completed" and execution_doc.status != "Completed"
+    if values:
+        frappe.db.set_value("CFG Kanban Process Execution", execution, values)
+    released = False
+    if not execution_doc.runtime_allocation:
+        released = _release_mirrored_job_card_progress(
+            execution_doc, flt(doc.total_completed_qty)
+        )
+    if became_completed:
+        from cfg_kanban.services.progress import complete_execution_handoff
+        from cfg_kanban.services.process_tasks import evaluate_gate
+        complete_execution_handoff(execution)
+        evaluate_gate(cycle_name, "After Operation Complete", doc.operation)
+        ready_next_sequential_lane(frappe.get_doc("CFG Kanban Process Execution", execution))
+    if values or released or became_completed:
+        recalculate(cycle_name, doc.operation)
+    if emit_event and (values or released or became_completed):
+        record("Job Card Feedback", cycle=cycle_name, execution=execution,
                reference_doctype=doc.doctype, reference_name=doc.name, new_state=status)
+    return bool(values or released or became_completed)
+
+
+def _release_mirrored_job_card_progress(execution, total_good):
+    """Release incremental main-cycle WIP mirrored from a shared ERP Job Card."""
+    if execution.handoff_mode != "Digital Quantity Handoff":
+        return False
+    from cfg_kanban.services.wip import append_entry, releasable_increment
+
+    release = releasable_increment(total_good, execution.released_qty,
+                                   execution.transfer_multiple)
+    if not release:
+        return False
+    append_entry(
+        execution.kanban_cycle, "Released", release,
+        source_execution=execution.name,
+        source_operation=execution.operation,
+        destination_operation=execution.destination_operation,
+        notes=("ERPNext Job Card progress mirrored from a separate Process or "
+               "Station Kanban runtime allocation"),
+    )
+    execution.db_set("released_qty", flt(execution.released_qty) + release)
+    refresh_destination(execution.kanban_cycle, execution.operation,
+                        execution.destination_operation)
+    return True
 
 
 def on_job_card_cancel(doc, method=None):

@@ -245,6 +245,13 @@ Use **Refresh** on the Current action strip for an immediate check; scanning rem
 times. Scanner focus is restored invisibly after live navigation without moving the page back to the
 scanner field, so the operator remains at the selected current-work block.
 
+When a separate Process or Station Kanban Card reports against a Job Card belonging to an open
+Production Card, ERPNext remains the quantity authority. The Production Card mirrors the cumulative
+Job Card quantity into its own execution lane and Operation Result without writing the quantity back
+to ERPNext again. Digital handoff quantities are released incrementally into the Production Cycle,
+so dependent operations can become ready. **Overall route progress** shows cumulative progress across
+all configured operations, completed-operation count, and the final operation's output separately.
+
 ### Operation work, production Process Tasks, and maintenance Tasks
 
 These are different records and must not be used interchangeably.

@@ -852,7 +852,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			return;
 		}
 		const { card, master, cycle, effective_work_order, work_order_attention, selected_job_card,
-			executions, operation_summaries, production_stock_entries, production_material_flow,
+			executions, operation_summaries, production_progress, production_stock_entries, production_material_flow,
 			process_tasks, service_tasks,
 			service_identity_card, workstation_queue_card, workstation_queue,
 			work_orders, route_warnings, production_reconciliation } = state.context;
@@ -868,6 +868,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const purchase_equivalent = master.control_type === "Purchase Replenishment" && master.purchase_uom
 			? `<div class="text-muted"><small>${__("Planned supplier order")}: ${e(master.purchase_replenishment_qty || 0)} ${e(master.purchase_uom)} · ${__("1 {0} = {1} {2}", [master.purchase_uom, master.purchase_uom_conversion_factor || 1, master.stock_uom || ""])}</small></div>`
 			: "";
+		const overall_progress = production_progress ? `<div class="cfg-production-route-progress mt-3">
+			<div class="d-flex justify-content-between"><strong>${__("Overall route progress")}</strong>
+				<strong>${e(Number(production_progress.route_percent || 0).toFixed(1))}%</strong></div>
+			<div class="progress mt-1 mb-1"><div class="progress-bar" role="progressbar"
+				style="width:${Math.max(0, Math.min(100, Number(production_progress.route_percent || 0)))}%"></div></div>
+			<small>${__("Cumulative operations")}: ${e(production_progress.route_good_qty || 0)} / ${e(production_progress.route_target_qty || 0)} ·
+				${__("Completed operations")}: ${e(production_progress.completed_operations || 0)} / ${e(production_progress.operation_count || 0)} ·
+				${e(production_progress.final_operation || "-")}: ${e(production_progress.final_good_qty || 0)} / ${e(production_progress.final_target_qty || 0)}</small>
+		</div>` : "";
 		$root.append(`<div class="cfg-work-section-heading"><div><h3>${__("Active Work")}</h3>
 			<small>${__("Current scanned production card, ERP status, tasks and execution lanes.")}</small></div>
 			<span class="indicator-pill blue">1 ${__("Selected")}</span></div>
@@ -885,7 +894,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				<div class="col-sm-2"><small>${__("Automation")}</small><div>${e(master.automation_level)}</div></div>
 				<div class="col-sm-3"><small>${__("Cycle")}</small><div>${cycle_label}</div></div>
 				<div class="col-sm-3"><small>${__("Effective Work Order")}</small><div>${work_order_label}</div></div>
-			</div><div class="cfg-card-actions mt-4"></div>
+			</div>${overall_progress}<div class="cfg-card-actions mt-4"></div>
 		</div>`);
 		(route_warnings || []).forEach((warning) => $root.append(
 			`<div class="alert alert-warning">${e(warning)}</div>`));
