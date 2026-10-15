@@ -432,6 +432,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				handle_confirmation_scanner_value(active_dialog, value);
 				return true;
 			}
+			const trace_dialog = state.active_material_trace_dialog?.dialog;
+			if (trace_dialog?.$wrapper && trace_dialog.$wrapper.is(":visible") &&
+				$top_modal.is(trace_dialog.$wrapper)) {
+				handle_material_trace_scan(trace_dialog, value);
+				return true;
+			}
 			if (value.toUpperCase() === "CFG:CMD:CONFIRM") {
 				confirm_visible_dialog();
 				return true;
@@ -475,8 +481,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				}
 				const trace_dialog = state.active_material_trace_dialog?.dialog;
 				if (trace_dialog?.$wrapper && $top_modal.is(trace_dialog.$wrapper)) {
-					const trace_field = trace_dialog.get_field("input_scan")?.wrapper?.offsetParent
-						? trace_dialog.get_field("input_scan") : trace_dialog.get_field("output_scan");
+					const trace_field = trace_dialog.get_field("trace_scan");
 					if (trace_field) return trace_field.set_focus();
 				}
 				if (attempt < 8) return restore_scanner_focus(attempt + 1);
@@ -1444,6 +1449,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			title: __("Production Material Trace: {0}", [stock_entry]), size: "extra-large",
 			fields: [
 				{ fieldname: "summary", fieldtype: "HTML" },
+				{ fieldname: "trace_scanner_status", fieldtype: "HTML" },
+				{ fieldname: "trace_scan", label: __("Scanner Ready — Scan Material Tag or Command"), fieldtype: "Data",
+					description: __("This field remains armed. A physical tag is matched to its ERP row automatically. Scan Submit Materials when staging is complete, or Cancel to close.") },
 				{ fieldname: "input_section", label: __("Scan Tagged Material Input"), fieldtype: "Section Break" },
 				{ fieldname: "input_row", label: __("Matched ERP Input Row"), fieldtype: "Select", read_only: 1,
 					description: __("The scanned tag automatically selects the matching Item, Warehouse, UOM, Batch, and remaining ERP row.") },
@@ -1525,6 +1533,16 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		dialog.fields_dict.lines.$wrapper.html(operator_trace_lines(plan));
 		const input_visible = plan.can_edit && input_options.length;
 		const output_visible = plan.can_edit && output_options.length;
+		const scanner_instruction = input_visible
+			? __("Scanner ready for an INPUT handling-unit tag. The Item, Warehouse, UOM, Batch, and ERP row are selected automatically.")
+			: output_visible
+				? __("All required input tags are staged. Scanner ready for an unused OUTPUT tag.")
+				: plan.can_submit
+					? __("Tag staging is complete. Scan Submit Materials to post the ERPNext entry.")
+					: __("No physical tag scan is required for the remaining ERP rows.");
+		dialog.fields_dict.trace_scanner_status.$wrapper.html(
+			`<div class="alert alert-success py-2"><strong>${__("Scanner Ready")}</strong><br>${scanner_instruction}</div>`
+		);
 		["input_section", "input_row", "input_scan", "input_camera", "input_qty", "allocate_input"]
 			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(input_visible)));
 		["output_section", "output_row", "output_scan", "output_camera", "output_qty",
@@ -1553,6 +1571,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			});
 			bind_operator_trace_enter(dialog, "output_scan", "stage_output");
 		}
+		bind_material_trace_scanner(dialog);
 		dialog.fields_dict.lines.$wrapper.find("[data-cancel-operator-trace-line]").off("click").on("click", async (event) => {
 			await frappe.call({ method: "cfg_kanban.services.production_trace.cancel_trace_line", args: {
 				stock_entry: plan.stock_entry, trace_line: event.currentTarget.dataset.cancelOperatorTraceLine,
@@ -1560,11 +1579,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			}, freeze: true, freeze_message: __("Releasing staged trace line...") });
 			await reload();
 		});
-		window.setTimeout(() => {
-			const field = input_visible ? dialog.get_field("input_scan") :
-				output_visible ? dialog.get_field("output_scan") : null;
-			if (field) field.set_focus();
-		}, 80);
+		window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
 	}
 
 	async function update_operator_output_serial_field(dialog, row) {
@@ -1583,6 +1598,40 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(value)) return dialog.hide();
 			dialog.get_field(action_field).$input.trigger("click");
 		});
+	}
+
+	function bind_material_trace_scanner(dialog) {
+		const field = dialog.get_field("trace_scan");
+		field.$input.attr({ autocomplete: "off", inputmode: "none" });
+		field.$input.off("keydown.cfg_material_trace_scanner")
+			.on("keydown.cfg_material_trace_scanner", (event) => {
+				if (event.key !== "Enter" && event.key !== "Tab") return;
+				event.preventDefault();
+				handle_material_trace_scan(dialog, field.$input.val());
+			});
+	}
+
+	async function handle_material_trace_scan(dialog, raw_value) {
+		const value = String(raw_value || "").trim();
+		const command = value.toUpperCase();
+		await dialog.set_value("trace_scan", "");
+		if (!value) return dialog.get_field("trace_scan").set_focus();
+		if (command === "CFG:CMD:SUBMIT_MATERIALS" || command === "CFG:CMD:CONFIRM") {
+			return submit_scanner_material_entry();
+		}
+		if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(command)) return dialog.hide();
+		const input_field = dialog.get_field("input_scan");
+		if (input_field && $(input_field.wrapper).is(":visible")) {
+			await dialog.set_value("input_scan", value);
+			return dialog.get_field("allocate_input").$input.trigger("click");
+		}
+		const output_field = dialog.get_field("output_scan");
+		if (output_field && $(output_field.wrapper).is(":visible")) {
+			await dialog.set_value("output_scan", value);
+			return dialog.get_field("stage_output").$input.trigger("click");
+		}
+		frappe.show_alert({ message: __("No physical tag is required at the current material stage."), indicator: "orange" });
+		window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
 	}
 
 	function operator_trace_row_option(row) {

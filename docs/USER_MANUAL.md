@@ -1503,6 +1503,14 @@ in that first confirmation dialog. After the Draft appears, scan `CFG:CMD:SCAN_M
 the physical input tags, and finally scan `CFG:CMD:SUBMIT_MATERIALS`. A scanner-confirmed preparation
 is held as Draft until this final submit command even if the Master normally auto-submits.
 
+The **Production Material Trace** window has a dedicated **Scanner Ready — Scan Material Tag or
+Command** field. Operators do not select an ERP row manually: each physical input tag is matched to
+the correct Item, Warehouse, UOM, Batch, and remaining Stock Entry row and allocated immediately.
+When all tagged inputs are complete, the same field advances to unused output-tag staging where an
+output row exists. Scans captured before browser focus reaches this field are routed back into this
+window instead of being interpreted as a new Kanban card. Rows marked **No Physical Tag** require no
+scan and remain controlled by the ERPNext Stock Entry.
+
 The camera scanner remains available over HTTPS. Offline queue and device enrollment are not yet
 implemented.
 
