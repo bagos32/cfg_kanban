@@ -141,8 +141,6 @@ def stage_output_tag(stock_entry, item_row, scan_value, qty,
                      handling_unit_type="Container", operator_session_token=None,
                      kanban_card=None, serial_numbers=None):
     qty = flt(qty)
-    if qty <= 0:
-        frappe.throw("Output tag quantity must be positive")
     try:
         visible_code = normalize_physical_code(scan_value)
     except ValueError as exc:
@@ -165,6 +163,8 @@ def stage_output_tag(stock_entry, item_row, scan_value, qty,
     if policy.require_batch and not batch_no:
         frappe.throw(f"Item {row.item_code} requires a Batch before an output tag can be staged")
     _validate_unused_main_tag(visible_code)
+    if qty <= 0:
+        frappe.throw("Output tag quantity must be positive")
     existing_pending = frappe.db.get_value(
         "CFG Kanban Material Trace Line",
         {"pending_tag_code": visible_code, "status": ["in", ["Pending", "Confirmed"]]},
@@ -717,12 +717,20 @@ def _resolve_input_row(doc, trace, unit, row_name=None):
             frappe.throw("The selected Stock Entry row is not a material input")
         return row
 
+    remaining_rows = [
+        row for row in doc.items
+        if row.s_warehouse and _remaining_row_qty(doc, trace, row, "Input") > TOLERANCE
+    ]
+    item_rows = [row for row in remaining_rows if row.item_code == unit.item_code]
+    if not item_rows:
+        expected_items = ", ".join(dict.fromkeys(row.item_code for row in remaining_rows))
+        frappe.throw(
+            f"Item {unit.item_code} from tag {unit.handling_unit_id} is not in the "
+            f"remaining Stock Entry input list: {expected_items or 'none'}"
+        )
+
     candidates = []
-    for row in doc.items:
-        if not row.s_warehouse or _remaining_row_qty(doc, trace, row, "Input") <= TOLERANCE:
-            continue
-        if row.item_code != unit.item_code:
-            continue
+    for row in item_rows:
         if row.s_warehouse != unit.current_warehouse:
             continue
         if row.stock_uom != unit.stock_uom:
@@ -733,8 +741,9 @@ def _resolve_input_row(doc, trace, unit, row_name=None):
 
     if not candidates:
         frappe.throw(
-            f"No remaining Stock Entry input matches tag {unit.handling_unit_id}. "
-            "Check Item, source Warehouse, UOM, Batch, and the unallocated ERP quantity."
+            f"Item {unit.item_code} exists in the input list, but tag "
+            f"{unit.handling_unit_id} does not match its source Warehouse, UOM, Batch, "
+            "or remaining ERP quantity."
         )
     return candidates[0]
 

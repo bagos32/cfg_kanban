@@ -1521,6 +1521,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	}
 
 	async function refresh_operator_trace_dialog(dialog, plan, reload) {
+		dialog.cfg_trace_plan = plan;
 		const inputs = (plan.rows || []).filter((row) => row.direction === "Input" &&
 			row.tagging_available && row.remaining_qty > 0.000001);
 		const outputs = (plan.rows || []).filter((row) => row.direction === "Output" &&
@@ -1620,13 +1621,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			return submit_scanner_material_entry();
 		}
 		if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(command)) return dialog.hide();
-		const input_field = dialog.get_field("input_scan");
-		if (input_field && $(input_field.wrapper).is(":visible")) {
+		const pending_inputs = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
+			row.direction === "Input" && row.tagging_available && row.remaining_qty > 0.000001);
+		const pending_outputs = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
+			row.direction === "Output" && row.tagging_available && row.remaining_qty > 0.000001);
+		if (pending_inputs.length) {
 			await dialog.set_value("input_scan", value);
 			return dialog.get_field("allocate_input").$input.trigger("click");
 		}
-		const output_field = dialog.get_field("output_scan");
-		if (output_field && $(output_field.wrapper).is(":visible")) {
+		if (pending_outputs.length) {
 			await dialog.set_value("output_scan", value);
 			return dialog.get_field("stage_output").$input.trigger("click");
 		}

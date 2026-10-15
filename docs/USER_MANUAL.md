@@ -1511,6 +1511,12 @@ output row exists. Scans captured before browser focus reaches this field are ro
 window instead of being interpreted as a new Kanban card. Rows marked **No Physical Tag** require no
 scan and remain controlled by the ERPNext Stock Entry.
 
+The scanner determines the active stage from the Stock Entry's pending input/output rows, not from
+the visual position of fields in the popup. If a scanned Handling Unit belongs to an Item outside
+the remaining input list, the system identifies that Item and rejects it without allocating or
+staging the tag. If the Item is expected but its Warehouse, UOM, Batch, or remaining quantity does
+not match, the message identifies those conditions separately.
+
 The camera scanner remains available over HTTPS. Offline queue and device enrollment are not yet
 implemented.
 
