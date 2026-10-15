@@ -775,6 +775,11 @@ controlled submission; the app blocks a second draft for the same Cycle/purpose/
 The app blocks Job Card Start while the relevant submitted ERP material transfer is still pending.
 After every Job Card is completed, **Prepare Manufacture Receipt** becomes available. The operator
 confirms accepted output, output Warehouse, optional finished Batch, and actual input consumption.
+For a batch-controlled finished Item, the operator may enter a Batch number to use or create that
+exact Batch. If the field is left blank, CFG Kanban does not invent a number: ERPNext generates the
+Batch during Stock Entry submission when the Item's native automatic Batch creation settings permit
+it. A Cycle with a pre-approved planned Batch (for example, controlled make-to-order production)
+keeps that Batch locked and cannot switch to a different one at receipt.
 The resulting ERPNext Manufacture Stock Entry is the accounting event. Tagged and untagged
 materials may coexist; physical-tag genealogy remains an additional trace layer and never replaces
 ERP stock.

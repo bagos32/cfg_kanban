@@ -2,7 +2,7 @@ import json
 
 import frappe
 from frappe.model.naming import get_default_naming_series
-from frappe.utils import add_to_date, flt, get_datetime, now_datetime
+from frappe.utils import add_days, add_to_date, cint, cstr, flt, get_datetime, now_datetime, today
 from erpnext.manufacturing.doctype.work_order.work_order import get_item_details
 
 from cfg_kanban.services.state_machine import set_cycle_state, transition_card
@@ -1272,7 +1272,9 @@ def create_production_manufacture_receipt(command, payload):
             server_manage_restricted_items=payload.get("server_manage_restricted_items"),
         )
     target = payload["target_warehouse"]
-    batch_no = payload.get("batch_no")
+    batch_no = _resolve_manufacture_batch(
+        work_order.production_item, payload.get("batch_no")
+    )
     for row in entry.items:
         if row.t_warehouse and not row.s_warehouse:
             row.t_warehouse = target
@@ -1286,6 +1288,38 @@ def create_production_manufacture_receipt(command, payload):
     if payload.get("submit"):
         entry.submit()
     return entry
+
+
+def _resolve_manufacture_batch(item_code, requested_batch):
+    """Resolve/create an explicit Batch; a blank value remains native ERPNext territory."""
+    requested = cstr(requested_batch).strip()
+    if not requested:
+        return None
+    existing = (
+        frappe.db.get_value("Batch", requested, ["name", "item"], as_dict=True)
+        or frappe.db.get_value(
+            "Batch", {"batch_id": requested}, ["name", "item"], as_dict=True
+        )
+    )
+    if existing:
+        if existing.item != item_code:
+            frappe.throw(f"Batch {requested} does not belong to Item {item_code}")
+        return existing.name
+
+    item = frappe.db.get_value(
+        "Item", item_code, ["has_batch_no", "shelf_life_in_days"], as_dict=True
+    )
+    if not item or not cint(item.has_batch_no):
+        frappe.throw(f"Item {item_code} is not configured for Batch tracking")
+    values = {
+        "doctype": "Batch",
+        "batch_id": requested,
+        "item": item_code,
+        "manufacturing_date": today(),
+    }
+    if cint(item.shelf_life_in_days):
+        values["expiry_date"] = add_days(today(), cint(item.shelf_life_in_days))
+    return frappe.get_doc(values).insert(ignore_permissions=True).name
 
 
 @handler("Submit Production Stock Entry")

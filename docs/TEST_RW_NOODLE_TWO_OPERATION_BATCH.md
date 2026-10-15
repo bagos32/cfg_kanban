@@ -578,7 +578,8 @@ Control**, select **Prepare Manufacture Receipt**. Confirm:
 
 - accepted finished quantity `100`;
 - finished-goods Warehouse `<Finished Goods Warehouse>`;
-- the intended finished Batch when the Item is batch-controlled;
+- the intended finished Batch when the Item is batch-controlled, or leave it blank to verify
+  ERPNext's native automatic Batch generation at submission;
 - actual quantities consumed for every input row; and
 - a meaningful operator confirmation note.
 
@@ -593,8 +594,9 @@ Open the generated Draft and verify:
 - Source warehouse follows the Work Order's Skip Transfer/WIP configuration.
 - Target warehouse is `<Finished Goods Warehouse>`.
 - The finished Item row is `RW Noodle`, quantity `100`, correct Stock UOM.
-- If RW Noodle is batch-controlled, the output row contains one valid Batch, for example
-  `RWNO-TEST-001`.
+- If RW Noodle is batch-controlled and a Batch was entered, the output row contains that valid
+  Batch, for example `RWNO-TEST-001`. If it was left blank, submit the entry and verify ERPNext
+  creates the Batch using the Item's automatic Batch settings.
 
 The resulting Stock Entry remains **Draft** under the recommended policy. Do not submit it before
 staging both output tags.

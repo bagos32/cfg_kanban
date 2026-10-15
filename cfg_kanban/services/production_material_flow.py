@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import flt, now_datetime
+from frappe.utils import cint, cstr, flt, now_datetime
 from erpnext.stock.utils import get_stock_balance
 
 from cfg_kanban.integrations.erp_gateway import execute_command
@@ -272,6 +272,7 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
         _assert_warehouse_company(row["source_warehouse"], work_order.company)
     target = target_warehouse or master.destination_warehouse or work_order.fg_warehouse
     _assert_warehouse_company(target, work_order.company)
+    batch_no = _validated_finished_batch(cycle, work_order, batch_no)
     _assert_no_open_production_entry(
         cycle.name, work_order.name, "Manufacture"
     )
@@ -311,6 +312,43 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
                   f"Operator confirmation: {confirmation}"))
     return {"command": command.name, "stock_entry": entry.name,
             "docstatus": entry.docstatus, "duplicate": not created}
+
+
+def _validated_finished_batch(cycle, work_order, batch_no):
+    """Accept an existing/new operator Batch, or leave ERPNext to generate one."""
+    requested = cstr(batch_no).strip()
+    planned = cstr(cycle.get("batch_no")).strip()
+    if planned:
+        if requested and requested != planned:
+            frappe.throw(
+                f"Finished Batch must use the Cycle planned Batch {planned}"
+            )
+        return planned
+    if not requested:
+        # A blank value is intentional. ERPNext may create the Batch during submission
+        # according to the finished Item's native Batch settings.
+        return None
+
+    item = frappe.db.get_value(
+        "Item", work_order.production_item, ["has_batch_no"], as_dict=True
+    )
+    if not item or not cint(item.has_batch_no):
+        frappe.throw(
+            f"Finished Item {work_order.production_item} is not Batch-controlled; "
+            "leave Finished Batch blank"
+        )
+    existing = (
+        frappe.db.get_value("Batch", requested, ["name", "item"], as_dict=True)
+        or frappe.db.get_value(
+            "Batch", {"batch_id": requested}, ["name", "item"], as_dict=True
+        )
+    )
+    if existing and existing.item != work_order.production_item:
+        frappe.throw(
+            f"Batch {requested} belongs to a different Item and cannot receive "
+            f"{work_order.production_item}"
+        )
+    return existing.name if existing else requested
 
 
 @frappe.whitelist()

@@ -910,9 +910,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				{ fieldtype: "HTML", options: `<div class="alert alert-warning">${__("Verify actual input consumption and accepted finished quantity before creating the ERPNext Manufacture entry. Posting policy")}: <strong>${frappe.utils.escape_html(flow.manufacture_posting_mode)}</strong></div>` },
 				{ fieldname: "output_qty", label: __("Accepted Finished Quantity"), fieldtype: "Float", reqd: 1, default: flow.remaining_output_qty },
 				{ fieldname: "target_warehouse", label: __("Finished Goods Warehouse"), fieldtype: "Link", options: "Warehouse", reqd: 1, default: flow.output_warehouse },
-				{ fieldname: "batch_no", label: __("Finished Batch"), fieldtype: "Link", options: "Batch", default: flow.planned_batch,
-					get_query: () => ({ filters: { item: flow.production_item } }),
-					description: __("Required when the finished Item is batch-controlled. Leave blank only when ERPNext can select/create it under the approved Item policy.") },
+				{ fieldname: "batch_no", label: __("Finished Batch (Optional)"), fieldtype: "Data", default: flow.planned_batch,
+					read_only: Boolean(flow.planned_batch),
+					description: flow.planned_batch ?
+						__("This Cycle already has a controlled planned Batch.") :
+						__("Enter a Batch number to use/create that exact Batch, or leave blank so ERPNext generates it during submission from the Item Batch settings.") },
 				{ fieldname: "materials", fieldtype: "Table", label: __("Actual Input Consumption"),
 					cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true,
 					fields: material_confirmation_fields(), data },
