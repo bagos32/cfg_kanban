@@ -790,6 +790,15 @@ The four modes behave as follows:
 | Transfer to WIP by Job Card | **Prepare Operation Materials** appears per Job Card and contains only BOM components assigned to its Item Operation. Submit that operation's transfer before starting it. |
 | Skip WIP Transfer | No transfer is made. The final Manufacture entry consumes confirmed inputs directly from their configured source Warehouses. |
 
+For **Transfer to WIP by Job Card**, both the main Production Card and the activated reusable
+Process/Station operation Card can prepare the transfer. The operation Card is deliberately limited
+to its runtime-selected Job Card: it cannot view or transfer another operation's materials and it
+cannot create the final Manufacture receipt. The ERP Stock Entry remains linked to the main
+production Cycle because that Cycle owns the Work Order; the operation Card Cycle is recorded as
+the requesting execution for audit. If automatic Job Card start is enabled, start is deferred while
+that Job Card still has pending material transfer. The operator prepares/scans/submits the material
+entry first, then scans `CFG:CMD:START`.
+
 After scanning the production Card, **Production Material Control** shows live ERP stock,
 required/transferred/consumed/pending quantities, shortages, WIP Warehouse, and output Warehouse.
 The operator verifies source Warehouses and actual quantities and must enter **Operator

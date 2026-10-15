@@ -1037,6 +1037,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<div class="col-md-2 text-right cfg-production-material-actions"></div></div>
 			<div class="table-responsive mt-3">${production_material_table(flow.materials || [])}</div>
 		</div></div>`).appendTo($root);
+		if (flow.operation_card_scope) {
+			$section.prepend(`<div class="alert alert-info"><strong>${__("Operation material control")}</strong><br>
+				${__("This operation Card controls material transfer only for Job Card {0}. The main production Cycle remains the ERP material owner.", [document_link("job-card", flow.selected_job_card)])}</div>`);
+		}
 		if (flow.restricted_materials_present) {
 			$section.append(`<div class="alert ${restricted_attention ? "alert-warning" : "alert-info"}">${restricted_attention
 				? __("A restricted production component needs attention. Contact an authorized material controller; its identity is intentionally hidden.")
@@ -1121,6 +1125,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					source_warehouse: row.source_warehouse, qty: row.qty }));
 				await frappe.call({ method: "cfg_kanban.services.production_material_flow.prepare_material_transfer", args: {
 					cycle_name: flow.cycle, job_card: job && job.name, lines,
+					requesting_cycle: flow.requesting_cycle,
 					confirmation: values.confirmation,
 					defer_submit_for_scanning: scanner_mode ? 1 : 0,
 					event_token: frappe.utils.get_random(24), operator_session_token: state.session_token,

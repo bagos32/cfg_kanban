@@ -838,7 +838,8 @@ def _authorize_trace_access(doc, permission_type, operator_session_token=None,
             f"Stock Entry Company {doc.company} does not match Kanban Cycle Company {cycle.company}"
         )
     linked_cycle = doc.get("cfg_kanban_cycle")
-    if linked_cycle and linked_cycle != cycle.name:
+    operation_scope = _operation_card_controls_entry(cycle, doc, linked_cycle)
+    if linked_cycle and linked_cycle != cycle.name and not operation_scope:
         frappe.throw(
             f"Stock Entry {doc.name} is explicitly linked to a different Kanban Cycle "
             f"{linked_cycle}"
@@ -851,6 +852,20 @@ def _authorize_trace_access(doc, permission_type, operator_session_token=None,
         action="report_progress" if permission_type == "write" else None,
         operation=card.operation,
         workstation=card.workstation,
+    )
+
+
+def _operation_card_controls_entry(cycle, doc, linked_cycle):
+    """Allow a runtime operation Card to trace only its selected Job Card transfer."""
+    if (not linked_cycle or not cycle.runtime_allocation or not cycle.selected_job_card
+            or _purpose(doc) != "Material Transfer for Manufacture"):
+        return False
+    owner_cycle = frappe.db.get_value("Work Order", cycle.work_order, "cfg_kanban_cycle")
+    return bool(
+        linked_cycle == owner_cycle
+        and doc.get("job_card") == cycle.selected_job_card
+        and frappe.db.get_value("Job Card", cycle.selected_job_card, "work_order")
+        == cycle.work_order
     )
 
 

@@ -199,6 +199,8 @@ def get_card_context(token, operator_session_token=None):
     operation_summaries = []
     production_stock_entries = []
     production_material_flow = None
+    production_material_owner_cycle = None
+    operation_material_job = None
     effective_work_order = None
     work_order_attention = None
     process_tasks = []
@@ -286,14 +288,20 @@ def get_card_context(token, operator_session_token=None):
             route_warnings.append("Missing effective Job Cards for: " + ", ".join(sorted(missing)))
         if len(work_orders) > 1:
             route_warnings.append("Multiple Work Orders still claim this Cycle; supervisor reconciliation is required")
-        production_stock_entries = _production_stock_entries(cycle)
-        if (master.control_type == "Production" and cycle.work_order
-                and frappe.db.get_value("Work Order", cycle.work_order,
-                                        "cfg_kanban_cycle") == cycle.name):
+        material_cycle, operation_material_job = _material_control_scope(cycle)
+        production_stock_entries = _production_stock_entries(
+            material_cycle, job_card=operation_material_job
+        ) if material_cycle else []
+        if material_cycle:
             from cfg_kanban.services.production_material_flow import get_cycle_material_flow
             production_material_flow = get_cycle_material_flow(
-                cycle.name, operator_session_token=operator_session_token
+                material_cycle.name, operator_session_token=operator_session_token
             )
+            production_material_owner_cycle = material_cycle.name
+            if operation_material_job:
+                production_material_flow = _operation_material_flow_scope(
+                    production_material_flow, cycle, operation_material_job
+                )
     return {
         "card": card.as_dict(),
         "master": {"name": master.name, "kanban_name": master.kanban_name,
@@ -317,6 +325,8 @@ def get_card_context(token, operator_session_token=None):
         "production_progress": _production_progress(operation_summaries),
         "production_stock_entries": production_stock_entries,
         "production_material_flow": production_material_flow,
+        "production_material_owner_cycle": production_material_owner_cycle,
+        "operation_material_job": operation_material_job,
         "process_tasks": process_tasks,
         "service_tasks": [],
         "service_identity_card": False,
@@ -511,7 +521,50 @@ def _workstation_queue_context(card, profile):
     }
 
 
-def _production_stock_entries(cycle):
+def _material_control_scope(cycle):
+    """Return the Work Order-owning Cycle and optional operation Job Card scope."""
+    if not cycle or not cycle.work_order:
+        return None, None
+    owner_name = frappe.db.get_value("Work Order", cycle.work_order, "cfg_kanban_cycle")
+    if not owner_name:
+        return None, None
+    if owner_name == cycle.name:
+        if frappe.db.get_value("CFG Kanban Master", cycle.kanban_master,
+                               "control_type") != "Production":
+            return None, None
+        return cycle, None
+    if not cycle.runtime_allocation or not cycle.selected_job_card:
+        return None, None
+    job_work_order = frappe.db.get_value("Job Card", cycle.selected_job_card, "work_order")
+    if job_work_order != cycle.work_order:
+        return None, None
+    owner = frappe.get_doc("CFG Kanban Cycle", owner_name)
+    if owner.work_order != cycle.work_order:
+        return None, None
+    if frappe.db.get_value("CFG Kanban Master", owner.kanban_master,
+                           "control_type") != "Production":
+        return None, None
+    return owner, cycle.selected_job_card
+
+
+def _operation_material_flow_scope(flow, requesting_cycle, job_card):
+    """Limit an operation Card to its selected Job Card's material responsibilities."""
+    scoped_jobs = [row for row in (flow.get("jobs") or []) if row.get("name") == job_card]
+    flow["jobs"] = scoped_jobs
+    flow["materials"] = []
+    flow["has_pending_materials"] = any(
+        row.get("has_pending_materials") for row in scoped_jobs
+    )
+    flow["all_job_cards_completed"] = False
+    flow["incomplete_job_cards"] = []
+    flow["remaining_output_qty"] = 0
+    flow["operation_card_scope"] = True
+    flow["requesting_cycle"] = requesting_cycle.name
+    flow["selected_job_card"] = job_card
+    return flow
+
+
+def _production_stock_entries(cycle, job_card=None):
     """Return only ERP transactions belonging to the scanned production Work Order."""
     if not cycle.work_order:
         return []
@@ -523,12 +576,16 @@ def _production_stock_entries(cycle):
             "purpose": ["in", sorted(SUPPORTED_PURPOSES)],
         },
         fields=["name", "purpose", "stock_entry_type", "docstatus", "posting_date",
-                "posting_time", "cfg_kanban_cycle", "modified"],
+                "posting_time", "cfg_kanban_cycle", "job_card", "modified"],
         order_by="modified desc",
         limit_page_length=20,
     )
     rows = [row for row in rows
             if not row.cfg_kanban_cycle or row.cfg_kanban_cycle == cycle.name]
+    if job_card:
+        rows = [row for row in rows
+                if row.purpose == "Material Transfer for Manufacture"
+                and row.job_card == job_card]
     if not rows:
         return []
     traces = frappe.get_all(
@@ -850,37 +907,10 @@ def run_job_card_action(execution_name, action, event_token=None, operator_sessi
 
 
 def _assert_materials_ready_for_job_card(job_card_name):
-    job = frappe.db.get_value(
-        "Job Card", job_card_name, ["name", "work_order"], as_dict=True
-    )
-    if not job:
-        frappe.throw("ERPNext Job Card was not found")
-    work_order = frappe.db.get_value(
-        "Work Order", job.work_order,
-        ["skip_transfer", "transfer_material_against"], as_dict=True,
-    )
-    if not work_order or work_order.skip_transfer:
-        return
-    if work_order.transfer_material_against == "Job Card":
-        pending = flt(frappe.db.sql("""
-            select coalesce(sum(greatest(required_qty - coalesce(transferred_qty, 0), 0)), 0)
-            from `tabJob Card Item` where parent=%s
-        """, job.name)[0][0])
-        if pending > 0.000001:
-            frappe.throw(
-                f"Prepare and submit the operation materials for Job Card {job.name} "
-                f"before starting it. Pending transfer quantity: {pending}"
-            )
-        return
-    pending = flt(frappe.db.sql("""
-        select coalesce(sum(greatest(required_qty - coalesce(transferred_qty, 0), 0)), 0)
-        from `tabWork Order Item` where parent=%s
-    """, job.work_order)[0][0])
-    if pending > 0.000001:
-        frappe.throw(
-            f"Submit the Work Order material transfer before starting Job Card {job.name}. "
-            f"Pending transfer quantity: {pending}"
-        )
+    from cfg_kanban.services.production_material_flow import job_card_material_readiness
+    readiness = job_card_material_readiness(job_card_name)
+    if not readiness["ready"]:
+        frappe.throw(readiness["reason"])
 
 
 @frappe.whitelist()

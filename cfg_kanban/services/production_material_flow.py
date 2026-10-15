@@ -152,7 +152,7 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
 @frappe.whitelist()
 def prepare_material_transfer(cycle_name, lines, job_card=None, event_token=None,
                               confirmation=None, operator_session_token=None,
-                              defer_submit_for_scanning=0):
+                              defer_submit_for_scanning=0, requesting_cycle=None):
     cycle, master, work_order = _production_context(cycle_name)
     if work_order.docstatus != 1:
         frappe.throw("Submit the effective Work Order before preparing production materials")
@@ -178,6 +178,9 @@ def prepare_material_transfer(cycle_name, lines, job_card=None, event_token=None
         )
     elif job_card:
         frappe.throw("This Master transfers materials against the Work Order, not a Job Card")
+    operation_cycle = _validated_operation_requesting_cycle(
+        requesting_cycle, cycle, work_order, job_card
+    )
     profile, session = require_operator(
         operator_session_token, "material_transfer", execution=execution,
         operation=operation, workstation=workstation,
@@ -237,6 +240,21 @@ def prepare_material_transfer(cycle_name, lines, job_card=None, event_token=None
            terminal_user=session.terminal_user,
            notes=(f"{mode}; {'Submitted' if entry.docstatus == 1 else 'Draft'}; "
                   f"Operator confirmation: {confirmation}"))
+    if operation_cycle:
+        record(
+            "Operation Card Material Transfer Prepared",
+            card=operation_cycle.kanban_card,
+            cycle=operation_cycle.name,
+            execution=frappe.db.get_value(
+                "CFG Kanban Process Execution",
+                {"kanban_cycle": operation_cycle.name, "job_card": job_card}, "name",
+            ),
+            qty=sum(row["qty"] for row in normalized),
+            reference_doctype="Stock Entry", reference_name=entry.name,
+            operator=profile.employee, operator_session=session.name,
+            terminal_user=session.terminal_user,
+            notes=f"ERP material owner Cycle {cycle.name}; Job Card {job_card}",
+        )
     return {"command": command.name, "stock_entry": entry.name,
             "docstatus": entry.docstatus, "duplicate": not created}
 
@@ -404,6 +422,21 @@ def _production_context(cycle_name):
     return cycle, master, work_order
 
 
+def _validated_operation_requesting_cycle(requesting_cycle, owner_cycle, work_order,
+                                           job_card):
+    if not requesting_cycle or requesting_cycle == owner_cycle.name:
+        return None
+    if not job_card:
+        frappe.throw("An operation Card can request only its selected Job Card materials")
+    cycle = frappe.get_doc("CFG Kanban Cycle", requesting_cycle)
+    if (not cycle.runtime_allocation or cycle.work_order != work_order.name
+            or cycle.selected_job_card != job_card):
+        frappe.throw("Operation Card Cycle does not control this Work Order / Job Card")
+    if frappe.db.get_value("Job Card", job_card, "work_order") != work_order.name:
+        frappe.throw("Selected Job Card does not belong to the effective Work Order")
+    return cycle
+
+
 def _effective_mode(_master, work_order):
     # The released Work Order is the immutable execution truth. A later Master edit must not
     # reinterpret an active Cycle's already-created material path.
@@ -412,6 +445,38 @@ def _effective_mode(_master, work_order):
     return ("Transfer to WIP by Job Card"
             if work_order.transfer_material_against == "Job Card"
             else "Transfer to WIP by Work Order")
+
+
+def job_card_material_readiness(job_card_name):
+    """Return whether ERP material transfer prerequisites allow this Job Card to start."""
+    job = frappe.db.get_value(
+        "Job Card", job_card_name, ["name", "work_order"], as_dict=True
+    )
+    if not job:
+        return {"ready": False, "reason": "ERPNext Job Card was not found", "pending_qty": 0}
+    work_order = frappe.db.get_value(
+        "Work Order", job.work_order,
+        ["skip_transfer", "transfer_material_against"], as_dict=True,
+    )
+    if not work_order:
+        return {"ready": False, "reason": "ERPNext Work Order was not found", "pending_qty": 0}
+    if work_order.skip_transfer:
+        return {"ready": True, "reason": None, "pending_qty": 0}
+    if work_order.transfer_material_against == "Job Card":
+        pending = flt(frappe.db.sql("""
+            select coalesce(sum(greatest(required_qty - coalesce(transferred_qty, 0), 0)), 0)
+            from `tabJob Card Item` where parent=%s
+        """, job.name)[0][0])
+        reason = (f"Prepare and submit the operation materials for Job Card {job.name} "
+                  f"before starting it. Pending transfer quantity: {pending}")
+        return {"ready": pending <= 0.000001, "reason": reason, "pending_qty": pending}
+    pending = flt(frappe.db.sql("""
+        select coalesce(sum(greatest(required_qty - coalesce(transferred_qty, 0), 0)), 0)
+        from `tabWork Order Item` where parent=%s
+    """, job.work_order)[0][0])
+    reason = (f"Submit the Work Order material transfer before starting Job Card {job.name}. "
+              f"Pending transfer quantity: {pending}")
+    return {"ready": pending <= 0.000001, "reason": reason, "pending_qty": pending}
 
 
 def _work_order_material_row(row, wip_warehouse, mode):
