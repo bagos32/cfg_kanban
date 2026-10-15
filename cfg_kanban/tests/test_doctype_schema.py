@@ -1122,6 +1122,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("check_live_updates", operator_panel)
         self.assertIn("Go to current work", operator_panel)
         self.assertIn("scrollIntoView", operator_panel)
+        self.assertIn("preventScroll: true", operator_panel)
 
         operator_api = (APP_ROOT / "api" / "operator.py").read_text()
         self.assertIn("def get_card_live_revision", operator_api)

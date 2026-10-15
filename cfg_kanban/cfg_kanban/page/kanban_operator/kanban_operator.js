@@ -457,7 +457,17 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if ($(".modal:visible").length || document.hidden) return;
 		window.setTimeout(() => {
 			scan.set_value("");
+			const input = scan.$input && scan.$input.get(0);
+			if (input) {
+				// Keep the fixed scanner armed without pulling the operator away from
+				// the active operation, task, or material-control section.
+				input.focus({ preventScroll: true });
+				return;
+			}
+			const scroll_container = live_scroll_container();
+			const previous_scroll = scroll_container ? scroll_container.scrollTop : 0;
 			scan.set_focus();
+			if (scroll_container) scroll_container.scrollTop = previous_scroll;
 		}, 80);
 	}
 

@@ -242,7 +242,8 @@ work, the panel flashes, shows a short update alert, and normally scrolls to the
 It preserves the operator's position instead when they recently touched or manually scrolled the
 screen. Automatic checking also pauses while a dialog is open and resumes when the page is visible.
 Use **Refresh** on the Current action strip for an immediate check; scanning remains available at all
-times and scanner focus is restored after live navigation.
+times. Scanner focus is restored invisibly after live navigation without moving the page back to the
+scanner field, so the operator remains at the selected current-work block.
 
 ### Operation work, production Process Tasks, and maintenance Tasks
 
