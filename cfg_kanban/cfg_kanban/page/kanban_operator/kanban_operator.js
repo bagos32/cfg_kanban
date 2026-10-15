@@ -338,8 +338,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			END_SESSION: confirm_end_operator_session,
 			CAMERA: scan_kanban_qr,
 			CAMERA_CARD: scan_kanban_qr,
+			ACTIVATE: () => consume_card(true),
+			CONSUME: () => consume_card(true),
+			TRIGGER: () => consume_card(true),
 			START: () => run_context_execution_action("start"),
 			REPORT_PROGRESS: () => run_context_execution_action("report_progress"),
+			PREPARE_MATERIALS: open_scanner_material_preparation,
+			PREPARE_RECEIPT: open_scanner_manufacture_receipt,
+			SCAN_MATERIALS: open_scanner_material_trace,
+			SUBMIT_MATERIALS: submit_scanner_material_entry,
 			CONFIRM: submit_active_progress,
 			CANCEL: cancel_active_dialog,
 			DISMISS: dismiss_visible_message,
@@ -677,7 +684,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<tr><td>F4</td><td><code>CFG:CMD:CAMERA_CARD</code></td><td>${__("Open camera scanner")}</td></tr>
 			<tr><td>F8</td><td><code>CFG:CMD:END_SESSION</code></td><td>${__("End operator session after confirmation")}</td></tr>
 			</tbody></table>
-			<p><strong>${__("Operation commands")}</strong>: <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>.</p>
+			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>.</p>
+			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>.</p>
 			<p><strong>${__("Progress dialog commands")}</strong>: <code>CFG:QTY:GOOD:+1</code>, <code>CFG:QTY:REJECT:+1</code>, <code>CFG:CMD:CONFIRM</code>, <code>CFG:CMD:CANCEL</code>.</p>
 			<p><strong>${__("Message control")}</strong>: scan the next card to close an error and continue, or scan <code>CFG:CMD:DISMISS</code> to close it.</p>
 			<div class="alert alert-warning">${__("A web page cannot receive scanner keys while the browser address bar is selected. Use full-screen/kiosk mode and configure the scanner to append Enter.")}</div>
@@ -1089,7 +1097,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		];
 	}
 
-	function production_material_dialog(flow, job, rows) {
+	function production_material_dialog(flow, job, rows, scanner_mode = false) {
 		const data = rows.filter((row) => row.pending_qty > 0.000001).map((row) => ({
 			item_code: row.item_code, operation: job ? job.operation : row.operation,
 			source_warehouse: row.source_warehouse, available_qty: row.available_qty,
@@ -1104,6 +1112,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true,
 					fields: material_confirmation_fields(), data },
 				{ fieldname: "confirmation", label: __("Operator Confirmation / Notes"), fieldtype: "Small Text", reqd: 1 },
+				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data",
+					description: __("Scan Confirm / Submit or Cancel. The scanner remains active without touching the screen.") },
 			],
 			primary_action_label: flow.material_transfer_posting_mode === "Submit on Operator Confirmation" ? __("Confirm and Submit Transfer") : __("Create Draft Transfer"),
 			primary_action: async (values) => {
@@ -1112,6 +1122,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				await frappe.call({ method: "cfg_kanban.services.production_material_flow.prepare_material_transfer", args: {
 					cycle_name: flow.cycle, job_card: job && job.name, lines,
 					confirmation: values.confirmation,
+					defer_submit_for_scanning: scanner_mode ? 1 : 0,
 					event_token: frappe.utils.get_random(24), operator_session_token: state.session_token,
 				}, freeze: true, freeze_message: __("Preparing ERPNext material transfer...") });
 				dialog.hide();
@@ -1119,9 +1130,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			},
 		});
 		dialog.show();
+		if (scanner_mode) dialog.set_value("confirmation", __("Scanner-confirmed material preparation"));
+		bind_confirmation_scanner(dialog, scanner_mode);
 	}
 
-	function manufacture_receipt_dialog(flow) {
+	function manufacture_receipt_dialog(flow, scanner_mode = false) {
 		const direct = flow.mode === "Skip WIP Transfer";
 		const data = (flow.materials || []).map((row) => ({
 			item_code: row.item_code, operation: row.operation,
@@ -1144,6 +1157,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true,
 					fields: material_confirmation_fields(), data },
 				{ fieldname: "confirmation", label: __("Operator Confirmation / Notes"), fieldtype: "Small Text", reqd: 1 },
+				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data",
+					description: __("Scan Confirm / Submit or Cancel. The scanner remains active without touching the screen.") },
 			],
 			primary_action_label: flow.manufacture_posting_mode === "Submit on Operator Confirmation" ? __("Confirm and Submit Manufacture") : __("Create Draft Manufacture"),
 			primary_action: async (values) => {
@@ -1152,6 +1167,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				await frappe.call({ method: "cfg_kanban.services.production_material_flow.prepare_manufacture_receipt", args: {
 					cycle_name: flow.cycle, output_qty: values.output_qty, target_warehouse: values.target_warehouse,
 					batch_no: values.batch_no, lines, confirmation: values.confirmation,
+					defer_submit_for_scanning: scanner_mode ? 1 : 0,
 					event_token: frappe.utils.get_random(24),
 					operator_session_token: state.session_token,
 				}, freeze: true, freeze_message: __("Preparing ERPNext Manufacture receipt...") });
@@ -1160,6 +1176,148 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			},
 		});
 		dialog.show();
+		if (scanner_mode) dialog.set_value("confirmation", __("Scanner-confirmed manufacture receipt"));
+		bind_confirmation_scanner(dialog, scanner_mode);
+	}
+
+	function bind_confirmation_scanner(dialog, focus_now = true, selection_values = [], selection_field = null) {
+		const field = dialog.get_field("scanner_command");
+		if (!field || !field.$input) return;
+		field.$input.off("keydown.cfg_confirmation_scan").on("keydown.cfg_confirmation_scan", async (event) => {
+			if (event.key !== "Enter" && event.key !== "Tab") return;
+			event.preventDefault();
+			const command = String(field.$input.val() || "").trim().toUpperCase();
+			dialog.set_value("scanner_command", "");
+			const selection = command.match(/^CFG:SELECT:(\d+)$/) || command.match(/^(\d+)$/);
+			if (selection && selection_field) {
+				const index = Number(selection[1]) - 1;
+				if (index >= 0 && index < selection_values.length) {
+					await dialog.set_value(selection_field, selection_values[index]);
+					frappe.show_alert({ message: __("Option {0} selected. Scan Confirm / Submit to continue.", [index + 1]), indicator: "blue" });
+					return window.setTimeout(() => field.set_focus(), 80);
+				}
+				frappe.show_alert({ message: __("That numbered option is not available."), indicator: "orange" });
+				return window.setTimeout(() => field.set_focus(), 80);
+			}
+			if (command === "CFG:CMD:CONFIRM") return dialog.get_primary_btn().trigger("click");
+			if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(command)) return dialog.hide();
+			frappe.show_alert({ message: __("Scan Confirm / Submit or Cancel"), indicator: "orange" });
+			window.setTimeout(() => field.set_focus(), 80);
+		});
+		if (focus_now) window.setTimeout(() => field.set_focus(), 100);
+	}
+
+	function scanner_selection_dialog(title, choices, primary_label, on_confirm) {
+		const e = frappe.utils.escape_html;
+		const options = choices.map((choice) => ({ label: choice.label, value: choice.value }));
+		const numbered = `<div class="alert alert-info"><strong>${__("Scan a numbered Select label")}</strong><br>${
+			options.map((choice, index) => `${index + 1}. ${e(choice.label)}`).join("<br>")
+		}</div>`;
+		let dialog;
+		dialog = new frappe.ui.Dialog({
+			title,
+			fields: [
+				{ fieldname: "numbered_options", fieldtype: "HTML", options: numbered },
+				{ fieldname: "selected_value", label: __("Selected Option"), fieldtype: "Select",
+					options, default: options[0]?.value, reqd: 1 },
+				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data",
+					description: __("Scan Select Option 1-10, then scan Confirm / Submit. Plain numbers work only while this dialog is open.") },
+			],
+			primary_action_label: primary_label,
+			primary_action: async (values) => {
+				const choice = choices.find((row) => row.value === values.selected_value);
+				if (!choice) return;
+				dialog.hide();
+				await on_confirm(choice);
+			},
+		});
+		dialog.show();
+		bind_confirmation_scanner(dialog, true, options.map((row) => row.value), "selected_value");
+		return dialog;
+	}
+
+	function open_scanner_material_preparation() {
+		const flow = state.context && state.context.production_material_flow;
+		if (!flow || !state.operator.permissions.material_transfer) {
+			return scanner_command_message(__("No authorized material transfer is available on this card."));
+		}
+		if (flow.work_order_docstatus !== 1 || flow.mode === "Skip WIP Transfer") {
+			return scanner_command_message(flow.mode === "Skip WIP Transfer"
+				? __("This Work Order consumes material through the Manufacture receipt; use Prepare Manufacture Receipt after operations are complete.")
+				: __("Submit the Work Order before preparing materials."));
+		}
+		if (flow.mode === "Transfer to WIP by Work Order") {
+			if (!flow.has_pending_materials) return scanner_command_message(__("No Work Order material remains to transfer."));
+			return production_material_dialog(flow, null, flow.materials || [], true);
+		}
+		const pending = (flow.jobs || []).filter((job) => job.has_pending_materials);
+		const active_jobs = new Set((state.context.executions || [])
+			.filter((row) => ["In Progress", "Ready"].includes(row.status)).map((row) => row.job_card));
+		const preferred = pending.filter((job) => active_jobs.has(job.name));
+		const eligible = preferred.length ? preferred : pending;
+		if (eligible.length > 1) return scanner_selection_dialog(
+			__("Select Job Card for Material Transfer"),
+			eligible.map((job) => ({ value: job.name,
+				label: `${job.operation || __("Operation")} · ${job.name}`, job })),
+			__("Prepare Selected Materials"),
+			(choice) => production_material_dialog(flow, choice.job, choice.job.materials || [], true),
+		);
+		if (!eligible.length) return scanner_command_message(__("No Job Card material remains to transfer."));
+		return production_material_dialog(flow, eligible[0], eligible[0].materials || [], true);
+	}
+
+	function open_scanner_manufacture_receipt() {
+		const flow = state.context && state.context.production_material_flow;
+		if (!flow || !state.operator.permissions.production_receipt ||
+			!flow.all_job_cards_completed || !(flow.remaining_output_qty > 0.000001)) {
+			return scanner_command_message(__("Manufacture receipt is not ready for scanner confirmation."));
+		}
+		return manufacture_receipt_dialog(flow, true);
+	}
+
+	function open_scanner_material_trace() {
+		const candidates = (state.context && state.context.production_stock_entries || [])
+			.filter((row) => row.can_stage_trace);
+		if (candidates.length > 1) return scanner_selection_dialog(
+			__("Select Draft Material Entry"),
+			candidates.map((row) => ({ value: row.name,
+				label: `${row.name} · ${row.purpose || row.stock_entry_type || "-"}` })),
+			__("Scan Tags for Selected Entry"),
+			(choice) => operator_material_trace_dialog(choice.value),
+		);
+		if (!candidates.length) return scanner_command_message(__("No Draft production material entry is ready for tag scanning."));
+		return operator_material_trace_dialog(candidates[0].name);
+	}
+
+	async function submit_scanner_material_entry(selected_stock_entry = null) {
+		const active_entry = state.active_material_trace_dialog &&
+			state.active_material_trace_dialog.stock_entry;
+		const candidates = (state.context && state.context.production_stock_entries || [])
+			.filter((row) => row.can_submit &&
+				(selected_stock_entry ? row.name === selected_stock_entry : (active_entry ? row.name === active_entry : true)));
+		if (candidates.length > 1) return scanner_selection_dialog(
+			__("Select Material Entry to Submit"),
+			candidates.map((row) => ({ value: row.name,
+				label: `${row.name} · ${row.purpose || row.stock_entry_type || "-"}` })),
+			__("Submit Selected ERP Entry"),
+			(choice) => submit_scanner_material_entry(choice.value),
+		);
+		if (!candidates.length) return scanner_command_message(__("No Draft production entry is ready to submit."));
+		const stock_entry = candidates[0].name;
+		if (state.active_material_trace_dialog?.dialog) {
+			state.active_material_trace_dialog.dialog.hide();
+		}
+		await frappe.call({ method: "cfg_kanban.services.production_material_flow.submit_production_stock_entry", args: {
+			stock_entry, event_token: frappe.utils.get_random(24),
+			operator_session_token: state.session_token,
+		}, freeze: true, freeze_message: __("Submitting ERPNext stock entry...") });
+		frappe.show_alert({ message: __("Production material entry submitted"), indicator: "green" });
+		await load_card(state.context.card.qr_code || state.context.card.card_number);
+	}
+
+	function scanner_command_message(message) {
+		frappe.msgprint({ title: __("Scanner Command Not Applied"), message, indicator: "orange" });
+		return false;
 	}
 
 	function render_production_stock_entries(entries, work_order) {
@@ -1218,7 +1376,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			fields: [
 				{ fieldname: "summary", fieldtype: "HTML" },
 				{ fieldname: "input_section", label: __("Scan Tagged Material Input"), fieldtype: "Section Break" },
-				{ fieldname: "input_row", label: __("ERP Input Row"), fieldtype: "Select" },
+				{ fieldname: "input_row", label: __("Matched ERP Input Row"), fieldtype: "Select", read_only: 1,
+					description: __("The scanned tag automatically selects the matching Item, Warehouse, UOM, Batch, and remaining ERP row.") },
 				{ fieldname: "input_scan", label: __("Handling Unit Tag"), fieldtype: "Data",
 					description: __("Scan the physical input tag. With quantity 0, the system allocates the available tag quantity up to the ERP row balance.") },
 				{ fieldname: "input_camera", label: __("Camera Scan Input Tag"), fieldtype: "Button",
@@ -1230,7 +1389,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				{ fieldname: "allocate_input", label: __("Allocate Input Tag"), fieldtype: "Button",
 					click: async () => {
 						await frappe.call({ method: "cfg_kanban.services.production_trace.allocate_input_tag", args: {
-							stock_entry, item_row: operator_trace_row_name(dialog.get_value("input_row")),
+							stock_entry, item_row: null,
 							scan_value: dialog.get_value("input_scan"), qty: dialog.get_value("input_qty") || 0,
 							operator_session_token: state.session_token, kanban_card: state.context.card.name,
 						}, freeze: true, freeze_message: __("Reserving tagged production input...") });
@@ -1266,9 +1425,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				{ fieldname: "lines", fieldtype: "HTML" },
 			],
 		});
-		state.active_material_trace_dialog = dialog;
+		state.active_material_trace_dialog = { dialog, stock_entry };
 		dialog.onhide = () => {
-			if (state.active_material_trace_dialog === dialog) state.active_material_trace_dialog = null;
+			if (state.active_material_trace_dialog?.dialog === dialog) state.active_material_trace_dialog = null;
 			focus_scanner();
 		};
 		dialog.show();
@@ -1350,6 +1509,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		dialog.get_field(scan_field).$input.off("keydown.cfg_material_trace").on("keydown.cfg_material_trace", (event) => {
 			if (event.key !== "Enter" && event.key !== "Tab") return;
 			event.preventDefault();
+			const value = String(dialog.get_value(scan_field) || "").trim().toUpperCase();
+			if (value === "CFG:CMD:SUBMIT_MATERIALS") return submit_scanner_material_entry();
+			if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(value)) return dialog.hide();
 			dialog.get_field(action_field).$input.trigger("click");
 		});
 	}
@@ -1637,10 +1799,17 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		</div>`));
 	}
 
-	async function consume_card() {
+	async function consume_card(scanner_mode = false) {
+		if (!state.context || !state.context.card) {
+			return scanner_command_message(__("Scan a Kanban card first."));
+		}
 		const card = state.context.card;
+		if (state.context.cycle || card.current_state !== "Available" ||
+			!state.operator.permissions.consume) {
+			return scanner_command_message(__("The selected Card is not available for activation by this operator."));
+		}
 		if (["Process Kanban", "Station Kanban"].includes(card.card_type)) {
-			return propose_runtime_selection(card);
+			return propose_runtime_selection(card, scanner_mode);
 		}
 		await frappe.call({
 			method: "cfg_kanban.api.scan.scan",
@@ -1653,7 +1822,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		await load_card(card.qr_code);
 	}
 
-	async function propose_runtime_selection(card) {
+	async function propose_runtime_selection(card, scanner_mode = false) {
 		const response = await frappe.call({
 			method: "cfg_kanban.api.operator.preview_runtime_selection",
 			args: { card_name: card.name, operator_session_token: state.session_token }, freeze: true,
@@ -1663,6 +1832,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const candidate_options = proposal.candidates.map((candidate) => ({
 			label: candidate.label, value: candidate.job_card,
 		}));
+		const numbered_candidates = `<div class="alert alert-info"><strong>${__("Scanner choices")}</strong><br>${
+			candidate_options.map((candidate, index) => `${index + 1}. ${frappe.utils.escape_html(candidate.label)}`).join("<br>")
+		}</div>`;
 		let dialog;
 		const proposal_html = (value) => `<div class="mb-3">
 			<b>${__("Item")}</b>: ${frappe.utils.escape_html(value.item_code || card.item_code)}<br>
@@ -1678,6 +1850,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		dialog = new frappe.ui.Dialog({
 			title: __("Confirm Runtime Allocation"),
 			fields: [
+				{ fieldname: "numbered_candidates", fieldtype: "HTML", options: numbered_candidates },
 				{ fieldname: "selected_job_card", label: __("Eligible Work Order / Job Card"), fieldtype: "Select",
 					options: candidate_options, default: proposal.recommended_job_card, reqd: 1,
 					description: __("The system recommendation is selected first. Only item-, operation-, company-, status-, input-, and workstation-eligible choices are listed."),
@@ -1698,7 +1871,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				{ fieldname: "override_reason", label: __("Override Reason"), fieldtype: "Small Text", hidden: 1,
 					description: __("Required when the operator chooses a different eligible option from the system recommendation.") },
 				{ fieldname: "confirmation", label: __("Operator Confirmation / Notes"), fieldtype: "Small Text", reqd: 1,
+					default: scanner_mode ? __("Scanner-confirmed runtime allocation") : "",
 					description: proposal.short_cycle ? __("Confirm that the reduced quantity and reason are understood.") : __("Confirm the proposed Work Order, Job Card, and quantity.") },
+				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data",
+					description: __("Scan Confirm / Submit or Cancel after reviewing the proposed allocation.") },
 			],
 			primary_action_label: __("Confirm and Allocate"),
 			primary_action: async (values) => {
@@ -1712,6 +1888,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			},
 		});
 		dialog.show();
+		bind_confirmation_scanner(dialog, scanner_mode,
+			candidate_options.map((row) => row.value), "selected_job_card");
 	}
 
 	function render_executions(executions) {

@@ -116,9 +116,18 @@ def get_scanner_command_sheet(quantity_steps=None):
         ("Next Card / Clear", "CFG:CMD:NEXT_CARD", "F3"),
         ("Camera Scan", "CFG:CMD:CAMERA_CARD", "F4"),
         ("End Operator Session", "CFG:CMD:END_SESSION", "F8"),
+        ("Activate / Consume Card", "CFG:CMD:ACTIVATE", ""),
         ("Start Operation", "CFG:CMD:START", ""),
         ("Report Progress", "CFG:CMD:REPORT_PROGRESS", ""),
+        ("Prepare Material Transfer", "CFG:CMD:PREPARE_MATERIALS", ""),
+        ("Prepare Manufacture Receipt", "CFG:CMD:PREPARE_RECEIPT", ""),
+        ("Scan Material Tags", "CFG:CMD:SCAN_MATERIALS", ""),
+        ("Submit Material Entry", "CFG:CMD:SUBMIT_MATERIALS", ""),
     ]
+    commands.extend([
+        (f"Select Option {number}", f"CFG:SELECT:{number}", "")
+        for number in range(1, 11)
+    ])
     commands.extend([
         (f"Good +{number:g}", f"CFG:QTY:GOOD:+{number:g}", "")
         for number in normalized_steps

@@ -151,7 +151,8 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
 
 @frappe.whitelist()
 def prepare_material_transfer(cycle_name, lines, job_card=None, event_token=None,
-                              confirmation=None, operator_session_token=None):
+                              confirmation=None, operator_session_token=None,
+                              defer_submit_for_scanning=0):
     cycle, master, work_order = _production_context(cycle_name)
     if work_order.docstatus != 1:
         frappe.throw("Submit the effective Work Order before preparing production materials")
@@ -201,7 +202,7 @@ def prepare_material_transfer(cycle_name, lines, job_card=None, event_token=None
         cycle.name, work_order.name, "Material Transfer for Manufacture", job_card
     )
     submit = (master.get("material_transfer_posting_mode") ==
-              "Submit on Operator Confirmation")
+              "Submit on Operator Confirmation" and not cint(defer_submit_for_scanning))
     identity = event_token or frappe.as_json(normalized)
     key = canonical_key("production-material-transfer", cycle.name,
                         job_card or work_order.name, identity)
@@ -243,7 +244,8 @@ def prepare_material_transfer(cycle_name, lines, job_card=None, event_token=None
 @frappe.whitelist()
 def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
                                 target_warehouse=None, batch_no=None, event_token=None,
-                                confirmation=None, operator_session_token=None):
+                                confirmation=None, operator_session_token=None,
+                                defer_submit_for_scanning=0):
     cycle, master, work_order = _production_context(cycle_name)
     if work_order.docstatus != 1:
         frappe.throw("Submit the effective Work Order before preparing Manufacture receipt")
@@ -276,7 +278,8 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
     _assert_no_open_production_entry(
         cycle.name, work_order.name, "Manufacture"
     )
-    submit = master.get("manufacture_posting_mode") == "Submit on Operator Confirmation"
+    submit = (master.get("manufacture_posting_mode") == "Submit on Operator Confirmation"
+              and not cint(defer_submit_for_scanning))
     identity = event_token or f"{qty}:{target}:{batch_no or ''}:{frappe.as_json(normalized)}"
     key = canonical_key("production-manufacture-receipt", cycle.name, identity)
     command, created = insert_once(frappe.get_doc({

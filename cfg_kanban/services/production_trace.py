@@ -36,7 +36,7 @@ def get_stock_entry_trace_plan(stock_entry, operator_session_token=None, kanban_
 
 
 @frappe.whitelist()
-def allocate_input_tag(stock_entry, item_row, scan_value, qty,
+def allocate_input_tag(stock_entry, item_row=None, scan_value=None, qty=0,
                        operator_session_token=None, kanban_card=None):
     qty = flt(qty)
     if qty < 0:
@@ -47,23 +47,21 @@ def allocate_input_tag(stock_entry, item_row, scan_value, qty,
         doc, "write", operator_session_token=operator_session_token, kanban_card=kanban_card
     )
     _assert_editable(doc)
-    row = _find_row(doc, item_row)
-    if not row.s_warehouse:
-        frappe.throw("The selected Stock Entry row is not a material input")
+    identity = resolve_logistics_scan(scan_value)
+    if not identity or identity.get("identity_type") != "Handling Unit":
+        frappe.throw("Scan an active Handling Unit tag for the production input")
+    unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
+    trace = _ensure_trace(doc)
+    row = _resolve_input_row(doc, trace, unit, item_row)
     policy = effective_trace_policy(row.item_code, doc.company)
     if policy.production_input_tag_policy == NO_TAG:
         frappe.throw(
             f"Item {row.item_code} uses ERP stock without physical production-input tags"
         )
 
-    identity = resolve_logistics_scan(scan_value)
-    if not identity or identity.get("identity_type") != "Handling Unit":
-        frappe.throw("Scan an active Handling Unit tag for the production input")
     batch_no = _tag_batch_no(row)
-    unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
     _validate_input_unit(unit, doc, row, policy, batch_no)
 
-    trace = _ensure_trace(doc)
     remaining = _remaining_row_qty(doc, trace, row, "Input")
     if qty == 0:
         qty = (flt(unit.current_qty) if _is_transfer_purpose(doc)
@@ -704,6 +702,41 @@ def _find_row(doc, row_name):
     if not row:
         frappe.throw("The selected item row does not belong to this Stock Entry")
     return row
+
+
+def _resolve_input_row(doc, trace, unit, row_name=None):
+    """Resolve a Stock Entry input row from the physical Handling Unit scan.
+
+    A supplied row remains supported for Desk/API compatibility, but the scanner-only
+    operator flow deliberately omits it. In that flow the tag's item, company,
+    Warehouse, UOM, Batch, and the ERP row's unallocated balance are authoritative.
+    """
+    if row_name and row_name != "AUTO":
+        row = _find_row(doc, row_name)
+        if not row.s_warehouse:
+            frappe.throw("The selected Stock Entry row is not a material input")
+        return row
+
+    candidates = []
+    for row in doc.items:
+        if not row.s_warehouse or _remaining_row_qty(doc, trace, row, "Input") <= TOLERANCE:
+            continue
+        if row.item_code != unit.item_code:
+            continue
+        if row.s_warehouse != unit.current_warehouse:
+            continue
+        if row.stock_uom != unit.stock_uom:
+            continue
+        if (_tag_batch_no(row) or "") != (unit.batch_no or ""):
+            continue
+        candidates.append(row)
+
+    if not candidates:
+        frappe.throw(
+            f"No remaining Stock Entry input matches tag {unit.handling_unit_id}. "
+            "Check Item, source Warehouse, UOM, Batch, and the unallocated ERP quantity."
+        )
+    return candidates[0]
 
 
 def _remaining_row_qty(doc, trace, row, direction):

@@ -1183,9 +1183,10 @@ For a Draft Stock Entry:
 
 1. Open **Production Material Trace**. The summary lists every applicable source and target row,
    including rows configured as No Physical Tag.
-2. Under **Allocate Tagged Material Input**, select a tag-enabled source row, scan an active
-   Handling Unit in that row's source Warehouse, and enter the Stock UOM quantity. The quantity is
-   reserved against the Draft entry but ERP stock does not move.
+2. Under **Allocate Tagged Material Input**, scan an active Handling Unit. In the floor Operator
+   panel the scan automatically selects the remaining ERP input row whose Item, Company, source
+   Warehouse, Stock UOM and Batch match the physical tag. Desk users may still select a row
+   explicitly. The quantity is reserved against the Draft entry but ERP stock does not move.
 3. Under **Stage Preprinted Production Output Tag**, select a tag-enabled finished/repacked target
    row, scan an unused main tag, enter its Stock UOM quantity and Handling Unit Type. The identity
    remains pending; no output stock tag is created while the entry is Draft.
@@ -1225,17 +1226,22 @@ Stock Entry access:
 1. Create and save the correct supported Stock Entry against the effective Work Order. Do not
    submit it yet.
 2. On `/app/kanban-operator`, identify the operator and scan the production Kanban Card.
-3. Under **Production Material Trace**, locate the linked Stock Entry and select **Scan Material
-   Tags**.
-4. For an input row, scan the Handling Unit with a fixed scanner or **Camera Scan Input Tag**. Leave
+   Scanner-initiated material preparation always creates a Draft Stock Entry first—even when the
+   Master normally auto-submits—so physical tags can be captured before ERP stock changes.
+3. Scan the printed `CFG:CMD:SCAN_MATERIALS` command. If several Draft entries are eligible, scan
+   `CFG:SELECT:1` through `CFG:SELECT:10` for the numbered entry, then scan
+   `CFG:CMD:CONFIRM`. The matching trace dialog opens without mouse or touch input.
+4. For an input row, scan the Handling Unit with a fixed scanner or **Camera Scan Input Tag**. The
+   tag selects the matching ERP input row automatically. Leave
    **Stock Quantity (0 = automatic)** at zero to allocate the available tag quantity up to the ERP
    row balance, or enter a smaller explicit quantity for a permitted direct-consumption allocation.
    Material Transfer for Manufacture still requires the complete physical Handling Unit.
 5. For an output row, scan an unused preprinted main tag, confirm quantity and Handling Unit Type,
    and select **Stage Output Tag**. Output quantity cannot be inferred when several physical
    containers may divide one ERP row.
-6. The Stock/Manufacturing user reviews and submits the ERPNext Stock Entry. The operator panel does
-   not submit it. Reload or rescan the Card to see **Confirmed**.
+6. Scan `CFG:CMD:SUBMIT_MATERIALS` to submit the single eligible entry. When several entries are
+   eligible, scan its numbered Select label and then Confirm. Submission remains governed by the
+   operator's Material Transfer or Production Receipt permission and ERPNext validations.
 
 The server accepts this route only when the Stock Entry Company and Work Order match the scanned
 Card's active Cycle. Operator authorization, allowed Operation, allowed Workstation, and session
@@ -1445,10 +1451,18 @@ The same actions can be performed with function keys or printed command QR/Code 
 
 Operational command labels have no function-key equivalent:
 
+- `CFG:CMD:ACTIVATE` consumes/triggers the open Available Card. A Process or Station Card opens its
+  controlled Work Order/Job Card allocation before activation.
 - `CFG:CMD:START` starts the operation when exactly one execution lane is Ready.
 - `CFG:CMD:REPORT_PROGRESS` opens progress entry when exactly one execution lane is eligible.
-- If multiple lanes are eligible, the command is refused and the operator must select the correct
-  lane on screen. This prevents a general command label from updating the wrong Job Card.
+- `CFG:CMD:PREPARE_MATERIALS` prepares the WIP or operation material transfer.
+- `CFG:CMD:PREPARE_RECEIPT` prepares final manufacture receipt/direct consumption when ready.
+- `CFG:CMD:SCAN_MATERIALS` opens the eligible Draft Stock Entry for raw-material tag scans.
+- `CFG:CMD:SUBMIT_MATERIALS` submits the selected Draft production material entry.
+- Where a scanner action has several safe candidates, the panel displays a numbered list. Scan
+  `CFG:SELECT:1` through `CFG:SELECT:10` (or a plain number label while that selection dialog is
+  open), then scan `CFG:CMD:CONFIRM`. A number scanned outside that dialog is never treated as a
+  selection command.
 
 Inside **Report Progress**, quantity labels can replace keypad entry. Examples:
 
