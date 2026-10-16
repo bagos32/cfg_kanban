@@ -182,6 +182,7 @@ class CFGKanbanMaster(Document):
                 )
             _validate_warehouse_company(row.source_warehouse, self.company,
                                         f"Material Flow row {row.idx}")
+            self._validate_wip_bin_rule(row, mode)
         if len(rule_keys) != len(set(rule_keys)):
             frappe.throw("BOM Component Material Flow cannot repeat the same Item and Operation")
 
@@ -229,7 +230,8 @@ class CFGKanbanMaster(Document):
             "CFG Kanban Material Flow Rule",
             filters={"parent": self.name, "parenttype": self.doctype},
             fields=["name", "item_code", "operation", "source_warehouse",
-                    "bom_qty", "stock_uom", "idx"],
+                    "bom_qty", "stock_uom", "wip_presentation_method",
+                    "wip_bin_pool", "standard_bin_qty", "idx"],
             order_by="idx asc",
         )
         protected_rows = [row for row in stored_rows
@@ -237,6 +239,64 @@ class CFGKanbanMaster(Document):
         visible_rows = [row.as_dict() for row in self.material_flow_rules
                         if row.item_code not in restricted_items]
         self.set("material_flow_rules", visible_rows + protected_rows)
+
+    def _validate_wip_bin_rule(self, row, mode):
+        presentation = row.wip_presentation_method or "Standard ERP / Tag Flow"
+        if presentation != "Standard Quantity Reusable WIP Bin":
+            row.wip_bin_pool = None
+            row.standard_bin_qty = 0
+            return
+        if mode != "Transfer to WIP by Job Card":
+            frappe.throw(
+                f"Material Flow row {row.idx}: Standard Quantity Reusable WIP Bin "
+                "requires Production Material Mode Transfer to WIP by Job Card"
+            )
+        if not row.operation:
+            frappe.throw(
+                f"Material Flow row {row.idx}: a WIP Bin component requires an Item Operation"
+            )
+        if not row.wip_bin_pool or flt(row.standard_bin_qty) <= 0:
+            frappe.throw(
+                f"Material Flow row {row.idx}: WIP Bin Pool and a positive Qty per Full Bin "
+                "are required"
+            )
+        pool = frappe.db.get_value(
+            "CFG Kanban WIP Bin Pool",
+            row.wip_bin_pool,
+            ["active", "company", "operation", "wip_warehouse"],
+            as_dict=True,
+        )
+        if not pool or not pool.active:
+            frappe.throw(f"Material Flow row {row.idx}: select an active WIP Bin Pool")
+        if pool.company != self.company:
+            frappe.throw(
+                f"Material Flow row {row.idx}: WIP Bin Pool belongs to {pool.company}, "
+                f"not {self.company}"
+            )
+        if pool.operation != row.operation:
+            frappe.throw(
+                f"Material Flow row {row.idx}: WIP Bin Pool operation {pool.operation} "
+                f"does not match BOM Item Operation {row.operation}"
+            )
+        if not any(
+            profile.operation == row.operation for profile in self.operation_profiles
+        ):
+            frappe.throw(
+                f"Material Flow row {row.idx}: add an Operation Profile for {row.operation} "
+                "before assigning a WIP Bin Pool"
+            )
+        if pool.wip_warehouse != self.wip_warehouse:
+            frappe.throw(
+                f"Material Flow row {row.idx}: WIP Bin Pool Warehouse {pool.wip_warehouse} "
+                f"does not match Master WIP Warehouse {self.wip_warehouse}"
+            )
+        if not frappe.db.exists(
+            "CFG Kanban WIP Bin Pool Entry",
+            {"parent": row.wip_bin_pool, "parenttype": "CFG Kanban WIP Bin Pool", "active": 1},
+        ):
+            frappe.throw(
+                f"Material Flow row {row.idx}: WIP Bin Pool has no active physical bins"
+            )
 
     def _set_item_and_purchase_uom(self):
         if not self.item_code:

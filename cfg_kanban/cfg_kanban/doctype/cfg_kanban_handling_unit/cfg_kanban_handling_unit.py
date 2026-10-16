@@ -20,9 +20,16 @@ class CFGKanbanHandlingUnit(Document):
         except ValueError as exc:
             frappe.throw(str(exc))
         if self.tag_kind == "Reusable Container":
+            self.reusable_container_role = (
+                self.reusable_container_role or "Logistics Container"
+            )
             self._clear_stock_tag_identity()
             self._clear_reusable_stock_context()
+            if self.reusable_container_role == "Standard Quantity WIP Bin":
+                self.wip_bin_state = self.wip_bin_state or "Empty"
         else:
+            self.reusable_container_role = None
+            self.wip_bin_state = None
             self._materialize_range_family()
             if not self.tag_family:
                 frappe.throw(
@@ -83,9 +90,16 @@ class CFGKanbanHandlingUnit(Document):
 
     def validate(self):
         if self.tag_kind == "Reusable Container":
+            self.reusable_container_role = (
+                self.reusable_container_role or "Logistics Container"
+            )
             self._clear_stock_tag_identity()
             if self.is_new():
                 self._clear_reusable_stock_context()
+            self._validate_reusable_container_role()
+        else:
+            self.reusable_container_role = None
+            self.wip_bin_state = None
         self._copy_parent_context()
         if self.tag_kind != "Reusable Container":
             self._copy_cycle_context()
@@ -180,13 +194,52 @@ class CFGKanbanHandlingUnit(Document):
         if self.is_new() or self.tag_kind != "Reusable Container":
             return
         before = self.get_doc_before_save()
-        if not before or before.allow_mixed_content == self.allow_mixed_content:
+        if not before:
             return
+        has_loaded_content = frappe.db.exists(
+            "CFG Kanban Container Content",
+            {"container_handling_unit": self.name, "state": "Loaded"},
+        )
+        assigned_pool = frappe.db.get_value(
+            "CFG Kanban WIP Bin Pool Entry", {"reusable_bin": self.name}, "parent"
+        )
+        if before.allow_mixed_content != self.allow_mixed_content and has_loaded_content:
+            frappe.throw("Allow Mixed Item / Batch Content cannot change while the container is loaded")
+        if before.reusable_container_role != self.reusable_container_role:
+            if has_loaded_content:
+                frappe.throw("Reusable Container Role cannot change while Stock Tags are loaded")
+            if assigned_pool:
+                frappe.throw(
+                    "Reusable Container Role cannot change while this bin belongs to a WIP Bin Pool"
+                )
+        if assigned_pool and (
+            before.inventory_company != self.inventory_company
+            or before.current_warehouse != self.current_warehouse
+        ):
+            frappe.throw(
+                f"Company and Warehouse cannot change while this bin belongs to WIP Bin Pool "
+                f"{assigned_pool}"
+            )
+
+    def _validate_reusable_container_role(self):
+        role = self.reusable_container_role or "Logistics Container"
+        if role != "Standard Quantity WIP Bin":
+            self.wip_bin_state = None
+            return
+        if self.allow_mixed_content:
+            frappe.throw("A Standard Quantity WIP Bin cannot allow mixed Item or Batch content")
+        if not self.inventory_company or not self.current_warehouse:
+            frappe.throw(
+                "Inventory Company and Current Warehouse are required for a Standard Quantity WIP Bin"
+            )
         if frappe.db.exists(
             "CFG Kanban Container Content",
             {"container_handling_unit": self.name, "state": "Loaded"},
         ):
-            frappe.throw("Allow Mixed Item / Batch Content cannot change while the container is loaded")
+            frappe.throw(
+                "A logistics container with loaded Stock Tags cannot become a Standard Quantity WIP Bin"
+            )
+        self.wip_bin_state = self.wip_bin_state or "Empty"
 
     def _bind_tag_identity(self):
         if not self.tag_family or not self.handling_unit_id:

@@ -12,6 +12,18 @@ from cfg_kanban.services.operator_auth import require_operator
 def apply_master_material_flow(work_order, master):
     """Apply the approved Master material policy before the Work Order is inserted."""
     mode = master.get("production_material_mode") or "Follow ERPNext BOM / Work Order"
+    staged_wip_bin_rows = [
+        row for row in master.material_flow_rules
+        if (row.wip_presentation_method or "Standard ERP / Tag Flow") ==
+        "Standard Quantity Reusable WIP Bin"
+    ]
+    if staged_wip_bin_rows:
+        frappe.throw(
+            "Standard Quantity Reusable WIP Bin configuration is installed, but its "
+            "controlled transfer and consumption runtime is not enabled in this release. "
+            "Keep the affected BOM Component Material Flow rows on Standard ERP / Tag Flow "
+            "until the runtime gate is deployed. No Work Order or stock movement was created."
+        )
     if mode == "Transfer to WIP by Work Order":
         work_order.skip_transfer = 0
         work_order.transfer_material_against = "Work Order"

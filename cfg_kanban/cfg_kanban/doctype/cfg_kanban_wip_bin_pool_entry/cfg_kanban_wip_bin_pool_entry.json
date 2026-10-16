@@ -1,0 +1,14 @@
+{
+  "doctype": "DocType",
+  "name": "CFG Kanban WIP Bin Pool Entry",
+  "module": "CFG Kanban",
+  "istable": 1,
+  "editable_grid": 1,
+  "field_order": ["reusable_bin", "workstation", "priority", "active"],
+  "fields": [
+    {"fieldname":"reusable_bin","label":"Reusable WIP Bin","fieldtype":"Link","options":"CFG Kanban Handling Unit","reqd":1,"in_list_view":1,"columns":5},
+    {"fieldname":"workstation","label":"Workstation","fieldtype":"Link","options":"Workstation","reqd":1,"in_list_view":1,"columns":4,"description":"Physical station where this bin is filled and consumed. Runtime must match the effective Job Card workstation."},
+    {"fieldname":"priority","label":"Fill Priority","fieldtype":"Int","default":"10","reqd":1,"in_list_view":1,"columns":2},
+    {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"columns":1}
+  ]
+}

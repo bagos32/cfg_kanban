@@ -1,0 +1,44 @@
+{
+  "doctype": "DocType",
+  "name": "CFG Kanban WIP Bin Pool",
+  "module": "CFG Kanban",
+  "autoname": "field:pool_name",
+  "title_field": "pool_name",
+  "track_changes": 1,
+  "search_fields": "pool_name,company,operation,wip_warehouse",
+  "field_order": [
+    "pool_name",
+    "active",
+    "company",
+    "operation",
+    "wip_warehouse",
+    "control_section",
+    "require_bin_scan",
+    "require_full_bin_consumption",
+    "allow_supervisor_partial_exception",
+    "bins_section",
+    "bins",
+    "notes"
+  ],
+  "fields": [
+    {"fieldname":"pool_name","label":"WIP Bin Pool Name","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1},
+    {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1},
+    {"fieldname":"company","label":"Company","fieldtype":"Link","options":"Company","reqd":1,"in_list_view":1,"in_standard_filter":1},
+    {"fieldname":"operation","label":"Operation","fieldtype":"Link","options":"Operation","reqd":1,"in_list_view":1,"in_standard_filter":1,"description":"The Job Card operation allowed to receive and consume these visually controlled bins. Each physical-bin row identifies its workstation so parallel stations can share this operation pool."},
+    {"fieldname":"wip_warehouse","label":"WIP Warehouse","fieldtype":"Link","options":"Warehouse","reqd":1,"in_standard_filter":1,"description":"ERPNext Warehouse represented by every fixed bin in this pool."},
+    {"fieldname":"control_section","label":"Floor Verification Controls","fieldtype":"Section Break","description":"A full bin is a physical poka-yoke quantity. These controls must not replace ERPNext Stock Entry confirmation."},
+    {"fieldname":"require_bin_scan","label":"Require WIP Bin Scan","fieldtype":"Check","default":"1","description":"The operator must scan the permanent physical bin before the operation may use its load."},
+    {"fieldname":"require_full_bin_consumption","label":"Require Full-bin Consumption","fieldtype":"Check","default":"1","description":"Normal operation consumes the complete visually verified load. Partial consumption requires the controlled supervisor exception when enabled."},
+    {"fieldname":"allow_supervisor_partial_exception","label":"Allow Supervisor Partial-bin Exception","fieldtype":"Check","default":"0","description":"Keep disabled for fixed-capacity production. If enabled later, every partial event requires supervisor authorization and an exception reason."},
+    {"fieldname":"bins_section","label":"Approved Physical Bins by Workstation","fieldtype":"Section Break","description":"Only active reusable Handling Units with role Standard Quantity WIP Bin may be assigned. Map each bin to its physical Workstation; one bin can belong to only one pool."},
+    {"fieldname":"bins","label":"Reusable WIP Bins","fieldtype":"Table","options":"CFG Kanban WIP Bin Pool Entry","reqd":1},
+    {"fieldname":"notes","label":"Setup Notes","fieldtype":"Text"}
+  ],
+  "permissions": [
+    {"role":"Manufacturing User","read":1},
+    {"role":"Stock User","read":1},
+    {"role":"Manufacturing Manager","read":1,"write":1,"create":1,"delete":1,"print":1,"report":1},
+    {"role":"Stock Manager","read":1,"write":1,"create":1,"delete":1,"print":1,"report":1},
+    {"role":"System Manager","read":1,"write":1,"create":1,"delete":1,"print":1,"report":1}
+  ]
+}

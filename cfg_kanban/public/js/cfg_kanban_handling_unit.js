@@ -19,6 +19,8 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 		frm._cfg_resolving_tag = true;
 		try {
 			await frm.set_value({
+				reusable_container_role: "Logistics Container",
+				wip_bin_state: null,
 				tag_range_registry: null,
 				tag_family: null,
 				parent_handling_unit: null,
@@ -41,6 +43,18 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 			}, 8);
 		} finally {
 			frm._cfg_resolving_tag = false;
+		}
+	},
+	async reusable_container_role(frm) {
+		if (frm.doc.tag_kind !== "Reusable Container") return;
+		if (frm.doc.reusable_container_role === "Standard Quantity WIP Bin") {
+			await frm.set_value({ allow_mixed_content: 0, wip_bin_state: "Empty" });
+			frappe.show_alert({
+				message: __("Assign this fixed bin to a WIP Bin Pool. Saving the identity does not move ERPNext stock."),
+				indicator: "blue",
+			}, 10);
+		} else if (frm.is_new()) {
+			await frm.set_value("wip_bin_state", null);
 		}
 	},
 	async kanban_cycle(frm) {

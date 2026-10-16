@@ -69,6 +69,8 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Route Reconciliation")
         self.assertEqual(links["Material Trace Policies"],
                          "CFG Kanban Material Trace Policy")
+        self.assertEqual(links["Standard WIP Bin Pools"],
+                         "CFG Kanban WIP Bin Pool")
         self.assertEqual(links["DocType Action Policies"],
                          "CFG Kanban DocType Action Policy")
         self.assertEqual(links["DocType Action Profiles"],
@@ -1672,13 +1674,32 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Skip WIP Transfer",
                       master["production_material_mode"]["options"])
         self.assertTrue({"item_code", "operation", "source_warehouse",
-                         "bom_qty", "stock_uom"}.issubset(rule))
+                         "bom_qty", "stock_uom", "wip_presentation_method",
+                         "wip_bin_pool", "standard_bin_qty"}.issubset(rule))
         self.assertTrue(rule["item_code"].get("read_only"))
         self.assertTrue(rule["operation"].get("read_only"))
         self.assertIn("Create Production Material Transfer", command_options)
         self.assertIn("Create Production Material Consumption", command_options)
         self.assertIn("Create Production Manufacture Receipt", command_options)
         self.assertIn("Submit Production Stock Entry", command_options)
+
+        handling_unit = {row["fieldname"]: row for row in
+                         schemas["CFG Kanban Handling Unit"]["fields"]}
+        pool = {row["fieldname"]: row for row in
+                schemas["CFG Kanban WIP Bin Pool"]["fields"]}
+        pool_entry = {row["fieldname"]: row for row in
+                      schemas["CFG Kanban WIP Bin Pool Entry"]["fields"]}
+        self.assertIn("Standard Quantity WIP Bin",
+                      handling_unit["reusable_container_role"]["options"])
+        self.assertTrue({
+            "pool_name", "active", "company", "operation",
+            "wip_warehouse", "require_bin_scan", "require_full_bin_consumption",
+            "allow_supervisor_partial_exception", "bins",
+        }.issubset(pool))
+        self.assertEqual(pool["bins"]["options"], "CFG Kanban WIP Bin Pool Entry")
+        self.assertTrue({"reusable_bin", "workstation", "priority", "active"}.issubset(pool_entry))
+        self.assertIn("Standard Quantity Reusable WIP Bin",
+                      rule["wip_presentation_method"]["options"])
 
         master_controller = (
             APP_ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_master" /
@@ -1696,8 +1717,10 @@ class TestDocTypeSchema(TestCase):
                        "cfg_kanban_master.js").read_text()
 
         self.assertIn("Every BOM component needs Item Operation", master_controller)
+        self.assertIn("def _validate_wip_bin_rule", master_controller)
         self.assertIn("def get_bom_material_flow_preview", master_controller)
         self.assertIn("def apply_master_material_flow", service)
+        self.assertIn("controlled transfer and consumption runtime is not enabled", service)
         self.assertIn("def prepare_material_transfer", service)
         self.assertIn("def prepare_material_consumption", service)
         self.assertIn("def prepare_manufacture_receipt", service)

@@ -22,6 +22,15 @@ frappe.ui.form.on("CFG Kanban Master", {
 		frm.set_query("source_warehouse", "material_flow_rules", () => ({ filters: {
 			company: frm.doc.company || "", is_group: 0, disabled: 0,
 		} }));
+		frm.set_query("wip_bin_pool", "material_flow_rules", (doc, cdt, cdn) => {
+			const row = locals[cdt][cdn];
+			return { filters: {
+				active: 1,
+				company: frm.doc.company || "",
+				operation: row.operation || "",
+				wip_warehouse: frm.doc.wip_warehouse || "",
+			} };
+		});
 	},
 	item_code(frm) {
 		if (!frm.doc.item_code) return;
@@ -132,10 +141,15 @@ async function load_bom_material_flow(frm, options = {}) {
 		});
 		if (!confirmed) return;
 	}
-	const source_by_component = {};
+	const controls_by_component = {};
 	if (options.preserve_sources) {
 		(frm.doc.material_flow_rules || []).forEach((row) => {
-			source_by_component[material_flow_key(row)] = row.source_warehouse;
+			controls_by_component[material_flow_key(row)] = {
+				source_warehouse: row.source_warehouse,
+				wip_presentation_method: row.wip_presentation_method || "Standard ERP / Tag Flow",
+				wip_bin_pool: row.wip_bin_pool,
+				standard_bin_qty: row.standard_bin_qty,
+			};
 		});
 	}
 	frm.__cfg_loading_material_flow = true;
@@ -155,8 +169,8 @@ async function load_bom_material_flow(frm, options = {}) {
 		rows.forEach((value) => {
 			const row = frm.add_child("material_flow_rules");
 			Object.assign(row, value);
-			const preserved_source = source_by_component[material_flow_key(value)];
-			if (preserved_source) row.source_warehouse = preserved_source;
+			const preserved = controls_by_component[material_flow_key(value)];
+			if (preserved) Object.assign(row, preserved);
 		});
 		frm.refresh_field("material_flow_rules");
 		hide_restricted_material_flow_rows(frm);
@@ -218,6 +232,16 @@ frappe.ui.form.on("CFG Kanban Operation Profile", {
 	execution_mode(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
 		frappe.model.set_value(cdt, cdn, "allow_parallel", row.execution_mode === "Parallel Workstations" ? 1 : 0);
+	},
+});
+
+frappe.ui.form.on("CFG Kanban Material Flow Rule", {
+	wip_presentation_method(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (row.wip_presentation_method !== "Standard Quantity Reusable WIP Bin") {
+			frappe.model.set_value(cdt, cdn, "wip_bin_pool", null);
+			frappe.model.set_value(cdt, cdn, "standard_bin_qty", 0);
+		}
 	},
 });
 

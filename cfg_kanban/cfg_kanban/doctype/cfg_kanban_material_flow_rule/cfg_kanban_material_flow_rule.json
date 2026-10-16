@@ -3,12 +3,15 @@
  "name": "CFG Kanban Material Flow Rule",
  "module": "CFG Kanban",
  "istable": 1,
- "field_order": ["item_code", "operation", "source_warehouse", "bom_qty", "stock_uom"],
+ "field_order": ["item_code", "operation", "source_warehouse", "bom_qty", "stock_uom", "wip_presentation_method", "wip_bin_pool", "standard_bin_qty"],
  "fields": [
   {"fieldname":"item_code","label":"BOM Component","fieldtype":"Link","options":"Item","reqd":1,"read_only":1,"in_list_view":1,"columns":3},
   {"fieldname":"operation","label":"Item Operation","fieldtype":"Link","options":"Operation","read_only":1,"in_list_view":1,"columns":2,"description":"Copied from the ERPNext BOM Item operation. This determines which Job Card receives the component."},
   {"fieldname":"source_warehouse","label":"Source Warehouse","fieldtype":"Link","options":"Warehouse","reqd":1,"in_list_view":1,"columns":3,"description":"Per-component source used on the Work Order and production Stock Entry."},
   {"fieldname":"bom_qty","label":"BOM Qty","fieldtype":"Float","read_only":1,"in_list_view":1,"columns":2},
-  {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM","read_only":1,"in_list_view":1,"columns":2}
+  {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM","read_only":1,"in_list_view":1,"columns":2},
+  {"fieldname":"wip_presentation_method","label":"WIP Presentation","fieldtype":"Select","options":"Standard ERP / Tag Flow\nStandard Quantity Reusable WIP Bin","default":"Standard ERP / Tag Flow","reqd":1,"in_list_view":1,"columns":3,"description":"Standard flow preserves the existing ERP quantity and physical-tag behavior. Select the reusable-bin mode only for a fixed, visually verified quantity bin."},
+  {"fieldname":"wip_bin_pool","label":"WIP Bin Pool","fieldtype":"Link","options":"CFG Kanban WIP Bin Pool","depends_on":"eval:doc.wip_presentation_method=='Standard Quantity Reusable WIP Bin'","mandatory_depends_on":"eval:doc.wip_presentation_method=='Standard Quantity Reusable WIP Bin'","in_list_view":1,"columns":3},
+  {"fieldname":"standard_bin_qty","label":"Qty per Full Bin","fieldtype":"Float","depends_on":"eval:doc.wip_presentation_method=='Standard Quantity Reusable WIP Bin'","mandatory_depends_on":"eval:doc.wip_presentation_method=='Standard Quantity Reusable WIP Bin'","in_list_view":1,"columns":2,"description":"Item quantity represented by one physically full bin, expressed in the BOM component Stock UOM."}
  ]
 }
