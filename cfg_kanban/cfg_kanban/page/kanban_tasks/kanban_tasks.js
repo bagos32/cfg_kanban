@@ -316,7 +316,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		$active_root.empty();
 		$root.empty();
 		const employee = state.operator && state.operator.employee;
-		const active_statuses = ["In Progress", "Overdue", "Correction Required"];
+		const active_statuses = ["In Progress", "Overdue", "Correction Required", "Pending Document Posting"];
 		const active = tasks.filter((task) => task.assigned_employee === employee && task.started_on &&
 			active_statuses.includes(task.status)).sort((a, b) => String(b.modified || b.started_on || "")
 				.localeCompare(String(a.modified || a.started_on || "")));
@@ -370,13 +370,18 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				${task.status === "Correction Required" ? `<div class="alert alert-warning cfg-correction-request">
 					<strong>${__("Supervisor correction requested")}</strong><br>${e(task.verification_notes || __("No correction remarks were supplied."))}
 					<small>${e(task.verified_by || "-")} · ${e(task.verified_on || "-")}</small></div>` : ""}
+				${task.status === "Pending Document Posting" ? `<div class="alert alert-warning cfg-correction-request">
+					<strong>${__("Required document is pending")}</strong><br>
+					${__("This task will not be shown as completed until its controlled DocType Action reaches the configured Draft or Submitted result.")}
+					${task.doctype_action_run ? `<small>${__("Action Run")}: ${e(task.doctype_action_run)}</small>` : ""}</div>` : ""}
 				<div class="actions cfg-service-task-actions"></div></div>`).appendTo($section);
 			const $actions = $row.find(".actions");
 			const can_execute = task.can_operate || task.can_assist;
 			if (task.progress_count) button($actions, __("View Progress"), "btn-default", () => progress_history_dialog(task));
 			if (task.can_operate && ["Planned", "Due", "Assigned", "Overdue"].includes(task.status)) button($actions, __("Start"), "btn-primary", () => task_dialog(task, "Start"));
 			if (can_execute && task.started_on && ["In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, __("Report Progress"), "btn-info", () => task_dialog(task, "Progress"));
-			if (can_execute && ["Due", "Assigned", "In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, task.status === "Correction Required" ? __("Correct and Resubmit") : __("Complete"), "btn-success", () => task_dialog(task, "Complete"));
+			const start_action_ready = task.doctype_action_trigger !== "On Task Start" || task.doctype_action_run;
+			if (can_execute && start_action_ready && ["Due", "Assigned", "In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, task.status === "Correction Required" ? __("Correct and Resubmit") : __("Complete"), "btn-success", () => task_dialog(task, "Complete"));
 			if (task.can_operate && task.status === "Awaiting Verification") button($actions, __("Verify"), "btn-warning", () => task_dialog(task, "Verify"));
 			if (task.can_operate && state.operator && state.operator.permissions.task_verify && !["Completed", "Cancelled", "Bypassed"].includes(task.status)) {
 				button($actions, __("Cancel / Bypass"), "btn-default", () => disposition_dialog(task));

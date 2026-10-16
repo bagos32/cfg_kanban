@@ -2,6 +2,10 @@ import frappe
 from frappe.model.document import Document
 
 from cfg_kanban.services.dynamic_forms import validate_condition_definitions
+from cfg_kanban.services.doctype_action_tasks import (
+    assert_schedule_binding_authorized,
+    validate_schedule_binding,
+)
 
 
 class CFGKanbanTaskSchedule(Document):
@@ -11,6 +15,7 @@ class CFGKanbanTaskSchedule(Document):
         self.service_point_code = f"CFG:SERVICE:SCHEDULE:{self.name}"
 
     def validate(self):
+        assert_schedule_binding_authorized(self)
         if self.name and not self.service_point_code:
             self.service_point_code = f"CFG:SERVICE:SCHEDULE:{self.name}"
         if self.trigger_type == "Time Interval" and (self.interval_value or 0) <= 0:
@@ -34,3 +39,4 @@ class CFGKanbanTaskSchedule(Document):
             frappe.throw("Mandatory read-only dynamic fields require a Default Value: "
                          + ", ".join(unusable))
         validate_condition_definitions(self.task_field_definitions)
+        validate_schedule_binding(self)

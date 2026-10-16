@@ -1,6 +1,6 @@
 {
  "doctype":"DocType","name":"CFG Kanban Task Schedule","module":"CFG Kanban","autoname":"KTS-.#####","title_field":"schedule_name","track_changes":1,
- "field_order":["schedule_name","active","company","task_name","task_category","trigger_type","service_point_enabled","service_point_code","overlap_policy","holiday_policy","holiday_list","interval_value","interval_unit","calendar_repeat_days","next_due_on","default_due_hours","priority","responsible_role","workstation","asset","location","checklist","task_field_definitions","require_supervisor_verification","instructions","last_generated_on"],
+ "field_order":["schedule_name","active","company","task_name","task_category","trigger_type","service_point_enabled","service_point_code","overlap_policy","holiday_policy","holiday_list","interval_value","interval_unit","calendar_repeat_days","next_due_on","default_due_hours","priority","responsible_role","workstation","asset","location","checklist","task_field_definitions","require_supervisor_verification","doctype_action_section","doctype_action_profile","doctype_action_trigger","doctype_action_required","instructions","last_generated_on"],
  "fields":[
   {"fieldname":"schedule_name","label":"Schedule Name","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1},
   {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1},
@@ -26,11 +26,18 @@
   {"fieldname":"checklist","label":"Checklist","fieldtype":"Small Text","description":"One checklist item per line."},
   {"fieldname":"task_field_definitions","label":"Dynamic Form Fields","fieldtype":"Table","options":"CFG Kanban Field Definition","description":"Use Applies To = Standalone Task."},
   {"fieldname":"require_supervisor_verification","label":"Require Supervisor Verification","fieldtype":"Check"},
+  {"fieldname":"doctype_action_section","label":"Optional DocType Action","fieldtype":"Section Break","collapsible":1,"description":"Bind one validated Action Profile to each generated task occurrence. Leave blank for a normal Service Task."},
+  {"fieldname":"doctype_action_profile","label":"DocType Action Profile","fieldtype":"Link","options":"CFG Kanban DocType Action Profile","permlevel":1,"description":"Optional validated profile. Every generated task snapshots this selection so later schedule changes do not alter open occurrences."},
+  {"fieldname":"doctype_action_trigger","label":"DocType Action Trigger","fieldtype":"Select","options":"\nOn Task Start\nOn Task Complete\nAfter Supervisor Verification","permlevel":1,"depends_on":"eval:doc.doctype_action_profile","mandatory_depends_on":"eval:doc.doctype_action_profile","description":"Start permits draft creation only. Complete uses final operator evidence. After Verification runs only after independent approval."},
+  {"fieldname":"doctype_action_required","label":"DocType Action Required","fieldtype":"Check","default":"0","permlevel":1,"depends_on":"eval:doc.doctype_action_profile","description":"When enabled, the task remains Pending Document Posting until the profile reaches its required Draft or Submitted outcome."},
   {"fieldname":"instructions","label":"Instructions","fieldtype":"Text Editor"},
   {"fieldname":"last_generated_on","label":"Last Generated On","fieldtype":"Datetime","read_only":1}
  ],
  "permissions":[
   {"role":"Manufacturing Manager","read":1,"write":1,"create":1,"delete":1},
-  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1}
+  {"role":"CFG Kanban System Maintenance","read":1,"write":1,"create":1},
+  {"role":"CFG Kanban System Maintenance","permlevel":1,"read":1,"write":1},
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1},
+  {"role":"System Manager","permlevel":1,"read":1,"write":1}
  ]
 }

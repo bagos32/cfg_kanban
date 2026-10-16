@@ -1,6 +1,6 @@
 {
  "doctype":"DocType","name":"CFG Kanban Task","module":"CFG Kanban","autoname":"KTASK-.YYYY.-.#####","title_field":"task_name","track_changes":1,
- "field_order":["task_name","task_category","task_schedule","company","trigger_type","request_source","generation_key","status","priority","requested_on","due_on","assigned_employee","responsible_role","workstation","asset","location","started_by","started_on","completed_by","completed_on","instructions","evidence_section","checklist","checklist_evidence","checklist_results","execution_values","progress_audit_section","progress_count","last_progress_by","last_progress_on","last_progress_summary","media_evidence_section","media_evidence_html","completion_notes","verification_section","verification_required","verification_status","verified_by","verified_on","verification_notes","supervisor_disposition","disposition_by","disposition_on","disposition_reason","blocked_reason","exception","doctype_action_section","doctype_action_run","production_boundary_section","kanban_cycle","process_execution","work_order","job_card"],
+ "field_order":["task_name","task_category","task_schedule","company","trigger_type","request_source","generation_key","status","priority","requested_on","due_on","assigned_employee","responsible_role","workstation","asset","location","started_by","started_on","completed_by","completed_on","instructions","evidence_section","checklist","checklist_evidence","checklist_results","execution_values","progress_audit_section","progress_count","last_progress_by","last_progress_on","last_progress_summary","media_evidence_section","media_evidence_html","completion_notes","verification_section","verification_required","verification_status","verified_by","verified_on","verification_notes","supervisor_disposition","disposition_by","disposition_on","disposition_reason","blocked_reason","exception","doctype_action_section","doctype_action_profile","doctype_action_trigger","doctype_action_required","doctype_action_run","doctype_action_pending_status","production_boundary_section","kanban_cycle","process_execution","work_order","job_card"],
  "fields":[
   {"fieldname":"task_name","label":"Task Name","fieldtype":"Data","reqd":1,"in_list_view":1},
   {"fieldname":"task_category","label":"Category","fieldtype":"Data","reqd":1,"in_list_view":1,"in_standard_filter":1},
@@ -9,7 +9,7 @@
   {"fieldname":"trigger_type","label":"Trigger Type","fieldtype":"Data","reqd":1,"in_standard_filter":1},
   {"fieldname":"request_source","label":"Request Source","fieldtype":"Data"},
   {"fieldname":"generation_key","label":"Generation Key","fieldtype":"Data","unique":1,"read_only":1,"hidden":1},
-  {"fieldname":"status","label":"Status","fieldtype":"Select","options":"Planned\nDue\nAssigned\nIn Progress\nAwaiting Verification\nCorrection Required\nCompleted\nOverdue\nBlocked\nBypassed\nCancelled\nEscalated","default":"Planned","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"status","label":"Status","fieldtype":"Select","options":"Planned\nDue\nAssigned\nIn Progress\nAwaiting Verification\nPending Document Posting\nCorrection Required\nCompleted\nOverdue\nBlocked\nBypassed\nCancelled\nEscalated","default":"Planned","reqd":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"priority","label":"Priority","fieldtype":"Select","options":"Low\nNormal\nHigh\nUrgent","default":"Normal","in_list_view":1,"in_standard_filter":1},
   {"fieldname":"requested_on","label":"Requested On","fieldtype":"Datetime","reqd":1,"in_list_view":1},
   {"fieldname":"due_on","label":"Due On","fieldtype":"Datetime","in_list_view":1,"in_standard_filter":1},
@@ -49,7 +49,11 @@
   {"fieldname":"blocked_reason","label":"Blocked Reason","fieldtype":"Small Text"},
   {"fieldname":"exception","label":"Exception","fieldtype":"Link","options":"CFG Kanban Exception","read_only":1},
   {"fieldname":"doctype_action_section","label":"DocType Action","fieldtype":"Section Break","collapsible":1},
+  {"fieldname":"doctype_action_profile","label":"Effective Action Profile","fieldtype":"Link","options":"CFG Kanban DocType Action Profile","read_only":1,"in_standard_filter":1,"description":"Schedule selection snapshotted when this task occurrence was generated."},
+  {"fieldname":"doctype_action_trigger","label":"Effective Action Trigger","fieldtype":"Data","read_only":1},
+  {"fieldname":"doctype_action_required","label":"Action Required for Closure","fieldtype":"Check","read_only":1},
   {"fieldname":"doctype_action_run","label":"DocType Action Run","fieldtype":"Link","options":"CFG Kanban DocType Action Run","read_only":1,"in_standard_filter":1},
+  {"fieldname":"doctype_action_pending_status","label":"Status After Document Posting","fieldtype":"Data","read_only":1,"hidden":1},
   {"fieldname":"production_boundary_section","label":"Production Boundary Guard","fieldtype":"Section Break","hidden":1},
   {"fieldname":"kanban_cycle","label":"Kanban Cycle","fieldtype":"Link","options":"CFG Kanban Cycle","hidden":1,"read_only":1},
   {"fieldname":"process_execution","label":"Process Execution","fieldtype":"Link","options":"CFG Kanban Process Execution","hidden":1,"read_only":1},

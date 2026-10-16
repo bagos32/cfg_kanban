@@ -64,7 +64,9 @@ ALLOWED_TRANSITIONS = {
         "Form In Progress", "Ready to Post", "Posting",
         "Needs Reconciliation", "Cancelled",
     },
-    "Skipped by Condition": set(),
+    # Normally terminal. A post-write failure to release a required source-task
+    # gate is the one controlled reason it may enter supervised reconciliation.
+    "Skipped by Condition": {"Needs Reconciliation"},
     "Needs Reconciliation": {"Form In Progress", "Ready to Post", "Failed"},
     "Cancelled": set(),
 }

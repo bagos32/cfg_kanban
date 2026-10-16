@@ -24,6 +24,7 @@ from cfg_kanban.services.doctype_action_runs import (
     sanitize_error,
     transition_run,
 )
+from cfg_kanban.services.doctype_action_tasks import release_task_gate
 from cfg_kanban.services.idempotency import canonical_key
 
 
@@ -137,7 +138,8 @@ def post_action(run_name, operator_session_token, retry_token,
         run, existing_target, None, profile, session, retry_token
     )
     if terminal_result:
-        return terminal_result
+        return (_release_gate_or_reconcile(run, profile, session, retry_token)
+                or terminal_result)
 
     try:
         snapshot = assert_pinned_snapshot_compatible(run)
@@ -154,7 +156,8 @@ def post_action(run_name, operator_session_token, retry_token,
             run, existing_target, configuration, profile, session, retry_token
         )
         if terminal_result:
-            return terminal_result
+            return (_release_gate_or_reconcile(run, profile, session, retry_token)
+                    or terminal_result)
 
         parent_input = _object(operator_values, "Parent operator values")
         child_input = _object(child_rows, "Child-table rows")
@@ -178,6 +181,11 @@ def post_action(run_name, operator_session_token, retry_token,
                 run, "Post", "Succeeded", profile, session, retry_token,
                 previous_state=request_state, result_state=run.state,
             )
+            gate_error = _release_gate_or_reconcile(
+                run, profile, session, retry_token
+            )
+            if gate_error:
+                return gate_error
             result = public_run(run, attempt=attempt.name)
             result.update({"ok": True, "skipped": True,
                            "message": _("Action condition was not met; no target was created.")})
@@ -229,6 +237,9 @@ def post_action(run_name, operator_session_token, retry_token,
             run, "Post", "Succeeded", profile, session, retry_token,
             previous_state=request_state, result_state=run.state,
         )
+        gate_error = _release_gate_or_reconcile(run, profile, session, retry_token)
+        if gate_error:
+            return gate_error
         result = public_run(run, attempt=attempt.name)
         result.update({
             "ok": True,
@@ -539,6 +550,26 @@ def _failure_result(run, profile, session, retry_token, exc, previous_state=None
         result = public_run(run)
     result.update({"ok": False, "error_code": code, "message": message})
     return result
+
+
+def _release_gate_or_reconcile(run, profile, session, retry_token):
+    savepoint = "cfg_action_gate_" + canonical_key(
+        run.name, retry_token
+    )[:16]
+    frappe.db.savepoint(savepoint)
+    try:
+        release_task_gate(run, profile, session)
+        return None
+    except Exception as exc:
+        frappe.db.rollback(save_point=savepoint)
+        return _reconciliation_result(
+            run,
+            profile,
+            session,
+            _phase_token(retry_token, "task-gate-release"),
+            "The target was written but its Service Task document gate could not be released: "
+            + sanitize_error(exc),
+        )
 
 
 def _reconciliation_result(run, profile, session, retry_token, reason):

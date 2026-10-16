@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.42
+**Guide version:** 1.43
 
 **Updated:** 16 October 2026
 
@@ -20,8 +20,9 @@ audit records.
 It also documents the protected configuration and runtime foundations for the Special DocType
 Action extension. That extension is being delivered in serial gates: Gate 1A validates target
 metadata and previews a mapped form, Gate 1B adds immutable Action Run and attempt audit records,
-and Gate 1C adds the controlled server mapper/writer. Normal Service Task event binding and the
-operator-facing form remain a later package, so this is not yet an end-user workflow.
+Gate 1C adds the controlled server mapper/writer, and Gate 1D binds that engine to exact Service
+Task events with a truthful closure gate. The operator-facing mapped form remains the next package,
+so administrators must not release required Action schedules to normal operators yet.
 
 This file is designed to be usable by a person or by another LLM without access to the development
 chat history. When this guide and an earlier chat answer disagree, use this guide for the code
@@ -313,7 +314,7 @@ intentionally absent; the server must use its workload/instance role.
 
 Save the Settings before creating the pilot Master.
 
-### Special DocType Action foundations (Gates 1A, 1B and 1C)
+### Special DocType Action foundations (Gates 1A through 1D)
 
 This is a system-maintenance function, not a production operator function. Only **System Manager**
 or **CFG Kanban System Maintenance** can maintain its configuration records.
@@ -391,11 +392,42 @@ The terminal User still needs deliberately reviewed Create permission on the app
 plus Write/Submit permission when the selected policy requires those actions. Granting access to an
 Action Profile does not grant access to its destination DocType.
 
-**Current Gate 1C boundary:** the Task Schedule action-profile/trigger/required fields, automatic
-Service Task event resolution, task-completion gate, phone/tablet operator form, media-to-run
-relation, pilot target fixtures and direct `DocType Action Card` are not yet available. Although the
-controlled writer now exists, administrators and operators must not treat it as a live workflow
-until the following integration and UI packages are deployed.
+#### Service Task event binding and closure gate (Gate 1D)
+
+Gate 1D adds an optional binding to **CFG Kanban Task Schedule**:
+
+- **DocType Action Profile** (`doctype_action_profile`) selects one enabled, Valid Action Profile;
+- **DocType Action Trigger** (`doctype_action_trigger`) is exactly **On Task Start**, **On Task
+  Complete**, or **After Supervisor Verification**;
+- **DocType Action Required** (`doctype_action_required`) decides whether the destination result
+  must succeed before the task may advance to its intended completion/verification status.
+
+Each generated **CFG Kanban Task** snapshots those three values. Editing the schedule later does
+not rewrite open occurrences. At the configured event, the server creates or resumes the one
+primary Action Run and every resulting Task event retains its **DocType Action Run** link.
+
+Safety checks reject these premature combinations:
+
+- **On Task Start** may use only an Action Profile with **Save Draft** posting policy;
+- a profile whose **Verification Policy** is **Require Service Task Verification** must be paired
+  with **Require Supervisor Verification** and **After Supervisor Verification**;
+- a schedule requiring supervisor verification cannot use **Submit When Authorized** at **On Task
+  Complete**. Submission must wait for the verification event.
+
+For a required action, the Task becomes **Pending Document Posting** instead of falsely showing
+Completed or Awaiting Verification. **Save Draft** is satisfied only by `Draft Created` (or a later
+submitted result); **Submit When Authorized** is satisfied only by `Submitted`; a deterministic
+false condition is satisfied by the audited `Skipped by Condition` result. The controlled writer
+then releases the Task to its stored next status. Failed, unresolved or reconciliation-required
+runs leave the Task pending. Supervisor Cancel/Bypass also routes an unposted linked Run through
+its controlled cancellation rules rather than deleting its audit.
+
+**Current Gate 1D boundary:** automatic event resolution and the server-side completion gate are
+available, but the phone/tablet mapped Action form is not yet rendered in the Service Task panel.
+That is Gate 1E. Do not enable a required binding for normal floor use until Gate 1E is deployed;
+otherwise the task will correctly remain Pending Document Posting with no operator-panel form to
+finish it. Media-to-run relation, pilot target fixtures and the Phase 2 direct `DocType Action Card`
+also remain later packages.
 
 The runtime trigger uses the **Master's Automation Level** (`automation_level`). `Automatic`
 creates/executes the Work Order command immediately only when the Before Cycle Start gate is open.
@@ -3048,6 +3080,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.43 | 16 October 2026 | Added Gate 1D Service Task binding: optional validated Action Profile plus exact Start/Complete/Verification trigger and required-closure setting on Task Schedule; immutable occurrence snapshot; automatic one-Run resolution; explicit Pending Document Posting status; posting-policy-aware release; premature-submit validation; linked Task events; and controlled Run cancellation on Task disposition. Phone/tablet mapped form remains Gate 1E |
 | 1.42 | 16 October 2026 | Added Gate 1C controlled server mapper/writer: immutable-snapshot target selection, allowlisted typed parent/child values, Service Task/fixed/server sources, safe conditions, terminal-User create/write/submit enforcement, distinct Draft/Submitted results, persisted form-payload integrity hash, retry reuse of one linked target, and reconciliation for uncertain or externally changed targets; Service Task event/UI binding remains pending |
 | 1.41 | 16 October 2026 | Added Gate 1B immutable, idempotent `CFG Kanban DocType Action Run` identity; pinned profile revision/mapping snapshot; immutable Action Attempts; separate Employee/terminal attribution; Service Task and Event links; database lock/uniqueness guards; sanitized errors; and controlled Supervisor cancellation/reconciliation while retaining the non-posting boundary |
 | 1.40 | 16 October 2026 | Added the locked Special DocType Card source specification and Gate 1A protected target policies, metadata-driven parent/child action profiles, revision/fingerprint invalidation, server validation, and non-posting operator-form preview; explicitly documented that Action Runs, Service Task triggers, writes, and direct cards remain pending |

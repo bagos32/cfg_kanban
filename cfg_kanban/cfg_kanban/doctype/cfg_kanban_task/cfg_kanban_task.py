@@ -10,6 +10,44 @@ class CFGKanbanTask(Document):
                 row.value = "1" if row.value is True else "0" if row.value is False else str(row.value)
 
     def validate(self):
+        if not self.is_new():
+            original = frappe.db.get_value(
+                self.doctype,
+                self.name,
+                ["doctype_action_profile", "doctype_action_trigger",
+                 "doctype_action_required"],
+                as_dict=True,
+            ) or {}
+            changed = [
+                fieldname for fieldname in (
+                    "doctype_action_profile", "doctype_action_trigger",
+                    "doctype_action_required",
+                )
+                if (original.get(fieldname) or None) != (self.get(fieldname) or None)
+            ]
+            if changed:
+                frappe.throw(
+                    "The effective DocType Action binding is immutable for a generated Task"
+                )
+        if self.doctype_action_required and not (
+            self.doctype_action_profile and self.doctype_action_trigger
+        ):
+            frappe.throw("A required DocType Action needs an effective Profile and Trigger")
+        if self.status == "Pending Document Posting":
+            if not self.doctype_action_required or not self.doctype_action_run:
+                frappe.throw("Pending Document Posting requires a linked, required DocType Action Run")
+            if self.doctype_action_pending_status not in ("Completed", "Awaiting Verification"):
+                frappe.throw("A pending document gate requires its intended next Task status")
+        if self.doctype_action_required and self.status == "Completed":
+            from cfg_kanban.services.doctype_action_tasks import action_is_satisfied
+            if not action_is_satisfied(self.doctype_action_run):
+                frappe.throw("The required DocType Action is not ready for Task completion")
+        if (self.doctype_action_required
+                and self.status == "Awaiting Verification"
+                and self.doctype_action_trigger != "After Supervisor Verification"):
+            from cfg_kanban.services.doctype_action_tasks import action_is_satisfied
+            if not action_is_satisfied(self.doctype_action_run):
+                frappe.throw("The required DocType Action must finish before verification")
         if self.status == "Completed" and self.verification_required and not self.verified_on:
             frappe.throw("Supervisor verification is required before this Task is completed")
         if self.status == "Completed" and self.verification_required:

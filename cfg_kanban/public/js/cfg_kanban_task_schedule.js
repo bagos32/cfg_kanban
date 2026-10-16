@@ -1,6 +1,10 @@
 frappe.ui.form.on("CFG Kanban Task Schedule", {
 	setup(frm) {
 		frm.set_query("responsible_role", () => ({ filters: { active: 1 } }));
+		frm.set_query("doctype_action_profile", () => ({ filters: {
+			enabled: 1,
+			validation_status: "Valid",
+		} }));
 	},
 	refresh(frm) {
 		(frm.doc.task_field_definitions || []).forEach((row) => {

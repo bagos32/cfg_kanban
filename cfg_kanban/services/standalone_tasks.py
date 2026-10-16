@@ -3,6 +3,12 @@ from frappe.utils import add_to_date, cint, get_datetime, now_datetime
 
 from cfg_kanban.services.dynamic_forms import (normalized_values, standalone_definitions,
                                                validate_values)
+from cfg_kanban.services.doctype_action_tasks import (
+    apply_required_gate,
+    cancel_task_action,
+    occurrence_snapshot,
+    resolve_for_task_event,
+)
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key
 from cfg_kanban.services.operator_auth import require_operator
@@ -58,7 +64,7 @@ def create_from_schedule(schedule_name, scheduled_for=None, request_source=None,
         return frappe.get_doc("CFG Kanban Task", existing)
     requested_on = now_datetime()
     due_on = add_to_date(requested_on, hours=schedule.default_due_hours or 24)
-    task = frappe.get_doc({
+    task_values = {
         "doctype": "CFG Kanban Task",
         "task_name": schedule.task_name,
         "task_category": schedule.task_category,
@@ -79,7 +85,9 @@ def create_from_schedule(schedule_name, scheduled_for=None, request_source=None,
         "verification_required": schedule.require_supervisor_verification,
         "verification_status": "Pending" if schedule.require_supervisor_verification else "Not Required",
         "instructions": schedule.instructions,
-    }).insert(ignore_permissions=True)
+    }
+    task_values.update(occurrence_snapshot(schedule))
+    task = frappe.get_doc(task_values).insert(ignore_permissions=True)
     schedule_values = {"last_generated_on": requested_on}
     if schedule.trigger_type in ("Time Interval", "Calendar Schedule"):
         schedule_values["next_due_on"] = _next_due(schedule, scheduled_for)
@@ -145,6 +153,7 @@ def disposition_task(task_name, session_token, disposition, reason):
         frappe.throw("Unsupported supervisor disposition")
     if not (reason or "").strip():
         frappe.throw("Supervisor reason is required")
+    cancel_task_action(task, session_token, reason)
     task.status = disposition
     task.supervisor_disposition = disposition
     task.disposition_by = profile.employee
@@ -176,6 +185,7 @@ def start_task(task_name, session_token, values=None):
     task.started_by = profile.employee
     task.started_on = now_datetime()
     task.save(ignore_permissions=True)
+    resolve_for_task_event(task, "On Task Start", session_token)
     _task_event("Standalone Task Started", task, profile, session)
     return task
 
@@ -207,20 +217,33 @@ def complete_task(task_name, session_token, values=None, checklist_results=None,
         return task
     if task.status not in ("Due", "Assigned", "In Progress", "Overdue", "Correction Required"):
         frappe.throw(f"Task cannot complete while it is {task.status}")
+    if (task.doctype_action_profile
+            and task.doctype_action_trigger == "On Task Start"
+            and not task.doctype_action_run):
+        frappe.throw("Start this Service Task before completing its On Task Start action")
     _apply_values(task, "Complete", values, profile.employee)
     _assert_required_progress(task)
     _apply_checklist(task, checklist_results, profile.employee)
     task.completed_by = profile.employee
     task.completed_on = now_datetime()
     task.completion_notes = notes
-    task.status = "Awaiting Verification" if task.verification_required else "Completed"
+    desired_status = "Awaiting Verification" if task.verification_required else "Completed"
     task.verification_status = "Pending" if task.verification_required else "Not Required"
     task.verified_by = None
     task.verified_on = None
     task.verification_notes = None
+    resolve_for_task_event(task, "On Task Complete", session_token)
+    gate_now = task.doctype_action_trigger in ("On Task Start", "On Task Complete")
+    apply_required_gate(task, desired_status, gate_now=gate_now)
     task.save(ignore_permissions=True)
-    _task_event("Standalone Task Completed" if task.status == "Completed"
-                else "Standalone Task Awaiting Verification", task, profile, session)
+    event_type = (
+        "Standalone Task Pending Document Posting"
+        if task.status == "Pending Document Posting"
+        else "Standalone Task Completed"
+        if task.status == "Completed"
+        else "Standalone Task Awaiting Verification"
+    )
+    _task_event(event_type, task, profile, session)
     return task
 
 
@@ -235,13 +258,19 @@ def verify_task(task_name, session_token, values=None, notes=None):
     if task.completed_by == profile.employee:
         frappe.throw("Task verification must be performed by a different operator")
     _apply_values(task, "Verify", values, profile.employee)
-    task.status = "Completed"
     task.verification_status = "Approved"
     task.verified_by = profile.employee
     task.verified_on = now_datetime()
     task.verification_notes = notes
+    resolve_for_task_event(task, "After Supervisor Verification", session_token)
+    apply_required_gate(task, "Completed", gate_now=True)
     task.save(ignore_permissions=True)
-    _task_event("Standalone Task Verified", task, profile, session)
+    _task_event(
+        "Standalone Task Pending Document Posting"
+        if task.status == "Pending Document Posting"
+        else "Standalone Task Verified",
+        task, profile, session,
+    )
     return task
 
 
@@ -381,6 +410,7 @@ def _task_event(event_type, task, profile, session, notes=None):
     record(event_type, reference_doctype=task.doctype, reference_name=task.name,
            standalone_task=task.name, operator=profile.employee,
            operator_session=session.name, terminal_user=session.terminal_user,
+           action_run=task.doctype_action_run,
            notes=notes)
 
 

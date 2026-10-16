@@ -29,7 +29,9 @@ def get_open_tasks(operator_session_token=None):
                 "verification_required", "task_schedule", "trigger_type", "started_on",
                 "responsible_role", "progress_count", "last_progress_by",
                 "last_progress_on", "last_progress_summary", "verification_notes",
-                "verified_by", "verified_on", "modified"],
+                "verified_by", "verified_on", "modified", "doctype_action_profile",
+                "doctype_action_trigger", "doctype_action_required",
+                "doctype_action_run"],
         order_by="priority desc, due_on asc, creation asc", limit_page_length=0,
     )
     assigned_employees = {row.assigned_employee for row in rows if row.assigned_employee}
