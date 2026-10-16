@@ -26,8 +26,9 @@ from cfg_kanban.services.doctype_action_runs import (
     transition_run,
 )
 from cfg_kanban.services.doctype_action_media import (
+    action_evidence_controls,
     evidence_for_operator_form,
-    snapshot_task_evidence,
+    snapshot_action_evidence,
 )
 from cfg_kanban.services.doctype_action_tasks import release_task_gate
 from cfg_kanban.services.idempotency import canonical_key
@@ -124,6 +125,7 @@ def get_operator_form(run_name, operator_session_token):
         "last_error": run.last_error,
         "target_link": _target_link(run),
         "evidence": evidence_for_operator_form(run, source),
+        "evidence_controls": action_evidence_controls(run),
         "recovery": recovery_context(run, profile),
     }
 
@@ -222,7 +224,7 @@ def post_action(run_name, operator_session_token, retry_token,
         # Pin only verified/Available evidence identities belonging to this
         # exact source occurrence. A reusable Card intentionally contributes no
         # inherited evidence. The target never receives a signed URL or binary.
-        snapshot_task_evidence(run, source)
+        snapshot_action_evidence(run, source)
 
         target = existing_target
         if target:

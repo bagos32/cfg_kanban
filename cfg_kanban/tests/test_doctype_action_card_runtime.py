@@ -83,6 +83,8 @@ class TestDocTypeActionCardRuntime(TestCase):
     def test_reusable_card_never_leaks_evidence_across_occurrences(self):
         media = (ROOT / "services" / "doctype_action_media.py").read_text()
         self.assertIn('if run.source_doctype == "CFG Kanban Card"', media)
-        self.assertIn("return []", media)
-        self.assertIn("never inherit files from the reusable physical Card", media)
+        self.assertIn("return _action_run_evidence(run)", media)
+        self.assertIn("belongs to this immutable Run", media)
+        self.assertIn("ACTION_RUN_DOCTYPE, run.name", media)
+        self.assertNotIn('"CFG Kanban Card", run.source_name', media)
 

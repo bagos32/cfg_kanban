@@ -88,6 +88,7 @@ class TestSharedMediaContract(TestCase):
         service = (ROOT / "services" / "media.py").read_text()
         self.assertIn("get_task_camera_stamp", api)
         self.assertIn("get_process_task_camera_stamp", api)
+        self.assertIn("Server capture time is required", api)
         self.assertIn("Geolocation is required", api)
         self.assertIn('"geotag"', api)
         self.assertIn("archive_task_media", api)
@@ -104,6 +105,32 @@ class TestSharedMediaContract(TestCase):
         schema = json.loads((ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_task" /
                              "cfg_kanban_task.json").read_text())
         fields = {row["fieldname"] for row in schema["fields"]}
+        self.assertIn("media_evidence_html", fields)
+
+    def test_direct_doctype_action_run_has_isolated_private_evidence(self):
+        service = (ROOT / "services" / "media.py").read_text()
+        api = (ROOT / "api" / "media.py").read_text()
+        panel = (ROOT / "cfg_kanban" / "page" / "kanban_tasks" /
+                 "kanban_tasks.js").read_text()
+        run_form = (ROOT / "public" / "js" /
+                    "cfg_kanban_doctype_action_run.js").read_text()
+        schema = json.loads((
+            ROOT / "cfg_kanban" / "doctype" /
+            "cfg_kanban_doctype_action_run" /
+            "cfg_kanban_doctype_action_run.json"
+        ).read_text())
+        fields = {row["fieldname"] for row in schema["fields"]}
+        self.assertIn('"doctype-action-evidence": {"CFG Kanban DocType Action Run"}', service)
+        self.assertIn("get_action_run_camera_stamp", api)
+        self.assertIn("list_action_run_media", api)
+        self.assertIn("create_action_run_view_url", api)
+        self.assertIn("archive_action_run_media", api)
+        self.assertIn('("pending", "available", "quarantined", "failed")', api)
+        self.assertIn("cfg-action-camera-picker", panel)
+        self.assertIn("confirm_action_run_upload", panel)
+        self.assertIn('status === "available"', panel)
+        self.assertIn("get_reference_gallery", run_form)
+        self.assertIn("Open Original", run_form)
         self.assertIn("media_evidence_html", fields)
 
     def test_media_configuration_is_deployment_owned_and_fail_closed(self):

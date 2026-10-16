@@ -790,6 +790,8 @@
 .cfg-media-picker,
 .cfg-camera-picker,
 .cfg-file-picker,
+.cfg-action-camera-picker,
+.cfg-action-file-picker,
 .cfg-process-camera-picker,
 .cfg-process-file-picker {
 	cursor: pointer;
@@ -798,6 +800,8 @@
 .cfg-media-picker.disabled,
 .cfg-camera-picker.disabled,
 .cfg-file-picker.disabled,
+.cfg-action-camera-picker.disabled,
+.cfg-action-file-picker.disabled,
 .cfg-process-camera-picker.disabled,
 .cfg-process-file-picker.disabled {
 	pointer-events: none;
@@ -1132,6 +1136,8 @@
 	.cfg-media-picker,
 	.cfg-camera-picker,
 	.cfg-file-picker,
+	.cfg-action-camera-picker,
+	.cfg-action-file-picker,
 	.cfg-process-camera-picker,
 	.cfg-process-file-picker,
 	.cfg-media-row,

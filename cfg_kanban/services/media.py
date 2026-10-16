@@ -24,6 +24,7 @@ MEDIA_CLASSES = {
     "production-evidence": {"CFG Kanban Cycle", "CFG Kanban Operation Progress"},
     "delivery-proof-evidence": {"CFG Kanban Delivery Proof"},
     "customer-return-evidence": {"CFG Kanban Return Case"},
+    "doctype-action-evidence": {"CFG Kanban DocType Action Run"},
 }
 STATUSES = {"pending", "available", "quarantined", "archived", "deleting", "deleted", "failed"}
 DEFAULT_MIME_TYPES = {"image/jpeg", "image/png", "image/webp", "video/mp4", "application/pdf"}
@@ -158,7 +159,7 @@ def delete_object(media_id, mode="archive", permission_checked=False):
         frappe.throw("Physical media deletion requires a future approved retention workflow")
     if media.status in ("archived", "deleted"):
         return _metadata(media)
-    if media.status not in ("available", "quarantined", "failed"):
+    if media.status not in ("pending", "available", "quarantined", "failed"):
         frappe.throw(f"Media cannot be archived while it is {media.status}")
     media.db_set({"status": "archived", "archived_at": now_datetime()}, update_modified=True)
     media.reload()
@@ -173,9 +174,15 @@ def get_metadata(media_id, permission_checked=False):
 
 
 def list_reference_media(reference_doctype, reference_name, permission_checked=False,
-                         include_archived=False):
+                         include_archived=False, statuses=None):
     _validate_reference(reference_doctype, reference_name, None, "read", permission_checked)
-    statuses = ["available"] if not include_archived else ["available", "archived"]
+    if statuses is None:
+        statuses = ["available"] if not include_archived else ["available", "archived"]
+    else:
+        statuses = list(statuses)
+        invalid = set(statuses) - STATUSES
+        if invalid:
+            frappe.throw("Unsupported media status filter")
     rows = frappe.get_all(
         "CFG Kanban Media",
         filters={"reference_doctype": reference_doctype, "reference_name": reference_name,

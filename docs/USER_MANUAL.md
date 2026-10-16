@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.50
+**Guide version:** 1.51
 
 **Updated:** 16 October 2026
 
@@ -33,7 +33,9 @@ deliberately non-production: it has no Kanban Master or quantity and cannot crea
 Work Order, Job Card, stock movement, or logistics transaction. Gate 2B adds its scanner resolver
 to **Kanban Service Tasks**. A scan only identifies the Card and shows authorized in-progress Runs;
 the operator must deliberately choose **Resume** or **Start New Action**. A scan alone never creates
-a target document or a new Action Run.
+a target document or a new Action Run. Gate 2C adds private photo/file evidence owned by each
+immutable direct Action Run, with timestamped/geotagged camera capture and an evidence freeze when
+controlled document posting begins.
 
 This file is designed to be usable by a person or by another LLM without access to the development
 chat history. When this guide and an earlier chat answer disagree, use this guide for the code
@@ -554,16 +556,33 @@ an Employee's Run merely by knowing its name.
 
 The reusable Card itself remains `Available` throughout. It never gains a Cycle or production
 quantity. Direct-card evidence is deliberately not inherited from the reusable physical Card,
-because that would mix files between separate occurrences. Direct Action Run media capture remains
-a later Gate 2 package; Service Task actions continue to pin their exact Task evidence normally.
+because that would mix files between separate occurrences. Instead, the form for each direct Run
+shows **Action Run Private Evidence**:
+
+- **Take Timestamped Photo** captures a new image, applies visible server time plus device GPS, and
+  uploads it directly to private S3;
+- **Upload Photo / PDF / File** accepts multiple existing files without altering their contents;
+- **Remove** archives an accidental file while retaining its registry audit record, but only before
+  document posting starts;
+- **Open Evidence** requests a short-lived authorized view URL; no signed URL is stored;
+- posting waits until every initiated upload is confirmed, then snapshots only `Available`
+  `doctype-action-evidence` registry IDs and locks the Run evidence set permanently.
+
+Closing the form before posting does not move these files to the reusable Card. Resume the same Run
+to see them again. Starting a new occurrence creates a new empty Run evidence area. Manufacturing
+Manager, CFG Kanban System Maintenance, and System Manager users with read access may open the
+**CFG Kanban DocType Action Run** record to review its direct-media thumbnail gallery. Service Task
+actions remain different: their evidence belongs to the exact generated Task occurrence and is
+pinned from that Task when its Action posts.
 
 The independent live test is in
 [`docs/TEST_GATE2_DOCTYPE_ACTION_CARD.md`](TEST_GATE2_DOCTYPE_ACTION_CARD.md).
 
-**Current Gate 2B boundary:** the reusable Service Task engine and its controlled pilot fixtures are
-prepared in code. Gate 1 becomes accepted only after the documented live-site pilot passes. A
-direct **DocType Action Card** can now be configured, validated, replaced, printed, scanned and used
-to explicitly Resume or Start separate Action Runs without entering any production lifecycle.
+**Current Gate 2C boundary:** Gate 2B direct Card form operation has passed live-site acceptance.
+Per-Run private media is prepared in code and still requires the independent Gate 2C live test in
+[`docs/TEST_GATE2C_DOCTYPE_ACTION_MEDIA.md`](TEST_GATE2C_DOCTYPE_ACTION_MEDIA.md). A direct
+**DocType Action Card** can be configured, validated, replaced, printed, scanned and used to Resume
+or Start separate Action Runs without entering any production lifecycle.
 
 The runtime trigger uses the **Master's Automation Level** (`automation_level`). `Automatic`
 creates/executes the Work Order command immediately only when the Before Cycle Start gate is open.
@@ -3226,6 +3245,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.51 | 16 October 2026 | Marked Gate 2B live-site accepted and added Gate 2C isolated private media per direct Action Run: multiple photo/file upload, visible server-time/GPS camera stamping, recoverable pre-post archive, pending-upload guard, available-only immutable snapshot, post-snapshot lock, operator view, and supervisor Action Run gallery without attaching evidence to the reusable Card |
 | 1.50 | 16 October 2026 | Replaced the DocType Action parent-field Dialog layout path with the same direct Frappe control renderer used by working child observations, restoring editable Summary, Outcome and Notes controls while retaining read-only context fields, reactive visibility, typed collection and server allowlisting |
 | 1.49 | 16 October 2026 | Corrected DocType Action parent controls so Operator Input fields consistently remain editable when Frappe serializes Check values as strings or integers; server-context and explicitly read-only fields remain protected |
 | 1.48 | 16 October 2026 | Added Gate 2B direct DocType Action Card scanning in Kanban Service Tasks, explicit Resume versus Start New intent, per-occurrence opaque Run identity, retry deduplication, operator ownership and Supervisor history scope, reusable-card form context, Task-only profile rejection, and production isolation; direct Action Run media capture remains a later package |

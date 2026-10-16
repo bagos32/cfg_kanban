@@ -22,10 +22,15 @@ Kanban-specific mapping and does not redefine that contract.
 | `process-task-evidence` | CFG Kanban Process Task |
 | `incident-evidence` | CFG Kanban Exception |
 | `production-evidence` | CFG Kanban Cycle, CFG Kanban Operation Progress |
+| `delivery-proof-evidence` | CFG Kanban Delivery Proof |
+| `customer-return-evidence` | CFG Kanban Return Case |
+| `doctype-action-evidence` | CFG Kanban DocType Action Run |
 
-The Service Task mobile panel implements direct upload and confirmation for
-`maintenance-evidence`. The service/API contract supports the other registered classes for later
-business-screen integration without changing object identity or metadata.
+The Service Task, production/QC, delivery, return, and direct DocType Action interfaces implement
+their corresponding controlled upload/view lifecycle. Direct DocType Action evidence belongs to
+the immutable **Action Run**, never to the reusable Card, so one occurrence cannot inherit another
+occurrence's files. The service/API contract retains the same object identity and metadata rules
+for every registered class.
 
 ## Restricted ERPNext configuration
 

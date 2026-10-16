@@ -648,10 +648,12 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			fields.push({ fieldname: `action_child_${index}`, fieldtype: "HTML",
 				options: action_child_shell_html(table) });
 		});
-		if ((form.evidence || []).length) {
-			fields.push({ fieldtype: "Section Break", label: __("Linked Private Evidence") });
+		if ((form.evidence || []).length || (form.evidence_controls || {}).mode === "action-run") {
+			fields.push({ fieldtype: "Section Break", label:
+				(form.evidence_controls || {}).mode === "action-run" ?
+					__("Action Run Private Evidence") : __("Linked Private Evidence") });
 			fields.push({ fieldname: "action_evidence", fieldtype: "HTML",
-				options: action_evidence_html(form.evidence) });
+				options: action_evidence_html(form) });
 		}
 		fields.push({ fieldname: "action_result", fieldtype: "HTML",
 			options: action_result_html(form) });
@@ -738,27 +740,154 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			${recovery_buttons ? `<div class="cfg-action-recovery-buttons mt-3">${recovery_buttons}</div>` : ""}${history}</div>`;
 	}
 
-	function action_evidence_html(rows) {
+	function action_evidence_html(form) {
 		const e = frappe.utils.escape_html;
-		return `<div class="cfg-action-evidence-grid">${rows.map((row) => `<article class="cfg-action-evidence-item">
+		const controls = form.evidence_controls || {};
+		const direct_run = controls.mode === "action-run";
+		const actions = direct_run && controls.can_upload ? `<div class="cfg-media-actions">
+			<label class="btn btn-primary btn-lg cfg-action-camera-picker">${__("Take Timestamped Photo")}
+				<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden></label>
+			<label class="btn btn-default btn-lg cfg-action-file-picker">${__("Upload Photo / PDF / File")}
+				<input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf" multiple hidden></label>
+		</div><div class="text-muted mt-2"><small>${__("Camera photos receive visible server time and GPS. Uploaded files remain unchanged. Every file belongs only to this Action Run occurrence.")}</small></div>` : "";
+		const locked = direct_run && controls.locked ? `<div class="alert alert-info">
+			${__("Evidence is frozen for this Action Run because controlled document posting has started.")}</div>` : "";
+		return `${actions}${locked}<div class="cfg-action-media-status mt-2"></div>
+		<div class="cfg-action-evidence-grid">${action_evidence_rows_html(form.evidence || [], controls.can_archive)}</div>
+		<small class="text-muted">${e(__("These are stable CFG Kanban Media references. Temporary view links are generated only when Open Evidence is selected."))}</small>`;
+	}
+
+	function action_evidence_rows_html(rows, can_archive) {
+		const e = frappe.utils.escape_html;
+		if (!rows.length) return `<div class="text-muted cfg-action-evidence-empty">${__("No private evidence attached to this Action Run yet.")}</div>`;
+		return rows.map((row) => {
+			const status = row.status || "available";
+			return `<article class="cfg-action-evidence-item" data-media-id="${e(row.media_id)}">
 			<div><strong>${e(row.original_filename || row.media_id)}</strong>
-			<small>${e(row.content_type || "")} · ${e(row.capture_timestamp || row.confirmed_at || "")}</small>
-			<small>${e(row.operator_employee || "")}</small></div>
-			<button type="button" class="btn btn-default btn-sm cfg-open-action-evidence" data-media-id="${e(row.media_id)}">${__("Open Evidence")}</button>
-		</article>`).join("")}</div>
-		<small class="text-muted">${__("These are stable CFG Kanban Media references. Temporary view links are generated only when Open Evidence is selected.")}</small>`;
+			<small>${e(row.content_type || "")} · ${format_bytes(row.size_bytes)}</small>
+			<small>${e(row.capture_timestamp || row.confirmed_at || row.created_at || "")} · ${e(row.operator_employee || "")}</small>
+			<small>${__("Status")}: ${e(status)}</small></div>
+			<span>${status === "available" ? `<button type="button" class="btn btn-default btn-sm cfg-open-action-evidence">${__("Open Evidence")}</button>` : ""}
+			${can_archive ? `<button type="button" class="btn btn-danger btn-sm cfg-remove-action-evidence">${__("Remove")}</button>` : ""}</span>
+		</article>`;
+		}).join("");
 	}
 
 	function bind_action_evidence(dialog, form, source_context) {
 		if (!dialog.fields_dict.action_evidence) return;
-		if (!form.task) return;
-		dialog.get_field("action_evidence").$wrapper.on("click", ".cfg-open-action-evidence", async function () {
-			const response = await frappe.call({ method: "cfg_kanban.api.media.create_task_view_url", args: {
-				task_name: form.task.name || (source_context && source_context.name),
-				media_id: $(this).data("media-id"), operator_session_token: state.token,
-			} });
-			if (response.message && response.message.url) window.open(response.message.url, "_blank", "noopener");
-		});
+		const controls = form.evidence_controls || {};
+		const $field = dialog.get_field("action_evidence").$wrapper;
+		if (controls.mode !== "action-run") {
+			if (!form.task) return;
+			$field.on("click", ".cfg-open-action-evidence", async function () {
+				const response = await frappe.call({ method: "cfg_kanban.api.media.create_task_view_url", args: {
+					task_name: form.task.name || (source_context && source_context.name),
+					media_id: $(this).closest(".cfg-action-evidence-item").data("media-id"),
+					operator_session_token: state.token,
+				} });
+				if (response.message && response.message.url) window.open(response.message.url, "_blank", "noopener");
+			});
+			return;
+		}
+
+		let rows = form.evidence || [];
+		const run_name = form.run.name;
+		const refresh_rows = () => {
+			$field.find(".cfg-action-evidence-grid").html(
+				action_evidence_rows_html(rows, controls.can_archive)
+			);
+			$field.find(".cfg-open-action-evidence").off("click").on("click", async function () {
+				const response = await frappe.call({ method: "cfg_kanban.api.media.create_action_run_view_url", args: {
+					run_name, media_id: $(this).closest(".cfg-action-evidence-item").data("media-id"),
+					operator_session_token: state.token,
+				} });
+				if (response.message && response.message.url) window.open(response.message.url, "_blank", "noopener");
+			});
+			$field.find(".cfg-remove-action-evidence").off("click").on("click", function () {
+				const media_id = $(this).closest(".cfg-action-evidence-item").data("media-id");
+				frappe.confirm(__("Remove this accidental attachment? The audit record will be retained."), async () => {
+					await frappe.call({ method: "cfg_kanban.api.media.archive_action_run_media", args: {
+						run_name, media_id, operator_session_token: state.token,
+					}, freeze: true });
+					rows = rows.filter((row) => row.media_id !== media_id);
+					refresh_rows();
+				});
+			});
+		};
+		refresh_rows();
+		if (!controls.can_upload) return;
+
+		const handle_upload = async (input, camera_capture) => {
+			let files = Array.from(input.files || []);
+			if (!files.length) return;
+			const $status = $field.find(".cfg-action-media-status");
+			const $pickers = $field.find(".cfg-action-camera-picker,.cfg-action-file-picker").addClass("disabled");
+			try {
+				let capture_timestamp = null;
+				let geotag = null;
+				if (camera_capture) {
+					geotag = await get_execution_geotag();
+					const stamp = await frappe.call({ method: "cfg_kanban.api.media.get_action_run_camera_stamp", args: {
+						run_name, operator_session_token: state.token,
+					} });
+					capture_timestamp = stamp.message.captured_at;
+					files = [await stamp_execution_photo(
+						files[0], capture_timestamp, stamp.message.action_id || run_name, geotag
+					)];
+				}
+				for (let index = 0; index < files.length; index += 1) {
+					const file = files[index];
+					$status.html(`<div class="alert alert-info">${__("Uploading {0} of {1}: {2}", [index + 1, files.length, frappe.utils.escape_html(file.name)])}</div>`);
+					const authorization = await frappe.call({ method: "cfg_kanban.api.media.create_action_run_upload_url", args: {
+						run_name, original_filename: file.name, content_type: file.type,
+						size_bytes: file.size, idempotency_key: frappe.utils.get_random(32),
+						operator_session_token: state.token,
+						capture_source: camera_capture ? "timestamped-camera" : "file-upload",
+						capture_timestamp,
+						latitude: geotag && geotag.latitude,
+						longitude: geotag && geotag.longitude,
+						location_accuracy: geotag && geotag.accuracy,
+					} });
+					if (authorization.message.already_available) continue;
+					const upload = authorization.message;
+					const payload = new FormData();
+					Object.entries(upload.fields || {}).forEach(([key, value]) => payload.append(key, value));
+					payload.append("file", file);
+					const result = await fetch(upload.url, { method: upload.method, body: payload });
+					if (!result.ok) throw new Error(__("Private media upload failed with HTTP {0}", [result.status]));
+					await frappe.call({ method: "cfg_kanban.api.media.confirm_action_run_upload", args: {
+						run_name, media_id: upload.media_id,
+						confirmation_token: upload.confirmation_token,
+						operator_session_token: state.token,
+					} });
+				}
+				const response = await frappe.call({ method: "cfg_kanban.api.media.list_action_run_media", args: {
+					run_name, operator_session_token: state.token,
+				} });
+				rows = response.message || [];
+				form.evidence = rows;
+				refresh_rows();
+				$status.html(`<div class="alert alert-success">${__("Action Run evidence uploaded and verified")}</div>`);
+			} catch (error) {
+				const detail = frappe.utils.escape_html(error.message || __("Unknown upload error"));
+				$status.html(`<div class="alert alert-danger"><strong>${__("Media upload was not completed.")}</strong><br>${detail}</div>`);
+				console.error("CFG Kanban Action Run media upload failed", error);
+				try {
+					const response = await frappe.call({ method: "cfg_kanban.api.media.list_action_run_media", args: {
+						run_name, operator_session_token: state.token,
+					} });
+					rows = response.message || rows;
+					refresh_rows();
+				} catch (refresh_error) {
+					console.error("CFG Kanban Action Run evidence refresh failed", refresh_error);
+				}
+			} finally {
+				$pickers.removeClass("disabled");
+				input.value = "";
+			}
+		};
+		$field.find(".cfg-action-camera-picker input").on("change", function () { handle_upload(this, true); });
+		$field.find(".cfg-action-file-picker input").on("change", function () { handle_upload(this, false); });
 	}
 
 	function bind_action_recovery(dialog, form, source_context) {
@@ -1156,7 +1285,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		));
 	}
 
-	async function stamp_execution_photo(file, captured_at, task_name, geotag) {
+	async function stamp_execution_photo(file, captured_at, reference_label, geotag) {
 		const bitmap = await load_media_bitmap(file);
 		const canvas = document.createElement("canvas");
 		canvas.width = bitmap.width; canvas.height = bitmap.height;
@@ -1167,7 +1296,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		context.fillStyle = "rgba(0,0,0,0.72)";
 		context.fillRect(0, canvas.height - font_size * 3.4, canvas.width, font_size * 3.4);
 		context.fillStyle = "#fff"; context.font = `bold ${font_size}px Arial`;
-		context.fillText(`${captured_at} · ${task_name}`, padding, canvas.height - font_size * 1.55);
+		context.fillText(`${captured_at} · ${reference_label}`, padding, canvas.height - font_size * 1.55);
 		context.font = `${Math.round(font_size * 0.65)}px Arial`;
 		context.fillText(`GPS ${geotag.latitude.toFixed(6)}, ${geotag.longitude.toFixed(6)} · ±${Math.round(geotag.accuracy)}m`, padding, canvas.height - font_size * 0.75);
 		context.fillText("CFG Kanban execution capture · server time + device geolocation", padding, canvas.height - font_size * 0.18);

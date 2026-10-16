@@ -696,15 +696,20 @@ This status section records delivery without changing the locked revision 1.0 de
 | 2026-10-16 | Gate 1F — private evidence references and supervised recovery | Available same-occurrence `CFG Kanban Media` registry identities pinned on the Action Run without binaries/presigned URLs; operator evidence viewer; supervisor action-centre recovery queue; scanned-Supervisor recovery with immutable notes/attempts; no-target Return to Form; exact-target docstatus reconciliation; same-draft continuation for Submit policy; Task gate failure returns to reconciliation | Prepared in code; migration and live-site pilot validation pending |
 | 2026-10-16 | Gate 1G — explicit live-pilot fixtures and acceptance guide | Isolated non-production `CFG Action Pilot Draft` and submittable `CFG Action Pilot Submission` targets; repeatable `CFG Action Pilot Observation` child rows; exact-name-only module-deny exception; explicit administrator pilot policy/profile installer; normal `Kanban Terminal` target permissions; automated schema/safety contracts; independent live-site draft/submit/negative/recovery/evidence procedure | Prepared in code; migration and documented live-site acceptance pending |
 | 2026-10-16 | Gate 2A — direct Card schema and production isolation | Exact `DocType Action Card` Card Type and `doctype_action_profile` Link; enabled/Valid profile and approved-policy validation; configuration-role issuance; immutable Card/profile boundary; zero production quantity and no Master/Cycle; explicit production/logistics fail-closed guards; controlled QR replacement; dedicated CR80 print format | Prepared in code; migration and live-site form/print validation pending |
-| 2026-10-16 | Gate 2B — direct Card scan and occurrence selection | Non-production resolver in `Kanban Service Tasks`; QR/Card identity lookup; explicit `Start New Action` versus authorized `Resume`; separate opaque Run per explicit new intent; retry-token and database uniqueness guards; Employee-owned open Runs; Supervisor Override history; shared Gate 1 writer/form/recovery; Task-only profile validation; Card remains Available with no Cycle | Prepared in code; migration and live-site acceptance pending |
+| 2026-10-16 | Gate 2B — direct Card scan and occurrence selection | Non-production resolver in `Kanban Service Tasks`; QR/Card identity lookup; explicit `Start New Action` versus authorized `Resume`; separate opaque Run per explicit new intent; retry-token and database uniqueness guards; Employee-owned open Runs; Supervisor Override history; shared Gate 1 writer/form/recovery; Task-only profile validation; Card remains Available with no Cycle | Live-site accepted by user on 16 October 2026 |
+| 2026-10-16 | Gate 2C — per-Run private media evidence | Direct-card photos/files owned by immutable `CFG Kanban DocType Action Run`; multiple upload; timestamped/geotagged camera capture; recoverable archive before posting; pending-upload posting guard; available-only stable-reference snapshot; post-snapshot lock; authorized operator view and Desk supervisor thumbnail gallery; reusable Card remains evidence-free | Prepared in code; migration and live-site acceptance pending |
 
-**Current boundary after Gate 2B:** Service Task occurrences resolve their one Action Run, open the
+**Current boundary after Gate 2C:** Service Task occurrences resolve their one Action Run, open the
 mapped parent/child form on phone/tablet, pin authorized private evidence, post through the controlled
 writer and cannot falsely close while a required result is unresolved. Supervisors can recover an
 uncertain existing Run without creating another target. The two explicit pilot destinations and
 test procedure are prepared; Gate 1 remains pending until both live-site paths pass. The direct
 `DocType Action Card` can now be configured, printed and scanned without entering any production
 path. A scan is non-creating; the operator must choose an authorized existing **Resume** or explicit
-**Start New Action**. Direct-card evidence is not inherited from the reusable Card, preventing
-cross-occurrence leakage; per-Run direct media capture remains a later Gate 2 package.
+**Start New Action**. Each direct Run now owns its own private evidence set. Uploads may be corrected
+before posting, but the available registry identities are frozen at the first controlled post and
+cannot leak to or be changed by a later scan of the reusable Card.
+
+Gate 2C live acceptance follows
+[`docs/TEST_GATE2C_DOCTYPE_ACTION_MEDIA.md`](TEST_GATE2C_DOCTYPE_ACTION_MEDIA.md).
 

@@ -107,6 +107,78 @@ def archive_task_media(task_name, media_id, operator_session_token):
 
 
 @frappe.whitelist()
+def create_action_run_upload_url(run_name, original_filename, content_type, size_bytes,
+                                 idempotency_key, operator_session_token,
+                                 capture_source="file-upload", capture_timestamp=None,
+                                 latitude=None, longitude=None, location_accuracy=None):
+    run, profile, session = _authorize_action_run_media(
+        run_name, operator_session_token, write=True
+    )
+    if capture_source not in ("file-upload", "timestamped-camera"):
+        frappe.throw("Action evidence capture source is not supported")
+    declared_type = (content_type or "").lower()
+    if capture_source == "timestamped-camera" and not declared_type.startswith("image/"):
+        frappe.throw("Action Run camera evidence must be an image")
+    extensions = _capture_extensions(
+        capture_source, capture_timestamp, latitude, longitude, location_accuracy
+    )
+    extensions["cfg_kanban"]["evidence_kind"] = (
+        "photo" if declared_type.startswith("image/") else "attachment"
+    )
+    return media.create_upload_url(
+        "CFG Kanban DocType Action Run", run.name, original_filename,
+        content_type, size_bytes, "doctype-action-evidence", idempotency_key,
+        permission_checked=True, extensions=extensions,
+        operator_employee=profile.employee, operator_session=session.name,
+    )
+
+
+@frappe.whitelist()
+def confirm_action_run_upload(run_name, media_id, confirmation_token,
+                              operator_session_token):
+    _authorize_action_run_media(run_name, operator_session_token, write=True)
+    _assert_reference_media("CFG Kanban DocType Action Run", run_name, media_id)
+    return media.confirm_upload(media_id, confirmation_token, permission_checked=True)
+
+
+@frappe.whitelist()
+def list_action_run_media(run_name, operator_session_token):
+    _authorize_action_run_media(run_name, operator_session_token)
+    return media.list_reference_media(
+        "CFG Kanban DocType Action Run", run_name, permission_checked=True,
+        statuses=("pending", "available", "quarantined", "failed"),
+    )
+
+
+@frappe.whitelist()
+def create_action_run_view_url(run_name, media_id, operator_session_token,
+                               disposition="inline"):
+    _authorize_action_run_media(run_name, operator_session_token)
+    _assert_reference_media("CFG Kanban DocType Action Run", run_name, media_id)
+    return media.create_view_url(media_id, disposition, permission_checked=True)
+
+
+@frappe.whitelist()
+def archive_action_run_media(run_name, media_id, operator_session_token):
+    _authorize_action_run_media(run_name, operator_session_token, write=True)
+    _assert_reference_media("CFG Kanban DocType Action Run", run_name, media_id)
+    return media.delete_object(media_id, permission_checked=True)
+
+
+@frappe.whitelist()
+def get_action_run_camera_stamp(run_name, operator_session_token):
+    run, _profile, _session = _authorize_action_run_media(
+        run_name, operator_session_token, write=True
+    )
+    return {
+        "captured_at": str(frappe.utils.now_datetime()),
+        "action_run": run.name,
+        "action_id": run.action_id,
+        "card": run.source_name,
+    }
+
+
+@frappe.whitelist()
 def create_process_task_upload_url(task_name, original_filename, content_type, size_bytes,
                                    idempotency_key, operator_session_token,
                                    capture_source="file-upload", capture_timestamp=None,
@@ -341,6 +413,31 @@ def _authorize_process_task(task_name, operator_session_token, action=None):
     return task, profile, session
 
 
+def _authorize_action_run_media(run_name, operator_session_token, write=False):
+    from cfg_kanban.services.doctype_action_media import MUTABLE_EVIDENCE_STATES
+    from cfg_kanban.services.doctype_action_runs import authorize_run_actor, get_locked_run
+
+    # Mutating evidence and target posting take the same Action Run row lock.
+    # This prevents a late upload authorization from crossing the immutable
+    # evidence-snapshot boundary while a target is being posted.
+    run = (
+        get_locked_run(run_name)
+        if write else frappe.get_doc("CFG Kanban DocType Action Run", run_name)
+    )
+    _source, profile, session = authorize_run_actor(run, operator_session_token)
+    if run.source_doctype != "CFG Kanban Card":
+        frappe.throw(
+            "Service Task action evidence must be managed on its exact Task occurrence"
+        )
+    if write and (
+        run.get("evidence_snapshot_on") or run.state not in MUTABLE_EVIDENCE_STATES
+    ):
+        frappe.throw(
+            "Action Run evidence is locked because document posting has started"
+        )
+    return run, profile, session
+
+
 def _authorize_delivery_proof(proof_name, operator_session_token, action=None):
     from cfg_kanban.services.customer_delivery import (
         CUSTOMER_DELIVERY_RESPONSIBILITY,
@@ -406,6 +503,8 @@ def _assert_reference_media(reference_doctype, reference_name, media_id):
 def _capture_extensions(source, captured_at, latitude, longitude, accuracy):
     payload = {"capture_source": source, "capture_timestamp": captured_at}
     if source == "timestamped-camera":
+        if not captured_at:
+            frappe.throw("Server capture time is required for a timestamped execution photo")
         if latitude in (None, "") or longitude in (None, ""):
             frappe.throw("Geolocation is required for a timestamped execution photo")
         lat = frappe.utils.flt(latitude)
