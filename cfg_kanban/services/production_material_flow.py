@@ -19,10 +19,11 @@ def apply_master_material_flow(work_order, master):
     ]
     if staged_wip_bin_rows:
         frappe.throw(
-            "Standard Quantity Reusable WIP Bin configuration and its auditable load records "
-            "are installed, but floor scanner allocation is not enabled in this release. "
+            "Standard Quantity Reusable WIP Bin Draft transfer scanning is installed, but "
+            "operation-time consumption scanning is not enabled in this release. "
             "Keep the affected BOM Component Material Flow rows on Standard ERP / Tag Flow "
-            "until the runtime gate is deployed. No Work Order or stock movement was created."
+            "until the complete runtime gate is deployed. No Work Order or stock movement "
+            "was created."
         )
     if mode == "Transfer to WIP by Work Order":
         work_order.skip_transfer = 0

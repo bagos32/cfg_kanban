@@ -762,7 +762,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<tr><td>F8</td><td><code>CFG:CMD:END_SESSION</code></td><td>${__("End operator session after confirmation")}</td></tr>
 			</tbody></table>
 			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
-			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
+			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
 			<p><strong>${__("Progress dialog commands")}</strong>: <code>CFG:QTY:GOOD:+1</code>, <code>CFG:QTY:REJECT:+1</code>, <code>CFG:CMD:CONFIRM</code>, <code>CFG:CMD:CANCEL</code>.</p>
 			<p><strong>${__("Message control")}</strong>: scan the next card to close an error and continue, or scan <code>CFG:CMD:DISMISS</code> to close it.</p>
 			<div class="alert alert-warning">${__("A web page cannot receive scanner keys while the browser address bar is selected. Use full-screen/kiosk mode and configure the scanner to append Enter.")}</div>
@@ -1615,6 +1615,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				{ fieldname: "trace_scanner_status", fieldtype: "HTML" },
 				{ fieldname: "trace_scan", label: __("Scanner Ready — Scan Material Tag or Command"), fieldtype: "Data",
 					description: __("This field remains armed. A physical tag is matched to its ERP row automatically. Scan Submit Materials when staging is complete, or Cancel to close.") },
+				{ fieldname: "wip_bin_section", label: __("Load Standard Quantity Reusable WIP Bin"), fieldtype: "Section Break" },
+				{ fieldname: "wip_bin_row", label: __("WIP Bin ERP Material Row"), fieldtype: "Select",
+					description: __("Use the numbered scanner command to select a different row when more than one material uses fixed WIP bins.") },
+				{ fieldname: "wip_source_scan", label: __("Source Stock Tag (when used)"), fieldtype: "Data",
+					description: __("Scan the source Stock Tag first. For an Optional Physical Tag row, scan No Source to use ERP-only stock.") },
+				{ fieldname: "wip_bin_scan", label: __("Empty Reusable WIP Bin"), fieldtype: "Data",
+					description: __("Scan an Empty bin approved in the configured WIP Bin Pool.") },
+				{ fieldname: "allocate_wip_bin", label: __("Allocate Full WIP Bin"), fieldtype: "Button",
+					click: async () => allocate_operator_wip_bin(dialog, stock_entry, reload) },
 				{ fieldname: "input_section", label: __("Scan Tagged Material Input"), fieldtype: "Section Break" },
 				{ fieldname: "input_row", label: __("Matched ERP Input Row"), fieldtype: "Select", read_only: 1,
 					description: __("The scanned tag automatically selects the matching Item, Warehouse, UOM, Batch, and remaining ERP row.") },
@@ -1685,19 +1694,27 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	async function refresh_operator_trace_dialog(dialog, plan, reload) {
 		dialog.cfg_trace_plan = plan;
+		dialog.cfg_trace_reload = reload;
 		const inputs = (plan.rows || []).filter((row) => row.direction === "Input" &&
 			row.tagging_available && row.remaining_qty > 0.000001);
+		const wip_inputs = (plan.rows || []).filter((row) => row.direction === "Input" &&
+			row.wip_bin_required && row.wip_bin_remaining_qty > 0.000001);
 		const outputs = (plan.rows || []).filter((row) => row.direction === "Output" &&
 			row.tagging_available && row.remaining_qty > 0.000001);
 		const input_options = inputs.map(operator_trace_row_option);
 		const output_options = outputs.map(operator_trace_row_option);
 		dialog.set_df_property("input_row", "options", input_options.join("\n"));
+		const wip_options = wip_inputs.map(operator_wip_row_option);
+		dialog.set_df_property("wip_bin_row", "options", wip_options.join("\n"));
 		dialog.set_df_property("output_row", "options", output_options.join("\n"));
 		dialog.fields_dict.summary.$wrapper.html(operator_trace_summary(plan));
 		dialog.fields_dict.lines.$wrapper.html(operator_trace_lines(plan));
 		const input_visible = plan.can_edit && input_options.length;
 		const output_visible = plan.can_edit && output_options.length;
-		const scanner_instruction = input_visible
+		const wip_visible = plan.can_edit && wip_options.length;
+		const scanner_instruction = wip_visible
+			? operator_wip_scanner_instruction(dialog, wip_inputs)
+			: input_visible
 			? __("Scanner ready for an INPUT handling-unit tag. The Item, Warehouse, UOM, Batch, and ERP row are selected automatically.")
 			: output_visible
 				? __("All required input tags are staged. Scanner ready for an unused OUTPUT tag.")
@@ -1709,6 +1726,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		);
 		["input_section", "input_row", "input_scan", "input_camera", "input_qty", "allocate_input"]
 			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(input_visible)));
+		["wip_bin_section", "wip_bin_row", "wip_source_scan", "wip_bin_scan", "allocate_wip_bin"]
+			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(wip_visible)));
 		["output_section", "output_row", "output_scan", "output_camera", "output_qty",
 			"output_serial_numbers", "handling_unit_type", "stage_output"]
 			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(output_visible)));
@@ -1717,6 +1736,19 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				dialog.get_value("input_row") : input_options[0];
 			await dialog.set_value("input_row", selected);
 			bind_operator_trace_enter(dialog, "input_scan", "allocate_input");
+		}
+		if (wip_visible) {
+			const selected = wip_options.includes(dialog.get_value("wip_bin_row")) ?
+				dialog.get_value("wip_bin_row") : wip_options[0];
+			await dialog.set_value("wip_bin_row", selected);
+			const $wip_select = dialog.get_field("wip_bin_row").$input;
+			$wip_select.off("change.cfg_wip_row").on("change.cfg_wip_row", async () => {
+				dialog.cfg_wip_erp_only = false;
+				await dialog.set_value("wip_source_scan", "");
+				await dialog.set_value("wip_bin_scan", "");
+				window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
+			});
+			bind_operator_trace_enter(dialog, "wip_bin_scan", "allocate_wip_bin");
 		}
 		if (output_visible) {
 			const selected = output_options.includes(dialog.get_value("output_row")) ?
@@ -1741,6 +1773,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				stock_entry: plan.stock_entry, trace_line: event.currentTarget.dataset.cancelOperatorTraceLine,
 				operator_session_token: state.session_token, kanban_card: state.context.card.name,
 			}, freeze: true, freeze_message: __("Releasing staged trace line...") });
+			await reload();
+		});
+		dialog.fields_dict.lines.$wrapper.find("[data-cancel-wip-bin-load]").off("click").on("click", async (event) => {
+			await frappe.call({ method: "cfg_kanban.services.wip_bin_loads.cancel_transfer_bin", args: {
+				load_name: event.currentTarget.dataset.cancelWipBinLoad,
+				operator_session_token: state.session_token, kanban_card: state.context.card.name,
+			}, freeze: true, freeze_message: __("Releasing Draft WIP Bin allocation...") });
 			await reload();
 		});
 		window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
@@ -1784,6 +1823,39 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			return submit_scanner_material_entry();
 		}
 		if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(command)) return dialog.hide();
+		const pending_wip = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
+			row.direction === "Input" && row.wip_bin_required && row.wip_bin_remaining_qty > 0.000001);
+		if (pending_wip.length) {
+			if (/^(CFG:SELECT:)?\d+$/.test(command)) {
+				const index = parseInt(command.replace("CFG:SELECT:", ""), 10) - 1;
+				if (pending_wip[index]) {
+					dialog.cfg_wip_erp_only = false;
+					await dialog.set_value("wip_source_scan", "");
+					await dialog.set_value("wip_bin_scan", "");
+					await dialog.set_value("wip_bin_row", operator_wip_row_option(pending_wip[index], index));
+				}
+				else frappe.show_alert({ message: __("That WIP material row number is not available."), indicator: "orange" });
+				return window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
+			}
+			const row = operator_wip_row(pending_wip, dialog.get_value("wip_bin_row"));
+			if (command === "CFG:CMD:NO_SOURCE") {
+				if (row?.tag_required) frappe.throw(__("This Item requires a source Stock Tag."));
+				dialog.cfg_wip_erp_only = true;
+				await dialog.set_value("wip_source_scan", "");
+				frappe.show_alert({ message: __("ERP-only source selected; scan the empty WIP Bin."), indicator: "blue" });
+				return window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
+			}
+			if (!row?.tag_required && row?.tag_policy === "No Physical Tag") dialog.cfg_wip_erp_only = true;
+			if (!dialog.cfg_wip_erp_only && !dialog.get_value("wip_source_scan")) {
+				await dialog.set_value("wip_source_scan", value);
+				frappe.show_alert({ message: __("Source tag captured; now scan the empty WIP Bin."), indicator: "blue" });
+				return window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
+			}
+			await dialog.set_value("wip_bin_scan", value);
+			return allocate_operator_wip_bin(
+				dialog, dialog.cfg_trace_plan.stock_entry, dialog.cfg_trace_reload
+			);
+		}
 		const pending_inputs = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
 			row.direction === "Input" && row.tagging_available && row.remaining_qty > 0.000001);
 		const pending_outputs = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
@@ -1804,6 +1876,47 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		return `${row.row_name} :: ${row.item_code} :: ${row.remaining_qty} ${row.stock_uom}`;
 	}
 
+	function operator_wip_row_option(row, index) {
+		const prefix = index === undefined ? "" : `${index + 1}. `;
+		return `${prefix}${row.row_name} :: ${row.item_code} :: ${row.standard_bin_qty} ${row.stock_uom}`;
+	}
+
+	function operator_wip_row(rows, value) {
+		const normalized = String(value || "").replace(/^\d+\.\s*/, "");
+		const name = operator_trace_row_name(normalized);
+		return rows.find((row) => row.row_name === name);
+	}
+
+	function operator_wip_scanner_instruction(dialog, rows) {
+		const row = operator_wip_row(rows, dialog.get_value("wip_bin_row")) || rows[0];
+		if (!row) return __("Select a WIP material row.");
+		if (row.tag_policy === "No Physical Tag" || dialog.cfg_wip_erp_only) {
+			return __(`WIP row: ${row.item_code}. Scan an EMPTY reusable WIP Bin. ERPNext stock remains authoritative.`);
+		}
+		return dialog.get_value("wip_source_scan")
+			? __(`Source captured for ${row.item_code}. Now scan an EMPTY reusable WIP Bin.`)
+			: __(`WIP row: ${row.item_code}. Scan its source Stock Tag, then scan the EMPTY reusable WIP Bin. Scan No Source only when this row allows optional tags.`);
+	}
+
+	async function allocate_operator_wip_bin(dialog, stock_entry, reload) {
+		const rows = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
+			row.direction === "Input" && row.wip_bin_required && row.wip_bin_remaining_qty > 0.000001);
+		const row = operator_wip_row(rows, dialog.get_value("wip_bin_row")) || rows[0];
+		if (!row) return;
+		await frappe.call({ method: "cfg_kanban.services.wip_bin_loads.allocate_transfer_bin", args: {
+			stock_entry, item_row: row.row_name,
+			source_scan: dialog.cfg_wip_erp_only ? null : dialog.get_value("wip_source_scan"),
+			reusable_bin_scan: dialog.get_value("wip_bin_scan"),
+			operator_session_token: state.session_token, kanban_card: state.context.card.name,
+			event_token: frappe.utils.get_random(24),
+		}, freeze: true, freeze_message: __("Reserving source material and WIP Bin...") });
+		frappe.show_alert({ message: __("WIP Bin allocated; ERP stock moves only after Stock Entry submission."), indicator: "green" });
+		dialog.cfg_wip_erp_only = false;
+		await dialog.set_value("wip_source_scan", "");
+		await dialog.set_value("wip_bin_scan", "");
+		await reload();
+	}
+
 	function operator_trace_row_name(value) {
 		return String(value || "").split(" :: ")[0];
 	}
@@ -1817,7 +1930,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const e = frappe.utils.escape_html;
 		const rows = (plan.rows || []).map((row) => `<tr><td>${e(row.direction)}</td>
 			<td>${e(row.item_code)}</td><td>${e(row.batch_no || "-")}</td><td>${e(row.warehouse || "-")}</td>
-			<td>${e(row.tag_policy)}</td><td>${e(row.traced_qty)} / ${e(row.stock_qty)} ${e(row.stock_uom)}</td></tr>`).join("");
+			<td>${e(row.wip_bin_required ? __(`WIP Bin · ${row.tag_policy}`) : row.tag_policy)}</td>
+			<td>${e(row.wip_bin_required ? row.wip_bin_allocated_qty : row.traced_qty)} / ${e(row.stock_qty)} ${e(row.stock_uom)}</td></tr>`).join("");
 		return `<div class="alert alert-info"><strong>${e(plan.stock_entry)}</strong> · ${e(plan.purpose)} · ${e(plan.company)}<br>
 			${__("Material Trace")}: ${e(plan.trace || __("Not created"))} · ${e(plan.trace_status)}</div>
 			<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>
@@ -1827,14 +1941,18 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	}
 
 	function operator_trace_lines(plan) {
-		if (!(plan.lines || []).length) return `<p class="text-muted">${__("No production tags staged.")}</p>`;
+		const wip_loads = (plan.rows || []).flatMap((row) => (row.wip_bin_loads || []).map((load) => ({ ...load, item_code: row.item_code })));
+		if (!(plan.lines || []).length && !wip_loads.length) return `<p class="text-muted">${__("No production tags or WIP Bins staged.")}</p>`;
 		const e = frappe.utils.escape_html;
-		const rows = plan.lines.map((line) => `<tr><td>${e(line.direction)}</td><td>${e(line.item_code)}</td>
+		const trace_rows = (plan.lines || []).map((line) => `<tr><td>${e(line.direction)}</td><td>${e(line.item_code)}</td>
 			<td>${e(line.handling_unit || line.pending_tag_code || "-")}</td><td>${e(line.qty)} ${e(line.stock_uom)}${line.serial_count ? `<br><small>${e(line.serial_count)} ${__("serials")}</small>` : ""}</td>
 			<td>${e(line.status)}</td><td>${line.can_cancel ? `<button class="btn btn-xs btn-danger" data-cancel-operator-trace-line="${e(line.name)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
+		const wip_rows = wip_loads.map((load) => `<tr><td>${__("WIP Bin")}</td><td>${e(load.item_code)}</td>
+			<td>${e(load.reusable_bin)}</td><td>${e(load.actual_qty)} ${e(load.stock_uom)}</td><td>${e(load.status)}</td>
+			<td>${load.status === "Transfer Draft" ? `<button class="btn btn-xs btn-danger" data-cancel-wip-bin-load="${e(load.name)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
 		return `<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>
 			<th>${__("Direction")}</th><th>${__("Item")}</th><th>${__("Tag")}</th><th>${__("Quantity")}</th>
-			<th>${__("Status")}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+			<th>${__("Status")}</th><th></th></tr></thead><tbody>${trace_rows}${wip_rows}</tbody></table></div>`;
 	}
 
 	function render_process_tasks(tasks) {

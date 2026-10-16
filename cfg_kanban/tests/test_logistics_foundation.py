@@ -162,6 +162,23 @@ class TestHandlingUnitQuantityMath(TestCase):
         )
         self.assertEqual((float(current), float(reserved), float(available)), (6, 0, 6))
 
+    def test_wip_bin_load_can_remove_only_standard_qty_from_larger_source_tag(self):
+        deltas = event_deltas("WIP Bin Load", 10, release_reserved=True)
+        current, reserved, available = apply_balance_delta(
+            25,
+            10,
+            qty_delta=deltas["source_qty_delta"],
+            reserved_delta=deltas["source_reserved_delta"],
+        )
+        self.assertEqual((float(current), float(reserved), float(available)), (15, 0, 15))
+
+    def test_wip_bin_load_reversal_restores_source_tag_quantity(self):
+        deltas = event_deltas("WIP Bin Load Reversal", 10)
+        current, reserved, available = apply_balance_delta(
+            15, 0, qty_delta=deltas["destination_qty_delta"]
+        )
+        self.assertEqual((float(current), float(reserved), float(available)), (25, 0, 25))
+
     def test_production_reversals_restore_input_and_remove_output(self):
         restored = event_deltas("Production Consume Reversal", 4)
         input_balance = apply_balance_delta(

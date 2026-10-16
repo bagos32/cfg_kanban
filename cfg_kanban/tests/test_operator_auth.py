@@ -58,6 +58,7 @@ class TestOperatorAuthenticationContract(TestCase):
         self.assertIn("CFG:CMD:START", api)
         self.assertIn("CFG:CMD:REPORT_PROGRESS", api)
         self.assertIn("CFG:CMD:GO_TO_CURRENT_WORK", api)
+        self.assertIn("CFG:CMD:NO_SOURCE", api)
         self.assertIn("CFG:CMD:CLOSE_CYCLE", api)
         self.assertIn("quantity_steps", api)
         self.assertIn("CFG:CMD:DISMISS", api)

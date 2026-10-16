@@ -331,6 +331,12 @@ def validate_stock_entry_trace(doc):
     trace = _get_trace(doc.name)
     for row in doc.items:
         if row.s_warehouse:
+            if _purpose(doc) == "Material Transfer for Manufacture":
+                from cfg_kanban.services.wip_bin_loads import entry_wip_bin_rule
+                if entry_wip_bin_rule(doc, row):
+                    # The fixed-bin service validates source tag policy, reserves only the
+                    # standard bin quantity, and requires complete ERP-row coverage.
+                    continue
             policy = effective_trace_policy(row.item_code, doc.company)
             allocated = _line_qty(trace, row.name, "Input", ACTIVE_INPUT_STATUSES)
             required = policy.production_input_tag_policy == "Required Physical Tag"
@@ -585,9 +591,20 @@ def _trace_plan(doc, trace):
         if row.s_warehouse:
             policy = effective_trace_policy(row.item_code, doc.company)
             allocated = _line_qty(trace, row.name, "Input", ACTIVE_INPUT_STATUSES)
+            wip_context = None
+            wip_loads = []
+            if _purpose(doc) == "Material Transfer for Manufacture":
+                from cfg_kanban.services.wip_bin_loads import (
+                    entry_wip_bin_rule,
+                    transfer_loads_for_row,
+                )
+                wip_context = entry_wip_bin_rule(doc, row)
+                if wip_context:
+                    wip_loads = transfer_loads_for_row(doc.name, row.name)
             rows.append(_plan_row(
                 row, "Input", row.s_warehouse, policy.production_input_tag_policy,
                 policy.policy_source, allocated,
+                wip_context=wip_context, wip_loads=wip_loads,
             ))
         if _is_output_row(doc, row):
             policy = effective_trace_policy(row.item_code, doc.company)
@@ -626,11 +643,14 @@ def _trace_plan(doc, trace):
     }
 
 
-def _plan_row(row, direction, warehouse, tag_policy, policy_source, allocated):
+def _plan_row(row, direction, warehouse, tag_policy, policy_source, allocated,
+              wip_context=None, wip_loads=None):
     from cfg_kanban.services.serial_evidence import erp_row_serials, item_uses_serials
     total = _row_stock_qty(row)
     serial_controlled = item_uses_serials(row.item_code)
     row_serials = erp_row_serials(row) if serial_controlled else []
+    wip_loads = wip_loads or []
+    wip_allocated = sum(flt(load.actual_qty) for load in wip_loads)
     return {
         "row_name": row.name,
         "direction": direction,
@@ -644,8 +664,15 @@ def _plan_row(row, direction, warehouse, tag_policy, policy_source, allocated):
         "remaining_qty": max(total - allocated, 0),
         "tag_policy": tag_policy,
         "policy_source": policy_source,
-        "tagging_available": tag_policy != NO_TAG,
+        "tagging_available": tag_policy != NO_TAG and not wip_context,
         "tag_required": tag_policy == "Required Physical Tag",
+        "wip_bin_required": bool(wip_context),
+        "wip_bin_pool": wip_context.get("wip_bin_pool") if wip_context else None,
+        "standard_bin_qty": (wip_context.get("standard_bin_qty")
+                             if wip_context else 0),
+        "wip_bin_allocated_qty": wip_allocated,
+        "wip_bin_remaining_qty": max(total - wip_allocated, 0),
+        "wip_bin_loads": wip_loads,
         "serial_controlled": serial_controlled,
         "available_serial_numbers": [value for value in row_serials
                                      if value not in _trace_row_serials_by_document(

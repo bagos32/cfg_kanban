@@ -9,11 +9,184 @@ import frappe
 from frappe.utils import flt, now_datetime
 
 from cfg_kanban.services.events import record
+from cfg_kanban.services.logistics_foundation import post_quantity_event, resolve_logistics_scan
+from cfg_kanban.services.trace_policy import NO_TAG, effective_trace_policy
 
 
 TOLERANCE = 0.000001
 TRANSFER_PURPOSE = "Material Transfer for Manufacture"
 CONSUMPTION_PURPOSES = ("Material Consumption for Manufacture", "Manufacture")
+
+
+@frappe.whitelist()
+def allocate_transfer_bin(stock_entry, item_row, reusable_bin_scan,
+                          operator_session_token, kanban_card,
+                          source_scan=None, event_token=None):
+    """Reserve one fixed-quantity bin against a Draft native material-transfer row.
+
+    A source Stock Tag is optional or mandatory according to the Item trace policy. Its
+    fixed-bin quantity is reserved now and removed only when ERPNext submits the transfer.
+    """
+    from cfg_kanban.services.production_trace import _authorize_trace_access, _tag_batch_no
+
+    _lock_stock_entry(stock_entry)
+    entry = frappe.get_doc("Stock Entry", stock_entry)
+    actor = _authorize_trace_access(
+        entry, "write", operator_session_token=operator_session_token,
+        kanban_card=kanban_card,
+    )
+    if entry.docstatus != 0 or _purpose(entry) != TRANSFER_PURPOSE:
+        frappe.throw("WIP Bin allocation requires a Draft Material Transfer for Manufacture")
+    row = _entry_row(entry, item_row)
+    context = entry_wip_bin_rule(entry, row)
+    if not context:
+        frappe.throw(f"Item {row.item_code} is not configured for a Standard Quantity WIP Bin")
+    from cfg_kanban.services.serial_evidence import item_uses_serials
+    if item_uses_serials(row.item_code):
+        frappe.throw(
+            f"Serial-controlled Item {row.item_code} cannot use the fixed-quantity WIP Bin "
+            "scanner in this release; use Standard ERP / Tag Flow"
+        )
+    remaining = _remaining_transfer_qty(entry.name, row.name, _row_stock_qty(row))
+    qty = flt(context["standard_bin_qty"])
+    if remaining + TOLERANCE < qty:
+        frappe.throw(
+            f"Remaining ERP transfer quantity is {remaining} {row.stock_uom}; a full "
+            f"{qty} {row.stock_uom} WIP Bin cannot be allocated"
+        )
+
+    bin_unit = _resolve_reusable_bin(reusable_bin_scan, context, entry, row)
+    policy = effective_trace_policy(row.item_code, entry.company)
+    batch_no = _tag_batch_no(row)
+    source_unit = _resolve_source_unit(source_scan, entry, row, policy, qty, batch_no)
+    profile, session = actor
+    key = event_token or (
+        f"wip-bin-load:{entry.name}:{row.name}:{bin_unit.name}:{qty}"
+    )
+    existing = frappe.db.get_value(
+        "CFG Kanban WIP Bin Load", {"idempotency_key": key}, "name"
+    )
+    if existing:
+        return _allocation_result(entry, row, frappe.get_doc(
+            "CFG Kanban WIP Bin Load", existing
+        ))
+
+    reservation = None
+    if source_unit:
+        reservation = post_quantity_event(
+            event_type="Reserve", qty=qty, stock_uom=row.stock_uom,
+            idempotency_key=f"wip-bin-source-reserve:{key}",
+            source_handling_unit=source_unit.name,
+            item_code=row.item_code, batch_no=batch_no,
+            source_company=entry.company, source_warehouse=row.s_warehouse,
+            reference_doctype="Stock Entry", reference_name=entry.name,
+            operator=profile.employee, operator_session=session.name,
+            reason=f"Reserved for fixed WIP Bin {bin_unit.handling_unit_id}",
+        )
+    load, _created = create_transfer_load(
+        stock_entry=entry.name, stock_entry_detail=row.name,
+        reusable_bin=bin_unit.name, kanban_cycle=entry.get("cfg_kanban_cycle"),
+        job_card=context["job_card"], item_code=row.item_code, actual_qty=qty,
+        source_handling_unit=source_unit.name if source_unit else None,
+        batch_no=batch_no, process_execution=context.get("process_execution"),
+        operator=profile.employee, operator_session=session.name, idempotency_key=key,
+    )
+    if reservation:
+        load.db_set("source_reservation_ledger", reservation.name, update_modified=False)
+    return _allocation_result(entry, row, load)
+
+
+@frappe.whitelist()
+def cancel_transfer_bin(load_name, operator_session_token, kanban_card):
+    """Release a Draft allocation before ERPNext submits the transfer."""
+    from cfg_kanban.services.production_trace import _authorize_trace_access
+
+    _lock_load(load_name)
+    load = frappe.get_doc("CFG Kanban WIP Bin Load", load_name)
+    entry = frappe.get_doc("Stock Entry", load.transfer_stock_entry)
+    actor = _authorize_trace_access(
+        entry, "write", operator_session_token=operator_session_token,
+        kanban_card=kanban_card,
+    )
+    if entry.docstatus != 0 or load.status != "Transfer Draft":
+        frappe.throw("Only a Draft WIP Bin allocation can be cancelled")
+    reversal_ledger = None
+    if load.source_handling_unit and load.source_reservation_ledger:
+        profile, session = actor
+        reversal_ledger = post_quantity_event(
+            event_type="Unreserve", qty=load.actual_qty, stock_uom=load.stock_uom,
+            idempotency_key=f"wip-bin-source-unreserve:{load.name}",
+            source_handling_unit=load.source_handling_unit,
+            item_code=load.item_code, batch_no=load.batch_no,
+            source_company=load.company, source_warehouse=load.source_warehouse,
+            reference_doctype="CFG Kanban WIP Bin Load", reference_name=load.name,
+            operator=profile.employee, operator_session=session.name,
+            reason="Draft WIP Bin allocation cancelled before ERP submission",
+        )
+    load.db_set({
+        "status": "Cancelled", "reversed_on": now_datetime(),
+        "source_reversal_ledger": reversal_ledger.name if reversal_ledger else None,
+        "notes": "Draft WIP Bin allocation cancelled; ERPNext stock was not moved",
+    }, update_modified=True)
+    frappe.db.set_value(
+        "CFG Kanban Handling Unit", load.reusable_bin, "wip_bin_state", "Empty",
+        update_modified=False,
+    )
+    return {"load": load.name, "status": "Cancelled", "stock_entry": entry.name}
+
+
+def entry_wip_bin_rule(entry, row):
+    """Return the exact Master/Job Card context when an ERP row uses a fixed WIP bin."""
+    cycle_name = entry.get("cfg_kanban_cycle")
+    if not cycle_name:
+        return None
+    cycle = frappe.db.get_value(
+        "CFG Kanban Cycle", cycle_name,
+        ["name", "kanban_master", "selected_job_card", "runtime_allocation"],
+        as_dict=True,
+    )
+    if not cycle:
+        return None
+    job_card = entry.get("job_card") or cycle.selected_job_card
+    if not job_card:
+        return None
+    job = frappe.db.get_value(
+        "Job Card", {"name": job_card, "work_order": entry.work_order},
+        ["name", "operation", "workstation"], as_dict=True,
+    )
+    if not job:
+        return None
+    rule = frappe.db.get_value("CFG Kanban Material Flow Rule", {
+        "parent": cycle.kanban_master,
+        "parenttype": "CFG Kanban Master",
+        "item_code": row.item_code,
+        "operation": job.operation,
+        "wip_presentation_method": "Standard Quantity Reusable WIP Bin",
+    }, ["wip_bin_pool", "standard_bin_qty", "stock_uom"], as_dict=True)
+    if not rule:
+        return None
+    return {
+        "kanban_cycle": cycle.name, "kanban_master": cycle.kanban_master,
+        "job_card": job.name, "operation": job.operation,
+        "workstation": job.workstation, "wip_bin_pool": rule.wip_bin_pool,
+        "standard_bin_qty": flt(rule.standard_bin_qty), "stock_uom": rule.stock_uom,
+        "process_execution": frappe.db.get_value(
+            "CFG Kanban Process Execution",
+            {"kanban_cycle": cycle.name, "operation": job.operation}, "name",
+        ),
+    }
+
+
+def transfer_loads_for_row(stock_entry, row_name):
+    return frappe.get_all(
+        "CFG Kanban WIP Bin Load",
+        {"transfer_stock_entry": stock_entry, "transfer_stock_entry_detail": row_name,
+         "status": ["in", ["Transfer Draft", "Ready"]]},
+        ["name", "status", "reusable_bin", "source_handling_unit", "actual_qty",
+         "stock_uom"], order_by="creation asc",
+    )
+
+
 def create_transfer_load(*, stock_entry, stock_entry_detail, reusable_bin,
                          kanban_cycle, job_card, item_code, actual_qty,
                          source_handling_unit=None, batch_no=None,
@@ -59,6 +232,8 @@ def create_transfer_load(*, stock_entry, stock_entry_detail, reusable_bin,
         return frappe.get_doc("CFG Kanban WIP Bin Load", existing), False
 
     _lock_reusable_bin(reusable_bin)
+    bin_unit = frappe.get_doc("CFG Kanban Handling Unit", reusable_bin)
+    _assert_reusable_bin(bin_unit, rule.wip_bin_pool, entry.company, row.t_warehouse)
     load = frappe.get_doc({
         "doctype": "CFG Kanban WIP Bin Load",
         "status": "Transfer Draft",
@@ -136,10 +311,21 @@ def validate_wip_bin_stock_entry(doc):
     if purpose not in (TRANSFER_PURPOSE, *CONSUMPTION_PURPOSES):
         return
     loads, direction = _loads_for_entry(doc.name)
+    required_transfer_rows = (
+        {row.name: row for row in doc.items if entry_wip_bin_rule(doc, row)}
+        if purpose == TRANSFER_PURPOSE else {}
+    )
+    if required_transfer_rows and not loads:
+        items = ", ".join(dict.fromkeys(row.item_code for row in required_transfer_rows.values()))
+        frappe.throw(
+            "Standard Quantity WIP Bin allocation is required before submitting this "
+            f"Material Transfer. Open Production Material Trace and allocate: {items}"
+        )
     if not loads:
         return
     expected_statuses = (
-        ("Transfer Draft",) if direction == "transfer" else ("Consumption Draft",)
+        ("Transfer Draft", "Ready") if direction == "transfer"
+        else ("Consumption Draft", "Consumed")
     )
     rows = {row.name: row for row in doc.items}
     allocated = {}
@@ -163,6 +349,11 @@ def validate_wip_bin_stock_entry(doc):
                 f"WIP Bin loads cover {qty} of {row_qty} {rows[row_name].stock_uom} "
                 f"for Item {rows[row_name].item_code}; allocate the complete Stock Entry row"
             )
+    missing_required = set(required_transfer_rows) - set(allocated)
+    if missing_required:
+        items = ", ".join(dict.fromkeys(required_transfer_rows[name].item_code
+                                       for name in missing_required))
+        frappe.throw(f"Allocate Standard Quantity WIP Bins for: {items}")
 
 
 def confirm_wip_bin_stock_entry(doc):
@@ -178,8 +369,24 @@ def confirm_wip_bin_stock_entry(doc):
         if direction == "transfer":
             if load.status == "Ready":
                 continue
+            if load.source_handling_unit:
+                ledger = post_quantity_event(
+                    event_type="WIP Bin Load", qty=load.actual_qty,
+                    stock_uom=load.stock_uom,
+                    idempotency_key=f"wip-bin-source-confirm:{load.name}:{doc.name}",
+                    source_handling_unit=load.source_handling_unit,
+                    item_code=load.item_code, batch_no=load.batch_no,
+                    source_company=load.company,
+                    source_warehouse=load.source_warehouse,
+                    destination_company=load.company,
+                    destination_warehouse=load.wip_warehouse,
+                    reference_doctype="Stock Entry", reference_name=doc.name,
+                    reason=f"ERPNext confirmed WIP Bin Load {load.name}",
+                    release_reserved=True,
+                )
             load.db_set({
                 "status": "Ready", "ready_on": timestamp,
+                "source_confirmation_ledger": ledger.name if load.source_handling_unit else None,
                 "notes": f"Ready after submitted ERPNext transfer {doc.name}",
             }, update_modified=True)
             bin_state = "Ready"
@@ -224,8 +431,36 @@ def reverse_wip_bin_stock_entry(doc):
                 f"Cannot cancel consumption: WIP Bin Load {load.name} is {load.status}"
             )
         bin_state = "Empty" if direction == "transfer" else "Exception"
+        reversal_ledger = None
+        if (direction == "transfer" and load.status == "Ready"
+                and load.source_handling_unit and load.source_confirmation_ledger):
+            reversal_ledger = post_quantity_event(
+                event_type="WIP Bin Load Reversal", qty=load.actual_qty,
+                stock_uom=load.stock_uom,
+                idempotency_key=f"wip-bin-source-reverse:{load.name}:{doc.name}",
+                destination_handling_unit=load.source_handling_unit,
+                item_code=load.item_code, batch_no=load.batch_no,
+                source_company=load.company, source_warehouse=load.wip_warehouse,
+                destination_company=load.company,
+                destination_warehouse=load.source_warehouse,
+                reference_doctype="Stock Entry", reference_name=doc.name,
+                reason=f"ERPNext cancelled WIP Bin Load {load.name}",
+            )
+        elif (direction == "transfer" and load.status == "Transfer Draft"
+              and load.source_handling_unit and load.source_reservation_ledger):
+            reversal_ledger = post_quantity_event(
+                event_type="Unreserve", qty=load.actual_qty,
+                stock_uom=load.stock_uom,
+                idempotency_key=f"wip-bin-source-cancel:{load.name}:{doc.name}",
+                source_handling_unit=load.source_handling_unit,
+                item_code=load.item_code, batch_no=load.batch_no,
+                source_company=load.company, source_warehouse=load.source_warehouse,
+                reference_doctype="Stock Entry", reference_name=doc.name,
+                reason=f"ERPNext cancelled Draft WIP Bin Load {load.name}",
+            )
         load.db_set({
             "status": "Reversed", "reversed_on": now_datetime(),
+            "source_reversal_ledger": reversal_ledger.name if reversal_ledger else None,
             "notes": (f"ERPNext {direction} Stock Entry {doc.name} cancelled; "
                       "supervisor reconciliation required"),
         }, update_modified=True)
@@ -249,14 +484,23 @@ def _loads_for_entry(stock_entry):
         "consumption_stock_entry_detail",
     ]
     transfer = frappe.get_all(
-        "CFG Kanban WIP Bin Load", {"transfer_stock_entry": stock_entry}, fields,
+        "CFG Kanban WIP Bin Load",
+        {"transfer_stock_entry": stock_entry,
+         "status": ["in", ["Transfer Draft", "Ready"]]}, fields,
     )
     consumption = frappe.get_all(
-        "CFG Kanban WIP Bin Load", {"consumption_stock_entry": stock_entry}, fields,
+        "CFG Kanban WIP Bin Load",
+        {"consumption_stock_entry": stock_entry,
+         "status": ["in", ["Consumption Draft", "Consumed"]]}, fields,
     )
     if transfer and consumption:
         frappe.throw("One Stock Entry cannot be both WIP Bin transfer and consumption")
-    return (transfer, "transfer") if transfer else (consumption, "consumption")
+    if transfer:
+        return transfer, "transfer"
+    if consumption:
+        return consumption, "consumption"
+    purpose = frappe.db.get_value("Stock Entry", stock_entry, "stock_entry_type")
+    return [], "transfer" if purpose == TRANSFER_PURPOSE else "consumption"
 
 
 def _wip_rule(master, item_code, operation):
@@ -317,3 +561,107 @@ def _lock_load(load_name):
         load_name,
     ):
         frappe.throw("WIP Bin Load was not found")
+
+
+def _lock_stock_entry(name):
+    if not frappe.db.sql("select name from `tabStock Entry` where name=%s for update", name):
+        frappe.throw("Stock Entry was not found")
+
+
+def _remaining_transfer_qty(stock_entry, row_name, row_qty):
+    allocated = frappe.db.sql(
+        """
+        select coalesce(sum(actual_qty), 0)
+        from `tabCFG Kanban WIP Bin Load`
+        where transfer_stock_entry=%s and transfer_stock_entry_detail=%s
+          and status in ('Transfer Draft', 'Ready')
+        """,
+        (stock_entry, row_name),
+    )[0][0]
+    return max(flt(row_qty) - flt(allocated), 0)
+
+
+def _resolve_reusable_bin(scan_value, context, entry, row):
+    identity = resolve_logistics_scan(scan_value)
+    if not identity or identity.get("identity_type") != "Handling Unit":
+        frappe.throw("Scan an active Standard Quantity WIP Bin")
+    unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
+    _assert_reusable_bin(unit, context["wip_bin_pool"], entry.company, row.t_warehouse)
+    return unit
+
+
+def _assert_reusable_bin(unit, pool_name, company, wip_warehouse):
+    if (unit.tag_kind != "Reusable Container"
+            or unit.reusable_container_role != "Standard Quantity WIP Bin"):
+        frappe.throw(f"Tag {unit.handling_unit_id} is not a Standard Quantity WIP Bin")
+    if unit.identity_state not in ("Active", "Empty") or unit.wip_bin_state != "Empty":
+        frappe.throw(
+            f"WIP Bin {unit.handling_unit_id} is {unit.identity_state} / "
+            f"{unit.wip_bin_state or 'Unspecified'}, not Empty"
+        )
+    if unit.inventory_company != company or unit.current_warehouse != wip_warehouse:
+        frappe.throw(
+            f"WIP Bin {unit.handling_unit_id} does not belong to {company} / {wip_warehouse}"
+        )
+    if not frappe.db.exists("CFG Kanban WIP Bin Pool Entry", {
+        "parent": pool_name, "parenttype": "CFG Kanban WIP Bin Pool",
+        "reusable_bin": unit.name,
+    }):
+        frappe.throw(f"WIP Bin {unit.handling_unit_id} is not approved in Pool {pool_name}")
+    active = frappe.db.get_value(
+        "CFG Kanban WIP Bin Load",
+        {"reusable_bin": unit.name,
+         "status": ["in", ["Reserved", "Transfer Draft", "Ready", "In Use",
+                            "Consumption Draft"]]},
+        "name",
+    )
+    if active:
+        frappe.throw(f"WIP Bin {unit.handling_unit_id} already has active Load {active}")
+
+
+def _resolve_source_unit(scan_value, entry, row, policy, qty, batch_no):
+    value = str(scan_value or "").strip()
+    if not value:
+        if policy.production_input_tag_policy == "Required Physical Tag":
+            frappe.throw(f"Item {row.item_code} requires a source Stock Tag before the WIP Bin")
+        return None
+    if policy.production_input_tag_policy == NO_TAG:
+        frappe.throw(
+            f"Item {row.item_code} is configured for ERP-only input; scan the WIP Bin "
+            "without a source Stock Tag"
+        )
+    identity = resolve_logistics_scan(value)
+    if not identity or identity.get("identity_type") != "Handling Unit":
+        frappe.throw("Scan an active source Stock Tag, not a reusable bin")
+    unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
+    if unit.tag_kind == "Reusable Container":
+        frappe.throw("The source scan must be a Stock Tag, not a reusable container")
+    from cfg_kanban.services.container_contents import assert_not_loaded_in_container
+    assert_not_loaded_in_container(unit.name, "allocating it to a Standard Quantity WIP Bin")
+    if unit.identity_state != "Active" or unit.quality_state != "Released":
+        frappe.throw(
+            f"Source Tag {unit.handling_unit_id} is {unit.identity_state} / {unit.quality_state}"
+        )
+    if (unit.item_code != row.item_code or unit.inventory_company != entry.company
+            or unit.current_warehouse != row.s_warehouse or unit.stock_uom != row.stock_uom
+            or (unit.batch_no or "") != (batch_no or "")):
+        frappe.throw(
+            f"Source Tag {unit.handling_unit_id} does not match Item, Company, Warehouse, "
+            "UOM, or Batch of the selected ERP material row"
+        )
+    if flt(unit.available_qty) + TOLERANCE < qty:
+        frappe.throw(
+            f"Source Tag {unit.handling_unit_id} has only {unit.available_qty} "
+            f"{unit.stock_uom} available; the full WIP Bin requires {qty}"
+        )
+    return unit
+
+
+def _allocation_result(entry, row, load):
+    return {
+        "stock_entry": entry.name, "row_name": row.name, "load": load.name,
+        "status": load.status, "reusable_bin": load.reusable_bin,
+        "source_handling_unit": load.source_handling_unit,
+        "actual_qty": flt(load.actual_qty), "stock_uom": load.stock_uom,
+        "remaining_qty": _remaining_transfer_qty(entry.name, row.name, _row_stock_qty(row)),
+    }

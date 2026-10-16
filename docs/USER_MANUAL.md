@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.55
+**Guide version:** 1.56
 
 **Updated:** 16 October 2026
 
@@ -1117,12 +1117,20 @@ it can become `Consumed` and the physical bin can become `Empty` only from submi
 production-consumption feedback. Cancelling a linked ERP entry produces a visible reversal or
 Exception state; it does not erase the episode.
 
-The load/audit backbone is installed, but the **floor scanner allocation step is not yet enabled**.
-If a row is switched to `Standard Quantity Reusable WIP Bin`, Work Order creation therefore still
-stops with an explicit message. This is intentional: the system must never silently treat a
-configured visual bin as ordinary tag flow or invent a stock movement. Keep production Masters on
-`Standard ERP / Tag Flow` until the scanner allocation package is deployed and accepted. See
-`docs/STANDARD_QUANTITY_WIP_BIN.md` for the locked design and delivery sequence.
+The Draft transfer scanner is now available inside **Production Material Trace**. For each fixed-bin
+row, select the numbered ERP material row, scan the source Stock Tag when required, and then scan
+the Empty reusable WIP bin. If the Item permits an optional physical input tag, scanning
+`CFG:CMD:NO_SOURCE` explicitly uses ERP-only source stock. The system reserves exactly **Qty per Full
+Bin** from a larger source tag; for example, loading a 10 kg bin from a 25 kg tag leaves 15 kg on
+that source tag after ERPNext submits the transfer. A Draft allocation can be cancelled and releases
+its source reservation. Only submitted ERPNext transfer feedback deducts the reserved source-tag
+quantity and marks the load/bin `Ready`; cancellation restores it through an auditable reversal.
+
+The operation-time WIP-bin consumption scanner is the next safety gate. Work Order creation for a
+Master containing this method therefore remains blocked until that matching Job Card consumption
+gate is complete. This is intentional: a transfer-only deployment must not leave a Ready bin that
+cannot be consumed through the controlled floor workflow. Keep live Masters on `Standard ERP / Tag
+Flow` until the complete WIP-bin lifecycle is accepted. See `docs/STANDARD_QUANTITY_WIP_BIN.md`.
 
 For **Transfer to WIP by Job Card**, both the main Production Card and the activated reusable
 Process/Station operation Card can prepare the transfer. The operation Card is deliberately limited
@@ -3322,6 +3330,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.56 | 16 October 2026 | Added scanner-first Draft transfer allocation for Standard Quantity WIP Bins: numbered row selection, optional/required/ERP-only source handling, partial reservation from a larger source Stock Tag, Empty pool-bin validation, cancellable Draft loads, source quantity confirmation only after submitted ERP transfer, reversal restoration, and complete-row submission gates; Work Order release remains safely blocked until operation consumption is delivered |
 | 1.55 | 16 October 2026 | Added the immutable Standard WIP Bin Load audit backbone: per-load Item/Batch/quantity and production-context snapshots, one-active-load bin exclusivity, native ERP transfer/consumption row validation, submitted Stock Entry Ready/Consumed confirmation, cancellation reversal/Exception handling, and workspace investigation access; floor scanner allocation remains deliberately gated |
 | 1.54 | 16 October 2026 | Added the safe configuration foundation for Standard Quantity Reusable WIP Bins: a distinct Handling Unit role, strict non-mixed fixed-bin identity, one-operation/workstation WIP Bin Pools, Item-specific full-bin quantity mapping on BOM material rows, compatibility validation, workspace access, and an explicit runtime safety stop until controlled fill/consume posting is delivered |
 | 1.53 | 16 October 2026 | Added printable scanner commands for **Go to Current Work** and guarded runtime **Close Kanban Cycle**; closure now uses a scanner-ready confirmation and reuses all ERP, quantity, authorization, and Process Task gates |

@@ -1,6 +1,6 @@
 # CFG Kanban — Standard Quantity Reusable WIP Bin
 
-**Status:** Configuration and immutable load-audit foundation implemented; floor scanner allocation is the next delivery gate
+**Status:** Configuration, immutable audit, and Draft transfer scanner allocation implemented; operation consumption is the next safety gate
 **Date:** 16 October 2026  
 **ERP stock authority:** ERPNext Work Order, Job Card, and submitted Stock Entry
 
@@ -41,7 +41,7 @@ Create **CFG Kanban Handling Unit**:
 Create one **CFG Kanban WIP Bin Pool** for an exact Company, Operation, and WIP Warehouse. Add one
 or more approved physical WIP bins and map every bin to its actual Workstation. A bin cannot belong
 to another pool. Multiple workstation rows allow the same Operation to run in parallel while the
-future scanner runtime still verifies the exact Job Card workstation.
+scanner runtime verifies the exact Job Card workstation.
 
 The pool records these locked safety choices:
 
@@ -75,9 +75,9 @@ Different material rows in the same BOM/Work Order may use different methods. Th
 runtime applies only to rows explicitly configured as `Standard Quantity Reusable WIP Bin`; all
 other rows continue through normal ERP quantity or physical-tag flow.
 
-## 4. Intended runtime sequence
+## 4. Runtime sequence and current boundary
 
-The next delivery gate will implement this controlled sequence:
+The controlled sequence is:
 
 ```text
 source Stock Tag or ERP quantity
@@ -91,10 +91,17 @@ full load consumed against the matching Job Card
 bin = Empty and available for cleaning/refill
 ```
 
-If a source tag holds 25 kg and the full-bin standard is 10 kg, the runtime will allocate 10 kg to
+The transfer-allocation part of this sequence is now implemented in **Production Material Trace**.
+The operator selects the WIP material row (or scans its displayed row number), scans the source
+Stock Tag when the Item policy uses one, and then scans the Empty reusable WIP bin. For an optional
+tag policy, `CFG:CMD:NO_SOURCE` explicitly selects ERP-only source stock. A Draft allocation may be
+cancelled without deleting its audit record.
+
+If a source tag holds 25 kg and the full-bin standard is 10 kg, the runtime allocates 10 kg to
 one controlled WIP-bin load while the source tag retains 15 kg. The reusable bin will not become a
-normal Stock Tag and no detachable printed child label will be required. The future load episode
-will carry the immutable source lineage and ERP Stock Entry reference.
+normal Stock Tag and no detachable printed child label is required. The load episode carries the
+immutable source lineage and ERP Stock Entry reference. Draft allocation reserves 10 kg; only
+submitted ERPNext transfer feedback removes it from the source tag and marks the bin Ready.
 
 ## 5. Required runtime safeguards
 
@@ -117,9 +124,13 @@ The runtime gate must not be considered complete until it enforces all of these 
 
 ## 6. Current deployment boundary
 
-The first gate created the physical roles, pools, and Master mapping. The second gate adds immutable
-load episodes and native ERP Stock Entry validation/submission/cancellation reconciliation. It
-still deliberately does not expose the floor scanner action that creates and binds those episodes.
-If a Master is configured to use the WIP-bin method, Work Order creation is blocked with a clear
+The first gates created the physical roles, pools, Master mapping, immutable load episodes, native
+ERP feedback, and Draft transfer scanner allocation. The source tag may be partially reserved for
+one exact full-bin quantity; rows configured without physical tags remain ERP-only.
+
+Operation-time scanning and native consumption confirmation are not yet implemented. Therefore, if
+a Master is configured to use the WIP-bin method, Work Order creation remains blocked with a clear
 message and no ERP document or stock mutation occurs. Keep live Masters on **Standard ERP / Tag
-Flow** until scanner allocation is deployed and accepted.
+Flow** until the consumption gate is deployed and the complete lifecycle is accepted.
+Serial-controlled components remain on Standard ERP / Tag Flow because a fixed quantity alone is
+not sufficient evidence of exact serial membership.

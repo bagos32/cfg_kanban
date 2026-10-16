@@ -255,6 +255,11 @@ class CFGKanbanMaster(Document):
             frappe.throw(
                 f"Material Flow row {row.idx}: a WIP Bin component requires an Item Operation"
             )
+        if frappe.db.get_value("Item", row.item_code, "has_serial_no"):
+            frappe.throw(
+                f"Material Flow row {row.idx}: serial-controlled Item {row.item_code} must "
+                "use Standard ERP / Tag Flow so exact serial membership is preserved"
+            )
         if not row.wip_bin_pool or flt(row.standard_bin_qty) <= 0:
             frappe.throw(
                 f"Material Flow row {row.idx}: WIP Bin Pool and a positive Qty per Full Bin "

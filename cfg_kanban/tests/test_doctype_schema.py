@@ -1707,7 +1707,8 @@ class TestDocTypeSchema(TestCase):
             "batch_no", "standard_qty", "actual_qty", "stock_uom", "kanban_master",
             "kanban_cycle", "work_order", "job_card", "operation", "workstation",
             "source_warehouse", "wip_warehouse", "transfer_stock_entry",
-            "consumption_stock_entry", "idempotency_key",
+            "consumption_stock_entry", "idempotency_key", "source_reservation_ledger",
+            "source_confirmation_ledger", "source_reversal_ledger",
         }.issubset(load))
         self.assertTrue(load["idempotency_key"].get("unique"))
 
@@ -1728,9 +1729,10 @@ class TestDocTypeSchema(TestCase):
 
         self.assertIn("Every BOM component needs Item Operation", master_controller)
         self.assertIn("def _validate_wip_bin_rule", master_controller)
+        self.assertIn("serial-controlled Item", master_controller)
         self.assertIn("def get_bom_material_flow_preview", master_controller)
         self.assertIn("def apply_master_material_flow", service)
-        self.assertIn("floor scanner allocation is not enabled", service)
+        self.assertIn("operation-time consumption scanning is not enabled", service)
         self.assertIn("def prepare_material_transfer", service)
         self.assertIn("def prepare_material_consumption", service)
         self.assertIn("def prepare_manufacture_receipt", service)
@@ -1772,6 +1774,11 @@ class TestDocTypeSchema(TestCase):
         feedback = (APP_ROOT / "integrations" / "erp_feedback.py").read_text()
         self.assertIn("WIP Bin Load records are immutable", load_controller)
         self.assertIn("def create_transfer_load", load_service)
+        self.assertIn("def allocate_transfer_bin", load_service)
+        self.assertIn("def cancel_transfer_bin", load_service)
+        self.assertIn("def entry_wip_bin_rule", load_service)
+        self.assertIn('event_type="WIP Bin Load"', load_service)
+        self.assertIn('event_type="WIP Bin Load Reversal"', load_service)
         self.assertIn("def bind_consumption_draft", load_service)
         self.assertIn("def validate_wip_bin_stock_entry", load_service)
         self.assertIn("def confirm_wip_bin_stock_entry", load_service)
@@ -1791,6 +1798,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("dialog.cfg_trace_plan = plan", panel)
         self.assertIn("pending_inputs.length", panel)
         self.assertIn("pending_outputs.length", panel)
+        self.assertIn("allocate_operator_wip_bin", panel)
+        self.assertIn("CFG:CMD:NO_SOURCE", panel)
         self.assertIn('dialog.set_value("input_scan", value)', panel)
         self.assertIn('dialog.set_value("output_scan", value)', panel)
         self.assertIn("Finished Batch (Optional)", panel)

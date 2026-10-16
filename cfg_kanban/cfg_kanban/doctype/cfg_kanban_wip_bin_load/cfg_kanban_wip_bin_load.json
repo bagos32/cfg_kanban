@@ -6,7 +6,7 @@
  "title_field":"reusable_bin",
  "track_changes":1,
  "search_fields":"reusable_bin,item_code,batch_no,kanban_cycle,work_order,job_card,transfer_stock_entry,consumption_stock_entry",
- "field_order":["status","identity_section","reusable_bin","wip_bin_pool","company","item_code","batch_no","standard_qty","actual_qty","stock_uom","partial_exception","exception_reason","approved_by","production_section","kanban_master","kanban_cycle","work_order","job_card","process_execution","operation","workstation","source_section","source_handling_unit","source_warehouse","wip_warehouse","erp_section","transfer_stock_entry","transfer_stock_entry_detail","consumption_stock_entry","consumption_stock_entry_detail","idempotency_key","audit_section","reserved_on","reserved_by_operator","operator_session","ready_on","in_use_on","consumed_on","reversed_on","notes"],
+ "field_order":["status","identity_section","reusable_bin","wip_bin_pool","company","item_code","batch_no","standard_qty","actual_qty","stock_uom","partial_exception","exception_reason","approved_by","production_section","kanban_master","kanban_cycle","work_order","job_card","process_execution","operation","workstation","source_section","source_handling_unit","source_warehouse","wip_warehouse","source_reservation_ledger","source_confirmation_ledger","source_reversal_ledger","erp_section","transfer_stock_entry","transfer_stock_entry_detail","consumption_stock_entry","consumption_stock_entry_detail","idempotency_key","audit_section","reserved_on","reserved_by_operator","operator_session","ready_on","in_use_on","consumed_on","reversed_on","notes"],
  "fields":[
   {"fieldname":"status","label":"Load Status","fieldtype":"Select","options":"Reserved\nTransfer Draft\nReady\nIn Use\nConsumption Draft\nConsumed\nCancelled\nReversed\nException","default":"Reserved","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"identity_section","label":"Physical Bin Load","fieldtype":"Section Break","description":"One immutable material-load episode for a permanent reusable WIP bin. ERPNext Stock Entries remain the stock authority."},
@@ -33,6 +33,9 @@
   {"fieldname":"source_handling_unit","label":"Source Handling Unit","fieldtype":"Link","options":"CFG Kanban Handling Unit","read_only":1,"in_standard_filter":1},
   {"fieldname":"source_warehouse","label":"Source Warehouse","fieldtype":"Link","options":"Warehouse","reqd":1,"read_only":1,"in_standard_filter":1},
   {"fieldname":"wip_warehouse","label":"WIP Warehouse","fieldtype":"Link","options":"Warehouse","reqd":1,"read_only":1,"in_standard_filter":1},
+  {"fieldname":"source_reservation_ledger","label":"Source Reservation Ledger","fieldtype":"Link","options":"CFG Kanban Handling Unit Quantity Ledger","read_only":1},
+  {"fieldname":"source_confirmation_ledger","label":"Source Load Confirmation Ledger","fieldtype":"Link","options":"CFG Kanban Handling Unit Quantity Ledger","read_only":1},
+  {"fieldname":"source_reversal_ledger","label":"Source Load Reversal Ledger","fieldtype":"Link","options":"CFG Kanban Handling Unit Quantity Ledger","read_only":1},
   {"fieldname":"erp_section","label":"ERPNext Confirmation","fieldtype":"Section Break","description":"Draft links show intent only. Ready and Consumed states are set only by submitted native Stock Entries."},
   {"fieldname":"transfer_stock_entry","label":"Material Transfer Stock Entry","fieldtype":"Link","options":"Stock Entry","read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"transfer_stock_entry_detail","label":"Transfer Row","fieldtype":"Data","read_only":1,"hidden":1},
