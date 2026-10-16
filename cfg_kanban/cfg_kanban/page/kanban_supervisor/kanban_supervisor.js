@@ -51,6 +51,7 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 			${kpi(__("Signal approvals"), counts.signals || 0, "orange")}
 			${kpi(__("Service verification"), counts.service_verifications || 0, "blue")}
 			${kpi(__("Process verification"), counts.process_verifications || 0, "purple")}
+			${kpi(__("Document recovery"), counts.action_recoveries || 0, "orange")}
 			${kpi(__("Open exceptions"), counts.exceptions || 0, "red")}
 		</div>`);
 		render_signals();
@@ -110,6 +111,7 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 	function render_attention() {
 		const service = state.data.service_verifications || [];
 		const process = state.data.process_verifications || [];
+		const recoveries = state.data.action_recoveries || [];
 		const exceptions = state.data.exceptions || [];
 		const $area = $("<div class='cfg-attention-columns'></div>").appendTo($root);
 		render_simple_queue($area, __("Service Verification"), service, "blue", (row) => ({
@@ -121,6 +123,13 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 			title: row.task_name, subtitle: [row.item_code, row.batch_no, row.linked_operation].filter(Boolean).join(" · "),
 			meta: `${row.kanban_cycle || "-"} · ${relative_time(row.completed_on)}`,
 			doctype: "CFG Kanban Process Task", route: "kanban-operator", route_label: __("Open Production Panel"),
+		}));
+		render_simple_queue($area, __("Document Action Recovery"), recoveries, "orange", (row) => ({
+			title: `${row.task_name || row.source_name} · ${row.state}`,
+			subtitle: [row.target_doctype, row.target_name, row.last_error].filter(Boolean).join(" · "),
+			meta: `${row.operator_employee || "-"} · ${relative_time(row.last_retry_at || row.created_at)} · ${__("Evidence")}: ${row.evidence_reference_count || 0}`,
+			doctype: "CFG Kanban DocType Action Run", route: "kanban-tasks",
+			route_label: __("Open Service Panel"),
 		}));
 		render_simple_queue($area, __("Exceptions"), exceptions, "red", (row) => ({
 			title: `${row.severity} · ${row.exception_type}`, subtitle: row.message,

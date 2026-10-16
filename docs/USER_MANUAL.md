@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.44
+**Guide version:** 1.45
 
 **Updated:** 16 October 2026
 
@@ -22,7 +22,8 @@ Action extension. That extension is being delivered in serial gates: Gate 1A val
 metadata and previews a mapped form, Gate 1B adds immutable Action Run and attempt audit records,
 Gate 1C adds the controlled server mapper/writer, Gate 1D binds that engine to exact Service Task
 events with a truthful closure gate, and Gate 1E supplies the phone/tablet operator form for mapped
-parent fields and repeatable first-level child rows.
+parent fields and repeatable first-level child rows. Gate 1F pins authorized private-media registry
+references and adds Employee-authorized supervisor recovery without replacing an existing target.
 
 This file is designed to be usable by a person or by another LLM without access to the development
 chat history. When this guide and an earlier chat answer disagree, use this guide for the code
@@ -314,7 +315,7 @@ intentionally absent; the server must use its workload/instance role.
 
 Save the Settings before creating the pilot Master.
 
-### Special DocType Action foundations (Gates 1A through 1E)
+### Special DocType Action foundations (Gates 1A through 1F)
 
 This is a system-maintenance function, not a production operator function. Only **System Manager**
 or **CFG Kanban System Maintenance** can maintain its configuration records.
@@ -452,10 +453,43 @@ If **After Supervisor Verification** creates the Action Run, the verifying Emplo
 exact form even after the Task changes status. This resume right is limited to the immutable Run and
 the Employee's allowed Workstation; it does not grant visibility to unrelated Tasks or Actions.
 
-**Current Gate 1E boundary:** Service Task parent/child data entry and controlled posting are now
-available. Action-specific private media linkage, supervisor recovery screens, live pilot target
-fixtures, and the Phase 2 direct `DocType Action Card` are later serial packages. Existing Task media
-remains attached to the Service Task under the shared private-media architecture.
+#### Private evidence and supervised recovery (Gate 1F)
+
+When a Service Task Action is posted, the system snapshots every currently **Available** private
+media object belonging to that exact Task occurrence. **CFG Kanban DocType Action Run** records
+**Evidence Reference Count** (`evidence_reference_count`), **Evidence Snapshot On**
+(`evidence_snapshot_on`), and **Stable CFG Kanban Media References** (`evidence_references`). These
+are stable registry IDs and safe metadata only. The binary remains in private S3 under **CFG Kanban
+Media**; no expiring view URL is copied into the Action Run or destination document.
+
+The mapped operator form shows **Linked Private Evidence** before posting. Select **Open Evidence**
+to request a short-lived authorized view URL. Evidence must already be confirmed `available`, use
+the `maintenance-evidence` class, and belong to the same **CFG Kanban Task**. Pending, archived,
+unrelated, or direct client-supplied media IDs are not linked.
+
+The **Kanban Supervisor Action Centre** now includes **Document recovery** and a **Document Action
+Recovery** queue for Runs in `Posting`, `Failed`, or `Needs Reconciliation`. The queue is an
+attention view; recovery itself requires the Supervisor to open **Kanban Service Tasks** and use a
+current scanned Supervisor profile with Override authority.
+
+Inside the existing mapped document form, expand **Action attempt history** to review the sanitized
+attempt timeline. A Supervisor may use only these controlled recoveries:
+
+- **Return to Form** is available only when no target document exists. It keeps the same Action Run
+  identity and returns it to `Form In Progress`; it never creates a replacement Run.
+- **Recheck Linked Target** is available only when the exact target link already exists. It reads
+  that document's real ERPNext `docstatus`. A submitted target reconciles to `Submitted`; a draft
+  reconciles to `Draft Created`. For **Submit When Authorized**, that same draft may then be reopened
+  and submitted—never recreated.
+
+A missing or cancelled linked target remains under reconciliation. Every recovery requires notes,
+an opaque retry token, the Employee identity and terminal User, and creates an immutable Attempt
+and Event. If the target is valid but the Task gate cannot be released, the Run returns to **Needs
+Reconciliation** rather than falsely completing the Task.
+
+**Current Gate 1F boundary:** Service Task parent/child data entry, stable private-media references,
+and Employee-authorized supervisor recovery are prepared. Live non-submittable/submittable pilot
+fixtures and the Phase 2 direct `DocType Action Card` remain later serial packages.
 
 The runtime trigger uses the **Master's Automation Level** (`automation_level`). `Automatic`
 creates/executes the Work Order command immediately only when the Before Cycle Start gate is open.
@@ -3108,6 +3142,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.45 | 16 October 2026 | Added Gate 1F stable private-media references and supervised recovery: available same-Task evidence is pinned by registry ID without copying S3 binaries or signed URLs; the mapped form opens evidence through authorized temporary links; the Supervisor Action Centre lists document recovery attention; and a scanned Supervisor can return an unposted Run to its existing form or reconcile the exact linked target docstatus with immutable attempt/event audit |
 | 1.44 | 16 October 2026 | Added Gate 1E phone/tablet mapped document form in the Service Task panel: automatic exact-event opening, visible/read-only parent mappings, safe reactive conditions, repeatable first-level child row cards, Draft-versus-Submit controls, same-dialog failure/retry, pending-task resume button, terminal-state/target feedback, and exact-Run resume access for the initiating verifier |
 | 1.43 | 16 October 2026 | Added Gate 1D Service Task binding: optional validated Action Profile plus exact Start/Complete/Verification trigger and required-closure setting on Task Schedule; immutable occurrence snapshot; automatic one-Run resolution; explicit Pending Document Posting status; posting-policy-aware release; premature-submit validation; linked Task events; and controlled Run cancellation on Task disposition. Phone/tablet mapped form remains Gate 1E |
 | 1.42 | 16 October 2026 | Added Gate 1C controlled server mapper/writer: immutable-snapshot target selection, allowlisted typed parent/child values, Service Task/fixed/server sources, safe conditions, terminal-User create/write/submit enforcement, distinct Draft/Submitted results, persisted form-payload integrity hash, retry reuse of one linked target, and reconciliation for uncertain or externally changed targets; Service Task event/UI binding remains pending |

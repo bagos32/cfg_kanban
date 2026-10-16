@@ -502,6 +502,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 
 	function can_open_action(task, can_execute) {
 		const permissions = (state.operator && state.operator.permissions) || {};
+		if (task.can_recover_action) return true;
 		if (task.can_resume_action) return true;
 		if (task.doctype_action_trigger === "After Supervisor Verification") {
 			return Boolean(task.can_operate && permissions.task_verify);
@@ -528,8 +529,9 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		});
 		const form = response.message || {};
 		const run = form.run || {};
-		const blocked_states = ["Posting", "Draft Created", "Submitted", "Skipped by Condition", "Needs Reconciliation", "Cancelled"];
-		const can_post = !blocked_states.includes(run.state);
+		const blocked_states = ["Posting", "Submitted", "Skipped by Condition", "Needs Reconciliation", "Cancelled"];
+		const can_post = !blocked_states.includes(run.state) &&
+			!(run.state === "Draft Created" && form.posting_policy === "Save Draft");
 		const parent_fields = form.parent_fields || [];
 		const parent_names = new Map();
 		const fields = [
@@ -546,6 +548,11 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			fields.push({ fieldname: `action_child_${index}`, fieldtype: "HTML",
 				options: action_child_shell_html(table) });
 		});
+		if ((form.evidence || []).length) {
+			fields.push({ fieldtype: "Section Break", label: __("Linked Private Evidence") });
+			fields.push({ fieldname: "action_evidence", fieldtype: "HTML",
+				options: action_evidence_html(form.evidence) });
+		}
 		fields.push({ fieldname: "action_result", fieldtype: "HTML",
 			options: action_result_html(form) });
 
@@ -568,6 +575,8 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		});
 		configure_action_visibility(dialog, form, parent_fields, parent_names);
 		bind_action_target_link(dialog, form.target_link);
+		bind_action_evidence(dialog, form, task);
+		bind_action_recovery(dialog, form, task);
 	}
 
 	function action_summary_html(form, task) {
@@ -607,8 +616,67 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		const target = form.target_link ? `<div class="cfg-action-target mt-2">
 			<strong>${e(form.target_link.doctype)}: ${e(form.target_link.name)}</strong>
 			<button type="button" class="btn btn-default btn-sm cfg-open-action-target">${__("Open ERP Document")}</button></div>` : "";
+		const recovery = form.recovery || {};
+		const recovery_buttons = (recovery.recovery_options || []).map((option) =>
+			`<button type="button" class="btn btn-warning btn-sm cfg-recover-action" data-resolution="${e(option)}">${e(option)}</button>`
+		).join("");
+		const attempt_rows = (recovery.attempts || []).slice(0, 8).map((attempt) => `<tr>
+			<td>${e(attempt.occurred_at || "-")}</td><td>${e(attempt.attempt_type || "-")}</td>
+			<td>${e(attempt.outcome || "-")}</td><td>${e(attempt.result_state || "-")}</td>
+			<td>${e(attempt.error_message || "")}</td></tr>`).join("");
+		const history = attempt_rows ? `<details class="cfg-action-attempts mt-3"><summary>${__("Action attempt history")}</summary>
+			<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>
+			<th>${__("Time")}</th><th>${__("Attempt")}</th><th>${__("Outcome")}</th><th>${__("State")}</th><th>${__("Message")}</th>
+			</tr></thead><tbody>${attempt_rows}</tbody></table></div></details>` : "";
 		return `<div class="alert alert-${indicator === "green" ? "success" : indicator === "red" ? "danger" : indicator === "orange" ? "warning" : "info"} cfg-action-result">
-			<strong>${__("Action status")}: ${e(run.state || "-")}</strong><br>${e(message)}${target}</div>`;
+			<strong>${__("Action status")}: ${e(run.state || "-")}</strong><br>${e(message)}${target}
+			${recovery_buttons ? `<div class="cfg-action-recovery-buttons mt-3">${recovery_buttons}</div>` : ""}${history}</div>`;
+	}
+
+	function action_evidence_html(rows) {
+		const e = frappe.utils.escape_html;
+		return `<div class="cfg-action-evidence-grid">${rows.map((row) => `<article class="cfg-action-evidence-item">
+			<div><strong>${e(row.original_filename || row.media_id)}</strong>
+			<small>${e(row.content_type || "")} · ${e(row.capture_timestamp || row.confirmed_at || "")}</small>
+			<small>${e(row.operator_employee || "")}</small></div>
+			<button type="button" class="btn btn-default btn-sm cfg-open-action-evidence" data-media-id="${e(row.media_id)}">${__("Open Evidence")}</button>
+		</article>`).join("")}</div>
+		<small class="text-muted">${__("These are stable CFG Kanban Media references. Temporary view links are generated only when Open Evidence is selected.")}</small>`;
+	}
+
+	function bind_action_evidence(dialog, form, task) {
+		if (!dialog.fields_dict.action_evidence) return;
+		dialog.get_field("action_evidence").$wrapper.on("click", ".cfg-open-action-evidence", async function () {
+			const response = await frappe.call({ method: "cfg_kanban.api.media.create_task_view_url", args: {
+				task_name: (form.task && form.task.name) || task.name,
+				media_id: $(this).data("media-id"), operator_session_token: state.token,
+			} });
+			if (response.message && response.message.url) window.open(response.message.url, "_blank", "noopener");
+		});
+	}
+
+	function bind_action_recovery(dialog, form, task) {
+		dialog.get_field("action_result").$wrapper.on("click", ".cfg-recover-action", function () {
+			const resolution = $(this).data("resolution");
+			frappe.prompt([
+				{ fieldname: "reason", label: __("Supervisor Recovery Notes"), fieldtype: "Small Text", reqd: 1 },
+			], async (values) => {
+				const response = await frappe.call({
+					method: "cfg_kanban.api.doctype_action_run.recover", type: "POST",
+					args: {
+						run_name: form.run.name, resolution, reason: values.reason,
+						operator_session_token: state.token, retry_token: frappe.utils.get_random(32),
+					}, freeze: true, freeze_message: __("Reconciling the existing document action..."),
+				});
+				dialog.hide();
+				frappe.show_alert({ message: response.message.message || __("Action recovery recorded"),
+					indicator: response.message.ok ? "green" : "orange" }, 7);
+				await load();
+				if (response.message.state === "Form In Progress" || response.message.state === "Draft Created") {
+					await open_action_form(form.run.name, task);
+				}
+			}, __("Recover Existing Action Run"), __("Apply Recovery"));
+		});
 	}
 
 	function action_parent_dialog_field(field, dialog_name) {

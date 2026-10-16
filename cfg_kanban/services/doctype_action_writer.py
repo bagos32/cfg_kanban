@@ -21,8 +21,13 @@ from cfg_kanban.services.doctype_action_runs import (
     get_locked_run,
     public_run,
     record_run_attempt,
+    recovery_context,
     sanitize_error,
     transition_run,
+)
+from cfg_kanban.services.doctype_action_media import (
+    evidence_for_operator_form,
+    snapshot_task_evidence,
 )
 from cfg_kanban.services.doctype_action_tasks import release_task_gate
 from cfg_kanban.services.idempotency import canonical_key
@@ -122,6 +127,8 @@ def get_operator_form(run_name, operator_session_token):
         "last_error_code": run.last_error_code,
         "last_error": run.last_error,
         "target_link": _target_link(run),
+        "evidence": evidence_for_operator_form(run, task),
+        "recovery": recovery_context(run, profile),
     }
 
 
@@ -215,6 +222,12 @@ def post_action(run_name, operator_session_token, retry_token,
             result.update({"ok": True, "skipped": True,
                            "message": _("Action condition was not met; no target was created.")})
             return result
+
+        # Pin only verified/Available CFG Kanban Media identities belonging to
+        # this exact Service Task. The target never receives a signed URL or a
+        # copied binary; supervisors view evidence through the existing media
+        # authorization service.
+        snapshot_task_evidence(run, task)
 
         target = existing_target
         if target:

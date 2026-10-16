@@ -27,6 +27,7 @@ def get_action_centre(limit=100):
     signals = _signal_actions(limit) if frappe.has_permission("CFG Kanban Signal", "read") else []
     service_tasks = _service_verifications(limit)
     process_tasks = _process_verifications(limit)
+    action_recoveries = _doctype_action_recoveries(limit)
     exceptions = _open_exceptions(limit)
     return {
         "permissions": {
@@ -37,11 +38,13 @@ def get_action_centre(limit=100):
             "signals": len(signals),
             "service_verifications": len(service_tasks),
             "process_verifications": len(process_tasks),
+            "action_recoveries": len(action_recoveries),
             "exceptions": len(exceptions),
         },
         "signals": signals,
         "service_verifications": service_tasks,
         "process_verifications": process_tasks,
+        "action_recoveries": action_recoveries,
         "exceptions": exceptions,
     }
 
@@ -167,6 +170,45 @@ def _process_verifications(limit):
         fields=["name"], limit_page_length=limit,
     )}
     return [row for row in rows if row.kanban_master in visible_masters]
+
+
+def _doctype_action_recoveries(limit):
+    if not frappe.has_permission("CFG Kanban DocType Action Run", "read"):
+        return []
+    rows = frappe.get_list(
+        "CFG Kanban DocType Action Run",
+        filters={"state": ["in", ["Posting", "Failed", "Needs Reconciliation"]]},
+        fields=[
+            "name", "state", "source_doctype", "source_name", "source_event",
+            "action_profile", "target_doctype", "target_name", "operator_employee",
+            "created_at", "last_retry_at", "last_error_code", "last_error",
+            "evidence_reference_count",
+        ],
+        order_by="last_retry_at asc, created_at asc",
+        limit_page_length=limit,
+    )
+    task_names = {
+        row.source_name for row in rows if row.source_doctype == "CFG Kanban Task"
+    }
+    tasks = {row.name: row for row in frappe.get_list(
+        "CFG Kanban Task",
+        filters={"name": ["in", list(task_names or {"__none__"})]},
+        fields=["name", "task_name", "task_category", "company", "workstation",
+                "location", "asset", "responsible_role", "status"],
+        limit_page_length=limit,
+    )}
+    output = []
+    for row in rows:
+        task = tasks.get(row.source_name)
+        if not task:
+            continue
+        output.append({**row, "task_name": task.task_name,
+                       "task_category": task.task_category,
+                       "company": task.company, "workstation": task.workstation,
+                       "location": task.location, "asset": task.asset,
+                       "responsible_role": task.responsible_role,
+                       "task_status": task.status})
+    return output
 
 
 def _open_exceptions(limit):

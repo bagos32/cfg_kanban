@@ -1,7 +1,7 @@
 {
  "doctype":"DocType","name":"CFG Kanban DocType Action Run","module":"CFG Kanban","autoname":"DAR-.#####","title_field":"action_id","track_changes":1,
  "search_fields":"action_id,source_name,action_profile,target_name,state,operator_employee",
- "field_order":["identity_section","action_id","state","source_doctype","source_name","source_event","action_slot","action_profile","profile_revision","idempotency_key","identity_audit_section","operator_employee","operator_session","terminal_user","posting_identity","execution_policy","target_section","target_doctype","target_name","target_docstatus","input_section","form_payload_hash","form_payload","last_input_by","last_input_on","timeline_section","created_at","posted_at","last_retry_at","retry_count","error_section","last_error_code","last_error","cancellation_section","cancelled_by","cancelled_on","cancellation_reason","reconciliation_section","reconciliation_by","reconciliation_on","reconciliation_notes","snapshot_section","mapping_hash","mapping_snapshot"],
+ "field_order":["identity_section","action_id","state","source_doctype","source_name","source_event","action_slot","action_profile","profile_revision","idempotency_key","identity_audit_section","operator_employee","operator_session","terminal_user","posting_identity","execution_policy","target_section","target_doctype","target_name","target_docstatus","input_section","form_payload_hash","form_payload","last_input_by","last_input_on","evidence_section","evidence_reference_count","evidence_snapshot_on","evidence_references","timeline_section","created_at","posted_at","last_retry_at","retry_count","error_section","last_error_code","last_error","cancellation_section","cancelled_by","cancelled_on","cancellation_reason","reconciliation_section","reconciliation_by","reconciliation_on","reconciliation_notes","snapshot_section","mapping_hash","mapping_snapshot"],
  "fields":[
   {"fieldname":"identity_section","label":"Immutable Action Identity","fieldtype":"Section Break"},
   {"fieldname":"action_id","label":"Action ID","fieldtype":"Data","reqd":1,"unique":1,"read_only":1,"in_list_view":1},
@@ -28,6 +28,10 @@
   {"fieldname":"form_payload","label":"Validated Form Payload","fieldtype":"Code","options":"JSON","read_only":1},
   {"fieldname":"last_input_by","label":"Last Input By Employee","fieldtype":"Link","options":"Employee","read_only":1},
   {"fieldname":"last_input_on","label":"Last Input On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"evidence_section","label":"Pinned Private Media Evidence","fieldtype":"Section Break","collapsible":1},
+  {"fieldname":"evidence_reference_count","label":"Evidence Reference Count","fieldtype":"Int","default":"0","read_only":1,"in_list_view":1},
+  {"fieldname":"evidence_snapshot_on","label":"Evidence Snapshot On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"evidence_references","label":"Stable CFG Kanban Media References","fieldtype":"Code","options":"JSON","read_only":1,"description":"Available source-task media registry identities pinned when the controlled target is posted. No binary or presigned URL is stored here."},
   {"fieldname":"timeline_section","label":"Action Timeline","fieldtype":"Section Break"},
   {"fieldname":"created_at","label":"Created At","fieldtype":"Datetime","reqd":1,"read_only":1,"in_list_view":1},
   {"fieldname":"posted_at","label":"Posted At","fieldtype":"Datetime","read_only":1},

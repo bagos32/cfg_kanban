@@ -57,17 +57,22 @@ ALLOWED_TRANSITIONS = {
         "Form In Progress", "Posting", "Failed", "Skipped by Condition",
         "Needs Reconciliation", "Cancelled",
     },
-    "Posting": {"Draft Created", "Submitted", "Failed", "Needs Reconciliation"},
+    "Posting": {
+        "Form In Progress", "Draft Created", "Submitted", "Failed",
+        "Needs Reconciliation",
+    },
     "Draft Created": {"Submitted", "Failed", "Needs Reconciliation"},
     "Submitted": {"Needs Reconciliation"},
     "Failed": {
-        "Form In Progress", "Ready to Post", "Posting",
+        "Form In Progress", "Ready to Post", "Posting", "Draft Created", "Submitted",
         "Needs Reconciliation", "Cancelled",
     },
     # Normally terminal. A post-write failure to release a required source-task
     # gate is the one controlled reason it may enter supervised reconciliation.
     "Skipped by Condition": {"Needs Reconciliation"},
-    "Needs Reconciliation": {"Form In Progress", "Ready to Post", "Failed"},
+    "Needs Reconciliation": {
+        "Form In Progress", "Ready to Post", "Draft Created", "Submitted", "Failed",
+    },
     "Cancelled": set(),
 }
 
@@ -271,6 +276,138 @@ def mark_needs_reconciliation(run_name, reason, operator_session_token, retry_to
         previous_state=previous, notes=reason,
     )
     return _public_run(run, attempt=attempt.name)
+
+
+def recover_run(run_name, resolution, reason, operator_session_token, retry_token):
+    """Resolve an uncertain Action Run without creating or replacing its target."""
+    reason = (reason or "").strip()
+    if not reason:
+        frappe.throw(_("Recovery notes are required."))
+    if resolution not in {"Return to Form", "Recheck Linked Target"}:
+        frappe.throw(_("Select a supported Action Run recovery."))
+    _require_retry_token(retry_token)
+    run = _locked_run(run_name)
+    profile, session = _authorized_supervisor(run, operator_session_token)
+
+    duplicate = _attempt_for_retry_token(retry_token)
+    if duplicate:
+        if duplicate.action_run != run.name:
+            frappe.throw(_("This recovery token was already used for another Action Run."))
+        result = _public_run(run, deduplicated=True, attempt=duplicate.name)
+        result.update({"ok": duplicate.outcome == "Succeeded",
+                       "message": _("This recovery request was already processed.")})
+        return result
+    if run.state not in {"Posting", "Failed", "Needs Reconciliation"}:
+        frappe.throw(_("Action Run does not require recovery while it is {0}.").format(
+            run.state
+        ))
+
+    previous = run.state
+    values = {
+        "reconciliation_by": profile.employee,
+        "reconciliation_on": now_datetime(),
+        "reconciliation_notes": reason,
+        "last_error_code": None,
+        "last_error": None,
+    }
+    if resolution == "Return to Form":
+        if run.target_name:
+            frappe.throw(_(
+                "A linked target already exists. Recheck that exact document instead of "
+                "returning the run to a blank form."
+            ))
+        assert_pinned_snapshot_compatible(run)
+        run, _changed = transition_run(
+            run.name, "Form In Progress", profile, session, retry_token,
+            attempt_type="Reconcile", values=values,
+        )
+        result = _public_run(run)
+        result.update({"ok": True, "message": _(
+            "The existing Action Run is ready for corrected operator input."
+        )})
+        return result
+
+    if not run.target_name:
+        frappe.throw(_(
+            "No linked target exists. Return this Action Run to its form instead."
+        ))
+    if not frappe.db.exists(run.target_doctype, run.target_name):
+        frappe.throw(_(
+            "The linked target document was not found. Keep the run in reconciliation "
+            "until the document identity is investigated."
+        ))
+    target = frappe.get_doc(run.target_doctype, run.target_name)
+    target.check_permission("read")
+    if cint(target.docstatus) == 2:
+        frappe.throw(_(
+            "The linked target is cancelled. It cannot be accepted as a successful result."
+        ))
+    snapshot = assert_pinned_snapshot_compatible(run)
+    posting_policy = (snapshot.get("configuration") or {}).get("posting_policy")
+    new_state = "Submitted" if cint(target.docstatus) == 1 else "Draft Created"
+    if new_state == "Draft Created" and posting_policy == "Submit When Authorized":
+        message = _(
+            "The linked Draft was confirmed. Reopen the same Action Run to submit it."
+        )
+    else:
+        message = _("The linked target status was reconciled successfully.")
+    values.update({
+        "target_docstatus": cint(target.docstatus),
+        "posted_at": now_datetime() if new_state == "Submitted" else run.posted_at,
+    })
+    run, _changed = transition_run(
+        run.name, new_state, profile, session, retry_token,
+        attempt_type="Reconcile", values=values,
+    )
+    try:
+        from cfg_kanban.services.doctype_action_tasks import release_task_gate
+        release_task_gate(run, profile, session)
+    except Exception as exc:
+        run, _changed = transition_run(
+            run.name, "Needs Reconciliation", profile, session,
+            f"{retry_token}:task-gate", attempt_type="Reconcile",
+            error_code="TaskGateReleaseFailed", error_message=sanitize_error(exc),
+            values={
+                "reconciliation_by": profile.employee,
+                "reconciliation_on": now_datetime(),
+                "reconciliation_notes": reason,
+            },
+        )
+        result = _public_run(run)
+        result.update({"ok": False, "message": _(
+            "The target was reconciled, but the Service Task gate still requires review."
+        )})
+        return result
+    result = _public_run(run)
+    result.update({"ok": True, "message": message})
+    return result
+
+
+def recovery_context(run, profile):
+    """Sanitized attempt history and permitted recovery choices for the operator form."""
+    is_supervisor = (
+        profile.kanban_role in ("Supervisor", "Development Proxy")
+        and cint(profile.get("can_override"))
+    )
+    options = []
+    if is_supervisor and run.state in {"Posting", "Needs Reconciliation"}:
+        options.append("Recheck Linked Target" if run.target_name else "Return to Form")
+    attempts = frappe.get_all(
+        "CFG Kanban DocType Action Attempt",
+        filters={"action_run": run.name},
+        fields=[
+            "name", "attempt_type", "outcome", "occurred_at", "operator_employee",
+            "previous_state", "result_state", "reference_doctype", "reference_name",
+            "error_code", "error_message",
+        ],
+        order_by="occurred_at desc, creation desc",
+        limit_page_length=20,
+    )
+    return {
+        "can_recover": bool(options),
+        "recovery_options": options,
+        "attempts": attempts,
+    }
 
 
 def transition_run(run_name, new_state, profile, session, retry_token, *,
@@ -507,6 +644,7 @@ def _public_run(run, *, deduplicated=False, attempt=None):
         "target_doctype": run.target_doctype,
         "target_name": run.target_name,
         "target_docstatus": cint(run.target_docstatus),
+        "evidence_reference_count": cint(run.get("evidence_reference_count")),
         "deduplicated": bool(deduplicated),
         "attempt": attempt,
     }

@@ -34,3 +34,10 @@ def require_reconciliation(run_name, reason, operator_session_token, retry_token
     return doctype_action_runs.mark_needs_reconciliation(
         run_name, reason, operator_session_token, retry_token
     )
+
+
+@frappe.whitelist(methods=["POST"])
+def recover(run_name, resolution, reason, operator_session_token, retry_token):
+    return doctype_action_runs.recover_run(
+        run_name, resolution, reason, operator_session_token, retry_token
+    )

@@ -72,6 +72,13 @@ def get_open_tasks(operator_session_token=None):
         row["can_assist"] = can_assist_service_task(
             row, profile, assigned_roles.get(row.assigned_employee)
         )
+        row["can_recover_action"] = bool(
+            action_run
+            and action_run.state in {"Posting", "Needs Reconciliation"}
+            and profile.kanban_role in ("Supervisor", "Development Proxy")
+            and cint(profile.get("can_override"))
+            and (row.can_operate or row.can_assist)
+        )
         row["monitor_only"] = not row.can_operate and not row.can_assist
         if (row.can_resume_action
                 or can_view_service_task(

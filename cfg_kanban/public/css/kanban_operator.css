@@ -720,6 +720,48 @@
 	margin-top: 16px;
 }
 
+.cfg-action-evidence-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 10px;
+	margin-bottom: 8px;
+}
+
+.cfg-action-evidence-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 10px 12px;
+	border: 1px solid var(--border-color);
+	border-radius: 8px;
+	background: var(--subtle-fg);
+}
+
+.cfg-action-evidence-item div,
+.cfg-action-evidence-item small {
+	display: block;
+}
+
+.cfg-action-evidence-item small {
+	color: var(--text-muted);
+}
+
+.cfg-action-recovery-buttons {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.cfg-action-attempts summary {
+	cursor: pointer;
+	font-weight: 600;
+}
+
+.cfg-action-attempts .table-responsive {
+	margin-top: 8px;
+}
+
 .cfg-media-picker,
 .cfg-camera-picker,
 .cfg-file-picker,
@@ -1028,7 +1070,8 @@
 	}
 
 	.cfg-action-summary,
-	.cfg-action-child-controls {
+	.cfg-action-child-controls,
+	.cfg-action-evidence-grid {
 		grid-template-columns: 1fr;
 	}
 
@@ -1047,8 +1090,15 @@
 
 	.cfg-action-child-row-head .btn,
 	.cfg-action-child-footer .btn,
-	.cfg-action-target .btn {
+	.cfg-action-target .btn,
+	.cfg-action-evidence-item .btn,
+	.cfg-action-recovery-buttons .btn {
 		min-height: 44px;
+	}
+
+	.cfg-action-evidence-item {
+		align-items: stretch;
+		flex-direction: column;
 	}
 
 	.cfg-media-picker,
