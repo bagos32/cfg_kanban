@@ -30,6 +30,7 @@ doctype_js = {
     "CFG Kanban Delivery Proof": "public/js/cfg_kanban_delivery_proof.js",
     "CFG Kanban Return Case": "public/js/cfg_kanban_return_case.js",
     "CFG Kanban Media": "public/js/cfg_kanban_media.js",
+    "CFG Kanban DocType Action Profile": "public/js/cfg_kanban_doctype_action_profile.js",
     "Purchase Receipt": "public/js/purchase_receipt.js",
     "Stock Entry": "public/js/stock_entry.js",
 }

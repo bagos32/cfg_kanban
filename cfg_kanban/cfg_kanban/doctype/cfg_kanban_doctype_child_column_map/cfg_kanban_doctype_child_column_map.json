@@ -1,0 +1,17 @@
+{
+ "doctype":"DocType","name":"CFG Kanban DocType Child Column Map","module":"CFG Kanban","istable":1,
+ "field_order":["table_fieldname","child_fieldname","source_type","source_key","fixed_value","operator_label","required_in_kanban","read_only","display_order","visible_condition","default_value"],
+ "fields":[
+  {"fieldname":"table_fieldname","label":"Table Field","fieldtype":"Autocomplete","reqd":1,"in_list_view":1},
+  {"fieldname":"child_fieldname","label":"Child Field","fieldtype":"Autocomplete","reqd":1,"in_list_view":1,"description":"Actual eligible fieldname discovered from the configured child DocType."},
+  {"fieldname":"source_type","label":"Source Type","fieldtype":"Select","options":"Operator Input\nService Task Field\nServer Context\nFixed Value","default":"Operator Input","reqd":1,"in_list_view":1},
+  {"fieldname":"source_key","label":"Source Key","fieldtype":"Data"},
+  {"fieldname":"fixed_value","label":"Fixed Value","fieldtype":"Small Text"},
+  {"fieldname":"operator_label","label":"Operator Label","fieldtype":"Data","in_list_view":1},
+  {"fieldname":"required_in_kanban","label":"Required in Kanban","fieldtype":"Check","default":"0"},
+  {"fieldname":"read_only","label":"Read Only","fieldtype":"Check","default":"0"},
+  {"fieldname":"display_order","label":"Display Order","fieldtype":"Int","default":"10"},
+  {"fieldname":"visible_condition","label":"Visible Condition","fieldtype":"Code","options":"JSON","description":"Safe structured JSON only. No Python or JavaScript expressions."},
+  {"fieldname":"default_value","label":"Default Value","fieldtype":"Small Text"}
+ ]
+}

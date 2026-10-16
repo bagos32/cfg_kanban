@@ -1,9 +1,9 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.39
+**Guide version:** 1.40
 
-**Updated:** 14 October 2026
+**Updated:** 16 October 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
@@ -16,6 +16,11 @@ the first production signal. It covers normal reusable-card replenishment, Sales
 proposals, customer make-to-order production, operation reporting, production Process Tasks,
 standalone Service Tasks, controlled QC, private media evidence, printing, handling-unit tags, and
 audit records.
+
+It also documents the protected configuration foundation for the Special DocType Action extension.
+That extension is being delivered in serial gates; the current Gate 1A records validate target
+metadata and preview a mapped operator form but intentionally do **not** create destination
+documents yet.
 
 This file is designed to be usable by a person or by another LLM without access to the development
 chat history. When this guide and an earlier chat answer disagree, use this guide for the code
@@ -306,6 +311,39 @@ retention class, optional KMS ARN, and upload/view authorization lifetimes. AWS 
 intentionally absent; the server must use its workload/instance role.
 
 Save the Settings before creating the pilot Master.
+
+### Special DocType Action configuration foundation (Gate 1A)
+
+This is a system-maintenance function, not a production operator function. Only **System Manager**
+or **CFG Kanban System Maintenance** can maintain its configuration records.
+
+1. Create **CFG Kanban DocType Action Policy** for a deliberately approved operational target.
+   Select **Approved Target DocType** (`target_doctype`), enable **Allow Create / Save Draft**
+   (`allow_create`), and enable **Allow Submit When Authorized** (`allow_submit`) only if the real
+   target is submittable and that future action has been reviewed.
+2. Core ERP manufacturing, stock, accounting, payroll, User/permission, and system-configuration
+   records are hard-denied even if an administrator attempts to add a policy. Existing dedicated
+   Kanban integrations remain the only path for those records.
+3. Create **CFG Kanban DocType Action Profile** and choose its allowlisted **Target DocType**
+   (`target_doctype`). Configure **Parent Field Mappings** (`parent_field_mappings`), flat **Child
+   Table Configurations** (`child_table_configs`), and flat **Child Column Mappings**
+   (`child_column_mappings`). Nested child-table configuration is not supported.
+4. Choose mapping fields from the target's live effective metadata. Supported first-pass value
+   types are Data/text, Int, Float, Currency, Check, Select, Date, Datetime, and validated Link.
+   Hidden, read-only, system identity/status, Dynamic Link, Attach, Code, HTML, Button, and nested
+   Table fields are not accepted as writable values.
+5. Select **DocType Action → Validate Configuration**. Validation checks the current allowlist,
+   target submission capability, mandatory parent/child fields, Link/fixed values, row limits,
+   safe JSON conditions, and a target-metadata fingerprint. Only then may **Enabled** (`enabled`)
+   be selected. A material profile edit increments **Configuration Revision**
+   (`configuration_revision`), disables the profile, and requires revalidation.
+6. Select **DocType Action → Preview Operator Form** to inspect the parent fields and first-level
+   child-row layout. The preview never creates a destination record.
+
+**Current Gate 1A boundary:** there is no `CFG Kanban DocType Action Run`, Service Task trigger,
+target draft/save/submit, recovery action, or direct `DocType Action Card` yet. Do not tell an
+operator that an approved profile is executable. Those behaviours belong to the next controlled
+packages described in `docs/SPECIAL_DOCTYPE_CARD_EXTENSION.md`.
 
 The runtime trigger uses the **Master's Automation Level** (`automation_level`). `Automatic`
 creates/executes the Work Order command immediately only when the Before Cycle Start gate is open.
@@ -2958,6 +2996,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.40 | 16 October 2026 | Added the locked Special DocType Card source specification and Gate 1A protected target policies, metadata-driven parent/child action profiles, revision/fingerprint invalidation, server validation, and non-posting operator-form preview; explicitly documented that Action Runs, Service Task triggers, writes, and direct cards remain pending |
 | 1.39 | 14 October 2026 | Added optional, dependency-free compatibility with Hidden Item Settings: user allow-list visibility, filtered Kanban BOM previews and Operator material responses, protected restricted Master mappings, neutral attention messages, and server-managed inclusion in native ERPNext production Stock Entries |
 | 1.38 | 14 October 2026 | Added per-BOM-component source Warehouses, ERPNext Item Operation validation, Work Order-wide and Job Card-specific WIP transfer modes, Skip-WIP direct consumption, live stock/shortage display, operator-confirmed Draft/automatic posting, duplicate-draft protection, controlled Stock Entry submission, and the revised RW Noodle acceptance flow |
 | 1.37 | 10 October 2026 | Added Warehouse-card adoption of already-posted ERP finished stock, locked ERP-versus-tag balance validation, preprinted tag activation, exact Batch/Serial checks, supervisor reservation to eligible stock-replenishment Cycles, allocation release, Cycle allocation indicators, audit records, and ERP/tag/untagged report columns |

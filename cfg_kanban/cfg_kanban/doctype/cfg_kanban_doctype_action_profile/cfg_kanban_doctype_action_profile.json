@@ -1,0 +1,34 @@
+{
+ "doctype":"DocType","name":"CFG Kanban DocType Action Profile","module":"CFG Kanban","autoname":"field:profile_name","title_field":"profile_name","track_changes":1,
+ "search_fields":"profile_name,target_doctype,company,validation_status",
+ "field_order":["profile_name","enabled","description","company","target_section","target_doctype","action_mode","posting_policy","verification_policy","failure_policy","form_section","form_title","form_instructions","trigger_condition","max_child_rows","validation_section","configuration_revision","validation_status","last_validated_at","metadata_fingerprint","parent_field_mappings","child_table_configs","child_column_mappings"],
+ "fields":[
+  {"fieldname":"profile_name","label":"Profile Name","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1},
+  {"fieldname":"enabled","label":"Enabled","fieldtype":"Check","default":"0","in_list_view":1,"in_standard_filter":1,"description":"A profile can be enabled only after successful server validation against current target metadata."},
+  {"fieldname":"description","label":"Description","fieldtype":"Small Text"},
+  {"fieldname":"company","label":"Company","fieldtype":"Link","options":"Company","in_list_view":1,"in_standard_filter":1,"description":"Optional company scope for source and destination context."},
+  {"fieldname":"target_section","label":"Approved Target and Posting Policy","fieldtype":"Section Break"},
+  {"fieldname":"target_doctype","label":"Target DocType","fieldtype":"Link","options":"DocType","reqd":1,"in_list_view":1,"in_standard_filter":1,"description":"Only active targets from CFG Kanban DocType Action Policy are selectable."},
+  {"fieldname":"action_mode","label":"Action Mode","fieldtype":"Select","options":"Create New","default":"Create New","reqd":1},
+  {"fieldname":"posting_policy","label":"Posting Policy","fieldtype":"Select","options":"Save Draft\nSubmit When Authorized","default":"Save Draft","reqd":1,"in_list_view":1},
+  {"fieldname":"verification_policy","label":"Verification Policy","fieldtype":"Select","options":"No Additional Verification\nRequire Service Task Verification","default":"No Additional Verification","reqd":1},
+  {"fieldname":"failure_policy","label":"Posting Failure Policy","fieldtype":"Select","options":"Blocking\nException Logged","default":"Blocking","reqd":1},
+  {"fieldname":"form_section","label":"Operator Form","fieldtype":"Section Break"},
+  {"fieldname":"form_title","label":"Form Title","fieldtype":"Data"},
+  {"fieldname":"form_instructions","label":"Form Instructions","fieldtype":"Text"},
+  {"fieldname":"trigger_condition","label":"Conditional Trigger","fieldtype":"Code","options":"JSON","description":"Optional safe structured JSON condition. Example: {\"field\":\"defect_found\",\"operator\":\"equals\",\"value\":1}."},
+  {"fieldname":"max_child_rows","label":"Max Child Rows","fieldtype":"Int","default":"20","reqd":1,"description":"Overall safety cap. Maximum 50 rows per configured child table."},
+  {"fieldname":"validation_section","label":"Configuration Validation","fieldtype":"Section Break"},
+  {"fieldname":"configuration_revision","label":"Configuration Revision","fieldtype":"Int","default":"1","read_only":1,"in_list_view":1},
+  {"fieldname":"validation_status","label":"Validation Status","fieldtype":"Select","options":"Not Validated\nValid\nInvalid","default":"Not Validated","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"last_validated_at","label":"Last Validated At","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"metadata_fingerprint","label":"Target Metadata Fingerprint","fieldtype":"Data","read_only":1,"hidden":1},
+  {"fieldname":"parent_field_mappings","label":"Parent Field Mappings","fieldtype":"Table","options":"CFG Kanban DocType Field Map","description":"Map only the parent fields the operator or approved context must supply."},
+  {"fieldname":"child_table_configs","label":"Child Table Configurations","fieldtype":"Table","options":"CFG Kanban DocType Child Table Config","description":"Configure one row for each target Table field exposed to the operator."},
+  {"fieldname":"child_column_mappings","label":"Child Column Mappings","fieldtype":"Table","options":"CFG Kanban DocType Child Column Map","description":"Flat child-column mappings grouped by Table Field; nested child tables are intentionally not used."}
+ ],
+ "permissions":[
+  {"role":"CFG Kanban System Maintenance","read":1,"write":1,"create":1,"delete":1,"print":1},
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1,"print":1}
+ ]
+}

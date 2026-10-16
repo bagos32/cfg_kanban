@@ -1,0 +1,14 @@
+{
+ "doctype":"DocType","name":"CFG Kanban DocType Child Table Config","module":"CFG Kanban","istable":1,
+ "field_order":["table_fieldname","child_doctype","operator_heading","rows_mode","min_rows","max_rows","allow_add_delete_rows","display_order"],
+ "fields":[
+  {"fieldname":"table_fieldname","label":"Table Field","fieldtype":"Autocomplete","reqd":1,"in_list_view":1,"description":"Actual Table fieldname discovered from the target DocType."},
+  {"fieldname":"child_doctype","label":"Child DocType","fieldtype":"Link","options":"DocType","read_only":1,"in_list_view":1},
+  {"fieldname":"operator_heading","label":"Operator Heading","fieldtype":"Data","in_list_view":1},
+  {"fieldname":"rows_mode","label":"Rows Mode","fieldtype":"Select","options":"Repeatable\nFixed Rows","default":"Repeatable","reqd":1},
+  {"fieldname":"min_rows","label":"Minimum Rows","fieldtype":"Int","default":"0"},
+  {"fieldname":"max_rows","label":"Maximum Rows","fieldtype":"Int","default":"10","reqd":1},
+  {"fieldname":"allow_add_delete_rows","label":"Allow Add / Delete Rows","fieldtype":"Check","default":"1"},
+  {"fieldname":"display_order","label":"Display Order","fieldtype":"Int","default":"10"}
+ ]
+}

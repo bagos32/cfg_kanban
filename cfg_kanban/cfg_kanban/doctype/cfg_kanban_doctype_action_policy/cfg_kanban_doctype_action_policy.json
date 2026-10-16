@@ -1,0 +1,28 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban DocType Action Policy",
+ "module": "CFG Kanban",
+ "autoname": "field:target_doctype",
+ "title_field": "target_doctype",
+ "track_changes": 1,
+ "search_fields": "target_doctype,risk_category",
+ "field_order": [
+  "target_doctype", "enabled", "risk_category", "action_section", "allow_create",
+  "allow_submit", "allow_currency_fields", "allow_exception_logged_failure", "notes"
+ ],
+ "fields": [
+  {"fieldname":"target_doctype","label":"Approved Target DocType","fieldtype":"Link","options":"DocType","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1,"description":"Explicit site allowlist entry. Core manufacturing, stock, accounting, payroll, permission, and system records remain hard-denied."},
+  {"fieldname":"enabled","label":"Enabled","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"risk_category","label":"Risk Category","fieldtype":"Select","options":"Low\nModerate\nHigh","default":"Moderate","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"action_section","label":"Permitted Generic Actions","fieldtype":"Section Break","description":"This policy never bypasses the target DocType controller, workflow, role permissions, or the engine hard-deny list."},
+  {"fieldname":"allow_create","label":"Allow Create / Save Draft","fieldtype":"Check","default":"1","in_list_view":1},
+  {"fieldname":"allow_submit","label":"Allow Submit When Authorized","fieldtype":"Check","default":"0","in_list_view":1,"description":"Available only when the approved target DocType is submittable. Runtime posting still requires explicit authorization."},
+  {"fieldname":"allow_currency_fields","label":"Allow Currency Field Mapping","fieldtype":"Check","default":"0","description":"Explicitly permit profile mappings to writable Currency fields on this operational target."},
+  {"fieldname":"allow_exception_logged_failure","label":"Allow Non-blocking Failure","fieldtype":"Check","default":"0","description":"Permit a profile to use Exception Logged instead of Blocking. Use only where the target record is not required to satisfy task completion."},
+  {"fieldname":"notes","label":"Approval Notes","fieldtype":"Small Text","description":"Record the operational purpose and approval basis for this allowlist entry."}
+ ],
+ "permissions": [
+  {"role":"CFG Kanban System Maintenance","read":1,"write":1,"create":1,"delete":1,"print":1},
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1,"print":1}
+ ]
+}
