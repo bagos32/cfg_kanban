@@ -1,0 +1,31 @@
+{
+ "doctype":"DocType","name":"CFG Kanban DocType Action Attempt","module":"CFG Kanban","autoname":"DAA-.#####","title_field":"attempt_id","track_changes":0,
+ "search_fields":"attempt_id,action_run,attempt_type,outcome,operator_employee",
+ "field_order":["attempt_id","action_run","attempt_type","outcome","occurred_at","retry_token_hash","idempotency_key","identity_section","operator_employee","operator_session","terminal_user","state_section","previous_state","result_state","reference_doctype","reference_name","error_section","error_code","error_message"],
+ "fields":[
+  {"fieldname":"attempt_id","label":"Attempt ID","fieldtype":"Data","reqd":1,"unique":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"action_run","label":"Action Run","fieldtype":"Link","options":"CFG Kanban DocType Action Run","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"attempt_type","label":"Attempt Type","fieldtype":"Select","options":"Create\nResume\nState Transition\nRetry\nCancel\nReconcile","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"outcome","label":"Outcome","fieldtype":"Select","options":"Succeeded\nFailed\nDeduplicated","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"occurred_at","label":"Occurred At","fieldtype":"Datetime","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"retry_token_hash","label":"Retry Token Hash","fieldtype":"Data","reqd":1,"unique":1,"read_only":1,"hidden":1},
+  {"fieldname":"idempotency_key","label":"Idempotency Key","fieldtype":"Data","reqd":1,"unique":1,"read_only":1,"hidden":1},
+  {"fieldname":"identity_section","label":"Acting Identity","fieldtype":"Section Break"},
+  {"fieldname":"operator_employee","label":"Operator Employee","fieldtype":"Link","options":"Employee","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"operator_session","label":"Operator Session","fieldtype":"Link","options":"CFG Kanban Operator Session","reqd":1,"read_only":1},
+  {"fieldname":"terminal_user","label":"Terminal User","fieldtype":"Link","options":"User","reqd":1,"read_only":1},
+  {"fieldname":"state_section","label":"Result","fieldtype":"Section Break"},
+  {"fieldname":"previous_state","label":"Previous State","fieldtype":"Data","read_only":1},
+  {"fieldname":"result_state","label":"Result State","fieldtype":"Data","read_only":1},
+  {"fieldname":"reference_doctype","label":"Reference DocType","fieldtype":"Link","options":"DocType","read_only":1},
+  {"fieldname":"reference_name","label":"Reference Document","fieldtype":"Dynamic Link","options":"reference_doctype","read_only":1},
+  {"fieldname":"error_section","label":"Sanitized Error","fieldtype":"Section Break","collapsible":1},
+  {"fieldname":"error_code","label":"Error Code","fieldtype":"Data","read_only":1},
+  {"fieldname":"error_message","label":"Error Message","fieldtype":"Small Text","read_only":1}
+ ],
+ "permissions":[
+  {"role":"Manufacturing Manager","read":1,"print":1},
+  {"role":"CFG Kanban System Maintenance","read":1,"print":1},
+  {"role":"System Manager","read":1,"print":1}
+ ]
+}

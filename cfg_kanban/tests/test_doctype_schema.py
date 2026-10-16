@@ -73,6 +73,10 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban DocType Action Policy")
         self.assertEqual(links["DocType Action Profiles"],
                          "CFG Kanban DocType Action Profile")
+        self.assertEqual(links["DocType Action Runs"],
+                         "CFG Kanban DocType Action Run")
+        self.assertEqual(links["DocType Action Attempts"],
+                         "CFG Kanban DocType Action Attempt")
         self.assertEqual(links["Supplier Receipt Dispositions"],
                          "CFG Kanban Receipt Disposition")
         self.assertEqual(links["Material Genealogy"],

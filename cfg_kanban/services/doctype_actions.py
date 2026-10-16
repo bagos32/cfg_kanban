@@ -197,7 +197,11 @@ def validate_profile_configuration(profile):
 
 
 def profile_configuration_signature(profile):
-    payload = {
+    return _hash(profile_configuration_payload(profile))
+
+
+def profile_configuration_payload(profile):
+    return {
         "company": profile.company,
         "target_doctype": profile.target_doctype,
         "action_mode": profile.action_mode,
@@ -223,7 +227,48 @@ def profile_configuration_signature(profile):
         "columns": [_mapping_snapshot(row, "child_fieldname", row.table_fieldname)
                     for row in profile.child_column_mappings or []],
     }
-    return _hash(payload)
+
+
+def executable_profile_snapshot(profile_name):
+    profile = frappe.get_doc("CFG Kanban DocType Action Profile", profile_name)
+    if not cint(profile.enabled):
+        frappe.throw(_("DocType Action Profile {0} is disabled.").format(
+            frappe.bold(profile.name)
+        ))
+    if profile.validation_status != "Valid" or not profile.metadata_fingerprint:
+        frappe.throw(_("DocType Action Profile {0} is not validated.").format(
+            frappe.bold(profile.name)
+        ))
+    result = validate_profile_configuration(profile)
+    if result["metadata_fingerprint"] != profile.metadata_fingerprint:
+        frappe.throw(_(
+            "Target metadata changed after this profile was validated. Disable and revalidate it."
+        ))
+    policy, _meta = get_target_policy(profile.target_doctype, "create")
+    if profile.posting_policy == "Submit When Authorized":
+        _assert_policy_action(policy, _meta, "submit")
+    configuration = profile_configuration_payload(profile)
+    snapshot = {
+        "profile": profile.name,
+        "profile_name": profile.profile_name,
+        "configuration_revision": cint(profile.configuration_revision),
+        "validation_status": profile.validation_status,
+        "last_validated_at": str(profile.last_validated_at or ""),
+        "metadata_fingerprint": profile.metadata_fingerprint,
+        "configuration": configuration,
+        "target_policy": {
+            "name": policy.name,
+            "target_doctype": policy.target_doctype,
+            "risk_category": policy.risk_category,
+            "allow_create": cint(policy.allow_create),
+            "allow_submit": cint(policy.allow_submit),
+            "allow_currency_fields": cint(policy.allow_currency_fields),
+            "allow_exception_logged_failure": cint(
+                policy.allow_exception_logged_failure
+            ),
+        },
+    }
+    return profile, snapshot, _hash(snapshot)
 
 
 def metadata_fingerprint(meta):

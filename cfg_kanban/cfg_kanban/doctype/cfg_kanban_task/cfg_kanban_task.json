@@ -1,6 +1,6 @@
 {
  "doctype":"DocType","name":"CFG Kanban Task","module":"CFG Kanban","autoname":"KTASK-.YYYY.-.#####","title_field":"task_name","track_changes":1,
- "field_order":["task_name","task_category","task_schedule","company","trigger_type","request_source","generation_key","status","priority","requested_on","due_on","assigned_employee","responsible_role","workstation","asset","location","started_by","started_on","completed_by","completed_on","instructions","evidence_section","checklist","checklist_evidence","checklist_results","execution_values","progress_audit_section","progress_count","last_progress_by","last_progress_on","last_progress_summary","media_evidence_section","media_evidence_html","completion_notes","verification_section","verification_required","verification_status","verified_by","verified_on","verification_notes","supervisor_disposition","disposition_by","disposition_on","disposition_reason","blocked_reason","exception","production_boundary_section","kanban_cycle","process_execution","work_order","job_card"],
+ "field_order":["task_name","task_category","task_schedule","company","trigger_type","request_source","generation_key","status","priority","requested_on","due_on","assigned_employee","responsible_role","workstation","asset","location","started_by","started_on","completed_by","completed_on","instructions","evidence_section","checklist","checklist_evidence","checklist_results","execution_values","progress_audit_section","progress_count","last_progress_by","last_progress_on","last_progress_summary","media_evidence_section","media_evidence_html","completion_notes","verification_section","verification_required","verification_status","verified_by","verified_on","verification_notes","supervisor_disposition","disposition_by","disposition_on","disposition_reason","blocked_reason","exception","doctype_action_section","doctype_action_run","production_boundary_section","kanban_cycle","process_execution","work_order","job_card"],
  "fields":[
   {"fieldname":"task_name","label":"Task Name","fieldtype":"Data","reqd":1,"in_list_view":1},
   {"fieldname":"task_category","label":"Category","fieldtype":"Data","reqd":1,"in_list_view":1,"in_standard_filter":1},
@@ -48,6 +48,8 @@
   {"fieldname":"disposition_reason","label":"Disposition Reason","fieldtype":"Text","read_only":1},
   {"fieldname":"blocked_reason","label":"Blocked Reason","fieldtype":"Small Text"},
   {"fieldname":"exception","label":"Exception","fieldtype":"Link","options":"CFG Kanban Exception","read_only":1},
+  {"fieldname":"doctype_action_section","label":"DocType Action","fieldtype":"Section Break","collapsible":1},
+  {"fieldname":"doctype_action_run","label":"DocType Action Run","fieldtype":"Link","options":"CFG Kanban DocType Action Run","read_only":1,"in_standard_filter":1},
   {"fieldname":"production_boundary_section","label":"Production Boundary Guard","fieldtype":"Section Break","hidden":1},
   {"fieldname":"kanban_cycle","label":"Kanban Cycle","fieldtype":"Link","options":"CFG Kanban Cycle","hidden":1,"read_only":1},
   {"fieldname":"process_execution","label":"Process Execution","fieldtype":"Link","options":"CFG Kanban Process Execution","hidden":1,"read_only":1},

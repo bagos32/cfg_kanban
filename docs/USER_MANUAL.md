@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.40
+**Guide version:** 1.41
 
 **Updated:** 16 October 2026
 
@@ -17,10 +17,10 @@ proposals, customer make-to-order production, operation reporting, production Pr
 standalone Service Tasks, controlled QC, private media evidence, printing, handling-unit tags, and
 audit records.
 
-It also documents the protected configuration foundation for the Special DocType Action extension.
-That extension is being delivered in serial gates; the current Gate 1A records validate target
-metadata and preview a mapped operator form but intentionally do **not** create destination
-documents yet.
+It also documents the protected configuration and non-posting runtime foundations for the Special
+DocType Action extension. That extension is being delivered in serial gates; Gate 1A validates
+target metadata and previews a mapped operator form, while Gate 1B adds immutable Action Run and
+attempt audit records. Neither package creates destination documents yet.
 
 This file is designed to be usable by a person or by another LLM without access to the development
 chat history. When this guide and an earlier chat answer disagree, use this guide for the code
@@ -312,7 +312,7 @@ intentionally absent; the server must use its workload/instance role.
 
 Save the Settings before creating the pilot Master.
 
-### Special DocType Action configuration foundation (Gate 1A)
+### Special DocType Action foundations (Gates 1A and 1B)
 
 This is a system-maintenance function, not a production operator function. Only **System Manager**
 or **CFG Kanban System Maintenance** can maintain its configuration records.
@@ -340,10 +340,34 @@ or **CFG Kanban System Maintenance** can maintain its configuration records.
 6. Select **DocType Action → Preview Operator Form** to inspect the parent fields and first-level
    child-row layout. The preview never creates a destination record.
 
-**Current Gate 1A boundary:** there is no `CFG Kanban DocType Action Run`, Service Task trigger,
-target draft/save/submit, recovery action, or direct `DocType Action Card` yet. Do not tell an
-operator that an approved profile is executable. Those behaviours belong to the next controlled
-packages described in `docs/SPECIAL_DOCTYPE_CARD_EXTENSION.md`.
+#### Non-posting Action Run foundation (Gate 1B)
+
+Gate 1B adds two **system-created** records:
+
+- **CFG Kanban DocType Action Run** is the durable identity for one source occurrence, Action
+  Profile and `primary` action slot. It pins **Profile Revision** (`profile_revision`), **Mapping
+  Snapshot** (`mapping_snapshot`) and **Mapping Snapshot Hash** (`mapping_hash`), and separately
+  records the acting **Initial Operator Employee** (`operator_employee`) and shared **Terminal
+  User** (`terminal_user`).
+- **CFG Kanban DocType Action Attempt** is immutable history for create, resume, state transition,
+  retry, cancel and reconciliation attempts. Raw retry tokens are never stored; only a one-way
+  hash is retained.
+
+The source **CFG Kanban Task** has a read-only **DocType Action Run**
+(`doctype_action_run`) link. **CFG Kanban Event** also links relevant events to the Action Run.
+Both record lists are available in **CFG Kanban Workspace → Execution Records**.
+
+Action Runs cannot be created or edited manually. A Supervisor with `can_override` authority may
+open an existing run and use **Recovery → Cancel Run with Reason** only before any destination is
+linked, or **Recovery → Mark Needs Reconciliation**. These actions require a current scanned
+Supervisor session from the Service Task Panel and preserve an immutable attempt/event trail.
+Submitted, externally linked, uncertain or already terminal results are never silently deleted or
+cancelled.
+
+**Current Gate 1B boundary:** the source-task event fields, task-completion gate, operator dynamic
+form, target mapper/writer, destination draft/save/submit, media-to-run relation, and direct
+`DocType Action Card` are not yet available. Gate 1B is deliberately non-posting; an approved
+profile is still not an executable user workflow until the following serial packages are deployed.
 
 The runtime trigger uses the **Master's Automation Level** (`automation_level`). `Automatic`
 creates/executes the Work Order command immediately only when the Before Cycle Start gate is open.
@@ -2996,6 +3020,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.41 | 16 October 2026 | Added Gate 1B immutable, idempotent `CFG Kanban DocType Action Run` identity; pinned profile revision/mapping snapshot; immutable Action Attempts; separate Employee/terminal attribution; Service Task and Event links; database lock/uniqueness guards; sanitized errors; and controlled Supervisor cancellation/reconciliation while retaining the non-posting boundary |
 | 1.40 | 16 October 2026 | Added the locked Special DocType Card source specification and Gate 1A protected target policies, metadata-driven parent/child action profiles, revision/fingerprint invalidation, server validation, and non-posting operator-form preview; explicitly documented that Action Runs, Service Task triggers, writes, and direct cards remain pending |
 | 1.39 | 14 October 2026 | Added optional, dependency-free compatibility with Hidden Item Settings: user allow-list visibility, filtered Kanban BOM previews and Operator material responses, protected restricted Master mappings, neutral attention messages, and server-managed inclusion in native ERPNext production Stock Entries |
 | 1.38 | 14 October 2026 | Added per-BOM-component source Warehouses, ERPNext Item Operation validation, Work Order-wide and Job Card-specific WIP transfer modes, Skip-WIP direct consumption, live stock/shortage display, operator-confirmed Draft/automatic posting, duplicate-draft protection, controlled Stock Entry submission, and the revised RW Noodle acceptance flow |

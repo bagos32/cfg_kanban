@@ -689,6 +689,10 @@ This status section records delivery without changing the locked revision 1.0 de
 | Date | Package | Implemented exact records / behaviour | Status |
 |---|---|---|---|
 | 2026-10-16 | Gate 1A — configuration foundation | `CFG Kanban DocType Action Policy`, `CFG Kanban DocType Action Profile`, `CFG Kanban DocType Field Map`, `CFG Kanban DocType Child Table Config`, `CFG Kanban DocType Child Column Map`; protected target allowlist; hard-denied ERP core records; effective-metadata discovery/fingerprint; server validation; non-posting operator preview | Prepared in code; migration and live-site validation pending |
+| 2026-10-16 | Gate 1B — non-posting Action Run foundation | System-created `CFG Kanban DocType Action Run` and immutable `CFG Kanban DocType Action Attempt`; unique source/profile/primary-slot and retry identities; pinned validated profile snapshot/hash; Employee/session/terminal attribution; formal locked states; row lock and guarded transitions; source Task/Event links; sanitized failures; Supervisor-only cancellation/reconciliation controls | Prepared in code; migration and live-site validation pending |
 
-**Deliberately not included in Gate 1A:** destination document creation/submission, `CFG Kanban DocType Action Run`, Service Task triggers/gates, media-to-run linking, recovery actions, or the Phase 2 direct `DocType Action Card`. Those remain subsequent serial packages so the permission and mapping foundation can be reviewed first.
+**Current boundary after Gate 1B:** destination document construction/save/submission, Service Task
+schedule event binding and closure gates, operator dynamic form, media-to-run linking, target
+reconciliation logic, and the Phase 2 direct `DocType Action Card` remain subsequent serial
+packages. Gate 1B itself cannot create or mutate a destination ERP document.
 
