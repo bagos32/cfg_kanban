@@ -5,7 +5,7 @@
  "fields":[
   {"fieldname":"attempt_id","label":"Attempt ID","fieldtype":"Data","reqd":1,"unique":1,"read_only":1,"in_list_view":1},
   {"fieldname":"action_run","label":"Action Run","fieldtype":"Link","options":"CFG Kanban DocType Action Run","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
-  {"fieldname":"attempt_type","label":"Attempt Type","fieldtype":"Select","options":"Create\nResume\nState Transition\nRetry\nCancel\nReconcile","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"attempt_type","label":"Attempt Type","fieldtype":"Select","options":"Create\nResume\nPost\nState Transition\nRetry\nCancel\nReconcile","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"outcome","label":"Outcome","fieldtype":"Select","options":"Succeeded\nFailed\nDeduplicated","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"occurred_at","label":"Occurred At","fieldtype":"Datetime","reqd":1,"read_only":1,"in_list_view":1},
   {"fieldname":"retry_token_hash","label":"Retry Token Hash","fieldtype":"Data","reqd":1,"unique":1,"read_only":1,"hidden":1},

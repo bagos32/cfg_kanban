@@ -157,7 +157,7 @@ def resolve_task_run(task_name, profile_name, source_event, operator_session_tok
         "operator_session": session.name,
         "terminal_user": frappe.session.user,
         "posting_identity": "Kanban Employee plus authenticated terminal User",
-        "execution_policy": f"Gate 1B non-posting / {action_profile.posting_policy}",
+        "execution_policy": f"Controlled target writer / {action_profile.posting_policy}",
         "target_doctype": action_profile.target_doctype,
         "target_docstatus": 0,
         "created_at": now_datetime(),
@@ -274,7 +274,7 @@ def mark_needs_reconciliation(run_name, reason, operator_session_token, retry_to
 def transition_run(run_name, new_state, profile, session, retry_token, *,
                    attempt_type="State Transition", error_code=None, error_message=None,
                    values=None):
-    """Internal transition primitive reserved for later mapper/writer packages."""
+    """Internal transition primitive shared by the controlled writer and recovery paths."""
     if new_state not in ACTION_RUN_STATES:
         frappe.throw(_("Unsupported DocType Action Run state: {0}").format(new_state))
     _require_retry_token(retry_token)
@@ -308,6 +308,40 @@ def sanitize_error(value):
     text = _URL.sub("[redacted-url]", text)
     text = _SENSITIVE_VALUE.sub(lambda match: f"{match.group(1)}=[redacted]", text)
     return text[:500]
+
+
+def authorize_run_actor(run, operator_session_token):
+    """Recheck the Employee session and source scope for every runtime request."""
+    if run.source_doctype != "CFG Kanban Task":
+        frappe.throw(_("Gate 1 supports only standalone Service Task Action Runs."))
+    task = frappe.get_doc(run.source_doctype, run.source_name)
+    action = _SOURCE_ACTION.get(run.source_event)
+    if not action:
+        frappe.throw(_("Unsupported Action Run source event: {0}").format(run.source_event))
+    profile, session = require_operator(
+        operator_session_token, action, workstation=task.workstation
+    )
+    _assert_task_access(task, profile)
+    return task, profile, session
+
+
+def get_locked_run(run_name):
+    return _locked_run(run_name)
+
+
+def get_attempt_for_retry_token(retry_token):
+    _require_retry_token(retry_token)
+    return _attempt_for_retry_token(retry_token)
+
+
+def record_run_attempt(run, attempt_type, outcome, profile, session, retry_token, **kwargs):
+    return _record_attempt(
+        run, attempt_type, outcome, profile, session, retry_token, **kwargs
+    )
+
+
+def public_run(run, *, deduplicated=False, attempt=None):
+    return _public_run(run, deduplicated=deduplicated, attempt=attempt)
 
 
 def _authorized_supervisor(run, operator_session_token):

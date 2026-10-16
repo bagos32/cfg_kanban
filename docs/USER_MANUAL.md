@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.41
+**Guide version:** 1.42
 
 **Updated:** 16 October 2026
 
@@ -17,10 +17,11 @@ proposals, customer make-to-order production, operation reporting, production Pr
 standalone Service Tasks, controlled QC, private media evidence, printing, handling-unit tags, and
 audit records.
 
-It also documents the protected configuration and non-posting runtime foundations for the Special
-DocType Action extension. That extension is being delivered in serial gates; Gate 1A validates
-target metadata and previews a mapped operator form, while Gate 1B adds immutable Action Run and
-attempt audit records. Neither package creates destination documents yet.
+It also documents the protected configuration and runtime foundations for the Special DocType
+Action extension. That extension is being delivered in serial gates: Gate 1A validates target
+metadata and previews a mapped form, Gate 1B adds immutable Action Run and attempt audit records,
+and Gate 1C adds the controlled server mapper/writer. Normal Service Task event binding and the
+operator-facing form remain a later package, so this is not yet an end-user workflow.
 
 This file is designed to be usable by a person or by another LLM without access to the development
 chat history. When this guide and an earlier chat answer disagree, use this guide for the code
@@ -312,7 +313,7 @@ intentionally absent; the server must use its workload/instance role.
 
 Save the Settings before creating the pilot Master.
 
-### Special DocType Action foundations (Gates 1A and 1B)
+### Special DocType Action foundations (Gates 1A, 1B and 1C)
 
 This is a system-maintenance function, not a production operator function. Only **System Manager**
 or **CFG Kanban System Maintenance** can maintain its configuration records.
@@ -364,10 +365,37 @@ Supervisor session from the Service Task Panel and preserve an immutable attempt
 Submitted, externally linked, uncertain or already terminal results are never silently deleted or
 cancelled.
 
-**Current Gate 1B boundary:** the source-task event fields, task-completion gate, operator dynamic
-form, target mapper/writer, destination draft/save/submit, media-to-run relation, and direct
-`DocType Action Card` are not yet available. Gate 1B is deliberately non-posting; an approved
-profile is still not an executable user workflow until the following serial packages are deployed.
+#### Controlled target mapper/writer (Gate 1C)
+
+Gate 1C adds the protected server operation that turns one authorized Action Run into at most one
+destination record. It is intentionally not a generic ERP transaction endpoint:
+
+- the destination DocType and mapped fields come only from the immutable validated snapshot on the
+  Action Run; the browser cannot choose a target or add unmapped fields;
+- `Operator Input`, `Service Task Field`, `Server Context`, and `Fixed Value` sources are resolved
+  again on the server and converted using current target metadata;
+- parent fields and one level of child-table rows enforce mapped columns, safe visibility/trigger
+  conditions, mandatory values, Select/Link validity, text limits, and configured row limits;
+- **Save Draft** and **Submit When Authorized** are separate policies. Creation, write and submit
+  use the authenticated terminal User's normal Frappe permissions and the target controller's
+  normal validation. The engine never bypasses destination permissions;
+- the validated input snapshot and its hash are retained on **CFG Kanban DocType Action Run** as
+  **Form Payload** (`form_payload`) and **Form Payload Hash** (`form_payload_hash`), together with
+  **Last Input By** (`last_input_by`) and **Last Input On** (`last_input_on`);
+- retries use an opaque one-use token, reuse the same linked draft, and never create a second target
+  for the same Run. A missing, externally submitted/cancelled, or uncertain target is moved to
+  **Needs Reconciliation** rather than silently recreated;
+- a false configured trigger is recorded as **Skipped by Condition** without creating a target.
+
+The terminal User still needs deliberately reviewed Create permission on the approved destination,
+plus Write/Submit permission when the selected policy requires those actions. Granting access to an
+Action Profile does not grant access to its destination DocType.
+
+**Current Gate 1C boundary:** the Task Schedule action-profile/trigger/required fields, automatic
+Service Task event resolution, task-completion gate, phone/tablet operator form, media-to-run
+relation, pilot target fixtures and direct `DocType Action Card` are not yet available. Although the
+controlled writer now exists, administrators and operators must not treat it as a live workflow
+until the following integration and UI packages are deployed.
 
 The runtime trigger uses the **Master's Automation Level** (`automation_level`). `Automatic`
 creates/executes the Work Order command immediately only when the Before Cycle Start gate is open.
@@ -3020,6 +3048,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.42 | 16 October 2026 | Added Gate 1C controlled server mapper/writer: immutable-snapshot target selection, allowlisted typed parent/child values, Service Task/fixed/server sources, safe conditions, terminal-User create/write/submit enforcement, distinct Draft/Submitted results, persisted form-payload integrity hash, retry reuse of one linked target, and reconciliation for uncertain or externally changed targets; Service Task event/UI binding remains pending |
 | 1.41 | 16 October 2026 | Added Gate 1B immutable, idempotent `CFG Kanban DocType Action Run` identity; pinned profile revision/mapping snapshot; immutable Action Attempts; separate Employee/terminal attribution; Service Task and Event links; database lock/uniqueness guards; sanitized errors; and controlled Supervisor cancellation/reconciliation while retaining the non-posting boundary |
 | 1.40 | 16 October 2026 | Added the locked Special DocType Card source specification and Gate 1A protected target policies, metadata-driven parent/child action profiles, revision/fingerprint invalidation, server validation, and non-posting operator-form preview; explicitly documented that Action Runs, Service Task triggers, writes, and direct cards remain pending |
 | 1.39 | 14 October 2026 | Added optional, dependency-free compatibility with Hidden Item Settings: user allow-list visibility, filtered Kanban BOM previews and Operator material responses, protected restricted Master mappings, neutral attention messages, and server-managed inclusion in native ERPNext production Stock Entries |

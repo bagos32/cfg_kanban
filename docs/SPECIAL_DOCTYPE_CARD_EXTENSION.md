@@ -690,9 +690,11 @@ This status section records delivery without changing the locked revision 1.0 de
 |---|---|---|---|
 | 2026-10-16 | Gate 1A — configuration foundation | `CFG Kanban DocType Action Policy`, `CFG Kanban DocType Action Profile`, `CFG Kanban DocType Field Map`, `CFG Kanban DocType Child Table Config`, `CFG Kanban DocType Child Column Map`; protected target allowlist; hard-denied ERP core records; effective-metadata discovery/fingerprint; server validation; non-posting operator preview | Prepared in code; migration and live-site validation pending |
 | 2026-10-16 | Gate 1B — non-posting Action Run foundation | System-created `CFG Kanban DocType Action Run` and immutable `CFG Kanban DocType Action Attempt`; unique source/profile/primary-slot and retry identities; pinned validated profile snapshot/hash; Employee/session/terminal attribution; formal locked states; row lock and guarded transitions; source Task/Event links; sanitized failures; Supervisor-only cancellation/reconciliation controls | Prepared in code; migration and live-site validation pending |
+| 2026-10-16 | Gate 1C — controlled mapper/writer foundation | Server-authorized Action Run form contract; immutable-snapshot target and field selection; typed parent/first-level child mappings; Service Task, server, fixed and allowlisted operator values; safe trigger/visibility conditions; target metadata and terminal-User permission enforcement; normal target insert/save/submit controllers; one-target retry reuse; persisted validated payload hash; explicit Draft/Submitted/Skipped/Failed/Reconciliation outcomes | Prepared in code; migration, Service Task UI binding and live-site validation pending |
 
-**Current boundary after Gate 1B:** destination document construction/save/submission, Service Task
-schedule event binding and closure gates, operator dynamic form, media-to-run linking, target
-reconciliation logic, and the Phase 2 direct `DocType Action Card` remain subsequent serial
-packages. Gate 1B itself cannot create or mutate a destination ERP document.
+**Current boundary after Gate 1C:** the controlled server writer can create or submit one approved
+destination for an already-authorized Action Run, but Service Task Schedule event fields, automatic
+event resolution, closure gates, the phone/tablet dynamic form, media-to-run linking, pilot target
+fixtures and the Phase 2 direct `DocType Action Card` remain subsequent serial packages. Gate 1C is
+not exposed as a complete operator workflow until those integration packages are delivered.
 

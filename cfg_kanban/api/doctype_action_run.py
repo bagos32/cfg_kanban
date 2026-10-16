@@ -1,6 +1,25 @@
 import frappe
 
-from cfg_kanban.services import doctype_action_runs
+from cfg_kanban.services import doctype_action_runs, doctype_action_writer
+
+
+@frappe.whitelist()
+def get_operator_form(run_name, operator_session_token):
+    return doctype_action_writer.get_operator_form(
+        run_name, operator_session_token
+    )
+
+
+@frappe.whitelist(methods=["POST"])
+def post(run_name, operator_session_token, retry_token,
+         operator_values=None, child_rows=None):
+    return doctype_action_writer.post_action(
+        run_name,
+        operator_session_token,
+        retry_token,
+        operator_values=operator_values,
+        child_rows=child_rows,
+    )
 
 
 @frappe.whitelist()
