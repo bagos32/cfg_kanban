@@ -62,8 +62,15 @@ class TestDocTypeActionGate1Pilot(TestCase):
         self.assertIn("function action_field_read_only(field)", page)
         self.assertIn('field.source_type !== "Operator Input"', page)
         self.assertIn("condition_truthy(field.read_only)", page)
-        self.assertIn("enforce_action_parent_editability", page)
-        self.assertIn('.prop("readonly", false).prop("disabled", false)', page)
+        self.assertIn("function mount_action_parent_fields", page)
+        self.assertIn(
+            'fieldname: "action_parent_fields", fieldtype: "HTML"', page
+        )
+        self.assertIn(
+            "frappe.ui.form.make_control({ parent: $host, render_input: true",
+            page,
+        )
+        self.assertIn("dialog.__cfg_action_parent_manager.collect()", page)
 
     def test_engine_exception_is_exact_and_policy_is_still_required(self):
         engine = (ROOT / "services" / "doctype_actions.py").read_text()

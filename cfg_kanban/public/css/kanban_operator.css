@@ -686,6 +686,17 @@
 	margin-bottom: 12px;
 }
 
+.cfg-action-parent-controls {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px 16px;
+}
+
+.cfg-action-parent-control .frappe-control,
+.cfg-action-parent-control .form-group {
+	margin-bottom: 0;
+}
+
 .cfg-action-child-help,
 .cfg-action-child-row-head,
 .cfg-action-target {
@@ -1084,6 +1095,7 @@
 	}
 
 	.cfg-action-summary,
+	.cfg-action-parent-controls,
 	.cfg-action-child-controls,
 	.cfg-action-evidence-grid {
 		grid-template-columns: 1fr;
@@ -1097,6 +1109,8 @@
 		padding: 10px;
 	}
 
+	.cfg-action-parent-control .form-control,
+	.cfg-action-parent-control .control-input,
 	.cfg-action-child-row .form-control,
 	.cfg-action-child-row .control-input {
 		min-height: 44px;

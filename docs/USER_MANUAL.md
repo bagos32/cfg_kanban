@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.49
+**Guide version:** 1.50
 
 **Updated:** 16 October 2026
 
@@ -441,6 +441,9 @@ opens the mapped document form automatically. It shows the Service Task, Action 
 destination DocType and posting policy; an operator cannot choose a different destination.
 
 - mapped parent fields use the administrator's **Operator Label** and approved type/options;
+- operator-entered parent fields and repeatable observation fields use the same direct control
+  renderer. This keeps Data, Select, and Notes controls genuinely editable on Frappe v15 while
+  preserving server-context and explicitly read-only fields as display-only values;
 - read-only values resolved from the Service Task, Employee, server context, or fixed configuration
   are visible but cannot be changed;
 - structured JSON **Visible Condition** rules react to parent and row values without executing
@@ -3223,6 +3226,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.50 | 16 October 2026 | Replaced the DocType Action parent-field Dialog layout path with the same direct Frappe control renderer used by working child observations, restoring editable Summary, Outcome and Notes controls while retaining read-only context fields, reactive visibility, typed collection and server allowlisting |
 | 1.49 | 16 October 2026 | Corrected DocType Action parent controls so Operator Input fields consistently remain editable when Frappe serializes Check values as strings or integers; server-context and explicitly read-only fields remain protected |
 | 1.48 | 16 October 2026 | Added Gate 2B direct DocType Action Card scanning in Kanban Service Tasks, explicit Resume versus Start New intent, per-occurrence opaque Run identity, retry deduplication, operator ownership and Supervisor history scope, reusable-card form context, Task-only profile rejection, and production isolation; direct Action Run media capture remains a later package |
 | 1.47 | 16 October 2026 | Added Gate 2A exact non-production DocType Action Card configuration, enabled/Valid profile validation, immutable profile identity, zero production quantity, explicit production/logistics isolation, controlled replacement support, and a dedicated CR80 QR print format; direct Resume/Start New scan resolution remains the next serial package |

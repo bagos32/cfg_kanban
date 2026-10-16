@@ -635,16 +635,14 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		const can_post = !blocked_states.includes(run.state) &&
 			!(run.state === "Draft Created" && form.posting_policy === "Save Draft");
 		const parent_fields = form.parent_fields || [];
-		const parent_names = new Map();
 		const fields = [
 			{ fieldname: "action_summary", fieldtype: "HTML", options: action_summary_html(form, source_context) },
 		];
-		if (parent_fields.length) fields.push({ fieldtype: "Section Break", label: __("Document Details") });
-		parent_fields.forEach((field, index) => {
-			const dialog_name = `action_parent_${index}`;
-			parent_names.set(field.fieldname, dialog_name);
-			fields.push(action_parent_dialog_field(field, dialog_name));
-		});
+		if (parent_fields.length) {
+			fields.push({ fieldtype: "Section Break", label: __("Document Details") });
+			fields.push({ fieldname: "action_parent_fields", fieldtype: "HTML",
+				options: action_parent_shell_html() });
+		}
 		(form.child_tables || []).forEach((table, index) => {
 			fields.push({ fieldtype: "Section Break", label: table.label });
 			fields.push({ fieldname: `action_child_${index}`, fieldtype: "HTML",
@@ -663,20 +661,20 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		if (can_post) {
 			options.primary_action_label = form.posting_policy === "Submit When Authorized" ?
 				__("Submit Document") : __("Save Document");
-			options.primary_action = async () => post_action_form(dialog, form, parent_fields, parent_names);
+			options.primary_action = async () => post_action_form(dialog, form);
 		}
 		dialog = new frappe.ui.Dialog(options);
 		dialog.__cfg_action_child_managers = [];
 		dialog.__cfg_action_retry_token = null;
 		dialog.$wrapper.addClass("cfg-service-task-dialog cfg-action-operator-dialog");
 		dialog.show();
+		dialog.__cfg_action_parent_manager = mount_action_parent_fields(dialog, parent_fields, form);
 		(form.child_tables || []).forEach((table, index) => {
 			dialog.__cfg_action_child_managers.push(mount_action_child_table(
-				dialog, table, index, form, () => action_parent_values(dialog, parent_fields, parent_names)
+				dialog, table, index, form, () => dialog.__cfg_action_parent_manager.values()
 			));
 		});
-		configure_action_visibility(dialog, form, parent_fields, parent_names);
-		enforce_action_parent_editability(dialog, parent_fields, parent_names);
+		dialog.__cfg_action_parent_manager.refresh_visibility();
 		bind_action_target_link(dialog, form.target_link);
 		bind_action_evidence(dialog, form, source_context);
 		bind_action_recovery(dialog, form, source_context);
@@ -787,37 +785,72 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		});
 	}
 
-	function action_parent_dialog_field(field, dialog_name) {
-		const read_only = action_field_read_only(field);
-		return {
-			fieldname: dialog_name,
-			label: field.label,
-			fieldtype: action_control_type(field.fieldtype),
-			options: field.options,
-			default: field.default,
-			read_only: read_only ? 1 : 0,
-			reqd: field.visible !== false && condition_truthy(field.required) && !read_only ? 1 : 0,
-			hidden: field.visible === false ? 1 : 0,
-			description: read_only ? __("Filled from the approved source or server context.") : "",
-		};
+	function action_parent_shell_html() {
+		return `<div class="cfg-action-parent-controls"></div>`;
 	}
 
 	function action_field_read_only(field) {
 		return field.source_type !== "Operator Input" || condition_truthy(field.read_only);
 	}
 
-	function enforce_action_parent_editability(dialog, fields, names) {
-		fields.forEach((field) => {
-			const fieldname = names.get(field.fieldname);
-			const control = dialog.get_field(fieldname);
-			if (!control) return;
+	function mount_action_parent_fields(dialog, fields, form) {
+		if (!fields.length || !dialog.fields_dict.action_parent_fields) {
+			return { values: () => ({}), collect: () => ({}), refresh_visibility: () => {} };
+		}
+		const $wrapper = dialog.get_field("action_parent_fields").$wrapper
+			.find(".cfg-action-parent-controls");
+		const controls = {};
+		fields.forEach((field, index) => {
 			const read_only = action_field_read_only(field);
-			control.df.read_only = read_only ? 1 : 0;
-			if (control.refresh) control.refresh();
-			if (!read_only && control.$input) {
-				control.$input.prop("readonly", false).prop("disabled", false);
-			}
+			const $host = $("<div class='cfg-action-parent-control'></div>").appendTo($wrapper);
+			const control = frappe.ui.form.make_control({ parent: $host, render_input: true, df: {
+				fieldname: `action_parent_${index}`,
+				label: field.label,
+				fieldtype: action_control_type(field.fieldtype),
+				options: field.options,
+				read_only: read_only ? 1 : 0,
+				reqd: condition_truthy(field.required) && !read_only ? 1 : 0,
+				description: read_only ? __("Filled from the approved source or server context.") : "",
+			} });
+			control.set_value(field.default);
+			controls[field.fieldname] = { field, control, $host, visible: field.visible !== false };
+			$host.on("change input", ":input", () => refresh_visibility());
 		});
+
+		const values = (operator_only = false) => {
+			const output = {};
+			Object.entries(controls).forEach(([fieldname, entry]) => {
+				if (operator_only && action_field_read_only(entry.field)) return;
+				output[fieldname] = entry.control.get_value();
+			});
+			return output;
+		};
+		const refresh_visibility = () => {
+			const context = { ...(form.condition_context || {}), ...values() };
+			Object.values(controls).forEach((entry) => {
+				const read_only = action_field_read_only(entry.field);
+				entry.visible = action_condition_matches(entry.field.visible_condition, context);
+				entry.$host.toggle(entry.visible);
+				entry.control.df.reqd = Boolean(entry.visible && condition_truthy(entry.field.required) && !read_only);
+				if (entry.control.refresh_label) entry.control.refresh_label();
+			});
+			(dialog.__cfg_action_child_managers || []).forEach((manager) => manager.refresh_visibility(context));
+		};
+		const collect = () => {
+			const output = {};
+			Object.entries(controls).forEach(([fieldname, entry]) => {
+				if (!entry.visible || action_field_read_only(entry.field)) return;
+				const value = entry.control.get_value();
+				if (condition_truthy(entry.field.required)
+					&& (value === null || value === undefined || value === "")) {
+					throw new Error(__("{0} is required.", [entry.field.label]));
+				}
+				output[fieldname] = value;
+			});
+			return output;
+		};
+		refresh_visibility();
+		return { values, collect, refresh_visibility };
 	}
 
 	function action_control_type(fieldtype) {
@@ -833,35 +866,6 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			<div class="cfg-action-child-rows"></div>
 			<div class="cfg-action-child-footer"></div>
 		</div>`;
-	}
-
-	function configure_action_visibility(dialog, form, fields, names) {
-		const refresh = () => {
-			const values = { ...(form.condition_context || {}), ...action_parent_values(dialog, fields, names) };
-			fields.forEach((field) => {
-				const name = names.get(field.fieldname);
-				const visible = action_condition_matches(field.visible_condition, values);
-				const read_only = action_field_read_only(field);
-				dialog.set_df_property(name, "hidden", !visible);
-				dialog.set_df_property(name, "reqd", visible && condition_truthy(field.required) && !read_only);
-			});
-			(dialog.__cfg_action_child_managers || []).forEach((manager) => manager.refresh_visibility(values));
-		};
-		dialog.$wrapper.off(".cfg_action_visibility").on(
-			"change.cfg_action_visibility input.cfg_action_visibility",
-			"[data-fieldname^='action_parent_'] :input",
-			refresh,
-		);
-		refresh();
-	}
-
-	function action_parent_values(dialog, fields, names, operator_only = false) {
-		const values = {};
-		fields.forEach((field) => {
-			if (operator_only && action_field_read_only(field)) return;
-			values[field.fieldname] = dialog.get_value(names.get(field.fieldname));
-		});
-		return values;
 	}
 
 	function mount_action_child_table(dialog, table, index, form, parent_values) {
@@ -948,14 +952,9 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		return { collect, refresh_visibility };
 	}
 
-	async function post_action_form(dialog, form, parent_fields, parent_names) {
+	async function post_action_form(dialog, form) {
 		try {
-			const operator_values = {};
-			const context = { ...(form.condition_context || {}), ...action_parent_values(dialog, parent_fields, parent_names) };
-			parent_fields.forEach((field) => {
-				if (action_field_read_only(field) || !action_condition_matches(field.visible_condition, context)) return;
-				operator_values[field.fieldname] = dialog.get_value(parent_names.get(field.fieldname));
-			});
+			const operator_values = dialog.__cfg_action_parent_manager.collect();
 			const child_rows = {};
 			(form.child_tables || []).forEach((table, index) => {
 				child_rows[table.fieldname] = dialog.__cfg_action_child_managers[index].collect();
