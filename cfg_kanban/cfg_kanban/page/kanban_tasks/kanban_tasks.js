@@ -4,16 +4,16 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	const state = { token: localStorage.getItem(session_key), operator: null, tasks: [] };
 	const $sticky_header = $("<div class='cfg-service-sticky-shell'></div>").appendTo(page.main);
 	const $scanner = $(`<div class="frappe-card cfg-service-scanner mb-3">
-		<div class="cfg-service-scanner-heading"><div><strong>${__("Service Task Scanner")}</strong>
+		<div class="cfg-service-scanner-heading"><div><strong>${__("Service Task / Action Card Scanner")}</strong>
 			<small class="text-muted">${__("USB scanners can scan directly into this field and append Enter.")}</small></div>
 			<span class="indicator-pill orange scanner-mode">${__("Operator scan required")}</span></div>
 		<div class="cfg-service-scanner-controls">
 			<input type="text" class="form-control service-scan-input" autocomplete="off" autocapitalize="off"
 				spellcheck="false" placeholder="${__("Scan or type Task / Card No.")}">
-			<button class="btn btn-primary camera-service-task">${__("Scan Task QR with Camera")}</button>
+			<button class="btn btn-primary camera-service-task">${__("Scan Task / Action Card QR")}</button>
 			<button class="btn btn-default find-service-task">${__("Find Task / Card")}</button>
 			<button class="btn btn-default clear-service-filter">${__("Show All")}</button>
-		</div><div class="text-muted scanner-message"><small>${__("Before login, a scan identifies the operator. After login, a scan finds the Service Task card.")}</small></div>
+		</div><div class="text-muted scanner-message"><small>${__("Before login, a scan identifies the operator. After login, scan a Service Task or reusable DocType Action Card.")}</small></div>
 	</div>`).appendTo($sticky_header);
 	const $identity = $("<div class='mb-3'></div>").appendTo($sticky_header);
 	const $active_root = $("<div class='cfg-service-active-work'></div>").appendTo(page.main);
@@ -140,8 +140,110 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			find_service_task(task_value);
 			return;
 		}
+		try {
+			const action = await frappe.call({
+				method: "cfg_kanban.api.doctype_action_run.resolve_card_scan",
+				type: "POST",
+				args: { scan_value: raw, operator_session_token: state.token },
+			});
+			if (action.message && action.message.matched) {
+				open_action_card_selector(action.message);
+				return;
+			}
+		} catch (error) {
+			scanner_error(__("DocType Action Card could not be resolved. Check that the Card and Profile are active."));
+			return;
+		}
 		try { await login_operator(raw); }
-		catch (error) { scanner_error(__("The scan is not an open Service Task or a valid operator credential.")); }
+		catch (error) { scanner_error(__("The scan is not an open Service Task, DocType Action Card, or valid operator credential.")); }
+	}
+
+	function open_action_card_selector(context) {
+		const card = context.card || {};
+		const dialog = new frappe.ui.Dialog({
+			title: __("DocType Action Card: {0}", [card.card_number || card.name]),
+			size: "large",
+			fields: [{ fieldname: "action_card_context", fieldtype: "HTML",
+				options: action_card_selector_html(context) }],
+			primary_action_label: __("Start New Action"),
+			primary_action: async () => {
+				dialog.__cfg_start_action_token = dialog.__cfg_start_action_token || frappe.utils.get_random(32);
+				const response = await frappe.call({
+					method: "cfg_kanban.api.doctype_action_run.start_card_action",
+					type: "POST",
+					args: {
+						card_name: card.name,
+						operator_session_token: state.token,
+						request_token: dialog.__cfg_start_action_token,
+					},
+					freeze: true,
+					freeze_message: __("Starting a new controlled action..."),
+				});
+				dialog.hide();
+				await open_action_form(response.message.name, card);
+			},
+		});
+		dialog.__cfg_start_action_token = null;
+		dialog.__cfg_resume_tokens = {};
+		dialog.$wrapper.addClass("cfg-service-task-dialog cfg-action-card-selector-dialog");
+		dialog.show();
+		const $field = dialog.get_field("action_card_context").$wrapper;
+		$field.on("click", ".cfg-resume-card-action", async function () {
+			const run_name = $(this).data("run");
+			dialog.__cfg_resume_tokens[run_name] = dialog.__cfg_resume_tokens[run_name] || frappe.utils.get_random(32);
+			const response = await frappe.call({
+				method: "cfg_kanban.api.doctype_action_run.resume_card_action",
+				type: "POST",
+				args: {
+					run_name,
+					operator_session_token: state.token,
+					retry_token: dialog.__cfg_resume_tokens[run_name],
+				},
+				freeze: true,
+				freeze_message: __("Resuming the existing action..."),
+			});
+			dialog.hide();
+			await open_action_form(response.message.name, card);
+		});
+		$field.on("click", ".cfg-open-card-action-target", function () {
+			frappe.set_route("Form", $(this).data("doctype"), $(this).data("name"));
+			dialog.hide();
+		});
+	}
+
+	function action_card_selector_html(context) {
+		const e = frappe.utils.escape_html;
+		const card = context.card || {};
+		const rows = context.open_runs || [];
+		const history = context.recent_history || [];
+		const run_rows = rows.length ? rows.map((run) => `<tr>
+			<td><strong>${e(run.name)}</strong><br><small>${e(run.created_at || "")}</small></td>
+			<td>${e(run.state || "-")}</td><td>${e(run.operator_employee || "-")}</td>
+			<td>${e(run.target_name ? `${run.target_doctype} ${run.target_name}` : run.target_doctype || "-")}</td>
+			<td><button type="button" class="btn btn-primary btn-sm cfg-resume-card-action" data-run="${e(run.name)}">${__("Resume")}</button></td>
+		</tr>`).join("") : `<tr><td colspan="5" class="text-muted">${__("No authorized in-progress Action Run. Start a new action only when a new business occurrence is intended.")}</td></tr>`;
+		const history_rows = history.map((run) => `<tr>
+			<td>${e(run.created_at || "-")}</td><td>${e(run.name || "-")}</td>
+			<td>${e(run.state || "-")}</td><td>${e(run.operator_employee || "-")}</td>
+			<td>${run.target_name ? `<button type="button" class="btn btn-default btn-xs cfg-open-card-action-target" data-doctype="${e(run.target_doctype)}" data-name="${e(run.target_name)}">${e(run.target_name)}</button>` : "-"}</td>
+		</tr>`).join("");
+		return `<div class="cfg-action-card-context">
+			<div class="cfg-action-summary">
+				<div><small>${__("Reusable Card")}</small><strong>${e(card.card_number || card.name || "-")}</strong></div>
+				<div><small>${__("Action Profile")}</small><strong>${e(card.profile_name || card.action_profile || "-")}</strong></div>
+				<div><small>${__("Destination")}</small><strong>${e(card.target_doctype || "-")}</strong></div>
+				<div><small>${__("Posting")}</small><strong>${e(card.posting_policy || "-")}</strong></div>
+			</div>
+			<div class="alert alert-warning">${__("Scanning identifies the reusable Card only. Select Resume for existing work, or Start New Action only for a genuinely new occurrence.")}</div>
+			<h5>${__("Authorized in-progress actions")}</h5>
+			<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>
+				<th>${__("Action Run")}</th><th>${__("State")}</th><th>${__("Operator")}</th><th>${__("Target")}</th><th>${__("Action")}</th>
+			</tr></thead><tbody>${run_rows}</tbody></table></div>
+			${history_rows ? `<details class="cfg-action-card-history"><summary>${__("Supervisor history")}</summary>
+				<div class="table-responsive mt-2"><table class="table table-bordered table-sm"><thead><tr>
+				<th>${__("Created")}</th><th>${__("Action Run")}</th><th>${__("State")}</th><th>${__("Operator")}</th><th>${__("Target")}</th>
+				</tr></thead><tbody>${history_rows}</tbody></table></div></details>` : ""}
+		</div>`;
 	}
 
 	function find_service_task(value) {
@@ -203,7 +305,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	function update_scanner_mode() {
 		$scanner.find(".scanner-mode").removeClass("orange green")
 			.addClass(state.token ? "green" : "orange")
-			.text(state.token ? __("Task scanner ready") : __("Operator scan required"));
+			.text(state.token ? __("Task / Action scanner ready") : __("Operator scan required"));
 	}
 
 	function scanner_error(message) {
@@ -520,7 +622,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			(action === "Verify" && task.doctype_action_trigger === "After Supervisor Verification");
 	}
 
-	async function open_action_form(run_name, task) {
+	async function open_action_form(run_name, source_context) {
 		const response = await frappe.call({
 			method: "cfg_kanban.api.doctype_action_run.get_operator_form",
 			args: { run_name, operator_session_token: state.token },
@@ -535,7 +637,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		const parent_fields = form.parent_fields || [];
 		const parent_names = new Map();
 		const fields = [
-			{ fieldname: "action_summary", fieldtype: "HTML", options: action_summary_html(form, task) },
+			{ fieldname: "action_summary", fieldtype: "HTML", options: action_summary_html(form, source_context) },
 		];
 		if (parent_fields.length) fields.push({ fieldtype: "Section Break", label: __("Document Details") });
 		parent_fields.forEach((field, index) => {
@@ -575,16 +677,20 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		});
 		configure_action_visibility(dialog, form, parent_fields, parent_names);
 		bind_action_target_link(dialog, form.target_link);
-		bind_action_evidence(dialog, form, task);
-		bind_action_recovery(dialog, form, task);
+		bind_action_evidence(dialog, form, source_context);
+		bind_action_recovery(dialog, form, source_context);
 	}
 
-	function action_summary_html(form, task) {
+	function action_summary_html(form, source_context) {
 		const e = frappe.utils.escape_html;
 		const run = form.run || {};
+		const source = form.source || {};
+		const fallback = source_context || {};
+		const source_label = source.label || fallback.task_name || fallback.card_number || fallback.name || "-";
+		const source_type = source.doctype === "CFG Kanban Card" ? __("Reusable Action Card") : __("Service Task");
 		const instructions = e(form.form_instructions || __("Complete the mapped document details below."));
 		return `<div class="cfg-action-summary">
-			<div><small>${__("Service Task")}</small><strong>${e((form.task && form.task.task_name) || task.task_name || "-")}</strong></div>
+			<div><small>${e(source_type)}</small><strong>${e(source_label)}</strong></div>
 			<div><small>${__("Action Run")}</small><strong>${e(run.name || "-")}</strong></div>
 			<div><small>${__("Destination")}</small><strong>${e(run.target_doctype || "-")}</strong></div>
 			<div><small>${__("Posting")}</small><strong>${e(form.posting_policy || "-")}</strong></div>
@@ -644,18 +750,19 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		<small class="text-muted">${__("These are stable CFG Kanban Media references. Temporary view links are generated only when Open Evidence is selected.")}</small>`;
 	}
 
-	function bind_action_evidence(dialog, form, task) {
+	function bind_action_evidence(dialog, form, source_context) {
 		if (!dialog.fields_dict.action_evidence) return;
+		if (!form.task) return;
 		dialog.get_field("action_evidence").$wrapper.on("click", ".cfg-open-action-evidence", async function () {
 			const response = await frappe.call({ method: "cfg_kanban.api.media.create_task_view_url", args: {
-				task_name: (form.task && form.task.name) || task.name,
+				task_name: form.task.name || (source_context && source_context.name),
 				media_id: $(this).data("media-id"), operator_session_token: state.token,
 			} });
 			if (response.message && response.message.url) window.open(response.message.url, "_blank", "noopener");
 		});
 	}
 
-	function bind_action_recovery(dialog, form, task) {
+	function bind_action_recovery(dialog, form, source_context) {
 		dialog.get_field("action_result").$wrapper.on("click", ".cfg-recover-action", function () {
 			const resolution = $(this).data("resolution");
 			frappe.prompt([
@@ -673,7 +780,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 					indicator: response.message.ok ? "green" : "orange" }, 7);
 				await load();
 				if (response.message.state === "Form In Progress" || response.message.state === "Draft Created") {
-					await open_action_form(form.run.name, task);
+					await open_action_form(form.run.name, source_context);
 				}
 			}, __("Recover Existing Action Run"), __("Apply Recovery"));
 		});
@@ -689,7 +796,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			read_only: field.read_only ? 1 : 0,
 			reqd: field.visible !== false && field.required && !field.read_only ? 1 : 0,
 			hidden: field.visible === false ? 1 : 0,
-			description: field.read_only ? __("Filled from approved task or server context.") : "",
+			description: field.read_only ? __("Filled from the approved source or server context.") : "",
 		};
 	}
 

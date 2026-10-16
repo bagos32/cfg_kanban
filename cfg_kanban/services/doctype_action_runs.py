@@ -10,12 +10,14 @@ import hashlib
 import json
 import re
 import secrets
+from urllib.parse import parse_qs, unquote, urlparse
 
 import frappe
 from frappe import _
 from frappe.utils import cint, now_datetime
 
 from cfg_kanban.services.doctype_actions import (
+    assert_direct_card_profile_compatible,
     executable_profile_snapshot,
     get_target_policy,
     metadata_fingerprint,
@@ -42,6 +44,8 @@ ACTION_RUN_STATES = {
     "Cancelled",
 }
 TERMINAL_STATES = {"Submitted", "Skipped by Condition", "Cancelled"}
+DIRECT_CARD_DOCTYPE = "CFG Kanban Card"
+DIRECT_CARD_TYPE = "DocType Action Card"
 SOURCE_EVENTS = {
     "Activation",
     "Task Start",
@@ -199,6 +203,166 @@ def resolve_task_run(task_name, profile_name, source_event, operator_session_tok
             session,
         )
     return _public_run(run, deduplicated=not attempt_created, attempt=attempt.name)
+
+
+def resolve_card_scan(scan_value, operator_session_token):
+    """Resolve a reusable non-production Action Card without creating a Run."""
+    profile, session = require_operator(operator_session_token, "task_start")
+    card_name = _action_card_name(scan_value)
+    if not card_name:
+        return {"matched": False}
+
+    card = frappe.get_doc(DIRECT_CARD_DOCTYPE, card_name)
+    action_profile, snapshot, _mapping_hash = _assert_direct_card_available(card)
+    assert_direct_card_profile_compatible(snapshot)
+    frappe.db.set_value(
+        card.doctype, card.name, "last_scan_time", now_datetime(), update_modified=False
+    )
+    record(
+        "DocType Action Card Scanned",
+        card=card.name,
+        operator=profile.employee,
+        operator_session=session.name,
+        terminal_user=frappe.session.user,
+        new_state=card.current_state,
+        notes=f"Profile {action_profile.name}",
+    )
+
+    supervisor = _is_action_supervisor(profile)
+    filters = {
+        "source_doctype": card.doctype,
+        "source_name": card.name,
+        "action_profile": card.doctype_action_profile,
+    }
+    if not supervisor:
+        filters["operator_employee"] = profile.employee
+    rows = frappe.get_all(
+        "CFG Kanban DocType Action Run",
+        filters=filters,
+        fields=[
+            "name", "action_id", "state", "source_doctype", "source_name",
+            "source_event", "action_profile", "profile_revision", "target_doctype",
+            "target_name", "target_docstatus", "operator_employee", "created_at",
+            "last_retry_at", "evidence_reference_count", "mapping_snapshot",
+        ],
+        order_by="created_at desc, creation desc",
+        limit_page_length=100,
+    )
+    open_runs = [_public_card_run(row) for row in rows if _is_direct_run_open(row)]
+    history = []
+    if supervisor:
+        history = [
+            _public_card_run(row) for row in rows if not _is_direct_run_open(row)
+        ][:20]
+    return {
+        "matched": True,
+        "card": _public_action_card(card, action_profile, snapshot),
+        "open_runs": open_runs,
+        "recent_history": history,
+        "can_start_new": True,
+        "can_view_history": supervisor,
+    }
+
+
+def start_card_run(card_name, operator_session_token, request_token):
+    """Create one new direct Run only after an explicit Start New Action request."""
+    _require_retry_token(request_token)
+    profile, session = require_operator(operator_session_token, "task_start")
+    card = _locked_action_card(card_name)
+    action_profile, snapshot, mapping_hash = _assert_direct_card_available(card)
+    assert_direct_card_profile_compatible(snapshot)
+
+    prior_attempt = _attempt_for_retry_token(request_token)
+    if prior_attempt:
+        run = frappe.get_doc("CFG Kanban DocType Action Run", prior_attempt.action_run)
+        _assert_direct_run(run, card)
+        return _public_run(run, deduplicated=True, attempt=prior_attempt.name)
+
+    run_key = canonical_key(
+        "doctype-action-card-run-v1", card.name, _retry_token_hash(request_token)
+    )
+    existing = get_existing("CFG Kanban DocType Action Run", run_key)
+    if existing:
+        existing = _locked_run(existing.name)
+        _assert_direct_run(existing, card, run_key=run_key)
+        return _public_run(existing, deduplicated=True)
+
+    run = frappe.get_doc({
+        "doctype": "CFG Kanban DocType Action Run",
+        "action_id": secrets.token_urlsafe(24),
+        "state": "Form In Progress",
+        "source_doctype": card.doctype,
+        "source_name": card.name,
+        "source_event": "Activation",
+        "action_slot": "direct",
+        "action_profile": action_profile.name,
+        "profile_revision": cint(action_profile.configuration_revision),
+        "operator_employee": profile.employee,
+        "operator_session": session.name,
+        "terminal_user": frappe.session.user,
+        "posting_identity": "Kanban Employee plus authenticated terminal User",
+        "execution_policy": f"Controlled target writer / {action_profile.posting_policy}",
+        "target_doctype": action_profile.target_doctype,
+        "target_docstatus": 0,
+        "created_at": now_datetime(),
+        "mapping_hash": mapping_hash,
+        "mapping_snapshot": frappe.as_json(snapshot),
+    })
+    run.flags.doctype_action_engine_insert = True
+    run, created = insert_once(run, run_key, ignore_permissions=True)
+    run = _locked_run(run.name)
+    _assert_direct_run(run, card, run_key=run_key)
+    if not created:
+        assert_pinned_snapshot_compatible(run)
+
+    attempt, attempt_created = _record_attempt(
+        run,
+        "Create" if created else "Resume",
+        "Succeeded",
+        profile,
+        session,
+        request_token,
+        previous_state=None if created else run.state,
+        result_state=run.state,
+    )
+    if attempt_created:
+        _record_run_event(
+            "DocType Action Run Created" if created else "DocType Action Run Resumed",
+            run,
+            profile,
+            session,
+        )
+    return _public_run(
+        run, deduplicated=not attempt_created, attempt=attempt.name
+    )
+
+
+def resume_card_run(run_name, operator_session_token, retry_token):
+    """Resume one existing direct Run; this path never creates another Run."""
+    _require_retry_token(retry_token)
+    run = _locked_run(run_name)
+    if run.source_doctype != DIRECT_CARD_DOCTYPE:
+        frappe.throw(_("Only a direct DocType Action Card Run can be resumed here."))
+    _source, profile, session = authorize_run_actor(run, operator_session_token)
+
+    duplicate = _attempt_for_retry_token(retry_token)
+    if duplicate:
+        if duplicate.action_run != run.name:
+            frappe.throw(_("This action token was already used for a different Action Run."))
+        return _public_run(run, deduplicated=True, attempt=duplicate.name)
+    if not _is_direct_run_open(run):
+        frappe.throw(_(
+            "Action Run {0} is complete. Select Start New Action for another occurrence."
+        ).format(run.name))
+    assert_pinned_snapshot_compatible(run)
+    attempt, created = _record_attempt(
+        run, "Resume", "Succeeded", profile, session, retry_token,
+        previous_state=run.state, result_state=run.state,
+    )
+    if created:
+        _touch_resume(run)
+        _record_run_event("DocType Action Run Resumed", run, profile, session)
+    return _public_run(run, deduplicated=not created, attempt=attempt.name)
 
 
 def cancel_run(run_name, reason, operator_session_token, retry_token):
@@ -451,8 +615,19 @@ def sanitize_error(value):
 
 def authorize_run_actor(run, operator_session_token):
     """Recheck the Employee session and source scope for every runtime request."""
+    if run.source_doctype == DIRECT_CARD_DOCTYPE:
+        card = frappe.get_doc(run.source_doctype, run.source_name)
+        profile, session = require_operator(operator_session_token, "task_start")
+        _assert_direct_card_available(card, expected_profile=run.action_profile)
+        if (run.operator_employee != profile.employee
+                and not _is_action_supervisor(profile)):
+            frappe.throw(_(
+                "This Action Run belongs to another operator. Ask an authorized Supervisor "
+                "to resume or reconcile it."
+            ), frappe.PermissionError)
+        return card, profile, session
     if run.source_doctype != "CFG Kanban Task":
-        frappe.throw(_("Gate 1 supports only standalone Service Task Action Runs."))
+        frappe.throw(_("Unsupported DocType Action Run source."))
     task = frappe.get_doc(run.source_doctype, run.source_name)
     action = _SOURCE_ACTION.get(run.source_event)
     if not action:
@@ -488,8 +663,13 @@ def _authorized_supervisor(run, operator_session_token):
     if profile.kanban_role not in ("Supervisor", "Development Proxy"):
         frappe.throw(_("Only an authorized Kanban Supervisor can recover Action Runs."),
                      frappe.PermissionError)
+    if run.source_doctype == DIRECT_CARD_DOCTYPE:
+        card = frappe.get_doc(run.source_doctype, run.source_name)
+        if card.card_type != DIRECT_CARD_TYPE:
+            frappe.throw(_("Action Run source is not a DocType Action Card."))
+        return profile, session
     if run.source_doctype != "CFG Kanban Task":
-        frappe.throw(_("Gate 1B recovery supports only standalone Service Task Action Runs."))
+        frappe.throw(_("Unsupported DocType Action Run source."))
     task = frappe.get_doc(run.source_doctype, run.source_name)
     _assert_task_access(task, profile)
     return profile, session
@@ -608,6 +788,7 @@ def _assert_expected_run(run, run_key, task, profile_name, action_slot, source_e
 def _record_run_event(event_type, run, profile, session, previous_state=None, notes=None):
     record(
         event_type,
+        card=run.source_name if run.source_doctype == DIRECT_CARD_DOCTYPE else None,
         standalone_task=run.source_name if run.source_doctype == "CFG Kanban Task" else None,
         action_run=run.name,
         operator=profile.employee,
@@ -647,6 +828,143 @@ def _public_run(run, *, deduplicated=False, attempt=None):
         "evidence_reference_count": cint(run.get("evidence_reference_count")),
         "deduplicated": bool(deduplicated),
         "attempt": attempt,
+    }
+
+
+def _action_card_name(scan_value):
+    value = _scan_identity(scan_value)
+    if not value:
+        return None
+    for fieldname in ("qr_code", "uuid", "card_number", "name"):
+        name = frappe.db.get_value(
+            DIRECT_CARD_DOCTYPE,
+            {fieldname: value, "card_type": DIRECT_CARD_TYPE},
+            "name",
+        )
+        if name:
+            return name
+    return None
+
+
+def _scan_identity(scan_value):
+    value = str(scan_value or "").strip()
+    if not value:
+        return ""
+    try:
+        parsed = urlparse(value)
+        if parsed.scheme and parsed.netloc:
+            query = parse_qs(parsed.query)
+            fragment = parse_qs(parsed.fragment)
+            for key in ("action_card", "card", "card_number", "qr"):
+                candidate = (query.get(key) or fragment.get(key) or [None])[0]
+                if candidate:
+                    return unquote(candidate).strip()
+            match = re.search(r"/cfg-kanban-card/([^/?#]+)", parsed.path, re.I)
+            if match:
+                return unquote(match.group(1)).strip()
+    except (TypeError, ValueError):
+        pass
+    return value
+
+
+def _locked_action_card(card_name):
+    rows = frappe.db.sql(
+        "SELECT name FROM `tabCFG Kanban Card` WHERE name=%s FOR UPDATE",
+        (card_name,),
+        as_dict=True,
+    )
+    if not rows:
+        frappe.throw(_("DocType Action Card {0} was not found.").format(card_name))
+    return frappe.get_doc(DIRECT_CARD_DOCTYPE, rows[0].name)
+
+
+def _assert_direct_card_available(card, expected_profile=None):
+    if card.card_type != DIRECT_CARD_TYPE:
+        frappe.throw(_("Card {0} is not a DocType Action Card.").format(card.name))
+    if not cint(card.active) or card.current_state == "Inactive":
+        frappe.throw(_("DocType Action Card {0} is inactive.").format(card.card_number))
+    if cint(card.blocked):
+        frappe.throw(_("DocType Action Card is blocked: {0}").format(
+            card.blocked_reason or card.card_number
+        ))
+    if card.current_state != "Available" or card.active_cycle:
+        frappe.throw(_(
+            "DocType Action Card has an invalid production state. Reconcile the card before use."
+        ))
+    if not card.doctype_action_profile:
+        frappe.throw(_("DocType Action Card has no Action Profile."))
+    if expected_profile and card.doctype_action_profile != expected_profile:
+        frappe.throw(_("The Card Action Profile does not match this immutable Action Run."))
+    action_profile, snapshot, mapping_hash = executable_profile_snapshot(
+        card.doctype_action_profile
+    )
+    if action_profile.company != card.company:
+        frappe.throw(_(
+            "The Card company snapshot no longer matches its Action Profile. Issue a new card."
+        ))
+    return action_profile, snapshot, mapping_hash
+
+
+def _assert_direct_run(run, card, run_key=None):
+    if (
+        run.source_doctype != card.doctype
+        or run.source_name != card.name
+        or run.source_event != "Activation"
+        or run.action_slot != "direct"
+        or run.action_profile != card.doctype_action_profile
+        or (run_key and run.idempotency_key != run_key)
+    ):
+        frappe.throw(_("Action retry identity does not match the requested direct Card Run."),
+                     frappe.PermissionError)
+
+
+def _is_action_supervisor(profile):
+    return (
+        profile.kanban_role in ("Supervisor", "Development Proxy")
+        and cint(profile.get("can_override"))
+    )
+
+
+def _is_direct_run_open(run):
+    if run.state in TERMINAL_STATES:
+        return False
+    if run.state != "Draft Created":
+        return True
+    try:
+        snapshot = json.loads(run.mapping_snapshot or "{}")
+    except (TypeError, ValueError):
+        return True
+    return (snapshot.get("configuration") or {}).get(
+        "posting_policy"
+    ) == "Submit When Authorized"
+
+
+def _public_card_run(run):
+    return {
+        "name": run.name,
+        "action_id": run.action_id,
+        "state": run.state,
+        "operator_employee": run.operator_employee,
+        "created_at": str(run.created_at or ""),
+        "last_retry_at": str(run.last_retry_at or ""),
+        "target_doctype": run.target_doctype,
+        "target_name": run.target_name,
+        "target_docstatus": cint(run.target_docstatus),
+        "profile_revision": cint(run.profile_revision),
+    }
+
+
+def _public_action_card(card, action_profile, snapshot):
+    configuration = snapshot.get("configuration") or {}
+    return {
+        "name": card.name,
+        "card_number": card.card_number,
+        "company": card.company,
+        "action_profile": action_profile.name,
+        "profile_name": snapshot.get("profile_name") or action_profile.profile_name,
+        "target_doctype": action_profile.target_doctype,
+        "posting_policy": configuration.get("posting_policy"),
+        "form_title": configuration.get("form_title") or action_profile.profile_name,
     }
 
 

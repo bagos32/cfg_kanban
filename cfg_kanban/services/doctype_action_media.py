@@ -15,16 +15,16 @@ from frappe.utils import cint, now_datetime
 from cfg_kanban.services import media
 
 
-def evidence_for_operator_form(run, task):
-    """Return persisted evidence, or the currently available Task evidence."""
+def evidence_for_operator_form(run, source):
+    """Return persisted evidence, or evidence available to this exact source."""
     if run.get("evidence_snapshot_on"):
         return persisted_evidence(run)
-    return _task_evidence(run, task)
+    return _source_evidence(run, source)
 
 
-def snapshot_task_evidence(run, task):
-    """Pin all currently available evidence for this exact source occurrence."""
-    references = _task_evidence(run, task)
+def snapshot_task_evidence(run, source):
+    """Pin available source evidence; direct Cards start with an empty stable set."""
+    references = _source_evidence(run, source)
     serialized = json.dumps(
         references, sort_keys=True, separators=(",", ":"), default=str
     )
@@ -56,8 +56,18 @@ def persisted_evidence(run):
     return rows
 
 
-def _task_evidence(run, task):
-    if run.source_doctype != "CFG Kanban Task" or task.name != run.source_name:
+def _source_evidence(run, source):
+    if source.name != run.source_name or source.doctype != run.source_doctype:
+        frappe.throw(_("Action evidence must belong to the Action Run source."))
+    # A reusable Card is an identity, not an evidence occurrence. Direct-card
+    # upload will be bound to the immutable Action Run in a later media package;
+    # never inherit files from the reusable physical Card across occurrences.
+    if run.source_doctype == "CFG Kanban Card":
+        return []
+    if run.source_doctype != "CFG Kanban Task":
+        frappe.throw(_("Unsupported Action Run evidence source."))
+    task = source
+    if task.name != run.source_name:
         frappe.throw(_("Action evidence must belong to the source Service Task."))
     rows = media.list_reference_media(
         "CFG Kanban Task", task.name, permission_checked=True

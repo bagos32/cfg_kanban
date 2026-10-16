@@ -26,7 +26,7 @@ SYSTEM_FIELDNAMES = {
 }
 SERVER_CONTEXT_KEYS = {
     "employee", "task_name", "company", "location", "asset", "workstation",
-    "server_timestamp",
+    "server_timestamp", "source_name", "card_number",
 }
 SOURCE_TYPES = {"Operator Input", "Service Task Field", "Server Context", "Fixed Value"}
 HARD_DENIED_TARGETS = {
@@ -274,6 +274,24 @@ def executable_profile_snapshot(profile_name):
         },
     }
     return profile, snapshot, _hash(snapshot)
+
+
+def assert_direct_card_profile_compatible(snapshot):
+    """Reject Task-only profile semantics before a reusable Card is issued or used."""
+    configuration = snapshot.get("configuration") or {}
+    if configuration.get("verification_policy") == "Require Service Task Verification":
+        frappe.throw(_(
+            "This Action Profile requires Service Task verification and cannot run directly "
+            "from a reusable Card."
+        ))
+    mappings = list(configuration.get("parent") or []) + list(
+        configuration.get("columns") or []
+    )
+    if any(row.get("source_type") == "Service Task Field" for row in mappings):
+        frappe.throw(_(
+            "Direct DocType Action Cards cannot use Service Task Field mappings. "
+            "Use Operator Input, Server Context, or Fixed Value mappings."
+        ))
 
 
 def metadata_fingerprint(meta):

@@ -29,10 +29,10 @@ class TestDocTypeActionRecoveryMedia(TestCase):
 
     def test_writer_snapshots_evidence_before_target_write(self):
         writer = (ROOT / "services" / "doctype_action_writer.py").read_text()
-        snapshot_at = writer.index("snapshot_task_evidence(run, task)")
+        snapshot_at = writer.index("snapshot_task_evidence(run, source)")
         insert_at = writer.index("target.insert()")
         self.assertLess(snapshot_at, insert_at)
-        self.assertIn('"evidence": evidence_for_operator_form(run, task)', writer)
+        self.assertIn('"evidence": evidence_for_operator_form(run, source)', writer)
         self.assertIn('"recovery": recovery_context(run, profile)', writer)
 
     def test_recovery_reuses_run_and_exact_target(self):

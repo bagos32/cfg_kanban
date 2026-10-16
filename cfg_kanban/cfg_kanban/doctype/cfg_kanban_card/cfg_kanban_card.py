@@ -109,10 +109,14 @@ class CFGKanbanCard(Document):
             )
 
         if self.is_new() or self.active:
-            from cfg_kanban.services.doctype_actions import executable_profile_snapshot
+            from cfg_kanban.services.doctype_actions import (
+                assert_direct_card_profile_compatible,
+                executable_profile_snapshot,
+            )
             profile, _snapshot, _mapping_hash = executable_profile_snapshot(
                 self.doctype_action_profile
             )
+            assert_direct_card_profile_compatible(_snapshot)
         else:
             profile = frappe.get_doc(
                 "CFG Kanban DocType Action Profile", self.doctype_action_profile

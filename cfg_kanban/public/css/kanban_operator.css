@@ -668,6 +668,20 @@
 	white-space: pre-line;
 }
 
+.cfg-action-card-context .table {
+	margin-bottom: 12px;
+}
+
+.cfg-action-card-context td,
+.cfg-action-card-context th {
+	vertical-align: middle;
+}
+
+.cfg-action-card-history summary {
+	cursor: pointer;
+	font-weight: 600;
+}
+
 .cfg-action-child-table {
 	margin-bottom: 12px;
 }

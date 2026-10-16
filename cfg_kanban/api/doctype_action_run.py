@@ -3,6 +3,27 @@ import frappe
 from cfg_kanban.services import doctype_action_runs, doctype_action_writer
 
 
+@frappe.whitelist(methods=["POST"])
+def resolve_card_scan(scan_value, operator_session_token):
+    return doctype_action_runs.resolve_card_scan(
+        scan_value, operator_session_token
+    )
+
+
+@frappe.whitelist(methods=["POST"])
+def start_card_action(card_name, operator_session_token, request_token):
+    return doctype_action_runs.start_card_run(
+        card_name, operator_session_token, request_token
+    )
+
+
+@frappe.whitelist(methods=["POST"])
+def resume_card_action(run_name, operator_session_token, retry_token):
+    return doctype_action_runs.resume_card_run(
+        run_name, operator_session_token, retry_token
+    )
+
+
 @frappe.whitelist()
 def get_operator_form(run_name, operator_session_token):
     return doctype_action_writer.get_operator_form(

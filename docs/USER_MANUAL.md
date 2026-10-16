@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.47
+**Guide version:** 1.48
 
 **Updated:** 16 October 2026
 
@@ -30,9 +30,10 @@ allowlisted.
 
 Gate 2A adds the exact reusable **DocType Action Card** configuration and physical identity. It is
 deliberately non-production: it has no Kanban Master or quantity and cannot create a Signal, Cycle,
-Work Order, Job Card, stock movement, or logistics transaction. The direct Service Task panel
-resolver with **Resume** and **Start New Action** is the next serial Gate 2 package; until that is
-deployed, printing/configuring the card is supported but scanning it for an Action Run is not.
+Work Order, Job Card, stock movement, or logistics transaction. Gate 2B adds its scanner resolver
+to **Kanban Service Tasks**. A scan only identifies the Card and shows authorized in-progress Runs;
+the operator must deliberately choose **Resume** or **Start New Action**. A scan alone never creates
+a target document or a new Action Run.
 
 This file is designed to be usable by a person or by another LLM without access to the development
 chat history. When this guide and an earlier chat answer disagree, use this guide for the code
@@ -523,11 +524,43 @@ evidence check, and recovery check are in
 does not itself complete Gate 1: both live-site pilots must pass, and one Run must produce exactly
 one linked target containing the expected parent values and child rows.
 
-**Current Gate 2A boundary:** the reusable Service Task engine and its controlled pilot fixtures are
-prepared in code. Gate 1 becomes accepted only after the documented live-site pilot passes. The
-direct **DocType Action Card** can now be configured, validated, replaced, and printed without any
-production lifecycle. Direct scan resolution with **Resume / Start New Action** remains the next
-Gate 2 package and must reuse the same engine.
+#### Reusable DocType Action Card operation (Gate 2B)
+
+Use a direct Card only for an independent occurrence that does not require a generated Service Task.
+Its Action Profile must use **No Additional Verification** and must not contain a **Service Task
+Field** mapping. Use **Operator Input**, **Server Context**, or **Fixed Value** mappings instead.
+New direct profiles may use the protected Server Context keys `source_name` or `card_number`.
+
+1. Identify the Employee in **CFG Kanban → Kanban Service Tasks**.
+2. Scan the saved Card's QR or enter its exact **Card Number** in the scanner field.
+3. Review the fixed Card, Action Profile, destination DocType and posting policy.
+4. If the occurrence already exists, select **Resume** beside its Action Run. Do not use Start New.
+5. Select **Start New Action** only for a genuinely new business occurrence. This explicit action
+   creates a fresh opaque Run identity and opens the same controlled mapped form used by Service
+   Tasks.
+6. Complete the form and save/submit. The target still uses the authenticated terminal User's
+   normal ERPNext permissions and controller validation.
+
+Closing the form before posting leaves the Run in progress. Scan the same Card again and select
+**Resume**; the same Run and any persisted form result are reused. Repeated transport retries reuse
+the same opaque request token and cannot create a second Run or destination document. A completed
+**Save Draft** occurrence appears as `Draft Created`; a completed submit occurrence appears as
+`Submitted`. A Supervisor with Override authority can see recent completed history and open linked
+targets, while a normal operator sees only their own in-progress Runs. Another operator cannot open
+an Employee's Run merely by knowing its name.
+
+The reusable Card itself remains `Available` throughout. It never gains a Cycle or production
+quantity. Direct-card evidence is deliberately not inherited from the reusable physical Card,
+because that would mix files between separate occurrences. Direct Action Run media capture remains
+a later Gate 2 package; Service Task actions continue to pin their exact Task evidence normally.
+
+The independent live test is in
+[`docs/TEST_GATE2_DOCTYPE_ACTION_CARD.md`](TEST_GATE2_DOCTYPE_ACTION_CARD.md).
+
+**Current Gate 2B boundary:** the reusable Service Task engine and its controlled pilot fixtures are
+prepared in code. Gate 1 becomes accepted only after the documented live-site pilot passes. A
+direct **DocType Action Card** can now be configured, validated, replaced, printed, scanned and used
+to explicitly Resume or Start separate Action Runs without entering any production lifecycle.
 
 The runtime trigger uses the **Master's Automation Level** (`automation_level`). `Automatic`
 creates/executes the Work Order command immediately only when the Before Cycle Start gate is open.
@@ -924,7 +957,9 @@ For permanent access cards use their specific saved-card print action:
 
 Only **System Manager** or **CFG Kanban System Maintenance** may issue a new DocType Action Card.
 Its linked profile cannot be changed after creation. Disable the card if the physical identity must
-stop working; use **Replace Card Identity** for a controlled replacement with audit history.
+stop working; use **Replace Card Identity** for a controlled replacement with audit history. A
+direct Card profile cannot require Service Task verification or use Service Task Field mappings;
+the Card is rejected during save when either Task-only dependency is present.
 
 ### Step 6 — Trigger the first replenishment
 
@@ -3188,6 +3223,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.48 | 16 October 2026 | Added Gate 2B direct DocType Action Card scanning in Kanban Service Tasks, explicit Resume versus Start New intent, per-occurrence opaque Run identity, retry deduplication, operator ownership and Supervisor history scope, reusable-card form context, Task-only profile rejection, and production isolation; direct Action Run media capture remains a later package |
 | 1.47 | 16 October 2026 | Added Gate 2A exact non-production DocType Action Card configuration, enabled/Valid profile validation, immutable profile identity, zero production quantity, explicit production/logistics isolation, controlled replacement support, and a dedicated CR80 QR print format; direct Resume/Start New scan resolution remains the next serial package |
 | 1.46 | 16 October 2026 | Added Gate 1G explicit development-only draft and submittable pilot targets with repeatable observation rows, an administrator-triggered idempotent pilot policy/profile installer, exact-name-only engine isolation, normal Kanban Terminal target permissions, automated contract tests, and a standalone live acceptance guide |
 | 1.45 | 16 October 2026 | Added Gate 1F stable private-media references and supervised recovery: available same-Task evidence is pinned by registry ID without copying S3 binaries or signed URLs; the mapped form opens evidence through authorized temporary links; the Supervisor Action Centre lists document recovery attention; and a scanned Supervisor can return an unposted Run to its existing form or reconcile the exact linked target docstatus with immutable attempt/event audit |

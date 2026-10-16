@@ -46,7 +46,7 @@ BLOCKED_RUN_STATES = {"Cancelled", "Skipped by Condition", "Needs Reconciliation
 
 def get_operator_form(run_name, operator_session_token):
     run = frappe.get_doc("CFG Kanban DocType Action Run", run_name)
-    task, profile, _session = authorize_run_actor(run, operator_session_token)
+    source, profile, _session = authorize_run_actor(run, operator_session_token)
     snapshot = assert_pinned_snapshot_compatible(run)
     meta = frappe.get_meta(run.target_doctype)
     configuration = snapshot["configuration"]
@@ -58,9 +58,9 @@ def get_operator_form(run_name, operator_session_token):
             if mapping.get("source_type") == "Operator Input":
                 current = mapping.get("default_value")
             else:
-                current = _resolve_mapping_value(mapping, task, profile, {})
+                current = _resolve_mapping_value(mapping, source, profile, {})
         current_parent[mapping["fieldname"]] = current
-    condition_values = _condition_context(task, profile, current_parent)
+    condition_values = _condition_context(source, profile, current_parent)
     parent_fields = []
     for mapping in sorted(configuration.get("parent") or [], key=_display_order):
         if not cint(mapping.get("show_to_operator", 1)):
@@ -91,7 +91,7 @@ def get_operator_form(run_name, operator_session_token):
             if child_field and cint(mapping.get("show_to_operator", 1)):
                 default = mapping.get("default_value")
                 if mapping.get("source_type") != "Operator Input":
-                    default = _resolve_mapping_value(mapping, task, profile, {})
+                    default = _resolve_mapping_value(mapping, source, profile, {})
                 columns.append(_form_field(child_field, mapping, default))
         child_tables.append({
             "fieldname": table["table_fieldname"],
@@ -109,12 +109,8 @@ def get_operator_form(run_name, operator_session_token):
         "form_title": configuration.get("form_title") or snapshot.get("profile_name"),
         "form_instructions": configuration.get("form_instructions"),
         "posting_policy": configuration.get("posting_policy"),
-        "task": {
-            "name": task.name,
-            "task_name": task.task_name,
-            "company": task.company,
-            "location": task.location,
-        },
+        "source": _source_summary(source),
+        "task": _task_summary(source),
         "operator": profile.employee,
         "parent_fields": parent_fields,
         "child_tables": child_tables,
@@ -127,7 +123,7 @@ def get_operator_form(run_name, operator_session_token):
         "last_error_code": run.last_error_code,
         "last_error": run.last_error,
         "target_link": _target_link(run),
-        "evidence": evidence_for_operator_form(run, task),
+        "evidence": evidence_for_operator_form(run, source),
         "recovery": recovery_context(run, profile),
     }
 
@@ -137,7 +133,7 @@ def post_action(run_name, operator_session_token, retry_token,
     if not retry_token or len(str(retry_token)) < 12:
         frappe.throw(_("A fresh opaque posting token is required."))
     run = get_locked_run(run_name)
-    task, profile, session = authorize_run_actor(run, operator_session_token)
+    source, profile, session = authorize_run_actor(run, operator_session_token)
     request_state = run.state
 
     duplicate = get_attempt_for_retry_token(retry_token)
@@ -194,7 +190,7 @@ def post_action(run_name, operator_session_token, retry_token,
         parent_input = _object(operator_values, "Parent operator values")
         child_input = _object(child_rows, "Child-table rows")
         payload, should_post = _build_payload(
-            run, task, profile, configuration, parent_input, child_input,
+            run, source, profile, configuration, parent_input, child_input,
             trigger_condition=configuration.get("trigger_condition"),
         )
         _persist_payload(run, payload, profile.employee)
@@ -223,11 +219,10 @@ def post_action(run_name, operator_session_token, retry_token,
                            "message": _("Action condition was not met; no target was created.")})
             return result
 
-        # Pin only verified/Available CFG Kanban Media identities belonging to
-        # this exact Service Task. The target never receives a signed URL or a
-        # copied binary; supervisors view evidence through the existing media
-        # authorization service.
-        snapshot_task_evidence(run, task)
+        # Pin only verified/Available evidence identities belonging to this
+        # exact source occurrence. A reusable Card intentionally contributes no
+        # inherited evidence. The target never receives a signed URL or binary.
+        snapshot_task_evidence(run, source)
 
         target = existing_target
         if target:
@@ -409,6 +404,10 @@ def _resolve_mapping_value(mapping, task, profile, operator_values):
     if source_type == "Server Context":
         return _server_context(task, profile).get(mapping.get("source_key"))
     if source_type == "Service Task Field":
+        if task.doctype != "CFG Kanban Task":
+            frappe.throw(_(
+                "Service Task Field mappings cannot be used by a direct DocType Action Card."
+            ))
         task_values = _task_values(task)
         source_key = mapping.get("source_key")
         if source_key not in task_values:
@@ -673,35 +672,71 @@ def _stored_payload(run):
     return payload
 
 
-def _task_values(task):
-    values = {fieldname: task.get(fieldname) for fieldname in SAFE_TASK_FIELDS}
-    if task.get("task_schedule"):
-        schedule = frappe.get_doc("CFG Kanban Task Schedule", task.task_schedule)
+def _task_values(source):
+    if source.doctype != "CFG Kanban Task":
+        return {}
+    values = {fieldname: source.get(fieldname) for fieldname in SAFE_TASK_FIELDS}
+    if source.get("task_schedule"):
+        schedule = frappe.get_doc("CFG Kanban Task Schedule", source.task_schedule)
         for definition in schedule.get("task_field_definitions") or []:
             if definition.definition_scope == "Standalone Task":
                 values.setdefault(definition.field_key, definition.default_value)
-    for row in task.get("execution_values") or []:
+    for row in source.get("execution_values") or []:
         values[row.field_key] = row.value
     return values
 
 
-def _server_context(task, profile):
+def _server_context(source, profile):
+    is_task = source.doctype == "CFG Kanban Task"
     return {
         "employee": profile.employee,
-        "task_name": task.name,
-        "company": task.company,
-        "location": task.location,
-        "asset": task.asset,
-        "workstation": task.workstation,
+        # Kept as the legacy generic occurrence identity for existing profiles.
+        # New direct-card profiles should prefer source_name or card_number.
+        "task_name": source.name,
+        "source_name": source.name,
+        "card_number": source.card_number if not is_task else None,
+        "company": source.get("company"),
+        "location": source.get("location") if is_task else None,
+        "asset": source.get("asset") if is_task else None,
+        "workstation": source.get("workstation") if is_task else None,
         "server_timestamp": now_datetime(),
     }
 
 
-def _condition_context(task, profile, supplied):
-    values = _task_values(task)
-    values.update(_server_context(task, profile))
+def _condition_context(source, profile, supplied):
+    values = _task_values(source)
+    values.update(_server_context(source, profile))
     values.update(supplied or {})
     return values
+
+
+def _source_summary(source):
+    if source.doctype == "CFG Kanban Task":
+        return {
+            "doctype": source.doctype,
+            "name": source.name,
+            "label": source.task_name or source.name,
+            "company": source.company,
+            "location": source.location,
+        }
+    return {
+        "doctype": source.doctype,
+        "name": source.name,
+        "label": source.card_number or source.name,
+        "company": source.company,
+        "location": None,
+    }
+
+
+def _task_summary(source):
+    if source.doctype != "CFG Kanban Task":
+        return None
+    return {
+        "name": source.name,
+        "task_name": source.task_name,
+        "company": source.company,
+        "location": source.location,
+    }
 
 
 def _condition_matches(condition, values):
