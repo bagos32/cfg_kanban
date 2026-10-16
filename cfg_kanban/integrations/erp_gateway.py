@@ -1253,6 +1253,61 @@ def create_production_material_transfer(command, payload):
     return entry
 
 
+@handler("Create Production Material Consumption")
+def create_production_material_consumption(command, payload):
+    from erpnext.manufacturing.doctype.work_order.work_order import make_stock_entry
+
+    work_order = frappe.get_doc("Work Order", payload["work_order"])
+    if work_order.docstatus != 1 or not work_order.skip_transfer:
+        frappe.throw("Material consumption requires a submitted Skip-WIP Work Order")
+    entry = frappe.get_doc(make_stock_entry(
+        work_order.name, "Material Consumption for Manufacture", qty=work_order.qty
+    ))
+    confirmed = payload.get("lines") or []
+    selected_keys = {
+        (row.get("item_code"), row.get("source_warehouse"))
+        for row in confirmed if row.get("item_code") and row.get("source_warehouse")
+    }
+    restricted_items = set()
+    if payload.get("server_manage_restricted_items"):
+        from cfg_kanban.services.hidden_items import get_hidden_item_policy
+        restricted_items = get_hidden_item_policy()["items"]
+    job_card = payload.get("job_card")
+    if job_card:
+        job = frappe.get_doc("Job Card", job_card)
+        if job.work_order != work_order.name or job.docstatus == 2:
+            frappe.throw("Material consumption requires an active Job Card from this Work Order")
+        allowed_keys = {(row.item_code, row.source_warehouse) for row in job.items}
+        if not allowed_keys:
+            frappe.throw(f"Job Card {job.name} has no operation material rows")
+        selected_keys &= allowed_keys
+        restricted_items &= {item_code for item_code, _warehouse in allowed_keys}
+        entry.job_card = job.name
+    entry.set("items", [
+        row.as_dict() for row in entry.items
+        if row.s_warehouse and (
+            (row.item_code, row.s_warehouse) in selected_keys
+            or row.item_code in restricted_items
+        )
+    ])
+    if not entry.items:
+        scope = f"Job Card {job_card}" if job_card else f"Work Order {work_order.name}"
+        frappe.throw(f"ERPNext did not map any remaining material for {scope}")
+    _apply_confirmed_production_lines(
+        entry,
+        confirmed,
+        input_only=True,
+        server_manage_restricted_items=payload.get("server_manage_restricted_items"),
+    )
+    entry.cfg_kanban_controlled = 1
+    entry.cfg_kanban_cycle = command.kanban_cycle
+    entry.cfg_kanban_signal = command.source_signal
+    entry.insert(ignore_permissions=True)
+    if payload.get("submit"):
+        entry.submit()
+    return entry
+
+
 @handler("Create Production Manufacture Receipt")
 def create_production_manufacture_receipt(command, payload):
     from erpnext.manufacturing.doctype.work_order.work_order import make_stock_entry

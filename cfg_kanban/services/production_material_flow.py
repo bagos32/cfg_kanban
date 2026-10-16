@@ -30,7 +30,7 @@ def apply_master_material_flow(work_order, master):
     hidden_policy = get_hidden_item_policy()
     restricted_items = (hidden_policy["items"]
                         if not hidden_policy["can_view"] else set())
-    if work_order.transfer_material_against == "Job Card" and not work_order.skip_transfer:
+    if work_order.transfer_material_against == "Job Card":
         missing = [row.item_code for row in work_order.required_items
                    if not row.operation and row.item_code not in restricted_items]
         restricted_missing = any(
@@ -39,7 +39,7 @@ def apply_master_material_flow(work_order, master):
         )
         if missing:
             frappe.throw(
-                "Job Card material transfer requires Item Operation on every BOM component: "
+                "Job Card material control requires Item Operation on every BOM component: "
                 + ", ".join(missing)
             )
         if restricted_missing:
@@ -95,8 +95,15 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
             fields=["item_code", "source_warehouse", "required_qty", "transferred_qty", "uom"],
             order_by="idx asc",
         )
-        all_material_rows = [_job_material_row(row, work_order.wip_warehouse)
-                             for row in items]
+        consumed_by_item = (_job_consumed_quantities(job.name)
+                            if mode == "Skip WIP Transfer" else {})
+        all_material_rows = [
+            _job_material_row(
+                row, work_order.wip_warehouse, mode,
+                consumed_by_item.get((row.item_code, row.source_warehouse), 0),
+            )
+            for row in items
+        ]
         restricted_job_rows = [row for row in all_material_rows
                                if row["item_code"] in restricted_items]
         material_rows = [row for row in all_material_rows
@@ -144,6 +151,7 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
         "incomplete_job_cards": incomplete_jobs,
         "material_transfer_posting_mode": master.get("material_transfer_posting_mode")
             or "Create Draft for Review",
+        "material_consumption_posting_mode": "Create Draft for Review",
         "manufacture_posting_mode": master.get("manufacture_posting_mode")
             or "Create Draft for Tag / Batch Review",
     }
@@ -257,6 +265,142 @@ def prepare_material_transfer(cycle_name, lines, job_card=None, event_token=None
         )
     return {"command": command.name, "stock_entry": entry.name,
             "docstatus": entry.docstatus, "duplicate": not created}
+
+
+@frappe.whitelist()
+def prepare_material_consumption(cycle_name, lines, job_card=None, event_token=None,
+                                 confirmation=None, operator_session_token=None,
+                                 defer_submit_for_scanning=0, requesting_cycle=None):
+    """Create native ERPNext consumption for actual Skip-WIP operation usage.
+
+    Draft creation gives the scanner native ERP rows against which physical tag quantities
+    can be reserved. Only ERPNext submission consumes stock and confirms genealogy.
+    """
+    cycle, master, work_order = _production_context(cycle_name)
+    if work_order.docstatus != 1:
+        frappe.throw("Submit the effective Work Order before consuming production materials")
+    if _effective_mode(master, work_order) != "Skip WIP Transfer":
+        frappe.throw(
+            "Operation material consumption is available only when the Work Order uses "
+            "Skip WIP Transfer"
+        )
+
+    execution = None
+    operation = None
+    workstation = None
+    if work_order.transfer_material_against == "Job Card":
+        if not job_card:
+            frappe.throw("Select the Job Card whose actual material usage is being recorded")
+        job = frappe.db.get_value(
+            "Job Card", {"name": job_card, "work_order": work_order.name,
+                         "docstatus": ["<", 2]},
+            ["name", "operation", "workstation"], as_dict=True,
+        )
+        if not job:
+            frappe.throw("Job Card does not belong to the effective Work Order")
+        operation, workstation = job.operation, job.workstation
+        execution = frappe.db.get_value(
+            "CFG Kanban Process Execution",
+            {"kanban_cycle": cycle.name, "job_card": job.name}, "name",
+        )
+    elif job_card:
+        frappe.throw(
+            "This Skip-WIP Work Order records consumption against the Work Order, not a Job Card"
+        )
+
+    operation_cycle = _validated_operation_requesting_cycle(
+        requesting_cycle, cycle, work_order, job_card
+    )
+    profile, session = require_operator(
+        operator_session_token, "material_transfer", execution=execution,
+        operation=operation, workstation=workstation,
+    )
+    hidden_policy = get_hidden_item_policy()
+    server_manage_restricted = bool(
+        hidden_policy["items"] and not hidden_policy["can_view"]
+    )
+    normalized = _validated_confirmation_lines(
+        lines, allow_empty=server_manage_restricted
+    )
+    if server_manage_restricted and any(
+            row["item_code"] in hidden_policy["items"] for row in normalized):
+        frappe.throw("Restricted production components are managed server-side")
+    _validate_consumption_scope(
+        work_order, normalized, hidden_policy["items"], job_card=job_card
+    )
+    confirmation = _validated_confirmation(confirmation)
+    for row in normalized:
+        _assert_warehouse_company(row["source_warehouse"], work_order.company)
+    _assert_no_open_production_entry(
+        cycle.name, work_order.name, "Material Consumption for Manufacture", job_card
+    )
+
+    required_tag_scan = _requires_input_tag_scan(normalized, work_order.company)
+    # Consumption remains Draft until the operator has had a chance to scan the exact
+    # physical quantity used. This is intentionally independent of WIP-transfer posting.
+    submit = False
+    identity = event_token or frappe.as_json(normalized)
+    key = canonical_key(
+        "production-material-consumption", cycle.name,
+        job_card or work_order.name, identity,
+    )
+    command, created = insert_once(frappe.get_doc({
+        "doctype": "CFG ERP Command",
+        "command_type": "Create Production Material Consumption",
+        "source_signal": cycle.signal,
+        "kanban_cycle": cycle.name,
+        "process_execution": execution,
+        "status": "Pending",
+        "target_doctype": "Stock Entry",
+        "request_payload": frappe.as_json({
+            "work_order": work_order.name,
+            "job_card": job_card,
+            "lines": normalized,
+            "submit": submit,
+            "operator": profile.employee,
+            "confirmation": confirmation,
+            "server_manage_restricted_items": server_manage_restricted,
+        }),
+        "requested_on": now_datetime(),
+        "created_by_system": 1,
+        "requested_by_operator": profile.employee,
+        "operator_session": session.name,
+        "terminal_user": session.terminal_user,
+    }), key, ignore_permissions=True)
+    entry = execute_command(command.name)
+    record(
+        "Production Material Consumption Prepared", card=cycle.kanban_card,
+        cycle=cycle.name, execution=execution,
+        qty=sum(row["qty"] for row in normalized),
+        reference_doctype="Stock Entry", reference_name=entry.name,
+        operator=profile.employee, operator_session=session.name,
+        terminal_user=session.terminal_user,
+        notes=(f"Skip WIP Transfer; {'Submitted' if entry.docstatus == 1 else 'Draft'}; "
+               f"Job Card {job_card or 'Work Order scope'}; "
+               f"Operator confirmation: {confirmation}"),
+    )
+    if operation_cycle:
+        record(
+            "Operation Card Material Consumption Prepared",
+            card=operation_cycle.kanban_card,
+            cycle=operation_cycle.name,
+            execution=frappe.db.get_value(
+                "CFG Kanban Process Execution",
+                {"kanban_cycle": operation_cycle.name, "job_card": job_card}, "name",
+            ),
+            qty=sum(row["qty"] for row in normalized),
+            reference_doctype="Stock Entry", reference_name=entry.name,
+            operator=profile.employee, operator_session=session.name,
+            terminal_user=session.terminal_user,
+            notes=f"ERP material owner Cycle {cycle.name}; Job Card {job_card}",
+        )
+    return {
+        "command": command.name,
+        "stock_entry": entry.name,
+        "docstatus": entry.docstatus,
+        "duplicate": not created,
+        "tag_scan_required": required_tag_scan,
+    }
 
 
 @frappe.whitelist()
@@ -382,8 +526,9 @@ def submit_production_stock_entry(stock_entry, event_token=None,
     cycle, _master, work_order = _production_context(cycle_name)
     if entry.work_order != work_order.name or entry.docstatus != 0:
         frappe.throw("Only a Draft Stock Entry for the effective Work Order can be submitted")
-    action = ("material_transfer" if entry.purpose == "Material Transfer for Manufacture"
-              else "production_receipt")
+    action = ("material_transfer" if entry.purpose in (
+        "Material Transfer for Manufacture", "Material Consumption for Manufacture"
+    ) else "production_receipt")
     profile, session = require_operator(operator_session_token, action)
     key = canonical_key("submit-production-stock-entry", entry.name,
                         event_token or entry.modified)
@@ -509,8 +654,10 @@ def _work_order_material_row(row, wip_warehouse, mode):
     }
 
 
-def _job_material_row(row, wip_warehouse):
-    pending = max(0, flt(row.required_qty) - flt(row.transferred_qty))
+def _job_material_row(row, wip_warehouse, mode=None, consumed_qty=0):
+    consumed = flt(consumed_qty)
+    accounted = consumed if mode == "Skip WIP Transfer" else flt(row.transferred_qty)
+    pending = max(0, flt(row.required_qty) - accounted)
     available = _balance(row.item_code, row.source_warehouse)
     return {
         "item_code": row.item_code,
@@ -519,6 +666,7 @@ def _job_material_row(row, wip_warehouse):
         "stock_uom": row.uom,
         "required_qty": flt(row.required_qty),
         "transferred_qty": flt(row.transferred_qty),
+        "consumed_qty": consumed,
         "pending_qty": pending,
         "available_qty": available,
         "shortage_qty": max(0, pending - available),
@@ -534,10 +682,68 @@ def _has_pending_restricted_material(work_order, restricted_items, job_card=None
         return False
     rows = (frappe.get_doc("Job Card", job_card).items
             if job_card else work_order.required_items)
+    consumed = (_job_consumed_quantities(job_card)
+                if job_card and work_order.skip_transfer else {})
     return any(
         row.item_code in restricted_items
-        and flt(row.required_qty) - flt(row.transferred_qty) > 0.000001
+        and flt(row.required_qty) - (
+            flt(consumed.get((row.item_code, row.source_warehouse), 0))
+            if work_order.skip_transfer else flt(row.transferred_qty)
+        ) > 0.000001
         for row in rows
+    )
+
+
+def _job_consumed_quantities(job_card):
+    if not job_card:
+        return {}
+    rows = frappe.db.sql("""
+        select sed.item_code, sed.s_warehouse,
+               coalesce(sum(coalesce(nullif(sed.transfer_qty, 0),
+                                     sed.qty * coalesce(sed.conversion_factor, 1))), 0)
+                   as consumed_qty
+        from `tabStock Entry Detail` sed
+        inner join `tabStock Entry` se on se.name = sed.parent
+        where se.docstatus = 1
+          and se.purpose = 'Material Consumption for Manufacture'
+          and se.job_card = %s
+          and sed.s_warehouse is not null
+        group by sed.item_code, sed.s_warehouse
+    """, job_card, as_dict=True)
+    return {
+        (row.item_code, row.s_warehouse): flt(row.consumed_qty)
+        for row in rows
+    }
+
+
+def _validate_consumption_scope(work_order, normalized, restricted_items, job_card=None):
+    source_rows = (frappe.get_doc("Job Card", job_card).items
+                   if job_card else work_order.required_items)
+    allowed = {(row.item_code, row.source_warehouse) for row in source_rows}
+    invalid = [
+        f"{row['item_code']} / {row['source_warehouse']}"
+        for row in normalized
+        if (row["item_code"], row["source_warehouse"]) not in allowed
+    ]
+    if invalid:
+        frappe.throw(
+            "Material is outside the selected Job Card / Work Order scope: "
+            + ", ".join(invalid)
+        )
+    if not normalized and not any(
+            row.item_code in restricted_items for row in source_rows):
+        frappe.throw("At least one positive material quantity is required")
+
+
+def _requires_input_tag_scan(lines, company):
+    if not lines:
+        return False
+    from cfg_kanban.services.trace_policy import effective_trace_policy
+
+    return any(
+        effective_trace_policy(row["item_code"], company).production_input_tag_policy
+        == "Required Physical Tag"
+        for row in lines
     )
 
 

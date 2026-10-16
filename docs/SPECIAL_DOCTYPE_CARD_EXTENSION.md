@@ -697,7 +697,7 @@ This status section records delivery without changing the locked revision 1.0 de
 | 2026-10-16 | Gate 1G — explicit live-pilot fixtures and acceptance guide | Isolated non-production `CFG Action Pilot Draft` and submittable `CFG Action Pilot Submission` targets; repeatable `CFG Action Pilot Observation` child rows; exact-name-only module-deny exception; explicit administrator pilot policy/profile installer; normal `Kanban Terminal` target permissions; automated schema/safety contracts; independent live-site draft/submit/negative/recovery/evidence procedure | Prepared in code; migration and documented live-site acceptance pending |
 | 2026-10-16 | Gate 2A — direct Card schema and production isolation | Exact `DocType Action Card` Card Type and `doctype_action_profile` Link; enabled/Valid profile and approved-policy validation; configuration-role issuance; immutable Card/profile boundary; zero production quantity and no Master/Cycle; explicit production/logistics fail-closed guards; controlled QR replacement; dedicated CR80 print format | Prepared in code; migration and live-site form/print validation pending |
 | 2026-10-16 | Gate 2B — direct Card scan and occurrence selection | Non-production resolver in `Kanban Service Tasks`; QR/Card identity lookup; explicit `Start New Action` versus authorized `Resume`; separate opaque Run per explicit new intent; retry-token and database uniqueness guards; Employee-owned open Runs; Supervisor Override history; shared Gate 1 writer/form/recovery; Task-only profile validation; Card remains Available with no Cycle | Live-site accepted by user on 16 October 2026 |
-| 2026-10-16 | Gate 2C — per-Run private media evidence | Direct-card photos/files owned by immutable `CFG Kanban DocType Action Run`; multiple upload; timestamped/geotagged camera capture; recoverable archive before posting; pending-upload posting guard; available-only stable-reference snapshot; post-snapshot lock; authorized operator view and Desk supervisor thumbnail gallery; reusable Card remains evidence-free | Prepared in code; migration and live-site acceptance pending |
+| 2026-10-16 | Gate 2C — per-Run private media evidence | Direct-card photos/files owned by immutable `CFG Kanban DocType Action Run`; multiple upload; timestamped/geotagged camera capture; recoverable archive before posting; pending-upload posting guard; available-only stable-reference snapshot; post-snapshot lock; authorized operator view and Desk supervisor thumbnail gallery; reusable Card remains evidence-free | Live-site accepted by user on 16 October 2026 |
 
 **Current boundary after Gate 2C:** Service Task occurrences resolve their one Action Run, open the
 mapped parent/child form on phone/tablet, pin authorized private evidence, post through the controlled
@@ -710,6 +710,6 @@ path. A scan is non-creating; the operator must choose an authorized existing **
 before posting, but the available registry identities are frozen at the first controlled post and
 cannot leak to or be changed by a later scan of the reusable Card.
 
-Gate 2C live acceptance follows
+The repeatable Gate 2C live acceptance procedure is retained in
 [`docs/TEST_GATE2C_DOCTYPE_ACTION_MEDIA.md`](TEST_GATE2C_DOCTYPE_ACTION_MEDIA.md).
 

@@ -60,6 +60,7 @@ class TestOperatorAuthenticationContract(TestCase):
         self.assertIn("quantity_steps", api)
         self.assertIn("CFG:CMD:DISMISS", api)
         self.assertIn('f"CFG:QTY:GOOD:+{number:g}"', api)
+        self.assertIn('f"CFG:QTY:MATERIAL:{number:g}"', api)
         self.assertIn("install_scanner_shortcuts", console)
         self.assertIn("inputmode: \"none\"", console)
         self.assertIn("Print Command Labels", console)

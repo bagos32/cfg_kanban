@@ -865,9 +865,12 @@ def _authorize_trace_access(doc, permission_type, operator_session_token=None,
 
 
 def _operation_card_controls_entry(cycle, doc, linked_cycle):
-    """Allow a runtime operation Card to trace only its selected Job Card transfer."""
+    """Allow a runtime operation Card to trace only its selected Job Card material entry."""
     if (not linked_cycle or not cycle.runtime_allocation or not cycle.selected_job_card
-            or _purpose(doc) != "Material Transfer for Manufacture"):
+            or _purpose(doc) not in (
+                "Material Transfer for Manufacture",
+                "Material Consumption for Manufacture",
+            )):
         return False
     owner_cycle = frappe.db.get_value("Work Order", cycle.work_order, "cfg_kanban_cycle")
     return bool(

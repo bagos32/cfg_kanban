@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.51
+**Guide version:** 1.52
 
 **Updated:** 16 October 2026
 
@@ -578,8 +578,8 @@ pinned from that Task when its Action posts.
 The independent live test is in
 [`docs/TEST_GATE2_DOCTYPE_ACTION_CARD.md`](TEST_GATE2_DOCTYPE_ACTION_CARD.md).
 
-**Current Gate 2C boundary:** Gate 2B direct Card form operation has passed live-site acceptance.
-Per-Run private media is prepared in code and still requires the independent Gate 2C live test in
+**Current Gate 2C boundary:** Gate 2B direct Card form operation and Gate 2C per-Run private media
+have passed live-site acceptance. The repeatable procedure remains in
 [`docs/TEST_GATE2C_DOCTYPE_ACTION_MEDIA.md`](TEST_GATE2C_DOCTYPE_ACTION_MEDIA.md). A direct
 **DocType Action Card** can be configured, validated, replaced, printed, scanned and used to Resume
 or Start separate Action Runs without entering any production lifecycle.
@@ -1075,7 +1075,7 @@ The four modes behave as follows:
 | Follow ERPNext BOM / Work Order | Preserves the Work Order's native transfer policy. Existing Masters remain compatible; loaded component source rules are still applied. |
 | Transfer to WIP by Work Order | **Prepare WIP Transfer** appears once for all required materials. Submit that ERP entry before starting a Job Card. |
 | Transfer to WIP by Job Card | **Prepare Operation Materials** appears per Job Card and contains only BOM components assigned to its Item Operation. Submit that operation's transfer before starting it. |
-| Skip WIP Transfer | No transfer is made. The final Manufacture entry consumes confirmed inputs directly from their configured source Warehouses. |
+| Skip WIP Transfer | No WIP transfer is made. When the Work Order is configured against Job Cards, **Consume Operation Materials** creates a native Draft `Material Consumption for Manufacture` for the selected Job Card; Work Order scope uses **Consume Work Order Materials**. The final Manufacture entry consumes only the remaining inputs and receives output. |
 
 For **Transfer to WIP by Job Card**, both the main Production Card and the activated reusable
 Process/Station operation Card can prepare the transfer. The operation Card is deliberately limited
@@ -1104,7 +1104,24 @@ The resulting ERPNext Manufacture Stock Entry is the accounting event. Tagged an
 materials may coexist; physical-tag genealogy remains an additional trace layer and never replaces
 ERP stock.
 
-For the complete two-operation example, use `docs/TEST_RW_NOODLE_TWO_OPERATION_BATCH.md`.
+For **Skip WIP Transfer**, Job Card start is not blocked by a WIP prerequisite. At the point where
+the operation physically uses material, the operator scans `CFG:CMD:PREPARE_MATERIALS`, chooses the
+Job Card when necessary, and confirms actual quantities. CFG Kanban always creates a Draft native
+**Material Consumption for Manufacture** first. This permits physical tags to be scanned before
+stock changes. Scan `CFG:CMD:SCAN_MATERIALS`, then the input tags, then
+`CFG:CMD:SUBMIT_MATERIALS`. Submission is the authoritative ERPNext consumption event. An input tag
+may hold more than the actual usage: the trace reserves and consumes only the Stock Entry row
+quantity, leaving the remaining quantity available on the same Handling Unit.
+
+The main Production Card may perform the same consumption for all eligible Job Cards. A runtime
+operation Card sees and controls only its selected Job Card. Submitted Job Card-specific
+consumption is totalled back into the live **Required / Pending** display. A second draft for the
+same Work Order, purpose, and Job Card is blocked until the existing draft is submitted or
+cancelled.
+
+For the complete two-operation WIP-transfer example, use
+`docs/TEST_RW_NOODLE_TWO_OPERATION_BATCH.md`. For operation-time direct consumption without WIP,
+use `docs/TEST_SKIP_WIP_JOB_CARD_CONSUMPTION.md`.
 
 ### Start work
 
@@ -1768,11 +1785,12 @@ Inside **Report Progress**, quantity labels can replace keypad entry. Examples:
 - `CFG:CMD:CONFIRM` submits the progress form.
 - `CFG:CMD:CANCEL` closes the progress form without submitting.
 
-When printing the command sheet, enter the routine Good Quantity increments required by that
+When printing the command sheet, enter the routine Good/Material Quantity values required by that
 workstation, separated by commas—for example `1, 10, 50, 100`. The sheet is generated on demand, so
 different operations may keep different laminated quantity sheets without changing the Kanban Card
 or Master. A scanned absolute command such as `CFG:QTY:GOOD:100` sets the field to 100, while
-`CFG:QTY:GOOD:+100` adds 100 to its current value.
+`CFG:QTY:GOOD:+100` adds 100 to its current value. The same values also print absolute
+`CFG:QTY:MATERIAL:<value>` labels for material confirmation rows.
 
 If an error message is open, the operator may immediately scan the next card. The panel closes the
 message and processes that scan. `CFG:CMD:DISMISS` closes the message without loading another card.
@@ -1785,10 +1803,16 @@ restored. The operator does not need to touch the page before the next scan.
 
 Production material confirmation dialogs always arm their own **Scanner Command** field, including
 when the dialog was opened from an on-screen operation-card button. Scan `CFG:CMD:CONFIRM` to create
-the transfer Draft or `CFG:CMD:CANCEL` to close it. Raw-material tags are intentionally not accepted
+the transfer/consumption Draft or `CFG:CMD:CANCEL` to close it. Raw-material tags are intentionally not accepted
 in that first confirmation dialog. After the Draft appears, scan `CFG:CMD:SCAN_MATERIALS`, then scan
 the physical input tags, and finally scan `CFG:CMD:SUBMIT_MATERIALS`. A scanner-confirmed preparation
 is held as Draft until this final submit command even if the Master normally auto-submits.
+
+For hands-free material quantities, each confirmation row is numbered. Scan `CFG:SELECT:1` through
+`CFG:SELECT:10` to select the Item row, then scan an absolute material quantity such as
+`CFG:QTY:MATERIAL:5`. A `+` form such as `CFG:QTY:MATERIAL:+1` adds to the currently selected row.
+The printable scanner command sheet includes Material Quantity labels using the same configurable
+quantity values as the routine Good Quantity labels.
 
 The **Production Material Trace** window has a dedicated **Scanner Ready — Scan Material Tag or
 Command** field. Operators do not select an ERP row manually: each physical input tag is matched to
@@ -3245,6 +3269,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.52 | 16 October 2026 | Marked Gate 2C live-site accepted and added native Skip-WIP Job Card/Work Order material consumption: controlled Draft `Material Consumption for Manufacture`, operation-card scoping, partial tagged-bundle usage, remaining tag balance, live per-Job-Card consumed/pending quantities, explicit ERP submission, scanner row selection and printable material-quantity commands |
 | 1.51 | 16 October 2026 | Marked Gate 2B live-site accepted and added Gate 2C isolated private media per direct Action Run: multiple photo/file upload, visible server-time/GPS camera stamping, recoverable pre-post archive, pending-upload guard, available-only immutable snapshot, post-snapshot lock, operator view, and supervisor Action Run gallery without attaching evidence to the reusable Card |
 | 1.50 | 16 October 2026 | Replaced the DocType Action parent-field Dialog layout path with the same direct Frappe control renderer used by working child observations, restoring editable Summary, Outcome and Notes controls while retaining read-only context fields, reactive visibility, typed collection and server allowlisting |
 | 1.49 | 16 October 2026 | Corrected DocType Action parent controls so Operator Input fields consistently remain editable when Frappe serializes Check values as strings or integers; server-context and explicitly read-only fields remain protected |

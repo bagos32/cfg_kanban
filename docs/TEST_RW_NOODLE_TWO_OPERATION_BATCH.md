@@ -333,8 +333,9 @@ the ERPNext BOM Item row, then reselect the BOM or use **Production Material →
 Flow**.
 
 For a simpler Work Order-wide transfer test, use `Transfer to WIP by Work Order`. Use `Skip WIP
-Transfer` only where the approved ERPNext process consumes inputs directly through the final
-Manufacture Stock Entry.
+Transfer` where the approved process consumes inputs without a WIP movement. CFG Kanban can now
+create a Job Card-scoped native `Material Consumption for Manufacture` during the operation; the
+final Manufacture Stock Entry consumes only any remaining input and receives the finished output.
 
 Add these **Operation Profiles**.
 
@@ -489,8 +490,9 @@ rows for that Job Card.
 Alternative behavior:
 
 - `Transfer to WIP by Work Order`: use **Prepare WIP Transfer** once before the first Job Card.
-- `Skip WIP Transfer`: no WIP transfer is created; live input quantities are reconfirmed in the
-  final Manufacture dialog and consumed from their configured source Warehouses.
+- `Skip WIP Transfer`: no WIP transfer is created. Use **Consume Operation Materials** at the Job
+  Card that physically uses each component, scan actual tag quantities, and submit the Draft native
+  `Material Consumption for Manufacture`. The final Manufacture dialog shows only remaining input.
 - `Follow ERPNext BOM / Work Order`: existing ERPNext Work Order settings remain authoritative.
 
 Because this first test sets raw materials to **No Physical Tag**, no Handling Unit input scan is

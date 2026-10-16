@@ -119,7 +119,7 @@ def get_scanner_command_sheet(quantity_steps=None):
         ("Activate / Consume Card", "CFG:CMD:ACTIVATE", ""),
         ("Start Operation", "CFG:CMD:START", ""),
         ("Report Progress", "CFG:CMD:REPORT_PROGRESS", ""),
-        ("Prepare Material Transfer", "CFG:CMD:PREPARE_MATERIALS", ""),
+        ("Prepare Transfer / Consumption", "CFG:CMD:PREPARE_MATERIALS", ""),
         ("Prepare Manufacture Receipt", "CFG:CMD:PREPARE_RECEIPT", ""),
         ("Scan Material Tags", "CFG:CMD:SCAN_MATERIALS", ""),
         ("Submit Material Entry", "CFG:CMD:SUBMIT_MATERIALS", ""),
@@ -130,6 +130,10 @@ def get_scanner_command_sheet(quantity_steps=None):
     ])
     commands.extend([
         (f"Good +{number:g}", f"CFG:QTY:GOOD:+{number:g}", "")
+        for number in normalized_steps
+    ])
+    commands.extend([
+        (f"Material Qty {number:g}", f"CFG:QTY:MATERIAL:{number:g}", "")
         for number in normalized_steps
     ])
     commands.extend([
@@ -589,7 +593,10 @@ def _production_stock_entries(cycle, job_card=None):
             if not row.cfg_kanban_cycle or row.cfg_kanban_cycle == cycle.name]
     if job_card:
         rows = [row for row in rows
-                if row.purpose == "Material Transfer for Manufacture"
+                if row.purpose in (
+                    "Material Transfer for Manufacture",
+                    "Material Consumption for Manufacture",
+                )
                 and row.job_card == job_card]
     if not rows:
         return []
@@ -607,7 +614,10 @@ def _production_stock_entries(cycle, job_card=None):
         row["can_stage_trace"] = row.docstatus == 0
         row["can_submit"] = row.docstatus == 0
         row["submit_permission"] = (
-            "material_transfer" if row.purpose == "Material Transfer for Manufacture"
+            "material_transfer" if row.purpose in (
+                "Material Transfer for Manufacture",
+                "Material Consumption for Manufacture",
+            )
             else "production_receipt"
         )
     return rows
