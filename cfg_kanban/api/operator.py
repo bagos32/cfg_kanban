@@ -154,6 +154,11 @@ def get_card_context(token, operator_session_token=None):
         from cfg_kanban.integrations.erp_feedback import reconcile_physical_production_cycle
         production_reconciliation = reconcile_physical_production_cycle(card.active_cycle)
         card.reload()
+    if card.card_type == "DocType Action Card":
+        frappe.throw(
+            "This is a non-production DocType Action Card. Open it in the Service Task panel; "
+            "the production operator panel cannot create Signals, Cycles, or Work Orders from it."
+        )
     if card.card_type == "Workstation Queue Card":
         if not card.active or card.blocked:
             frappe.throw("Workstation Queue Card is inactive or blocked")

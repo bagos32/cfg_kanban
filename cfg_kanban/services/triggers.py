@@ -15,6 +15,13 @@ from cfg_kanban.services.purchase_replenishment import (
 def consume_card(card_name, *, device_id=None, event_token=None, trusted_operator=False):
     """Create exactly one replenishment chain for a card's active-cycle window."""
     card = frappe.get_doc("CFG Kanban Card", card_name)
+    if card.card_type not in ("Physical Unit Card", "Physical Batch Card"):
+        frappe.throw(
+            f"{card.card_type} cannot create a replenishment Signal or Cycle. "
+            "Use the operator panel assigned to that card type."
+        )
+    if not card.kanban_master:
+        frappe.throw("A replenishment card must be linked to a Kanban Master")
     if not card.active or card.blocked:
         frappe.throw("Kanban card is inactive or blocked")
     if card.active_cycle:

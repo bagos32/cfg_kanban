@@ -4,6 +4,9 @@ frappe.ui.form.on("CFG Kanban Card", {
 			query: "cfg_kanban.api.form_queries.master_operations",
 			filters: { kanban_master: frm.doc.kanban_master || "" },
 		}));
+		frm.set_query("doctype_action_profile", () => ({
+			filters: { enabled: 1, validation_status: "Valid" },
+		}));
 	},
 	kanban_master(frm) {
 		frm.set_value("operation", null);
@@ -54,9 +57,12 @@ frappe.ui.form.on("CFG Kanban Card", {
 		if (frm.doc.card_type !== "Task Card" && frm.doc.task_schedule) {
 			frm.set_value("task_schedule", null);
 		}
+		if (frm.doc.card_type !== "DocType Action Card" && frm.doc.doctype_action_profile) {
+			frm.set_value("doctype_action_profile", null);
+		}
 		if (!production && frm.doc.kanban_master) {
 			frappe.show_alert({
-				message: __("Service identity cards do not use a Kanban Master. Select a physical card for stock control."),
+				message: __("Permanent identity and DocType Action cards do not use a Kanban Master. Select a physical card for stock control."),
 				indicator: "orange",
 			});
 		}
@@ -93,6 +99,10 @@ frappe.ui.form.on("CFG Kanban Card", {
 			frm.add_custom_button(__("Print Workstation Queue Card"), () => cfg_card_print(frm,
 				"CFG Workstation Queue Card"), __("Print Kanban"));
 			frm.add_custom_button(__("Open Production Operator Panel"), () => frappe.set_route("kanban-operator"));
+		}
+		if (frm.doc.card_type === "DocType Action Card") {
+			frm.add_custom_button(__("Print DocType Action Card"), () => cfg_card_print(frm,
+				"CFG DocType Action Card"), __("Print Kanban"));
 		}
 		if (frm.doc.active) {
 			frm.add_custom_button(__("Replace Card Identity"), () => cfg_replace_card(frm),

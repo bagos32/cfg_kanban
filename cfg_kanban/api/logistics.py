@@ -470,6 +470,11 @@ def lookup_logistics_tag(scan_value, operator_session_token):
     card_name = _resolve_kanban_card_scan(scan_value)
     if card_name:
         card = frappe.get_doc("CFG Kanban Card", card_name)
+        if card.card_type == "DocType Action Card":
+            frappe.throw(
+                "This is a non-production DocType Action Card. Open it in the Service Task "
+                "panel; the Logistics panel cannot receive, transfer, withdraw, or dispatch it."
+            )
         master = (frappe.get_doc("CFG Kanban Master", card.kanban_master)
                   if card.kanban_master else None)
         result = {"identity": {"identity_type": "Kanban Card", "name": card_name}}

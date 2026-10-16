@@ -22,6 +22,11 @@ def scan(token, action="consume", device_id=None, event_token=None, payload=None
     frappe.db.set_value("CFG Kanban Card", card_name, "last_scan_time", now_datetime())
     if action == "consume":
         card_type = frappe.db.get_value("CFG Kanban Card", card_name, "card_type")
+        if card_type == "DocType Action Card":
+            frappe.throw(
+                "DocType Action Cards do not create production Cycles. Open this card in the "
+                "Service Task panel after the direct Action resolver is enabled."
+            )
         if card_type in ("Asset Card", "Location Card", "Task Card", "Workstation Queue Card"):
             frappe.throw(
                 "Permanent access cards do not create production Cycles. Open the matching "

@@ -14,6 +14,7 @@ class CFGKanbanCard(Document):
                             "Process Kanban", "Station Kanban")
         service_types = ("Asset Card", "Location Card", "Task Card")
         permanent_access_types = ("Workstation Queue Card",)
+        action_types = ("DocType Action Card",)
         behaviour = {
             "Physical Unit Card": "TRAVELLING_CARD",
             "Physical Batch Card": "TRAVELLING_CARD",
@@ -23,17 +24,20 @@ class CFGKanbanCard(Document):
             "Location Card": "LOCATION_CARD",
             "Task Card": "TASK_CARD",
             "Workstation Queue Card": "WORKSTATION_QUEUE_CARD",
+            "DocType Action Card": "DOCTYPE_ACTION_CARD",
         }
         self.card_behavior = behaviour.get(self.card_type)
-        if self.card_type in service_types + permanent_access_types and self.kanban_master:
+        if self.card_type in service_types + permanent_access_types + action_types and self.kanban_master:
             frappe.throw(
-                "Permanent identity cards cannot use a Kanban Master. For Purchase, Transfer, "
-                "Withdrawal, or production quantity control, use the corresponding physical or "
-                "runtime Kanban card."
+                "Permanent identity cards cannot use a Kanban Master. DocType Action cards "
+                "also cannot use a Kanban Master. "
+                "For Purchase, Transfer, Withdrawal, or production quantity control, use the "
+                "corresponding physical or runtime Kanban card."
             )
         if self.card_type in production_types and not self.kanban_master:
             frappe.throw("Kanban Master is required for a production card")
         self._copy_master_context()
+        self._validate_doctype_action_card()
         if self.kanban_master:
             master = frappe.get_cached_doc("CFG Kanban Master", self.kanban_master)
             if (master.control_type in ("Purchase Replenishment", "Transfer", "Withdrawal")
@@ -71,6 +75,60 @@ class CFGKanbanCard(Document):
             frappe.throw("Task Schedule is required for a Task Card")
         if self.card_type != "Task Card":
             self.task_schedule = None
+
+    def _validate_doctype_action_card(self):
+        before = None if self.is_new() else self.get_doc_before_save()
+        is_action_card = self.card_type == "DocType Action Card"
+        was_action_card = bool(before and before.card_type == "DocType Action Card")
+
+        if before and is_action_card != was_action_card:
+            frappe.throw(
+                "A saved Card cannot be converted to or from a DocType Action Card. "
+                "Create a new card identity instead."
+            )
+        if before and is_action_card and (
+                before.doctype_action_profile != self.doctype_action_profile):
+            frappe.throw(
+                "DocType Action Profile is immutable after the Card is created. "
+                "Use Replace Card Identity when a different physical card is required, or "
+                "create a new DocType Action Card for a different profile."
+            )
+        if not is_action_card:
+            self.doctype_action_profile = None
+            return
+
+        if self.is_new() and not self.flags.get("doctype_action_replacement"):
+            from cfg_kanban.services.doctype_actions import require_configuration_role
+            require_configuration_role()
+        if not self.doctype_action_profile:
+            frappe.throw("DocType Action Profile is required for a DocType Action Card")
+        if self.active_cycle:
+            frappe.throw(
+                "DocType Action Cards cannot have a Kanban Cycle. Cancel or reconcile the "
+                "incorrect production linkage before using this card."
+            )
+
+        if self.is_new() or self.active:
+            from cfg_kanban.services.doctype_actions import executable_profile_snapshot
+            profile, _snapshot, _mapping_hash = executable_profile_snapshot(
+                self.doctype_action_profile
+            )
+        else:
+            profile = frappe.get_doc(
+                "CFG Kanban DocType Action Profile", self.doctype_action_profile
+            )
+
+        # The card is a reusable non-production identity. Individual Action Runs
+        # pin the exact profile revision and own all execution lifecycle state.
+        self.company = profile.company
+        self.kanban_qty = 0
+        self.asset = None
+        self.location_reference = None
+        self.location_purpose = None
+        self.task_schedule = None
+        self.queue_company = None
+        self.current_station = None
+        self.current_warehouse = None
 
     def _copy_master_context(self):
         if not self.kanban_master:

@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.46
+**Guide version:** 1.47
 
 **Updated:** 16 October 2026
 
@@ -27,6 +27,12 @@ references and adds Employee-authorized supervisor recovery without replacing an
 Gate 1G adds an explicit development-only draft/submission pilot so the complete parent/child,
 permission, idempotency, evidence, and closure behavior can be accepted before a real target is
 allowlisted.
+
+Gate 2A adds the exact reusable **DocType Action Card** configuration and physical identity. It is
+deliberately non-production: it has no Kanban Master or quantity and cannot create a Signal, Cycle,
+Work Order, Job Card, stock movement, or logistics transaction. The direct Service Task panel
+resolver with **Resume** and **Start New Action** is the next serial Gate 2 package; until that is
+deployed, printing/configuring the card is supported but scanning it for an Action Run is not.
 
 This file is designed to be usable by a person or by another LLM without access to the development
 chat history. When this guide and an earlier chat answer disagree, use this guide for the code
@@ -86,6 +92,7 @@ much* to produce. Card Type decides *what a scan does*.
 | Asset Card | Finds open standalone Service Tasks for one Asset | Never | Asset; no Master required |
 | Location Card | Opens service work, supplier receiving, or a warehouse operations view according to Location Purpose | Never | Location Reference and, for logistics purposes, Current Warehouse; no Master |
 | Task Card | Finds open standalone Service Tasks from one Task Schedule | Never | Task Schedule; no Master required |
+| DocType Action Card | Reusable identity for a controlled allowlisted DocType Action Profile | Never | Enabled and Valid DocType Action Profile; no Master or quantity |
 
 A Purchase Replenishment, Transfer, or Withdrawal Master uses a **Physical Unit Card** or
 **Physical Batch Card**. It never requires a Task Schedule. A **Task Card** is a separate service
@@ -516,9 +523,11 @@ evidence check, and recovery check are in
 does not itself complete Gate 1: both live-site pilots must pass, and one Run must produce exactly
 one linked target containing the expected parent values and child rows.
 
-**Current Gate 1G boundary:** the reusable Service Task engine and its controlled pilot fixtures are
+**Current Gate 2A boundary:** the reusable Service Task engine and its controlled pilot fixtures are
 prepared in code. Gate 1 becomes accepted only after the documented live-site pilot passes. The
-Phase 2 direct **DocType Action Card** remains the next development gate and must reuse this engine.
+direct **DocType Action Card** can now be configured, validated, replaced, and printed without any
+production lifecycle. Direct scan resolution with **Resume / Start New Action** remains the next
+Gate 2 package and must reuse the same engine.
 
 The runtime trigger uses the **Master's Automation Level** (`automation_level`). `Automatic`
 creates/executes the Work Order command immediately only when the Before Cycle Start gate is open.
@@ -872,6 +881,7 @@ Complete:
 | Asset (`asset`) | Required only for Asset Card |
 | Location Reference (`location_reference`) | Required only for Location Card |
 | Task Schedule (`task_schedule`) | Required only for a standalone service Task Card; leave it out of Purchase, Transfer, and Withdrawal cards |
+| DocType Action Profile (`doctype_action_profile`) | Required only for DocType Action Card; the profile must be enabled, Valid, and backed by an approved target policy |
 | Queue Company (`queue_company`) | Required only for Workstation Queue Card |
 | Current Station (`current_station`) | Required only for Workstation Queue Card |
 | Location Purpose (`location_purpose`) | General Service Point, Supplier Receiving, or Warehouse Operations |
@@ -881,9 +891,11 @@ Complete:
 
 Exact **Card Type** (`card_type`) options are: `Physical Unit Card`, `Physical Batch Card`,
 `Process Kanban`, `Station Kanban`, `Workstation Queue Card`, `Asset Card`, `Location Card`, and
-`Task Card`. The first four card types are Master-backed operational cards; their Master Control
+`Task Card`, and `DocType Action Card`. The first four card types are Master-backed operational cards; their Master Control
 Type decides whether the Card controls Production, Purchase Replenishment, Transfer, or Withdrawal.
-Workstation Queue, Asset, Location, and Task cards are permanent identities without a Kanban Master.
+Workstation Queue, Asset, Location, Task, and DocType Action cards are permanent identities without a
+Kanban Master. A DocType Action Card also carries zero Kanban quantity and stays `Available`; each
+separate Action Run owns its own immutable lifecycle.
 **Card Behaviour** (`card_behavior`), current state, QR, UUID, active Cycle, handoff mode, and most
 location/status fields are derived or system-maintained.
 
@@ -908,6 +920,11 @@ For permanent access cards use their specific saved-card print action:
 - **Workstation Queue Card:** Print Kanban → Print Workstation Queue Card.
 - **Supplier Receiving Location Card:** Print Kanban → Print Supplier Receiving Location Card.
 - **Warehouse Operations Location Card:** Print Kanban → Print Warehouse Operations Card.
+- **DocType Action Card:** Print Kanban → Print DocType Action Card (CR80 horizontal).
+
+Only **System Manager** or **CFG Kanban System Maintenance** may issue a new DocType Action Card.
+Its linked profile cannot be changed after creation. Disable the card if the physical identity must
+stop working; use **Replace Card Identity** for a controlled replacement with audit history.
 
 ### Step 6 — Trigger the first replenishment
 
@@ -3171,6 +3188,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.47 | 16 October 2026 | Added Gate 2A exact non-production DocType Action Card configuration, enabled/Valid profile validation, immutable profile identity, zero production quantity, explicit production/logistics isolation, controlled replacement support, and a dedicated CR80 QR print format; direct Resume/Start New scan resolution remains the next serial package |
 | 1.46 | 16 October 2026 | Added Gate 1G explicit development-only draft and submittable pilot targets with repeatable observation rows, an administrator-triggered idempotent pilot policy/profile installer, exact-name-only engine isolation, normal Kanban Terminal target permissions, automated contract tests, and a standalone live acceptance guide |
 | 1.45 | 16 October 2026 | Added Gate 1F stable private-media references and supervised recovery: available same-Task evidence is pinned by registry ID without copying S3 binaries or signed URLs; the mapped form opens evidence through authorized temporary links; the Supervisor Action Centre lists document recovery attention; and a scanned Supervisor can return an unposted Run to its existing form or reconcile the exact linked target docstatus with immutable attempt/event audit |
 | 1.44 | 16 October 2026 | Added Gate 1E phone/tablet mapped document form in the Service Task panel: automatic exact-event opening, visible/read-only parent mappings, safe reactive conditions, repeatable first-level child row cards, Draft-versus-Submit controls, same-dialog failure/retry, pending-task resume button, terminal-state/target feedback, and exact-Run resume access for the initiating verifier |

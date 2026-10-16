@@ -31,7 +31,9 @@ def record_print(doctype, name, print_format, reason=None):
 
 @frappe.whitelist()
 def replace_card(card_name, new_card_number, reason):
-    frappe.only_for(("Manufacturing Manager", "System Manager"))
+    frappe.only_for((
+        "Manufacturing Manager", "CFG Kanban System Maintenance", "System Manager",
+    ))
     old = frappe.get_doc("CFG Kanban Card", card_name)
     if not reason:
         frappe.throw("Replacement reason is required")
@@ -48,6 +50,8 @@ def replace_card(card_name, new_card_number, reason):
     new.current_state = old.current_state
     new.blocked = 0
     new.blocked_reason = None
+    if old.card_type == "DocType Action Card":
+        new.flags.doctype_action_replacement = True
     new.insert()
     if old.active_cycle:
         frappe.db.set_value("CFG Kanban Cycle", old.active_cycle, "kanban_card", new.name)

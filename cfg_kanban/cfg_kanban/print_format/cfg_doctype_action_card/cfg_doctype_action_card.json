@@ -1,0 +1,19 @@
+{
+ "doctype": "Print Format",
+ "name": "CFG DocType Action Card",
+ "module": "CFG Kanban",
+ "doc_type": "CFG Kanban Card",
+ "standard": "Yes",
+ "custom_format": 1,
+ "print_format_type": "Jinja",
+ "print_format_builder": 0,
+ "disabled": 0,
+ "raw_printing": 0,
+ "show_section_headings": 0,
+ "margin_top": 0,
+ "margin_bottom": 0,
+ "margin_left": 0,
+ "margin_right": 0,
+ "html": "<div class='action-card'><div class='band'>CONTROLLED DOCTYPE ACTION</div><div class='body'><div class='details'><small>ACTION PROFILE</small><h1>{{ doc.doctype_action_profile }}</h1>{% if doc.company %}<small>COMPANY</small><h2>{{ doc.company }}</h2>{% endif %}<div class='instruction'>SCAN IN THE SERVICE TASK PANEL. SELECT RESUME OR START NEW ACTION AFTER OPERATOR AUTHORIZATION.</div></div><div class='qr'><img src='{{ get_qr_svg(doc.qr_code or doc.uuid, 180) }}'><strong>{{ doc.card_number }}</strong></div></div><div class='foot'><span>Reusable identity</span><span>Rev {{ doc.revision }}</span><span>No production cycle</span></div></div>",
+ "css": "@page{size:85.60mm 53.98mm;margin:0}html,body{width:85.60mm;height:53.98mm;margin:0!important;padding:0!important;font-family:Arial,sans-serif;color:#102a43}.action-card{width:85.60mm;height:53.98mm;border:1.1mm solid #0f766e;box-sizing:border-box;overflow:hidden;background:#f0fdfa}.band{height:8mm;background:#0f766e;color:#fff;font-size:12px;font-weight:800;letter-spacing:.5px;padding:2.4mm 3mm;box-sizing:border-box}.body{display:grid;grid-template-columns:1fr 28mm;gap:2.5mm;height:38mm;padding:2.5mm 3mm;box-sizing:border-box}.details small{display:block;font-size:6.5px;font-weight:800;color:#0f766e}.details h1{font-size:12px;line-height:1.1;margin:1mm 0 2mm;max-height:14mm;overflow:hidden}.details h2{font-size:9px;line-height:1.1;margin:.7mm 0 1.5mm;max-height:8mm;overflow:hidden}.instruction{border-left:1mm solid #f59e0b;padding:1mm 1.5mm;font-size:6.5px;line-height:1.25;font-weight:700;background:#fffbeb}.qr{text-align:center}.qr img{width:25mm;height:25mm}.qr strong{display:block;font-size:8px;line-height:1.1;word-break:break-all}.foot{height:6mm;border-top:.4mm solid #0f766e;display:flex;justify-content:space-between;align-items:center;padding:0 3mm;box-sizing:border-box;font-size:6.5px;font-weight:700;background:#ccfbf1}"
+}
