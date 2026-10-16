@@ -36,6 +36,11 @@ doctype_js = {
     "Stock Entry": "public/js/stock_entry.js",
 }
 
+doctype_list_js = {
+    "CFG Kanban DocType Action Profile":
+        "public/js/cfg_kanban_doctype_action_profile_list.js",
+}
+
 jinja = {
     "methods": [
         "cfg_kanban.services.printing.get_card_route",

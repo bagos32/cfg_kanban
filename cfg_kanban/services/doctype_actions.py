@@ -42,7 +42,12 @@ HARD_DENIED_TARGETS = {
     "CFG ERP Command", "CFG Kanban Cycle", "CFG Kanban Signal",
 }
 HARD_DENIED_MODULES = {
-    "Accounts", "Payments", "Payroll", "Users and Permissions", "Core", "CFG Kanban",
+    "Accounts", "Payments", "Payroll", "Users and Permissions", "Core",
+    "CFG Kanban", "CFG Kanban Pilot",
+}
+PILOT_TARGETS = {
+    "CFG Action Pilot Draft",
+    "CFG Action Pilot Submission",
 }
 MAX_CHILD_ROWS = 50
 
@@ -440,6 +445,12 @@ def _target_meta(target_doctype):
 
 
 def _assert_not_hard_denied(meta):
+    # These two app-owned records exist only to prove the generic writer on a
+    # harmless parent/child target.  The exception is exact-name only and an
+    # enabled target policy is still mandatory; no operational CFG Kanban
+    # DocType is opened to the generic writer.
+    if meta.name in PILOT_TARGETS and meta.module == "CFG Kanban Pilot":
+        return
     if meta.name in HARD_DENIED_TARGETS or meta.module in HARD_DENIED_MODULES:
         frappe.throw(
             _("{0} is hard-denied for the generic DocType Action Engine. Use its dedicated controlled integration.").format(

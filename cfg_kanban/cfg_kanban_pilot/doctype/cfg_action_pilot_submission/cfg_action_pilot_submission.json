@@ -1,0 +1,24 @@
+{
+ "doctype":"DocType",
+ "name":"CFG Action Pilot Submission",
+ "module":"CFG Kanban Pilot",
+ "autoname":"CFG-PILOT-SUBMIT-.YYYY.-.#####",
+ "title_field":"summary",
+ "track_changes":1,
+ "is_submittable":1,
+ "search_fields":"task_reference,performed_by,summary,outcome",
+ "field_order":["pilot_notice","task_reference","performed_by","summary","outcome","notes","observations"],
+ "fields":[
+  {"fieldname":"pilot_notice","label":"Pilot Notice","fieldtype":"HTML","options":"<div class='alert alert-warning'>Non-production Gate 1 submittable pilot record.</div>"},
+  {"fieldname":"task_reference","label":"Service Task","fieldtype":"Data","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"performed_by","label":"Performed By","fieldtype":"Link","options":"Employee","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"summary","label":"Summary","fieldtype":"Data","reqd":1,"in_list_view":1},
+  {"fieldname":"outcome","label":"Outcome","fieldtype":"Select","options":"Pass\nFail\nHold","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"notes","label":"Notes","fieldtype":"Text"},
+  {"fieldname":"observations","label":"Observations","fieldtype":"Table","options":"CFG Action Pilot Observation","reqd":1}
+ ],
+ "permissions":[
+  {"role":"Kanban Terminal","read":1,"write":1,"create":1,"submit":1,"print":1},
+  {"role":"System Manager","read":1,"write":1,"create":1,"submit":1,"print":1}
+ ]
+}

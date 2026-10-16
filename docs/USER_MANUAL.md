@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.45
+**Guide version:** 1.46
 
 **Updated:** 16 October 2026
 
@@ -24,6 +24,9 @@ Gate 1C adds the controlled server mapper/writer, Gate 1D binds that engine to e
 events with a truthful closure gate, and Gate 1E supplies the phone/tablet operator form for mapped
 parent fields and repeatable first-level child rows. Gate 1F pins authorized private-media registry
 references and adds Employee-authorized supervisor recovery without replacing an existing target.
+Gate 1G adds an explicit development-only draft/submission pilot so the complete parent/child,
+permission, idempotency, evidence, and closure behavior can be accepted before a real target is
+allowlisted.
 
 This file is designed to be usable by a person or by another LLM without access to the development
 chat history. When this guide and an earlier chat answer disagree, use this guide for the code
@@ -487,9 +490,35 @@ an opaque retry token, the Employee identity and terminal User, and creates an i
 and Event. If the target is valid but the Task gate cannot be released, the Run returns to **Needs
 Reconciliation** rather than falsely completing the Task.
 
-**Current Gate 1F boundary:** Service Task parent/child data entry, stable private-media references,
-and Employee-authorized supervisor recovery are prepared. Live non-submittable/submittable pilot
-fixtures and the Phase 2 direct `DocType Action Card` remain later serial packages.
+Gate 1F completed the Service Task parent/child data entry, stable private-media references, and
+Employee-authorized supervisor recovery foundation. Gate 1G below supplies the controlled live
+pilot targets needed to accept those paths before direct Action Cards are introduced.
+
+#### Gate 1 live pilot fixtures (Gate 1G)
+
+Gate 1G supplies two harmless app-owned destination records in the isolated **CFG Kanban Pilot**
+module:
+
+- **CFG Action Pilot Draft** is not submittable and proves the `Draft Created` path;
+- **CFG Action Pilot Submission** is submittable and proves the `Submitted` path;
+- both use **CFG Action Pilot Observation** to prove repeatable child-row mapping.
+
+Nothing is automatically allowlisted during install or migrate. A System Manager or
+**CFG Kanban System Maintenance** user opens the **CFG Kanban DocType Action Profile** list and
+selects **Install Gate 1 Pilot**. This explicitly creates/restores the two named policies and Valid
+profiles **CFG Gate 1 Pilot - Draft** and **CFG Gate 1 Pilot - Submit**. The normal shared terminal
+User must hold the **Kanban Terminal** ERPNext role; the engine still performs the target's normal
+Create/Write/Submit checks.
+
+The complete independent acceptance procedure, sample values, expected states, negative cases,
+evidence check, and recovery check are in
+[`docs/TEST_GATE1_DOCTYPE_ACTION_PILOT.md`](TEST_GATE1_DOCTYPE_ACTION_PILOT.md). A code deployment
+does not itself complete Gate 1: both live-site pilots must pass, and one Run must produce exactly
+one linked target containing the expected parent values and child rows.
+
+**Current Gate 1G boundary:** the reusable Service Task engine and its controlled pilot fixtures are
+prepared in code. Gate 1 becomes accepted only after the documented live-site pilot passes. The
+Phase 2 direct **DocType Action Card** remains the next development gate and must reuse this engine.
 
 The runtime trigger uses the **Master's Automation Level** (`automation_level`). `Automatic`
 creates/executes the Work Order command immediately only when the Before Cycle Start gate is open.
@@ -3142,6 +3171,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.46 | 16 October 2026 | Added Gate 1G explicit development-only draft and submittable pilot targets with repeatable observation rows, an administrator-triggered idempotent pilot policy/profile installer, exact-name-only engine isolation, normal Kanban Terminal target permissions, automated contract tests, and a standalone live acceptance guide |
 | 1.45 | 16 October 2026 | Added Gate 1F stable private-media references and supervised recovery: available same-Task evidence is pinned by registry ID without copying S3 binaries or signed URLs; the mapped form opens evidence through authorized temporary links; the Supervisor Action Centre lists document recovery attention; and a scanned Supervisor can return an unposted Run to its existing form or reconcile the exact linked target docstatus with immutable attempt/event audit |
 | 1.44 | 16 October 2026 | Added Gate 1E phone/tablet mapped document form in the Service Task panel: automatic exact-event opening, visible/read-only parent mappings, safe reactive conditions, repeatable first-level child row cards, Draft-versus-Submit controls, same-dialog failure/retry, pending-task resume button, terminal-state/target feedback, and exact-Run resume access for the initiating verifier |
 | 1.43 | 16 October 2026 | Added Gate 1D Service Task binding: optional validated Action Profile plus exact Start/Complete/Verification trigger and required-closure setting on Task Schedule; immutable occurrence snapshot; automatic one-Run resolution; explicit Pending Document Posting status; posting-policy-aware release; premature-submit validation; linked Task events; and controlled Run cancellation on Task disposition. Phone/tablet mapped form remains Gate 1E |

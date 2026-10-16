@@ -2,6 +2,8 @@
 
 For the standalone, code-verified setup and operating source of truth, see the
 [CFG Kanban Code-Verified Operating Guide](docs/USER_MANUAL.md).
+The development-only acceptance procedure for the reusable Service Task DocType Action Engine is
+[Gate 1 DocType Action Service Task Pilot](docs/TEST_GATE1_DOCTYPE_ACTION_PILOT.md).
 The consolidated model is documented in
 [Enhanced V1 Core Architecture](docs/ENHANCED_CORE_ARCHITECTURE.md).
 The approved multi-company stock-tag and customer-delivery extension is documented in

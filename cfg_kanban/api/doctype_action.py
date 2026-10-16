@@ -1,6 +1,7 @@
 import frappe
 
 from cfg_kanban.services import doctype_actions
+from cfg_kanban.services.doctype_action_pilot import install_pilot_configuration
 
 
 @frappe.whitelist()
@@ -35,6 +36,13 @@ def preview_operator_form(profile_name):
     profile = frappe.get_doc("CFG Kanban DocType Action Profile", profile_name)
     profile.check_permission("read")
     return doctype_actions.profile_preview(profile)
+
+
+@frappe.whitelist(methods=["POST"])
+def install_gate1_pilot():
+    """Install the explicit, non-production Gate 1 pilot allowlist and profiles."""
+    doctype_actions.require_configuration_role()
+    return install_pilot_configuration()
 
 
 @frappe.whitelist()
