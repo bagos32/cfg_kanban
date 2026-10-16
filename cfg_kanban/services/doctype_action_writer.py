@@ -46,6 +46,16 @@ def get_operator_form(run_name, operator_session_token):
     meta = frappe.get_meta(run.target_doctype)
     configuration = snapshot["configuration"]
     payload = _stored_payload(run)
+    current_parent = {}
+    for mapping in configuration.get("parent") or []:
+        current = (payload.get("parent") or {}).get(mapping["fieldname"])
+        if current is None:
+            if mapping.get("source_type") == "Operator Input":
+                current = mapping.get("default_value")
+            else:
+                current = _resolve_mapping_value(mapping, task, profile, {})
+        current_parent[mapping["fieldname"]] = current
+    condition_values = _condition_context(task, profile, current_parent)
     parent_fields = []
     for mapping in sorted(configuration.get("parent") or [], key=_display_order):
         if not cint(mapping.get("show_to_operator", 1)):
@@ -53,10 +63,14 @@ def get_operator_form(run_name, operator_session_token):
         field = meta.get_field(mapping["fieldname"])
         if not field:
             continue
-        current = (payload.get("parent") or {}).get(mapping["fieldname"])
-        if current is None and mapping.get("source_type") != "Operator Input":
-            current = _resolve_mapping_value(mapping, task, profile, {})
-        parent_fields.append(_form_field(field, mapping, current))
+        parent_fields.append(_form_field(
+            field,
+            mapping,
+            current_parent.get(mapping["fieldname"]),
+            visible=_condition_matches(
+                mapping.get("visible_condition"), condition_values
+            ),
+        ))
 
     child_tables = []
     saved_children = payload.get("children") or {}
@@ -70,7 +84,10 @@ def get_operator_form(run_name, operator_session_token):
         for mapping in columns_by_table.get(table["table_fieldname"], []):
             child_field = child_meta.get_field(mapping["fieldname"])
             if child_field and cint(mapping.get("show_to_operator", 1)):
-                columns.append(_form_field(child_field, mapping, None))
+                default = mapping.get("default_value")
+                if mapping.get("source_type") != "Operator Input":
+                    default = _resolve_mapping_value(mapping, task, profile, {})
+                columns.append(_form_field(child_field, mapping, default))
         child_tables.append({
             "fieldname": table["table_fieldname"],
             "label": table.get("operator_heading") or table_field.label,
@@ -96,6 +113,14 @@ def get_operator_form(run_name, operator_session_token):
         "operator": profile.employee,
         "parent_fields": parent_fields,
         "child_tables": child_tables,
+        # Only values deliberately referenced by a configured condition are
+        # returned. This permits truthful client-side visibility without
+        # exposing the rest of the Task/context payload.
+        "condition_context": _condition_context_for_form(
+            configuration, condition_values
+        ),
+        "last_error_code": run.last_error_code,
+        "last_error": run.last_error,
         "target_link": _target_link(run),
     }
 
@@ -743,18 +768,49 @@ def _assert_create_permission(target_doctype):
         ).format(frappe.session.user, target_doctype), frappe.PermissionError)
 
 
-def _form_field(field, mapping, current):
+def _form_field(field, mapping, current, visible=True):
     return {
         "fieldname": field.fieldname,
         "label": mapping.get("operator_label") or field.label or field.fieldname,
         "fieldtype": field.fieldtype,
         "options": field.options,
+        "source_type": mapping.get("source_type"),
         "required": bool(cint(mapping.get("required_in_kanban")) or cint(field.reqd)),
         "read_only": bool(cint(mapping.get("read_only"))
                           or mapping.get("source_type") != "Operator Input"),
         "visible_condition": mapping.get("visible_condition"),
+        "visible": bool(visible),
         "default": current if current is not None else mapping.get("default_value"),
     }
+
+
+def _condition_context_for_form(configuration, values):
+    referenced = set()
+    for mapping in (configuration.get("parent") or []):
+        referenced.update(_condition_fieldnames(mapping.get("visible_condition")))
+    for mapping in (configuration.get("columns") or []):
+        referenced.update(_condition_fieldnames(mapping.get("visible_condition")))
+    referenced.update(_condition_fieldnames(configuration.get("trigger_condition")))
+    return _json_safe({key: values.get(key) for key in referenced if key in values})
+
+
+def _condition_fieldnames(condition):
+    if not condition:
+        return set()
+    if isinstance(condition, str):
+        try:
+            condition = json.loads(condition)
+        except (TypeError, ValueError):
+            return set()
+    if not isinstance(condition, dict):
+        return set()
+    for group in ("all", "any"):
+        if group in condition:
+            fields = set()
+            for child in condition.get(group) or []:
+                fields.update(_condition_fieldnames(child))
+            return fields
+    return {condition.get("field")} if condition.get("field") else set()
 
 
 def _columns_by_table(configuration):

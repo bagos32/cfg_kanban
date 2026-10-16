@@ -87,3 +87,27 @@ class TestDocTypeActionWriter(TestCase):
         self.assertIn("authorize_run_actor(run, operator_session_token)", source)
         self.assertIn("terminal_user", (ROOT / "services" / "doctype_action_runs.py").read_text())
 
+    def test_operator_form_supports_safe_dynamic_parent_and_child_inputs(self):
+        writer = (ROOT / "services" / "doctype_action_writer.py").read_text()
+        page = (
+            ROOT / "cfg_kanban" / "page" / "kanban_tasks" / "kanban_tasks.js"
+        ).read_text()
+        self.assertIn('"condition_context": _condition_context_for_form(', writer)
+        self.assertIn('"source_type": mapping.get("source_type")', writer)
+        self.assertIn('"visible": bool(visible)', writer)
+        self.assertIn("_condition_fieldnames", writer)
+        self.assertIn(
+            "cfg_kanban.api.doctype_action_run.get_operator_form", page
+        )
+        self.assertIn("mount_action_child_table", page)
+        self.assertIn("action_condition_matches", page)
+        self.assertIn("Complete Required Document", page)
+        self.assertIn("cfg_kanban.api.doctype_action_run.post", page)
+        self.assertIn("dialog.__cfg_action_retry_token", page)
+
+    def test_run_creator_can_finish_exact_run_after_task_status_transition(self):
+        runs = (ROOT / "services" / "doctype_action_runs.py").read_text()
+        self.assertIn("_assert_task_access(task, profile, run=run)", runs)
+        self.assertIn("run.operator_employee == profile.employee", runs)
+        self.assertIn("workstation_allowed(task.workstation, profile)", runs)
+

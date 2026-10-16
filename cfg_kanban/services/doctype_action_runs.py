@@ -323,7 +323,7 @@ def authorize_run_actor(run, operator_session_token):
     profile, session = require_operator(
         operator_session_token, action, workstation=task.workstation
     )
-    _assert_task_access(task, profile)
+    _assert_task_access(task, profile, run=run)
     return task, profile, session
 
 
@@ -358,8 +358,19 @@ def _authorized_supervisor(run, operator_session_token):
     return profile, session
 
 
-def _assert_task_access(task, profile):
+def _assert_task_access(task, profile, run=None):
     if can_view_service_task(task, profile):
+        return
+    # The Employee who resolved this exact immutable Run must be able to
+    # finish its form after the source event changes the Task's status. This
+    # is especially important for a verifier-created Run: the verifier is not
+    # necessarily the Task's assigned Employee once it enters the document
+    # posting gate. Workstation scope is still rechecked on every request.
+    if (
+        run
+        and run.operator_employee == profile.employee
+        and workstation_allowed(task.workstation, profile)
+    ):
         return
     if (
         profile.kanban_role in ("Supervisor", "Development Proxy")

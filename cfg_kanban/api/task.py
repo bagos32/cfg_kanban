@@ -1,4 +1,5 @@
 import frappe
+from frappe.utils import cint
 
 from cfg_kanban.services.operator_auth import require_operator
 from cfg_kanban.services.media import list_reference_media
@@ -15,6 +16,7 @@ from cfg_kanban.services.task_access import (
     can_view_service_task,
     can_view_all_service_tasks,
     responsibility_names,
+    workstation_allowed,
 )
 
 
@@ -42,14 +44,39 @@ def get_open_tasks(operator_session_token=None):
             fields=["employee", "kanban_role"],
         )
     } if assigned_employees else {}
+    action_run_names = {row.doctype_action_run for row in rows if row.doctype_action_run}
+    action_runs = {
+        row.name: row for row in frappe.get_all(
+            "CFG Kanban DocType Action Run",
+            filters={"name": ["in", list(action_run_names)]},
+            fields=["name", "operator_employee", "state", "source_event"],
+        )
+    } if action_run_names else {}
     visible = []
     for row in rows:
+        action_run = action_runs.get(row.doctype_action_run)
+        row["doctype_action_state"] = action_run.state if action_run else None
+        resume_flag = {
+            "Task Start": "can_start",
+            "Task Complete": "can_complete",
+            "Supervisor Verification": "can_verify_tasks",
+        }.get(action_run.source_event) if action_run else None
+        row["can_resume_action"] = bool(
+            action_run
+            and action_run.operator_employee == profile.employee
+            and workstation_allowed(row.workstation, profile)
+            and resume_flag
+            and cint(profile.get(resume_flag))
+        )
         row["can_operate"] = can_access_service_task(row, profile)
         row["can_assist"] = can_assist_service_task(
             row, profile, assigned_roles.get(row.assigned_employee)
         )
         row["monitor_only"] = not row.can_operate and not row.can_assist
-        if can_view_service_task(row, profile, assigned_roles.get(row.assigned_employee)):
+        if (row.can_resume_action
+                or can_view_service_task(
+                    row, profile, assigned_roles.get(row.assigned_employee)
+                )):
             visible.append(row)
     return visible[:200]
 

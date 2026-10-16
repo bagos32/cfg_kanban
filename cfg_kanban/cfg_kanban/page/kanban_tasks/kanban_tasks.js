@@ -373,11 +373,17 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				${task.status === "Pending Document Posting" ? `<div class="alert alert-warning cfg-correction-request">
 					<strong>${__("Required document is pending")}</strong><br>
 					${__("This task will not be shown as completed until its controlled DocType Action reaches the configured Draft or Submitted result.")}
-					${task.doctype_action_run ? `<small>${__("Action Run")}: ${e(task.doctype_action_run)}</small>` : ""}</div>` : ""}
+					${task.doctype_action_run ? `<small>${__("Action Run")}: ${e(task.doctype_action_run)} · ${e(task.doctype_action_state || __("Form pending"))}</small>` : ""}</div>` : ""}
 				<div class="actions cfg-service-task-actions"></div></div>`).appendTo($section);
 			const $actions = $row.find(".actions");
 			const can_execute = task.can_operate || task.can_assist;
 			if (task.progress_count) button($actions, __("View Progress"), "btn-default", () => progress_history_dialog(task));
+			if (task.doctype_action_run && can_open_action(task, can_execute)) button(
+				$actions,
+				task.status === "Pending Document Posting" ? __("Complete Required Document") : __("Open Document Form"),
+				task.status === "Pending Document Posting" ? "btn-warning" : "btn-default",
+				() => open_action_form(task.doctype_action_run, task),
+			);
 			if (task.can_operate && ["Planned", "Due", "Assigned", "Overdue"].includes(task.status)) button($actions, __("Start"), "btn-primary", () => task_dialog(task, "Start"));
 			if (can_execute && task.started_on && ["In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, __("Report Progress"), "btn-info", () => task_dialog(task, "Progress"));
 			const start_action_ready = task.doctype_action_trigger !== "On Task Start" || task.doctype_action_run;
@@ -465,8 +471,14 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 					values: visible_dynamic_definitions(definitions, values).map((definition) => ({ field_key: definition.field_key,
 						value: values[`dynamic_${definition.field_key}`] })), notes: values.notes };
 				if (action === "Complete") args.checklist_results = checklist.map((item, index) => ({ item, completed: values[`check_${index}`] ? 1 : 0 }));
-				await frappe.call({ method: `cfg_kanban.api.task.${method}`, args, freeze: true });
-				dialog.hide(); await load();
+				const result = await frappe.call({ method: `cfg_kanban.api.task.${method}`, args, freeze: true });
+				const updated_task = result.message || {};
+				dialog.hide();
+				if (updated_task.doctype_action_run && should_open_action_after_event(updated_task, action)) {
+					await open_action_form(updated_task.doctype_action_run, updated_task);
+					return;
+				}
+				await load();
 				if (action === "Start") scroll_to_active_work();
 			} });
 		if (action === "Verify") {
@@ -486,6 +498,345 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		dialog.show();
 		configure_dynamic_visibility(dialog, definitions);
 		bind_media_evidence(dialog, task, action, existing_media);
+	}
+
+	function can_open_action(task, can_execute) {
+		const permissions = (state.operator && state.operator.permissions) || {};
+		if (task.can_resume_action) return true;
+		if (task.doctype_action_trigger === "After Supervisor Verification") {
+			return Boolean(task.can_operate && permissions.task_verify);
+		}
+		if (task.doctype_action_trigger === "On Task Start") {
+			return Boolean(can_execute && permissions.task_start);
+		}
+		return Boolean(can_execute && permissions.task_complete);
+	}
+
+	function should_open_action_after_event(task, action) {
+		if (task.status === "Pending Document Posting") return true;
+		return (action === "Start" && task.doctype_action_trigger === "On Task Start") ||
+			(action === "Complete" && task.doctype_action_trigger === "On Task Complete") ||
+			(action === "Verify" && task.doctype_action_trigger === "After Supervisor Verification");
+	}
+
+	async function open_action_form(run_name, task) {
+		const response = await frappe.call({
+			method: "cfg_kanban.api.doctype_action_run.get_operator_form",
+			args: { run_name, operator_session_token: state.token },
+			freeze: true,
+			freeze_message: __("Loading required document form..."),
+		});
+		const form = response.message || {};
+		const run = form.run || {};
+		const blocked_states = ["Posting", "Draft Created", "Submitted", "Skipped by Condition", "Needs Reconciliation", "Cancelled"];
+		const can_post = !blocked_states.includes(run.state);
+		const parent_fields = form.parent_fields || [];
+		const parent_names = new Map();
+		const fields = [
+			{ fieldname: "action_summary", fieldtype: "HTML", options: action_summary_html(form, task) },
+		];
+		if (parent_fields.length) fields.push({ fieldtype: "Section Break", label: __("Document Details") });
+		parent_fields.forEach((field, index) => {
+			const dialog_name = `action_parent_${index}`;
+			parent_names.set(field.fieldname, dialog_name);
+			fields.push(action_parent_dialog_field(field, dialog_name));
+		});
+		(form.child_tables || []).forEach((table, index) => {
+			fields.push({ fieldtype: "Section Break", label: table.label });
+			fields.push({ fieldname: `action_child_${index}`, fieldtype: "HTML",
+				options: action_child_shell_html(table) });
+		});
+		fields.push({ fieldname: "action_result", fieldtype: "HTML",
+			options: action_result_html(form) });
+
+		const options = { title: form.form_title || __("Required Document"), size: "extra-large", fields };
+		let dialog;
+		if (can_post) {
+			options.primary_action_label = form.posting_policy === "Submit When Authorized" ?
+				__("Submit Document") : __("Save Document");
+			options.primary_action = async () => post_action_form(dialog, form, parent_fields, parent_names);
+		}
+		dialog = new frappe.ui.Dialog(options);
+		dialog.__cfg_action_child_managers = [];
+		dialog.__cfg_action_retry_token = null;
+		dialog.$wrapper.addClass("cfg-service-task-dialog cfg-action-operator-dialog");
+		dialog.show();
+		(form.child_tables || []).forEach((table, index) => {
+			dialog.__cfg_action_child_managers.push(mount_action_child_table(
+				dialog, table, index, form, () => action_parent_values(dialog, parent_fields, parent_names)
+			));
+		});
+		configure_action_visibility(dialog, form, parent_fields, parent_names);
+		bind_action_target_link(dialog, form.target_link);
+	}
+
+	function action_summary_html(form, task) {
+		const e = frappe.utils.escape_html;
+		const run = form.run || {};
+		const instructions = e(form.form_instructions || __("Complete the mapped document details below."));
+		return `<div class="cfg-action-summary">
+			<div><small>${__("Service Task")}</small><strong>${e((form.task && form.task.task_name) || task.task_name || "-")}</strong></div>
+			<div><small>${__("Action Run")}</small><strong>${e(run.name || "-")}</strong></div>
+			<div><small>${__("Destination")}</small><strong>${e(run.target_doctype || "-")}</strong></div>
+			<div><small>${__("Posting")}</small><strong>${e(form.posting_policy || "-")}</strong></div>
+		</div><div class="alert alert-info cfg-action-instructions">${instructions}</div>`;
+	}
+
+	function action_result_html(form) {
+		const e = frappe.utils.escape_html;
+		const run = form.run || {};
+		let indicator = "blue";
+		let message = __("Review the form, then use the button below to create the controlled document.");
+		if (["Draft Created", "Submitted", "Skipped by Condition"].includes(run.state)) {
+			indicator = "green";
+			message = run.state === "Skipped by Condition" ?
+				__("The configured condition was not met, so no destination document was required.") :
+				__("The controlled destination result has already been recorded.");
+		} else if (["Needs Reconciliation", "Cancelled"].includes(run.state)) {
+			indicator = "red";
+			message = run.state === "Needs Reconciliation" ?
+				__("Supervisor reconciliation is required before this Action Run can continue.") :
+				__("This Action Run was cancelled and cannot be posted.");
+		} else if (run.state === "Posting") {
+			indicator = "orange";
+			message = __("A previous posting attempt has an uncertain result. Refresh or ask a supervisor to reconcile it; do not create another document.");
+		} else if (run.state === "Failed") {
+			indicator = "orange";
+			message = form.last_error || __("The previous controlled attempt failed. Correct the highlighted data and retry.");
+		}
+		const target = form.target_link ? `<div class="cfg-action-target mt-2">
+			<strong>${e(form.target_link.doctype)}: ${e(form.target_link.name)}</strong>
+			<button type="button" class="btn btn-default btn-sm cfg-open-action-target">${__("Open ERP Document")}</button></div>` : "";
+		return `<div class="alert alert-${indicator === "green" ? "success" : indicator === "red" ? "danger" : indicator === "orange" ? "warning" : "info"} cfg-action-result">
+			<strong>${__("Action status")}: ${e(run.state || "-")}</strong><br>${e(message)}${target}</div>`;
+	}
+
+	function action_parent_dialog_field(field, dialog_name) {
+		return {
+			fieldname: dialog_name,
+			label: field.label,
+			fieldtype: action_control_type(field.fieldtype),
+			options: field.options,
+			default: field.default,
+			read_only: field.read_only ? 1 : 0,
+			reqd: field.visible !== false && field.required && !field.read_only ? 1 : 0,
+			hidden: field.visible === false ? 1 : 0,
+			description: field.read_only ? __("Filled from approved task or server context.") : "",
+		};
+	}
+
+	function action_control_type(fieldtype) {
+		if (["Small Text", "Text", "Long Text"].includes(fieldtype)) return "Small Text";
+		return fieldtype;
+	}
+
+	function action_child_shell_html(table) {
+		const e = frappe.utils.escape_html;
+		return `<div class="cfg-action-child-table" data-table="${e(table.fieldname)}">
+			<div class="cfg-action-child-help"><span>${__("Required rows")}: ${Number(table.min_rows || 0)}–${Number(table.max_rows || 0)}</span>
+				<span>${e(table.rows_mode || "")}</span></div>
+			<div class="cfg-action-child-rows"></div>
+			<div class="cfg-action-child-footer"></div>
+		</div>`;
+	}
+
+	function configure_action_visibility(dialog, form, fields, names) {
+		const refresh = () => {
+			const values = { ...(form.condition_context || {}), ...action_parent_values(dialog, fields, names) };
+			fields.forEach((field) => {
+				const name = names.get(field.fieldname);
+				const visible = action_condition_matches(field.visible_condition, values);
+				dialog.set_df_property(name, "hidden", !visible);
+				dialog.set_df_property(name, "reqd", visible && field.required && !field.read_only);
+			});
+			(dialog.__cfg_action_child_managers || []).forEach((manager) => manager.refresh_visibility(values));
+		};
+		dialog.$wrapper.off(".cfg_action_visibility").on(
+			"change.cfg_action_visibility input.cfg_action_visibility",
+			"[data-fieldname^='action_parent_'] :input",
+			refresh,
+		);
+		refresh();
+	}
+
+	function action_parent_values(dialog, fields, names, operator_only = false) {
+		const values = {};
+		fields.forEach((field) => {
+			if (operator_only && field.read_only) return;
+			values[field.fieldname] = dialog.get_value(names.get(field.fieldname));
+		});
+		return values;
+	}
+
+	function mount_action_child_table(dialog, table, index, form, parent_values) {
+		const $wrapper = dialog.get_field(`action_child_${index}`).$wrapper.find(".cfg-action-child-table");
+		const minimum = Number(table.min_rows || 0);
+		const maximum = Number(table.max_rows || 0);
+		let rows = (table.rows || []).map((row) => ({ ...row }));
+		while (rows.length < minimum) rows.push({});
+		let views = [];
+
+		const render = () => {
+			const $rows = $wrapper.find(".cfg-action-child-rows").empty();
+			views = rows.map((row, row_index) => {
+				const $card = $(`<div class="cfg-action-child-row"><div class="cfg-action-child-row-head">
+					<strong>${__("Row {0}", [row_index + 1])}</strong>
+					<button type="button" class="btn btn-danger btn-sm cfg-remove-action-row">${__("Remove")}</button>
+				</div><div class="cfg-action-child-controls"></div></div>`).appendTo($rows);
+				const controls = {};
+				(table.columns || []).forEach((column, column_index) => {
+					const $host = $("<div class='cfg-action-child-control'></div>").appendTo($card.find(".cfg-action-child-controls"));
+					const control = frappe.ui.form.make_control({ parent: $host, render_input: true, df: {
+						fieldname: `action_child_${index}_${row_index}_${column_index}`,
+						label: column.label,
+						fieldtype: action_control_type(column.fieldtype),
+						options: column.options,
+						read_only: column.read_only ? 1 : 0,
+						reqd: column.required && !column.read_only ? 1 : 0,
+					} });
+					control.set_value(Object.prototype.hasOwnProperty.call(row, column.fieldname) ? row[column.fieldname] : column.default);
+					controls[column.fieldname] = { column, control, $host, visible: true };
+					$host.on("change input", ":input", () => {
+						row[column.fieldname] = control.get_value();
+						refresh_visibility();
+					});
+				});
+				$card.find(".cfg-remove-action-row").toggle(Boolean(table.allow_add_delete_rows && rows.length > minimum))
+					.on("click", () => { rows.splice(row_index, 1); render(); });
+				return { row, controls };
+			});
+			const can_add = Boolean(table.allow_add_delete_rows && rows.length < maximum);
+			$wrapper.find(".cfg-action-child-footer").html(can_add ?
+				`<button type="button" class="btn btn-default btn-block cfg-add-action-row">${__("Add Row")}</button>` : "");
+			$wrapper.find(".cfg-add-action-row").on("click", () => { rows.push({}); render(); });
+			refresh_visibility();
+		};
+
+		const refresh_visibility = (parent_context) => {
+			views.forEach((view) => {
+				const row_values = {};
+				Object.entries(view.controls).forEach(([fieldname, entry]) => {
+					row_values[fieldname] = entry.control.get_value();
+				});
+				const context = { ...(form.condition_context || {}), ...(parent_context || parent_values()), ...row_values };
+				Object.values(view.controls).forEach((entry) => {
+					entry.visible = action_condition_matches(entry.column.visible_condition, context);
+					entry.$host.toggle(entry.visible);
+					entry.control.df.reqd = Boolean(entry.visible && entry.column.required && !entry.column.read_only);
+					if (entry.control.refresh_label) entry.control.refresh_label();
+				});
+			});
+		};
+
+		const collect = () => {
+			if (rows.length < minimum || rows.length > maximum) {
+				throw new Error(__("{0} requires between {1} and {2} rows.", [table.label, minimum, maximum]));
+			}
+			return views.map((view, row_index) => {
+				const output = {};
+				Object.entries(view.controls).forEach(([fieldname, entry]) => {
+					if (!entry.visible || entry.column.read_only) return;
+					const value = entry.control.get_value();
+					if (entry.column.required && (value === null || value === undefined || value === "")) {
+						throw new Error(__("{0} is required in {1}, row {2}.", [entry.column.label, table.label, row_index + 1]));
+					}
+					output[fieldname] = value;
+				});
+				return output;
+			});
+		};
+
+		render();
+		return { collect, refresh_visibility };
+	}
+
+	async function post_action_form(dialog, form, parent_fields, parent_names) {
+		try {
+			const operator_values = {};
+			const context = { ...(form.condition_context || {}), ...action_parent_values(dialog, parent_fields, parent_names) };
+			parent_fields.forEach((field) => {
+				if (field.read_only || !action_condition_matches(field.visible_condition, context)) return;
+				operator_values[field.fieldname] = dialog.get_value(parent_names.get(field.fieldname));
+			});
+			const child_rows = {};
+			(form.child_tables || []).forEach((table, index) => {
+				child_rows[table.fieldname] = dialog.__cfg_action_child_managers[index].collect();
+			});
+			dialog.__cfg_action_retry_token = dialog.__cfg_action_retry_token || frappe.utils.get_random(32);
+			const response = await frappe.call({
+				method: "cfg_kanban.api.doctype_action_run.post",
+				type: "POST",
+				args: {
+					run_name: form.run.name,
+					operator_session_token: state.token,
+					retry_token: dialog.__cfg_action_retry_token,
+					operator_values,
+					child_rows,
+				},
+				freeze: true,
+				freeze_message: form.posting_policy === "Submit When Authorized" ? __("Submitting controlled document...") : __("Saving controlled document..."),
+			});
+			const result = response.message || {};
+			if (!result.ok) {
+				dialog.__cfg_action_retry_token = null;
+				update_action_result(dialog, result.message || __("The document could not be posted."), "red", result.state);
+				if (result.state === "Needs Reconciliation") dialog.get_primary_btn().prop("disabled", true).hide();
+				return;
+			}
+			dialog.__cfg_action_retry_token = null;
+			dialog.hide();
+			frappe.show_alert({ message: result.message || __("Controlled document recorded"), indicator: "green" }, 7);
+			await load();
+		} catch (error) {
+			if (error && error.message) {
+				update_action_result(dialog, error.message, "red", __("Check required values"));
+				return;
+			}
+			throw error;
+		}
+	}
+
+	function update_action_result(dialog, message, color, state_label) {
+		const e = frappe.utils.escape_html;
+		const css = color === "red" ? "danger" : color === "green" ? "success" : "warning";
+		dialog.get_field("action_result").$wrapper.html(`<div class="alert alert-${css} cfg-action-result">
+			<strong>${e(state_label || __("Document action"))}</strong><br>${e(message)}</div>`);
+	}
+
+	function bind_action_target_link(dialog, target) {
+		if (!target) return;
+		dialog.get_field("action_result").$wrapper.find(".cfg-open-action-target").on("click", () => {
+			frappe.set_route("Form", target.doctype, target.name);
+			dialog.hide();
+		});
+	}
+
+	function action_condition_matches(condition, values) {
+		if (!condition) return true;
+		if (typeof condition === "string") {
+			try { condition = JSON.parse(condition); }
+			catch (error) { return false; }
+		}
+		if (condition.all) return condition.all.every((row) => action_condition_matches(row, values));
+		if (condition.any) return condition.any.some((row) => action_condition_matches(row, values));
+		const actual = values[condition.field];
+		const expected = condition.value;
+		const equal = action_values_equal(actual, expected);
+		if (condition.operator === "equals") return equal;
+		if (condition.operator === "not_equals") return !equal;
+		const candidates = Array.isArray(expected) ? expected : [expected];
+		if (condition.operator === "in") return candidates.some((value) => action_values_equal(actual, value));
+		if (condition.operator === "not_in") return !candidates.some((value) => action_values_equal(actual, value));
+		if (condition.operator === "greater_than") return Number(actual) > Number(expected);
+		if (condition.operator === "less_than") return Number(actual) < Number(expected);
+		return false;
+	}
+
+	function action_values_equal(actual, expected) {
+		if (typeof expected === "boolean") return condition_truthy(actual) === expected;
+		if (typeof expected === "number") return Number(actual) === expected;
+		if (expected === null) return actual === null || actual === undefined || actual === "";
+		return String(actual ?? "") === String(expected);
 	}
 
 	function media_evidence_html(rows, can_upload, can_camera) {

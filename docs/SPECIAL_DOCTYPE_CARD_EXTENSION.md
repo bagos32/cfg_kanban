@@ -692,11 +692,11 @@ This status section records delivery without changing the locked revision 1.0 de
 | 2026-10-16 | Gate 1B — non-posting Action Run foundation | System-created `CFG Kanban DocType Action Run` and immutable `CFG Kanban DocType Action Attempt`; unique source/profile/primary-slot and retry identities; pinned validated profile snapshot/hash; Employee/session/terminal attribution; formal locked states; row lock and guarded transitions; source Task/Event links; sanitized failures; Supervisor-only cancellation/reconciliation controls | Prepared in code; migration and live-site validation pending |
 | 2026-10-16 | Gate 1C — controlled mapper/writer foundation | Server-authorized Action Run form contract; immutable-snapshot target and field selection; typed parent/first-level child mappings; Service Task, server, fixed and allowlisted operator values; safe trigger/visibility conditions; target metadata and terminal-User permission enforcement; normal target insert/save/submit controllers; one-target retry reuse; persisted validated payload hash; explicit Draft/Submitted/Skipped/Failed/Reconciliation outcomes | Prepared in code; migration, Service Task UI binding and live-site validation pending |
 | 2026-10-16 | Gate 1D — Service Task event binding and closure gate | Optional `doctype_action_profile`, exact Start/Complete/After Verification trigger and required-action setting on Task Schedule; immutable occurrence snapshot on `CFG Kanban Task`; automatic idempotent Run resolution; explicit `Pending Document Posting`; Draft/Submit/Skipped-aware release; premature submission/verification combination checks; Event linkage; controlled linked-Run disposition | Prepared in code; migration, Gate 1E operator form and live-site validation pending |
+| 2026-10-16 | Gate 1E — Service Task operator document form | Exact-event automatic form opening in `Kanban Service Tasks`; fixed Action destination/posting summary; approved parent controls; read-only context; safe reactive JSON visibility; mobile repeatable first-level child rows; configured row limits; explicit Save Draft versus Submit labels; idempotent retry-token retention; in-dialog controlled failure; required-pending resume; terminal/target feedback; initiating-verifier exact-Run resume | Prepared in code; migration and live-site pilot validation pending |
 
-**Current boundary after Gate 1D:** Service Task occurrences now resolve their one Action Run at the
-configured event and cannot falsely close while a required destination result is unresolved. The
-phone/tablet dynamic form that collects and posts the mapped values is Gate 1E and is not yet in the
-Service Task panel. Do not enable required bindings for normal operators before Gate 1E. Media-to-run
-linking, pilot target fixtures and the Phase 2 direct `DocType Action Card` remain subsequent serial
-packages.
+**Current boundary after Gate 1E:** Service Task occurrences resolve their one Action Run, open the
+mapped parent/child form on phone/tablet, post through the controlled writer and cannot falsely close
+while a required result is unresolved. Action-specific media linking, supervisor recovery screens,
+non-submittable/submittable live pilot fixtures and the Phase 2 direct `DocType Action Card` remain
+subsequent serial packages.
 

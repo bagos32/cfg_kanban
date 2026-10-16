@@ -114,6 +114,19 @@ class TestDocTypeActionTaskBinding(TestCase):
         service = (ROOT / "services" / "standalone_tasks.py").read_text()
         self.assertIn("action_run=task.doctype_action_run", service)
 
+    def test_service_panel_opens_action_form_at_bound_event_and_pending_gate(self):
+        api = (ROOT / "api" / "task.py").read_text()
+        page = (
+            ROOT / "cfg_kanban" / "page" / "kanban_tasks" / "kanban_tasks.js"
+        ).read_text()
+        self.assertIn("should_open_action_after_event(updated_task, action)", page)
+        self.assertIn('task.status === "Pending Document Posting"', page)
+        self.assertIn("open_action_form(updated_task.doctype_action_run", page)
+        self.assertIn("Save Document", page)
+        self.assertIn("Submit Document", page)
+        self.assertIn('row["can_resume_action"]', api)
+        self.assertIn("if (task.can_resume_action) return true", page)
+
     def test_production_process_task_schema_is_not_bound_to_action_profiles(self):
         process = self._schema("cfg_kanban_process_execution")
         fieldnames = {row["fieldname"] for row in process["fields"]}
