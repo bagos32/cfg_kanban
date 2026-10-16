@@ -676,6 +676,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			));
 		});
 		configure_action_visibility(dialog, form, parent_fields, parent_names);
+		enforce_action_parent_editability(dialog, parent_fields, parent_names);
 		bind_action_target_link(dialog, form.target_link);
 		bind_action_evidence(dialog, form, source_context);
 		bind_action_recovery(dialog, form, source_context);
@@ -787,17 +788,36 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	}
 
 	function action_parent_dialog_field(field, dialog_name) {
+		const read_only = action_field_read_only(field);
 		return {
 			fieldname: dialog_name,
 			label: field.label,
 			fieldtype: action_control_type(field.fieldtype),
 			options: field.options,
 			default: field.default,
-			read_only: field.read_only ? 1 : 0,
-			reqd: field.visible !== false && field.required && !field.read_only ? 1 : 0,
+			read_only: read_only ? 1 : 0,
+			reqd: field.visible !== false && condition_truthy(field.required) && !read_only ? 1 : 0,
 			hidden: field.visible === false ? 1 : 0,
-			description: field.read_only ? __("Filled from the approved source or server context.") : "",
+			description: read_only ? __("Filled from the approved source or server context.") : "",
 		};
+	}
+
+	function action_field_read_only(field) {
+		return field.source_type !== "Operator Input" || condition_truthy(field.read_only);
+	}
+
+	function enforce_action_parent_editability(dialog, fields, names) {
+		fields.forEach((field) => {
+			const fieldname = names.get(field.fieldname);
+			const control = dialog.get_field(fieldname);
+			if (!control) return;
+			const read_only = action_field_read_only(field);
+			control.df.read_only = read_only ? 1 : 0;
+			if (control.refresh) control.refresh();
+			if (!read_only && control.$input) {
+				control.$input.prop("readonly", false).prop("disabled", false);
+			}
+		});
 	}
 
 	function action_control_type(fieldtype) {
@@ -821,8 +841,9 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			fields.forEach((field) => {
 				const name = names.get(field.fieldname);
 				const visible = action_condition_matches(field.visible_condition, values);
+				const read_only = action_field_read_only(field);
 				dialog.set_df_property(name, "hidden", !visible);
-				dialog.set_df_property(name, "reqd", visible && field.required && !field.read_only);
+				dialog.set_df_property(name, "reqd", visible && condition_truthy(field.required) && !read_only);
 			});
 			(dialog.__cfg_action_child_managers || []).forEach((manager) => manager.refresh_visibility(values));
 		};
@@ -837,7 +858,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	function action_parent_values(dialog, fields, names, operator_only = false) {
 		const values = {};
 		fields.forEach((field) => {
-			if (operator_only && field.read_only) return;
+			if (operator_only && action_field_read_only(field)) return;
 			values[field.fieldname] = dialog.get_value(names.get(field.fieldname));
 		});
 		return values;
@@ -866,8 +887,8 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 						label: column.label,
 						fieldtype: action_control_type(column.fieldtype),
 						options: column.options,
-						read_only: column.read_only ? 1 : 0,
-						reqd: column.required && !column.read_only ? 1 : 0,
+						read_only: action_field_read_only(column) ? 1 : 0,
+						reqd: condition_truthy(column.required) && !action_field_read_only(column) ? 1 : 0,
 					} });
 					control.set_value(Object.prototype.hasOwnProperty.call(row, column.fieldname) ? row[column.fieldname] : column.default);
 					controls[column.fieldname] = { column, control, $host, visible: true };
@@ -897,7 +918,8 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				Object.values(view.controls).forEach((entry) => {
 					entry.visible = action_condition_matches(entry.column.visible_condition, context);
 					entry.$host.toggle(entry.visible);
-					entry.control.df.reqd = Boolean(entry.visible && entry.column.required && !entry.column.read_only);
+					entry.control.df.reqd = Boolean(entry.visible && condition_truthy(entry.column.required)
+						&& !action_field_read_only(entry.column));
 					if (entry.control.refresh_label) entry.control.refresh_label();
 				});
 			});
@@ -910,9 +932,10 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			return views.map((view, row_index) => {
 				const output = {};
 				Object.entries(view.controls).forEach(([fieldname, entry]) => {
-					if (!entry.visible || entry.column.read_only) return;
+					if (!entry.visible || action_field_read_only(entry.column)) return;
 					const value = entry.control.get_value();
-					if (entry.column.required && (value === null || value === undefined || value === "")) {
+					if (condition_truthy(entry.column.required)
+						&& (value === null || value === undefined || value === "")) {
 						throw new Error(__("{0} is required in {1}, row {2}.", [entry.column.label, table.label, row_index + 1]));
 					}
 					output[fieldname] = value;
@@ -930,7 +953,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			const operator_values = {};
 			const context = { ...(form.condition_context || {}), ...action_parent_values(dialog, parent_fields, parent_names) };
 			parent_fields.forEach((field) => {
-				if (field.read_only || !action_condition_matches(field.visible_condition, context)) return;
+				if (action_field_read_only(field) || !action_condition_matches(field.visible_condition, context)) return;
 				operator_values[field.fieldname] = dialog.get_value(parent_names.get(field.fieldname));
 			});
 			const child_rows = {};

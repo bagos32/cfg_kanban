@@ -49,6 +49,22 @@ class TestDocTypeActionGate1Pilot(TestCase):
             row["fieldname"] for row in observation["fields"]
         })
 
+    def test_pilot_parent_operator_inputs_remain_editable_in_dialog(self):
+        pilot = (ROOT / "services" / "doctype_action_pilot.py").read_text()
+        page = (
+            ROOT / "cfg_kanban" / "page" / "kanban_tasks" /
+            "kanban_tasks.js"
+        ).read_text()
+        for fieldname in ("summary", "outcome", "notes"):
+            self.assertIn(
+                f'("{fieldname}", "Operator Input", None', pilot
+            )
+        self.assertIn("function action_field_read_only(field)", page)
+        self.assertIn('field.source_type !== "Operator Input"', page)
+        self.assertIn("condition_truthy(field.read_only)", page)
+        self.assertIn("enforce_action_parent_editability", page)
+        self.assertIn('.prop("readonly", false).prop("disabled", false)', page)
+
     def test_engine_exception_is_exact_and_policy_is_still_required(self):
         engine = (ROOT / "services" / "doctype_actions.py").read_text()
         self.assertIn('PILOT_TARGETS = {', engine)

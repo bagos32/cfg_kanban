@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.48
+**Guide version:** 1.49
 
 **Updated:** 16 October 2026
 
@@ -3223,6 +3223,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.49 | 16 October 2026 | Corrected DocType Action parent controls so Operator Input fields consistently remain editable when Frappe serializes Check values as strings or integers; server-context and explicitly read-only fields remain protected |
 | 1.48 | 16 October 2026 | Added Gate 2B direct DocType Action Card scanning in Kanban Service Tasks, explicit Resume versus Start New intent, per-occurrence opaque Run identity, retry deduplication, operator ownership and Supervisor history scope, reusable-card form context, Task-only profile rejection, and production isolation; direct Action Run media capture remains a later package |
 | 1.47 | 16 October 2026 | Added Gate 2A exact non-production DocType Action Card configuration, enabled/Valid profile validation, immutable profile identity, zero production quantity, explicit production/logistics isolation, controlled replacement support, and a dedicated CR80 QR print format; direct Resume/Start New scan resolution remains the next serial package |
 | 1.46 | 16 October 2026 | Added Gate 1G explicit development-only draft and submittable pilot targets with repeatable observation rows, an administrator-triggered idempotent pilot policy/profile installer, exact-name-only engine isolation, normal Kanban Terminal target permissions, automated contract tests, and a standalone live acceptance guide |
