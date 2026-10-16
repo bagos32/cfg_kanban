@@ -1,6 +1,6 @@
 # CFG Kanban — Standard Quantity Reusable WIP Bin
 
-**Status:** Configuration foundation implemented; controlled runtime is the next delivery gate  
+**Status:** Configuration and immutable load-audit foundation implemented; floor scanner allocation is the next delivery gate
 **Date:** 16 October 2026  
 **ERP stock authority:** ERPNext Work Order, Job Card, and submitted Stock Entry
 
@@ -59,6 +59,22 @@ The standard quantity belongs to the Item/Operation material mapping, not to the
 This allows the same cleaned, empty physical bin type to be used for another approved Item later
 without rewriting its identity.
 
+### WIP Bin Load episode
+
+**CFG Kanban WIP Bin Load** is system-created and read-only to floor and Desk users. One record
+represents one physical fill/use episode. It snapshots the Item, Batch, standard and actual
+quantity, Cycle, Work Order, Job Card, Operation, Workstation, source, WIP Warehouse, operator
+session, and the native ERPNext Stock Entry rows.
+
+Only one active load may occupy a physical WIP bin. A Draft ERP transfer may reserve the bin, but
+cannot make its load Ready. Submitted ERP feedback changes it to Ready. Submitted consumption
+changes it to Consumed and releases the permanent bin to Empty. ERP cancellation creates a visible
+Reversed/Exception condition for controlled reconciliation rather than deleting history.
+
+Different material rows in the same BOM/Work Order may use different methods. The reusable-bin
+runtime applies only to rows explicitly configured as `Standard Quantity Reusable WIP Bin`; all
+other rows continue through normal ERP quantity or physical-tag flow.
+
 ## 4. Intended runtime sequence
 
 The next delivery gate will implement this controlled sequence:
@@ -101,8 +117,9 @@ The runtime gate must not be considered complete until it enforces all of these 
 
 ## 6. Current deployment boundary
 
-This first gate creates and validates the physical roles, pools, and Master mapping. It deliberately
-does not create Stock Entries, reserve source tags, create load episodes, or expose floor scanner
-actions. If a Master is configured to use the WIP-bin method, Work Order creation is blocked with a
-clear message and no ERP document or stock mutation occurs. Keep live Masters on **Standard ERP /
-Tag Flow** until the runtime gate is deployed and accepted.
+The first gate created the physical roles, pools, and Master mapping. The second gate adds immutable
+load episodes and native ERP Stock Entry validation/submission/cancellation reconciliation. It
+still deliberately does not expose the floor scanner action that creates and binds those episodes.
+If a Master is configured to use the WIP-bin method, Work Order creation is blocked with a clear
+message and no ERP document or stock mutation occurs. Keep live Masters on **Standard ERP / Tag
+Flow** until scanner allocation is deployed and accepted.

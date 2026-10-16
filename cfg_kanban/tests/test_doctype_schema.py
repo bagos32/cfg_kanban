@@ -1689,6 +1689,8 @@ class TestDocTypeSchema(TestCase):
                 schemas["CFG Kanban WIP Bin Pool"]["fields"]}
         pool_entry = {row["fieldname"]: row for row in
                       schemas["CFG Kanban WIP Bin Pool Entry"]["fields"]}
+        load = {row["fieldname"]: row for row in
+                schemas["CFG Kanban WIP Bin Load"]["fields"]}
         self.assertIn("Standard Quantity WIP Bin",
                       handling_unit["reusable_container_role"]["options"])
         self.assertTrue({
@@ -1700,6 +1702,14 @@ class TestDocTypeSchema(TestCase):
         self.assertTrue({"reusable_bin", "workstation", "priority", "active"}.issubset(pool_entry))
         self.assertIn("Standard Quantity Reusable WIP Bin",
                       rule["wip_presentation_method"]["options"])
+        self.assertTrue({
+            "status", "reusable_bin", "wip_bin_pool", "company", "item_code",
+            "batch_no", "standard_qty", "actual_qty", "stock_uom", "kanban_master",
+            "kanban_cycle", "work_order", "job_card", "operation", "workstation",
+            "source_warehouse", "wip_warehouse", "transfer_stock_entry",
+            "consumption_stock_entry", "idempotency_key",
+        }.issubset(load))
+        self.assertTrue(load["idempotency_key"].get("unique"))
 
         master_controller = (
             APP_ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_master" /
@@ -1720,7 +1730,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def _validate_wip_bin_rule", master_controller)
         self.assertIn("def get_bom_material_flow_preview", master_controller)
         self.assertIn("def apply_master_material_flow", service)
-        self.assertIn("controlled transfer and consumption runtime is not enabled", service)
+        self.assertIn("floor scanner allocation is not enabled", service)
         self.assertIn("def prepare_material_transfer", service)
         self.assertIn("def prepare_material_consumption", service)
         self.assertIn("def prepare_manufacture_receipt", service)
@@ -1753,6 +1763,23 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Select Job Card for Material Transfer", panel)
         self.assertIn("scanner_mode || dialog.cfg_scanner_confirmed", panel)
         self.assertIn("dialog.cfg_scanner_confirmed = true", panel)
+
+        load_controller = (
+            APP_ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_wip_bin_load" /
+            "cfg_kanban_wip_bin_load.py"
+        ).read_text()
+        load_service = (APP_ROOT / "services" / "wip_bin_loads.py").read_text()
+        feedback = (APP_ROOT / "integrations" / "erp_feedback.py").read_text()
+        self.assertIn("WIP Bin Load records are immutable", load_controller)
+        self.assertIn("def create_transfer_load", load_service)
+        self.assertIn("def bind_consumption_draft", load_service)
+        self.assertIn("def validate_wip_bin_stock_entry", load_service)
+        self.assertIn("def confirm_wip_bin_stock_entry", load_service)
+        self.assertIn("def reverse_wip_bin_stock_entry", load_service)
+        self.assertIn("for update", load_service.lower())
+        self.assertIn("confirm_wip_bin_stock_entry(doc)", feedback)
+        self.assertIn("validate_wip_bin_stock_entry(doc)", feedback)
+        self.assertIn("reverse_wip_bin_stock_entry(doc)", feedback)
         self.assertIn("dialog.onhide = restore_scanner_focus", panel)
         self.assertIn("hidden.bs.modal.cfg_scanner_restore", panel)
         self.assertIn("active_command_dialog", panel)

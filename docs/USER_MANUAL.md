@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.54
+**Guide version:** 1.55
 
 **Updated:** 16 October 2026
 
@@ -1077,7 +1077,7 @@ The four modes behave as follows:
 | Transfer to WIP by Job Card | **Prepare Operation Materials** appears per Job Card and contains only BOM components assigned to its Item Operation. Submit that operation's transfer before starting it. |
 | Skip WIP Transfer | No WIP transfer is made. When the Work Order is configured against Job Cards, **Consume Operation Materials** creates a native Draft `Material Consumption for Manufacture` for the selected Job Card; Work Order scope uses **Consume Work Order Materials**. The final Manufacture entry consumes only the remaining inputs and receives output. |
 
-#### Standard-quantity reusable WIP bins — configuration foundation
+#### Standard-quantity reusable WIP bins — configuration and audit foundation
 
 Some workstations use a physically dimensioned bin or tray whose full condition is an immediate
 visual quantity check. CFG Kanban keeps this separate from an unrestricted loose or mixed bin.
@@ -1103,13 +1103,26 @@ On the Kanban Master's **BOM Component Material Flow**, the optional fields are:
 | Qty per Full Bin (`standard_bin_qty`) | Quantity physically represented by one full bin, in the component Stock UOM |
 
 The bin selection is valid only with `Transfer to WIP by Job Card`, and its Company, Operation, and
-WIP Warehouse must match the Master. This release is the **configuration foundation only**. If a
-row is switched to `Standard Quantity Reusable WIP Bin`, Work Order creation stops with an explicit
-message until the controlled fill/transfer/consume runtime gate is deployed. This is intentional:
-the system must never silently treat a configured visual bin as ordinary tag flow or invent a
-stock movement. Keep production Masters on `Standard ERP / Tag Flow` until that runtime package is
-installed and accepted. See `docs/STANDARD_QUANTITY_WIP_BIN.md` for the locked design and delivery
-sequence.
+WIP Warehouse must match the Master. Different BOM component rows may use different presentation
+methods in the same Work Order. For example, Flour can use a standard-quantity WIP bin while Water
+and Oil remain on `Standard ERP / Tag Flow`. Only the explicitly selected Item/Operation component
+uses the bin model.
+
+This release also installs the system-created **CFG Kanban WIP Bin Load** audit record. Each record
+is one immutable load episode and snapshots the physical bin, Item, Batch, standard/actual quantity,
+Cycle, Work Order, Job Card, Operation, Workstation, source/WIP Warehouses, operator session, and
+native transfer/consumption Stock Entries. A Draft transfer may reserve the bin, but the load can
+become `Ready` only from submitted ERPNext `Material Transfer for Manufacture` feedback. Likewise,
+it can become `Consumed` and the physical bin can become `Empty` only from submitted ERPNext
+production-consumption feedback. Cancelling a linked ERP entry produces a visible reversal or
+Exception state; it does not erase the episode.
+
+The load/audit backbone is installed, but the **floor scanner allocation step is not yet enabled**.
+If a row is switched to `Standard Quantity Reusable WIP Bin`, Work Order creation therefore still
+stops with an explicit message. This is intentional: the system must never silently treat a
+configured visual bin as ordinary tag flow or invent a stock movement. Keep production Masters on
+`Standard ERP / Tag Flow` until the scanner allocation package is deployed and accepted. See
+`docs/STANDARD_QUANTITY_WIP_BIN.md` for the locked design and delivery sequence.
 
 For **Transfer to WIP by Job Card**, both the main Production Card and the activated reusable
 Process/Station operation Card can prepare the transfer. The operation Card is deliberately limited
@@ -3309,6 +3322,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.55 | 16 October 2026 | Added the immutable Standard WIP Bin Load audit backbone: per-load Item/Batch/quantity and production-context snapshots, one-active-load bin exclusivity, native ERP transfer/consumption row validation, submitted Stock Entry Ready/Consumed confirmation, cancellation reversal/Exception handling, and workspace investigation access; floor scanner allocation remains deliberately gated |
 | 1.54 | 16 October 2026 | Added the safe configuration foundation for Standard Quantity Reusable WIP Bins: a distinct Handling Unit role, strict non-mixed fixed-bin identity, one-operation/workstation WIP Bin Pools, Item-specific full-bin quantity mapping on BOM material rows, compatibility validation, workspace access, and an explicit runtime safety stop until controlled fill/consume posting is delivered |
 | 1.53 | 16 October 2026 | Added printable scanner commands for **Go to Current Work** and guarded runtime **Close Kanban Cycle**; closure now uses a scanner-ready confirmation and reuses all ERP, quantity, authorization, and Process Task gates |
 | 1.52 | 16 October 2026 | Marked Gate 2C live-site accepted and added native Skip-WIP Job Card/Work Order material consumption: controlled Draft `Material Consumption for Manufacture`, operation-card scoping, partial tagged-bundle usage, remaining tag balance, live per-Job-Card consumed/pending quantities, explicit ERP submission, scanner row selection and printable material-quantity commands |

@@ -379,6 +379,8 @@ def on_stock_entry_submit(doc, method=None):
         return
     from cfg_kanban.services.production_trace import confirm_stock_entry_trace
     confirm_stock_entry_trace(doc)
+    from cfg_kanban.services.wip_bin_loads import confirm_wip_bin_stock_entry
+    confirm_wip_bin_stock_entry(doc)
     if doc.get("cfg_return_case"):
         from cfg_kanban.integrations.return_stock_feedback import on_submit
         on_submit(doc)
@@ -553,6 +555,8 @@ def validate_stock_entry(doc, method=None):
         return
     from cfg_kanban.services.production_trace import validate_stock_entry_trace
     validate_stock_entry_trace(doc)
+    from cfg_kanban.services.wip_bin_loads import validate_wip_bin_stock_entry
+    validate_wip_bin_stock_entry(doc)
     if doc.get("cfg_return_case"):
         from cfg_kanban.integrations.return_stock_feedback import validate
         validate(doc)
@@ -620,6 +624,8 @@ def on_stock_entry_cancel(doc, method=None):
         on_internal_stock_entry_cancel(doc)
     from cfg_kanban.services.production_trace import reverse_stock_entry_trace
     reverse_stock_entry_trace(doc)
+    from cfg_kanban.services.wip_bin_loads import reverse_wip_bin_stock_entry
+    reverse_wip_bin_stock_entry(doc)
     if doc.get("cfg_return_case"):
         from cfg_kanban.integrations.return_stock_feedback import on_cancel
         on_cancel(doc)
