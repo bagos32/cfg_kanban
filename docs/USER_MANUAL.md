@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.52
+**Guide version:** 1.53
 
 **Updated:** 16 October 2026
 
@@ -1768,6 +1768,12 @@ Operational command labels have no function-key equivalent:
   controlled Work Order/Job Card allocation before activation.
 - `CFG:CMD:START` starts the operation when exactly one execution lane is Ready.
 - `CFG:CMD:REPORT_PROGRESS` opens progress entry when exactly one execution lane is eligible.
+- `CFG:CMD:GO_TO_CURRENT_WORK` scrolls the open Card to its most relevant blocking, in-progress,
+  ready, task, or material-control section while keeping the fixed scanner armed.
+- `CFG:CMD:CLOSE_CYCLE` opens the guarded final confirmation for exactly one eligible runtime
+  Process/Station Cycle. It never closes immediately: scan `CFG:CMD:CONFIRM` to proceed or
+  `CFG:CMD:CANCEL` to return. The server rechecks operator permission, full allocated quantity,
+  Process Task gate, Work Order state, Job Card state, and ERP-completed quantity before closure.
 - `CFG:CMD:PREPARE_MATERIALS` prepares the WIP or operation material transfer.
 - `CFG:CMD:PREPARE_RECEIPT` prepares final manufacture receipt/direct consumption when ready.
 - `CFG:CMD:SCAN_MATERIALS` opens the eligible Draft Stock Entry for raw-material tag scans.
@@ -3269,6 +3275,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.53 | 16 October 2026 | Added printable scanner commands for **Go to Current Work** and guarded runtime **Close Kanban Cycle**; closure now uses a scanner-ready confirmation and reuses all ERP, quantity, authorization, and Process Task gates |
 | 1.52 | 16 October 2026 | Marked Gate 2C live-site accepted and added native Skip-WIP Job Card/Work Order material consumption: controlled Draft `Material Consumption for Manufacture`, operation-card scoping, partial tagged-bundle usage, remaining tag balance, live per-Job-Card consumed/pending quantities, explicit ERP submission, scanner row selection and printable material-quantity commands |
 | 1.51 | 16 October 2026 | Marked Gate 2B live-site accepted and added Gate 2C isolated private media per direct Action Run: multiple photo/file upload, visible server-time/GPS camera stamping, recoverable pre-post archive, pending-upload guard, available-only immutable snapshot, post-snapshot lock, operator view, and supervisor Action Run gallery without attaching evidence to the reusable Card |
 | 1.50 | 16 October 2026 | Replaced the DocType Action parent-field Dialog layout path with the same direct Frappe control renderer used by working child observations, restoring editable Summary, Outcome and Notes controls while retaining read-only context fields, reactive visibility, typed collection and server allowlisting |

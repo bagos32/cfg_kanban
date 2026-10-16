@@ -119,6 +119,8 @@ def get_scanner_command_sheet(quantity_steps=None):
         ("Activate / Consume Card", "CFG:CMD:ACTIVATE", ""),
         ("Start Operation", "CFG:CMD:START", ""),
         ("Report Progress", "CFG:CMD:REPORT_PROGRESS", ""),
+        ("Go to Current Work", "CFG:CMD:GO_TO_CURRENT_WORK", ""),
+        ("Close Kanban Cycle", "CFG:CMD:CLOSE_CYCLE", ""),
         ("Prepare Transfer / Consumption", "CFG:CMD:PREPARE_MATERIALS", ""),
         ("Prepare Manufacture Receipt", "CFG:CMD:PREPARE_RECEIPT", ""),
         ("Scan Material Tags", "CFG:CMD:SCAN_MATERIALS", ""),

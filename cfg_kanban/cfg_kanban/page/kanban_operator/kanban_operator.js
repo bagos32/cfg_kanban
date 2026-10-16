@@ -349,6 +349,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			TRIGGER: () => consume_card(true),
 			START: () => run_context_execution_action("start"),
 			REPORT_PROGRESS: () => run_context_execution_action("report_progress"),
+			GO_TO_CURRENT_WORK: go_to_current_work,
+			CLOSE_CYCLE: close_context_runtime_cycle,
 			PREPARE_MATERIALS: open_scanner_material_preparation,
 			PREPARE_RECEIPT: open_scanner_manufacture_receipt,
 			SCAN_MATERIALS: open_scanner_material_trace,
@@ -388,6 +390,35 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}
 		if (action === "start") return job_action(eligible[0], "start");
 		return progress_dialog(eligible[0]);
+	}
+
+	function go_to_current_work() {
+		if (!state.context || !state.current_live_focus) {
+			set_scanner_message(__("Scan a Kanban card before navigating to current work"), "orange");
+			return focus_scanner();
+		}
+		scroll_to_live_action(true);
+		set_scanner_message(__("Current work displayed"), "green");
+	}
+
+	function close_context_runtime_cycle() {
+		if (!state.context || !state.context.card) {
+			return scanner_command_message(__("Scan a Process or Station Kanban card first."));
+		}
+		if (!state.operator?.permissions?.complete) {
+			return scanner_command_message(__("This operator is not authorized to close a Kanban Cycle."));
+		}
+		const executions = (state.context.executions || []).filter((row) => row.runtime_allocation);
+		const eligible = executions.filter((row) =>
+			(row.processed_qty || 0) >= (row.target_qty || 0) && row.can_close_runtime_cycle);
+		if (eligible.length === 1) return close_runtime_cycle(eligible[0]);
+		if (eligible.length > 1) {
+			return scanner_command_message(__("More than one runtime Cycle is eligible. Open the correct Process or Station Card before closing."));
+		}
+		const blocked = executions.find((row) =>
+			(row.processed_qty || 0) >= (row.target_qty || 0) && !row.can_close_runtime_cycle);
+		return scanner_command_message(blocked?.close_block_reason ||
+			__("No runtime Kanban Cycle is currently eligible for closure."));
 	}
 
 	function install_scanner_shortcuts() {
@@ -730,7 +761,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<tr><td>F4</td><td><code>CFG:CMD:CAMERA_CARD</code></td><td>${__("Open camera scanner")}</td></tr>
 			<tr><td>F8</td><td><code>CFG:CMD:END_SESSION</code></td><td>${__("End operator session after confirmation")}</td></tr>
 			</tbody></table>
-			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>.</p>
+			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
 			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
 			<p><strong>${__("Progress dialog commands")}</strong>: <code>CFG:QTY:GOOD:+1</code>, <code>CFG:QTY:REJECT:+1</code>, <code>CFG:CMD:CONFIRM</code>, <code>CFG:CMD:CANCEL</code>.</p>
 			<p><strong>${__("Message control")}</strong>: scan the next card to close an error and continue, or scan <code>CFG:CMD:DISMISS</code> to close it.</p>
@@ -2179,19 +2210,37 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		});
 	}
 
-	async function close_runtime_cycle(row) {
-		const values = await new Promise((resolve) => frappe.prompt([
-			{ fieldname: "notes", label: __("Completion Notes"), fieldtype: "Small Text" },
-		], resolve, __("Close Kanban Cycle"), __("Close Cycle and Release Card")));
-		const response = await frappe.call({ method: "cfg_kanban.api.operator.complete_runtime_cycle", args: {
-			execution_name: row.name, notes: values.notes,
-			operator_session_token: state.session_token,
-		}, freeze: true });
-		const result = response.message;
-		frappe.show_alert({ message: result.job_card_target_reached
-			? __("Cycle completed and ERPNext Job Card submitted")
-			: __("Cycle completed; reusable card is available for the remaining Job Card demand"), indicator: "green" });
-		await load_card(state.context.card.qr_code);
+	function close_runtime_cycle(row) {
+		const e = frappe.utils.escape_html;
+		const dialog = new frappe.ui.Dialog({
+			title: __("Close Kanban Cycle"),
+			fields: [
+				{ fieldname: "closure_summary", fieldtype: "HTML", options:
+					`<div class="alert alert-warning"><strong>${__("Final closure confirmation")}</strong><br>
+					${__("Operation")}: ${e(row.operation || "-")}<br>
+					${__("Job Card")}: ${e(row.job_card || "-")}<br>
+					${__("Processed")}: ${e(row.processed_qty || 0)} / ${e(row.target_qty || 0)}<br>
+					${__("ERP and process gates will be checked again before closure.")}</div>` },
+				{ fieldname: "notes", label: __("Completion Notes"), fieldtype: "Small Text" },
+				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data",
+					description: __("Scan Confirm / Submit to close and release the Card, or scan Cancel.") },
+			],
+			primary_action_label: __("Close Cycle and Release Card"),
+			primary_action: async (values) => {
+				const response = await frappe.call({ method: "cfg_kanban.api.operator.complete_runtime_cycle", args: {
+					execution_name: row.name, notes: values.notes,
+					operator_session_token: state.session_token,
+				}, freeze: true, freeze_message: __("Closing Kanban Cycle...") });
+				dialog.hide();
+				const result = response.message;
+				frappe.show_alert({ message: result.job_card_target_reached
+					? __("Cycle completed and ERPNext Job Card submitted")
+					: __("Cycle completed; reusable card is available for the remaining Job Card demand"), indicator: "green" });
+				await load_card(state.context.card.qr_code);
+			},
+		});
+		dialog.show();
+		bind_confirmation_scanner(dialog, true);
 	}
 
 	function document_link(route, name) {
