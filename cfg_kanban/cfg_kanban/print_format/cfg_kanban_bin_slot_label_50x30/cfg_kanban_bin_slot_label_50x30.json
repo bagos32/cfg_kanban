@@ -1,0 +1,22 @@
+{
+ "align_labels_right": 0,
+ "custom_format": 1,
+ "disabled": 0,
+ "doc_type": "CFG Kanban Handling Unit",
+ "doctype": "Print Format",
+ "font": "Arial",
+ "html": "<div class=\"bin-label\"><div class=\"label-head\"><b>{% if doc.reusable_container_role == 'Standard Quantity WIP Bin' %}WIP BIN{% elif doc.tag_kind == 'Reusable Container' %}BIN / SLOT{% else %}STOCK TAG{% endif %}</b><span>{{ doc.wip_bin_state or doc.identity_state or doc.state or '' }}</span></div><div class=\"identity\">{{ doc.handling_unit_id }}</div><div class=\"barcode\">{{ get_code128_svg(doc.handling_unit_id, 24)|safe }}</div><div class=\"location\">{{ doc.container_reference or doc.current_warehouse or doc.current_operation or '-' }}</div></div>",
+ "margin_bottom": 0,
+ "margin_left": 0,
+ "margin_right": 0,
+ "margin_top": 0,
+ "module": "CFG Kanban",
+ "name": "CFG Kanban Bin Slot Label 50x30",
+ "print_format_builder": 0,
+ "print_format_type": "Jinja",
+ "raw_printing": 0,
+ "show_section_headings": 0,
+ "standard": "Yes",
+ "css": ".print-format{page-size:Custom;page-width:50mm;page-height:30mm;margin:0;width:50mm!important;max-width:50mm!important;min-height:30mm!important;height:30mm!important;padding:0!important;box-sizing:border-box!important;overflow:hidden}@page{size:50mm 30mm;margin:0}html,body{width:50mm;height:30mm;margin:0;padding:0;font-family:Arial,sans-serif;color:#000}.bin-label{width:50mm;height:30mm;border:.6mm solid #000;box-sizing:border-box;padding:1.2mm;display:grid;grid-template-rows:4mm 6mm 10mm 4mm;gap:.5mm;overflow:hidden}.label-head{display:flex;justify-content:space-between;align-items:center;font-size:6px;border-bottom:.3mm solid #000}.label-head b{font-size:7px}.label-head span{font-weight:700}.identity{font-size:15px;font-weight:900;line-height:1;text-align:center;white-space:nowrap;overflow:hidden}.barcode{height:10mm}.barcode svg{width:100%;height:100%}.location{font-size:6px;font-weight:700;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-top:.2mm solid #000;padding-top:.5mm}@media screen{.print-format{width:50mm!important;max-width:50mm!important;min-height:30mm!important;height:30mm!important;padding:0!important}.print-format-gutter{padding:10px 0!important}}",
+ "default_print_language": "en"
+}

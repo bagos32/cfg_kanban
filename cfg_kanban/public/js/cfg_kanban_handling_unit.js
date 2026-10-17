@@ -151,8 +151,7 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 				assign_initial_warehouse(frm);
 			}, __("Kanban Actions"));
 		}
-		frm.add_custom_button(__("Print Thermal Tag"), () => audited_print(
-			frm, "CFG Kanban Handling Unit Tag"), __("Kanban Actions"));
+		add_handling_unit_print_buttons(frm);
 		frm.add_custom_button(__("Explore Material Genealogy"), () => {
 			frappe.set_route("material-genealogy", frm.doc.handling_unit_id);
 		}, __("Kanban Actions"));
@@ -511,6 +510,17 @@ async function audited_print(frm, format) {
 	const url = `/printview?doctype=${encodeURIComponent(frm.doctype)}&name=${encodeURIComponent(frm.doc.name)}` +
 		`&format=${encodeURIComponent(format)}&no_letterhead=1`;
 	window.open(url, "_blank");
+}
+
+function add_handling_unit_print_buttons(frm) {
+	[
+		[__("Full Trace Tag (45 × 250 mm)"), "CFG Kanban Handling Unit Tag"],
+		[__("Bin Slot Small (50 × 30 mm)"), "CFG Kanban Bin Slot Label 50x30"],
+		[__("Bin Slot Standard (100 × 50 mm)"), "CFG Kanban Bin Slot Label 100x50"],
+		[__("Bin Slot Large (A6)"), "CFG Kanban Bin Slot Card A6"],
+	].forEach(([label, format]) => {
+		frm.add_custom_button(label, () => audited_print(frm, format), __("Print Labels"));
+	});
 }
 
 function ask_reason(label) {

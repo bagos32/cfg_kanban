@@ -1,9 +1,9 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.56
+**Guide version:** 1.57
 
-**Updated:** 16 October 2026
+**Updated:** 17 October 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
@@ -1413,10 +1413,37 @@ reusable Card, and description are copied from the Cycle when available. **Inter
 (`opaque_token`) is generated
 automatically for compatibility and audit; users do not type it and it does not need to be printed.
 
+### Print a Handling Unit, reusable bin, or bin-slot identity
+
+Open the saved **CFG Kanban Handling Unit** and use **Print Labels**. Four audited choices are
+available:
+
+| Print choice | Physical size | Intended use |
+|---|---:|---|
+| Full Trace Tag | 45 × 250 mm | Existing detailed stock/handling-unit trace tag |
+| Bin Slot Small | 50 × 30 mm | Compact thermal barcode label for a nearby fixed bin or narrow slot |
+| Bin Slot Standard | 100 × 50 mm | Barcode and QR label with Warehouse, Operation, and bin/slot reference |
+| Bin Slot Large | A6 landscape, 148 × 105 mm | Distance-readable workstation, rack, or large-bin card |
+
+Every format encodes the permanent **Preprinted Tag / Handling Unit ID** (`handling_unit_id`), not
+the internal opaque alias. The first print updates the Handling Unit print audit. Any later print,
+including a different size, requires a reprint reason so physical duplicates remain traceable.
+
+For a permanent workstation bin, fill **Container Reference** (`container_reference`) with the
+human-readable rack/slot name before printing. The Standard and A6 formats also show the current
+Warehouse, current Operation, reusable-container role, and current bin/identity state. These labels
+identify the physical bin only; mutable Item and quantity contents must still be read from the live
+Handling Unit/container record.
+
+In the browser or printer driver, select media matching the named physical size and use **100% / no
+scaling**. Do not use “Fit to page”, because it changes barcode dimensions and can reduce scan
+reliability.
+
 Existing preprinted stock tags are the normal operating method, so production does not depend on a
-live tag printer. **Kanban Actions → Print Thermal Tag** is an optional replacement/emergency label.
-Its PDF canvas is 45 mm × 250 mm for portrait-feed thermal stock, with the horizontal design
-rotated onto that canvas. Both its QR and Code 128 encode the visible `handling_unit_id`.
+live tag printer. **Print Labels → Full Trace Tag (45 × 250 mm)** remains the optional
+replacement/emergency trace label. Its PDF canvas is 45 mm × 250 mm for portrait-feed thermal
+stock, with the horizontal design rotated onto that canvas. Both its QR and Code 128 encode the
+visible `handling_unit_id`.
 
 Handling-unit scan lifecycle:
 
@@ -3330,6 +3357,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.57 | 17 October 2026 | Added audited Handling Unit print choices for the existing 45 × 250 mm trace tag plus 50 × 30 mm, 100 × 50 mm, and A6 permanent reusable-bin/bin-slot barcode cards; all formats encode the visible physical identity and keep mutable contents out of the fixed label |
 | 1.56 | 16 October 2026 | Added scanner-first Draft transfer allocation for Standard Quantity WIP Bins: numbered row selection, optional/required/ERP-only source handling, partial reservation from a larger source Stock Tag, Empty pool-bin validation, cancellable Draft loads, source quantity confirmation only after submitted ERP transfer, reversal restoration, and complete-row submission gates; Work Order release remains safely blocked until operation consumption is delivered |
 | 1.55 | 16 October 2026 | Added the immutable Standard WIP Bin Load audit backbone: per-load Item/Batch/quantity and production-context snapshots, one-active-load bin exclusivity, native ERP transfer/consumption row validation, submitted Stock Entry Ready/Consumed confirmation, cancellation reversal/Exception handling, and workspace investigation access; floor scanner allocation remains deliberately gated |
 | 1.54 | 16 October 2026 | Added the safe configuration foundation for Standard Quantity Reusable WIP Bins: a distinct Handling Unit role, strict non-mixed fixed-bin identity, one-operation/workstation WIP Bin Pools, Item-specific full-bin quantity mapping on BOM material rows, compatibility validation, workspace access, and an explicit runtime safety stop until controlled fill/consume posting is delivered |

@@ -867,6 +867,32 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("get_code128_svg(doc.handling_unit_id", html)
         self.assertNotIn("get_qr_svg(doc.opaque_token", html)
 
+    def test_handling_unit_offers_fixed_bin_slot_label_sizes(self):
+        expected_formats = {
+            "cfg_kanban_bin_slot_label_50x30": ("50mm 30mm", False),
+            "cfg_kanban_bin_slot_label_100x50": ("100mm 50mm", True),
+            "cfg_kanban_bin_slot_card_a6": ("148mm 105mm", True),
+        }
+        for folder, (page_size, has_qr) in expected_formats.items():
+            path = (APP_ROOT / "cfg_kanban" / "print_format" / folder /
+                    f"{folder}.json")
+            print_format = json.loads(path.read_text())
+            self.assertEqual(print_format["doc_type"], "CFG Kanban Handling Unit")
+            self.assertIn(page_size, print_format["css"])
+            self.assertIn("get_code128_svg(doc.handling_unit_id", print_format["html"])
+            self.assertNotIn("doc.current_qty", print_format["html"])
+            self.assertEqual(
+                "get_qr_svg(doc.handling_unit_id" in print_format["html"],
+                has_qr,
+            )
+
+        form_script = (APP_ROOT / "public" / "js" /
+                       "cfg_kanban_handling_unit.js").read_text()
+        self.assertIn('__("Print Labels")', form_script)
+        self.assertIn('"CFG Kanban Bin Slot Label 50x30"', form_script)
+        self.assertIn('"CFG Kanban Bin Slot Label 100x50"', form_script)
+        self.assertIn('"CFG Kanban Bin Slot Card A6"', form_script)
+
     def test_handling_unit_scan_api_uses_central_physical_resolver(self):
         scan_source = (APP_ROOT / "api" / "scan.py").read_text()
         self.assertIn("resolve_logistics_scan(token)", scan_source)
