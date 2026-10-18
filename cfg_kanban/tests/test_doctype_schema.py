@@ -1744,14 +1744,16 @@ class TestDocTypeSchema(TestCase):
         reconciliation = {row["fieldname"]: row for row in
                           schemas["CFG Kanban WIP Bin Reconciliation"]["fields"]}
         self.assertTrue({
-            "status", "decision", "wip_bin_load", "reusable_bin", "company",
+            "status", "reversal_context", "decision", "wip_bin_load",
+            "reusable_bin", "source_handling_unit", "company",
             "item_code", "batch_no", "qty", "stock_uom", "kanban_cycle",
             "work_order", "job_card", "operation", "workstation",
             "cancelled_stock_entry", "correction_stock_entry", "restored_load",
             "exception", "resolved_by_operator", "operator_session", "terminal_user",
             "reason", "resolution_notes", "previous_cycle_status",
             "previous_cycle_blocked", "previous_card_blocked",
-            "previous_card_blocked_reason",
+            "previous_card_blocked_reason", "source_hold_ledger",
+            "source_resolution_ledger",
         }.issubset(reconciliation))
         self.assertTrue(reconciliation["wip_bin_load"].get("unique"))
 
@@ -1809,6 +1811,11 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("A Kanban Supervisor with Override permission", wip_service)
         self.assertIn("def resolve_wip_bin_reconciliation", wip_service)
         self.assertIn("def _create_consumption_reconciliation", wip_service)
+        self.assertIn("def _create_transfer_reconciliation", wip_service)
+        self.assertIn("def _validate_transfer_recovery_correction", wip_service)
+        self.assertIn("wip-bin-source-cancel-hold", wip_service)
+        self.assertIn("Material Returned to Source", wip_service)
+        self.assertIn("Material Remains in WIP after ERP Correction", wip_service)
         self.assertIn("def _validate_empty_bin_correction", wip_service)
         self.assertIn("def _release_reconciled_cycle_hold", wip_service)
         self.assertIn("WIP Bin Reconciliation Required", wip_service)
@@ -1869,6 +1876,9 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("wip_bin_reconciliation_dialog", panel)
         self.assertIn("Material Restored to Bin", panel)
         self.assertIn("Bin Empty after ERP Correction", panel)
+        self.assertIn("Material Returned to Source", panel)
+        self.assertIn("Material Remains in WIP after ERP Correction", panel)
+        self.assertIn("source_handling_unit_scan", panel)
         self.assertIn("allocate_consumption_bin", panel)
         self.assertIn("CFG:CMD:NO_SOURCE", panel)
         self.assertIn('dialog.set_value("input_scan", value)', panel)

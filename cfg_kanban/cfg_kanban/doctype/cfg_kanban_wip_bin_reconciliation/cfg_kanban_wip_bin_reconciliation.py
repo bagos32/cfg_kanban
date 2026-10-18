@@ -9,6 +9,8 @@ class CFGKanbanWIPBinReconciliation(Document):
     def validate(self):
         if flt(self.qty) <= 0:
             frappe.throw("WIP Bin reconciliation quantity must be positive")
+        if self.reversal_context not in ("Consumption Cancellation", "Transfer Cancellation"):
+            frappe.throw("Select the cancelled ERP movement represented by this reconciliation")
         if self.is_new():
             if self.status != "Open" or self.decision:
                 frappe.throw("A WIP Bin reconciliation must begin Open without a decision")

@@ -1198,15 +1198,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const $block = $(`<div class="alert alert-danger mb-3" data-live-focus="wip-bin-reconciliation">
 			<div class="d-flex justify-content-between align-items-start flex-wrap"><div>
 				<strong>${__("WIP Bin supervisor reconciliation required")}</strong><br>
-				<small>${__("A submitted consumption was cancelled. The affected bin is blocked until its exact physical material state agrees with ERPNext.")}</small>
+				<small>${__("A submitted WIP transfer or consumption was cancelled. The affected bin is blocked until its exact physical material state agrees with ERPNext.")}</small>
 			</div><span class="indicator-pill red">${rows.length} ${__("Open")}</span></div>
 		</div>`).appendTo($section);
 		rows.forEach((row) => {
 			const $row = $(`<div class="frappe-card p-3 mt-2">
 				<div class="row align-items-center"><div class="col-md-4">
-					<strong>${e(row.reusable_bin)}</strong><br><small>${e(row.item_code)}${row.batch_no ? ` · ${__("Batch")} ${e(row.batch_no)}` : ""}</small>
+					<strong>${e(row.reusable_bin)}</strong><br><small>${e(row.reversal_context)} · ${e(row.item_code)}${row.batch_no ? ` · ${__("Batch")} ${e(row.batch_no)}` : ""}</small>
 				</div><div class="col-md-3">${e(row.qty)} ${e(row.stock_uom)}<br><small>${document_link("job-card", row.job_card)}</small></div>
-				<div class="col-md-3"><small>${__("Cancelled consumption")}</small><br>${document_link("stock-entry", row.cancelled_stock_entry)}</div>
+				<div class="col-md-3"><small>${__("Cancelled Stock Entry")}</small><br>${document_link("stock-entry", row.cancelled_stock_entry)}</div>
 				<div class="col-md-2 text-right cfg-wip-reconciliation-action"></div></div>
 			</div>`).appendTo($block);
 			if (flow.can_reconcile_wip_bins) {
@@ -1222,39 +1222,61 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	function wip_bin_reconciliation_dialog(row) {
 		const e = frappe.utils.escape_html;
+		const transfer_cancellation = row.reversal_context === "Transfer Cancellation";
+		const decision_options = transfer_cancellation
+			? "\nMaterial Returned to Source\nMaterial Remains in WIP after ERP Correction"
+			: "\nMaterial Restored to Bin\nBin Empty after ERP Correction";
 		let dialog;
 		dialog = new frappe.ui.Dialog({
 			title: __("Reconcile WIP Bin: {0}", [row.reusable_bin]),
 			fields: [
 				{ fieldname: "summary", fieldtype: "HTML", options:
 					`<div class="alert alert-danger"><strong>${e(row.item_code)} · ${e(row.qty)} ${e(row.stock_uom)}</strong><br>
-					${__("Cancelled consumption")}: ${document_link("stock-entry", row.cancelled_stock_entry)}<br>
-					${__("ERPNext returned this quantity to WIP. Inspect the physical bin before choosing an outcome.")}</div>` },
+					${e(row.reversal_context)}: ${document_link("stock-entry", row.cancelled_stock_entry)}<br>
+					${transfer_cancellation
+						? __("ERPNext returned this quantity to the source Warehouse. Inspect the WIP bin and original source before choosing an outcome.")
+						: __("ERPNext returned this quantity to WIP. Inspect the physical bin before choosing an outcome.")}</div>` },
 				{ fieldname: "decision", label: __("Verified Physical Outcome"), fieldtype: "Select",
-					options: "\nMaterial Restored to Bin\nBin Empty after ERP Correction", reqd: 1,
-					description: __("Restored creates a new Ready load. Empty requires an exact submitted ERPNext correction that removed this quantity from WIP.") },
+					options: decision_options, reqd: 1,
+					description: transfer_cancellation
+						? __("Returned releases the source safety hold. Remains in WIP requires an exact new submitted transfer before a Ready load is recovered.")
+						: __("Restored creates a new Ready load. Empty requires an exact submitted ERPNext correction that removed this quantity from WIP.") },
 				{ fieldname: "reusable_bin_scan", label: __("Scan Affected WIP Bin"),
 					fieldtype: "Data", reqd: 1, description: __("Scan the permanent physical identity printed on this exact bin.") },
+				{ fieldname: "source_handling_unit_scan", label: __("Scan Original Source Stock Tag"),
+					fieldtype: "Data",
+					depends_on: "eval:doc.decision=='Material Returned to Source'",
+					mandatory_depends_on: transfer_cancellation && row.source_handling_unit
+						? "eval:doc.decision=='Material Returned to Source'" : "",
+					description: row.source_handling_unit
+						? __("After physically returning the material, scan the original source tag {0}.", [row.source_handling_unit])
+						: __("This transfer used ERP-only source stock; no source tag scan is required.") },
 				{ fieldname: "correction_stock_entry", label: __("Submitted ERPNext Correction"),
 					fieldtype: "Link", options: "Stock Entry",
-					depends_on: "eval:doc.decision=='Bin Empty after ERP Correction'",
-					mandatory_depends_on: "eval:doc.decision=='Bin Empty after ERP Correction'",
-					description: __("Must remove the exact Item, Batch, UOM and quantity from the WIP Warehouse after this hold was raised.") },
+					depends_on: "eval:doc.decision=='Bin Empty after ERP Correction' || doc.decision=='Material Remains in WIP after ERP Correction'",
+					mandatory_depends_on: "eval:doc.decision=='Bin Empty after ERP Correction' || doc.decision=='Material Remains in WIP after ERP Correction'",
+					description: transfer_cancellation
+						? __("Must move one exact row from the original source Warehouse to WIP after this hold was raised.")
+						: __("Must remove the exact Item, Batch, UOM and quantity from the WIP Warehouse after this hold was raised.") },
 				{ fieldname: "reason", label: __("Supervisor Verification / Reason"),
 					fieldtype: "Small Text", reqd: 1 },
 				{ fieldname: "reconciliation_scan", label: __("Scanner Command"), fieldtype: "Data",
-					description: __("Scan Select 1 for Restored, Select 2 for Empty, the physical bin, then Confirm / Submit.") },
+					description: __("Scan Select 1 or Select 2, the affected bin, any required source tag, then Confirm / Submit.") },
 			],
 			primary_action_label: __("Resolve Controlled Hold"),
 			primary_action: async (values) => {
-				if (values.decision === "Bin Empty after ERP Correction" && !values.correction_stock_entry) {
-					frappe.throw(__("Select the submitted ERPNext correction before declaring the bin Empty."));
+				if (["Bin Empty after ERP Correction", "Material Remains in WIP after ERP Correction"].includes(values.decision) && !values.correction_stock_entry) {
+					frappe.throw(__("Select the exact submitted ERPNext correction required by this outcome."));
+				}
+				if (values.decision === "Material Returned to Source" && row.source_handling_unit && !values.source_handling_unit_scan) {
+					frappe.throw(__("Scan the original source Stock Tag after physically returning the material."));
 				}
 				await frappe.call({
 					method: "cfg_kanban.services.wip_bin_loads.resolve_wip_bin_reconciliation",
 					args: {
 						reconciliation_name: row.name, decision: values.decision,
 						reusable_bin_scan: values.reusable_bin_scan, reason: values.reason,
+						source_handling_unit_scan: values.source_handling_unit_scan,
 						correction_stock_entry: values.correction_stock_entry,
 						operator_session_token: state.session_token,
 						kanban_card: state.context.card.name,
@@ -1275,10 +1297,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			const value = String(scanner.val() || "").trim();
 			await dialog.set_value("reconciliation_scan", "");
 			const command = value.toUpperCase();
-			if (command === "CFG:SELECT:1") await dialog.set_value("decision", "Material Restored to Bin");
-			else if (command === "CFG:SELECT:2") await dialog.set_value("decision", "Bin Empty after ERP Correction");
+			if (command === "CFG:SELECT:1") await dialog.set_value("decision", transfer_cancellation ? "Material Returned to Source" : "Material Restored to Bin");
+			else if (command === "CFG:SELECT:2") await dialog.set_value("decision", transfer_cancellation ? "Material Remains in WIP after ERP Correction" : "Bin Empty after ERP Correction");
 			else if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(command)) return dialog.hide();
 			else if (["CFG:CMD:CONFIRM", "CFG:CMD:SUBMIT_MATERIALS"].includes(command)) return dialog.get_primary_btn().trigger("click");
+			else if (value && !dialog.get_value("reusable_bin_scan")) await dialog.set_value("reusable_bin_scan", value);
+			else if (value && dialog.get_value("decision") === "Material Returned to Source" && row.source_handling_unit) await dialog.set_value("source_handling_unit_scan", value);
+			else if (value && ["Bin Empty after ERP Correction", "Material Remains in WIP after ERP Correction"].includes(dialog.get_value("decision"))) await dialog.set_value("correction_stock_entry", value);
 			else if (value) await dialog.set_value("reusable_bin_scan", value);
 			window.setTimeout(() => scanner.trigger("focus"), 80);
 		});

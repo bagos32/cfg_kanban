@@ -540,6 +540,64 @@ Expected result:
 - the generic cancellation hold is released only after every affected bin is resolved; and
 - the Event timeline identifies the decision, Supervisor, correction, and reason.
 
+### 10.15 Reconcile a cancelled submitted transfer
+
+Use separate submitted transfer/load records for both outcomes below. Cancelling a Draft transfer
+is not this test: a Draft has not moved ERP stock and follows the normal Draft release path.
+
+1. Submit a Material Transfer for Manufacture whose scanned WIP Bin Load is `Ready`.
+2. Confirm the source Stock Tag was reduced when a tagged source was used.
+3. Cancel that submitted Stock Entry using an authorized ERPNext user.
+
+Expected result:
+
+- the original Load becomes `Reversed` and the physical WIP bin becomes `Exception`, not `Empty`;
+- an Open reconciliation with **Cancelled ERP Movement = Transfer Cancellation** and a Critical
+  Exception are created;
+- the Cycle/Card receives the normal cancelled-Stock-Entry hold;
+- ERPNext returns stock to the source Warehouse; and
+- when a source Stock Tag was used, CFG Kanban restores its quantity but immediately reserves that
+  same quantity so it cannot be used before physical reconciliation.
+
+#### Outcome A — material physically returned to source
+
+1. Physically return the complete Item/Batch/quantity from the WIP bin to its original source.
+2. Open the red reconciliation block using a Supervisor QR with Override permission.
+3. Select **Material Returned to Source**.
+4. Scan the affected WIP bin. If the original transfer used a source Stock Tag, scan that exact
+   source tag as the next scan. Enter the reason and confirm. `CFG:SELECT:1` may select this outcome.
+
+Expected result:
+
+- a wrong WIP bin or wrong source tag is rejected;
+- the source-tag safety reservation is released without changing its restored current quantity;
+- the original Load remains `Reversed`;
+- no new Ready load is created;
+- the reusable WIP bin becomes `Empty`; and
+- the reconciliation, Critical Exception, event evidence and final Cycle/Card release are audited.
+
+#### Outcome B — material physically remains in the WIP bin
+
+1. Leave the exact physical material in the affected WIP bin.
+2. Create and submit a new ERPNext `Material Transfer for Manufacture` after the hold was raised.
+   It must contain one unused row for the same Work Order/Job Card, Item, Batch, Stock UOM, exact
+   quantity, original source Warehouse and WIP Warehouse.
+3. Select **Material Remains in WIP after ERP Correction**, scan the affected WIP bin, link the new
+   submitted correction, enter the reason, and confirm. `CFG:SELECT:2` may select this outcome.
+
+Expected result:
+
+- Draft, cancelled, older, wrong-purpose, wrong-Company, wrong-Work-Order/Job-Card, wrong-Item,
+  wrong-Batch, wrong-UOM, wrong-Warehouse, wrong-quantity and already-used correction rows are
+  rejected;
+- the original Load remains `Reversed`;
+- a separately linked Load becomes `Ready` against the correction row;
+- the reusable bin becomes `Ready` and may follow normal Job Card consumption;
+- when a source Stock Tag was used, its safety reservation and quantity are reduced together by the
+  exact corrected quantity; and
+- the reconciliation and Critical Exception become `Resolved`, with immutable Supervisor and ERP
+  evidence.
+
 ## 11. Evidence to capture
 
 For each test, record:
@@ -578,6 +636,9 @@ For each test, record:
 | Submitted consumption cancellation/Exception | Pending | |
 | Supervisor restored-material recovery to Ready | Pending | |
 | Supervisor ERP-corrected empty-bin recovery | Pending | |
+| Submitted transfer cancellation creates Exception/source hold | Pending | |
+| Supervisor material-returned-to-source recovery | Pending | |
+| Supervisor material-remains-in-WIP recovery | Pending | |
 
 ## 13. Final decision for this gate
 

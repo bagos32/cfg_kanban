@@ -160,11 +160,16 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
     wip_bin_reconciliations = frappe.get_all(
         "CFG Kanban WIP Bin Reconciliation",
         {"kanban_cycle": cycle.name, "work_order": work_order.name, "status": "Open"},
-        ["name", "wip_bin_load", "reusable_bin", "item_code", "batch_no", "qty",
+        ["name", "reversal_context", "wip_bin_load", "reusable_bin",
+         "source_handling_unit", "item_code", "batch_no", "qty",
          "stock_uom", "job_card", "operation", "workstation",
          "cancelled_stock_entry", "exception", "raised_on"],
         order_by="raised_on asc",
     )
+    for reconciliation in wip_bin_reconciliations:
+        reconciliation.reversal_context = (
+            reconciliation.reversal_context or "Consumption Cancellation"
+        )
     return {
         "cycle": cycle.name,
         "work_order": work_order.name,

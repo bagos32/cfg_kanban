@@ -1,6 +1,6 @@
 # CFG Kanban — Standard Quantity Reusable WIP Bin
 
-**Status:** Full lifecycle, partial-bin exception, and cancellation reconciliation implemented; server acceptance required
+**Status:** Full lifecycle, partial-bin exception, and transfer/consumption cancellation reconciliation implemented; server acceptance required
 **Date:** 18 October 2026
 **ERP stock authority:** ERPNext Work Order, Job Card, and submitted Stock Entry
 
@@ -132,19 +132,25 @@ The runtime gate must not be considered complete until it enforces all of these 
 9. Bin becomes Empty only after native ERP consumption is submitted or a controlled reversal is
    completed.
 10. Retry/idempotency guards prevent duplicate transfer, load, consumption, or emptying events.
-11. Cancelling submitted consumption creates a Critical Exception and blocks the physical bin.
-    Only a scanned Supervisor with Override permission may resolve it. The Supervisor either:
+11. Cancelling a submitted transfer or consumption creates a Critical Exception and blocks the
+    physical bin. Only a scanned Supervisor with Override permission may resolve it. For a
+    cancelled consumption, the Supervisor either:
     verifies that ERPNext's returned quantity is physically restored to the same bin, creating a
     new linked Ready load; or verifies the bin is Empty only after linking a submitted ERPNext
     correction that removes the exact Item/Batch/UOM/quantity from WIP.
+12. A cancelled submitted transfer never claims the physical bin is Empty automatically. Any
+    restored source-tag quantity is reserved against reuse while the outcome is unknown. The
+    Supervisor either verifies the material returned to the original source (and rescans that
+    source tag when one was used), or links an exact later submitted transfer from Source to WIP
+    before recovering a new Ready load for material that physically remained in the bin.
 
 ## 6. Current deployment boundary
 
 The package now includes physical roles, pools, Master mapping, immutable load episodes, Draft
 transfer allocation, Ready-bin Job Card consumption, native ERP feedback, Draft cancellation, and
 completion guards. It also includes immutable `CFG Kanban WIP Bin Reconciliation` records,
-Critical Exception visibility, exact-bin rescanning, and controlled Ready/Empty recovery after a
-submitted consumption cancellation. The source tag may be partially reserved for one exact
+Critical Exception visibility, exact-bin rescanning, source-tag safety holds, and controlled
+Ready/Empty recovery after a submitted transfer or consumption cancellation. The source tag may be partially reserved for one exact
 full-bin quantity; rows
 configured without physical tags remain ERP-only. Work Order creation is no longer blanket-stopped.
 

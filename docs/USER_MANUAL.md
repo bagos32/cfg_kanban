@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.60
+**Guide version:** 1.61
 
 **Updated:** 18 October 2026
 
@@ -1147,12 +1147,12 @@ verification and supervisor exception procedure are approved.
 Only successful ERPNext submission changes every linked load to `Consumed` and returns its
 reusable physical bin to `Empty`. The Job Card cannot be submitted while a related bin remains
 `Transfer Draft`, `Ready`, `In Use`, or `Consumption Draft`; Manufacture receipt is blocked while
-the Work Order has any such unconsumed load. Cancelling a submitted consumption puts the bin in
-`Exception`, creates a Critical Kanban Exception, and creates an Open **CFG Kanban WIP Bin
-Reconciliation** rather than silently claiming that the physical bin is empty. The red recovery
+the Work Order has any such unconsumed load. Cancelling a submitted transfer or consumption puts
+the bin in `Exception`, creates a Critical Kanban Exception, and creates an Open **CFG Kanban WIP
+Bin Reconciliation** rather than silently claiming that the physical bin is empty. The red recovery
 block appears on the main Production Card and only on the matching Operation Card. A scanned
 Kanban Supervisor with **Override** permission must rescan the affected bin and choose one factual
-outcome:
+outcome. For a cancelled consumption:
 
 - **Material Restored to Bin** — physically verify the exact Item, Batch and full reversed
   quantity. The original Load remains `Reversed`; a separately linked recovered Load becomes
@@ -1160,6 +1160,20 @@ outcome:
 - **Bin Empty after ERP Correction** — first post a separate native ERPNext Stock Entry that
   removes the exact Item, Batch, Stock UOM and quantity from the WIP Warehouse. Link that submitted
   correction; only then can the bin return to `Empty`.
+
+For a cancelled submitted transfer, ERPNext has returned stock to the source Warehouse but cannot
+prove where the material physically sits. The bin stays `Exception`. When the transfer originally
+used a physical source Stock Tag, CFG Kanban immediately reserves the restored tagged quantity so
+another transaction cannot use it while the location is uncertain. The Supervisor chooses:
+
+- **Material Returned to Source** — physically return the exact quantity, rescan the affected WIP
+  bin, and rescan the original source Stock Tag when one was used. The source safety reservation is
+  released and the reusable bin becomes `Empty`.
+- **Material Remains in WIP after ERP Correction** — post a new submitted native `Material
+  Transfer for Manufacture` containing one exact row for the same Work Order/Job Card, Item, Batch,
+  UOM, quantity, source Warehouse and WIP Warehouse. Link that correction. CFG Kanban consumes the
+  source-tag safety reservation when applicable, creates a separately linked recovered `Ready`
+  load, and returns the reusable bin to `Ready`.
 
 Both paths record the Supervisor Employee, terminal User, operator session, time, reason, evidence,
 cancelled Stock Entry, and Event history. A normal Operator cannot release the hold, a cancelled
@@ -3395,6 +3409,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.61 | 18 October 2026 | Extended controlled WIP Bin reconciliation to submitted transfer cancellation: the bin remains Exception, restored source-tag quantity is safety-reserved, Supervisor exact-bin/source verification releases material returned to source, and material left in WIP requires an exact later submitted transfer before a separately linked Ready load is recovered |
 | 1.60 | 18 October 2026 | Added controlled WIP Bin cancellation reconciliation: submitted consumption cancellation now creates a Critical Exception and immutable reconciliation, blocks the bin, requires exact-bin rescan plus Supervisor Override, restores verified material through a separately linked Ready load, or permits Empty only against an exact later submitted ERPNext correction |
 | 1.59 | 18 October 2026 | Added the controlled Standard Quantity WIP Bin partial exception: Pool opt-in, Supervisor QR plus Override authorization, scanner quantity support, mandatory reason, immutable Employee/User/session/time evidence, exact partial source reservation and downstream consumption, and corrected the Job Card active-bin completion guard |
 | 1.58 | 18 October 2026 | Completed the Standard Quantity WIP Bin operation-consumption gate: Ready-load visibility by Job Card, scanner-created Draft consumption, exact Ready-bin/Item/Warehouse/UOM/Batch binding, cancellable Draft scans, submitted ERP feedback to Consumed/Empty, and Job Card/Manufacture completion blocks while physical bins remain unconsumed; removed the temporary Work Order safety stop |
