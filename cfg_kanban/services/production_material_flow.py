@@ -12,19 +12,6 @@ from cfg_kanban.services.operator_auth import require_operator
 def apply_master_material_flow(work_order, master):
     """Apply the approved Master material policy before the Work Order is inserted."""
     mode = master.get("production_material_mode") or "Follow ERPNext BOM / Work Order"
-    staged_wip_bin_rows = [
-        row for row in master.material_flow_rules
-        if (row.wip_presentation_method or "Standard ERP / Tag Flow") ==
-        "Standard Quantity Reusable WIP Bin"
-    ]
-    if staged_wip_bin_rows:
-        frappe.throw(
-            "Standard Quantity Reusable WIP Bin Draft transfer scanning is installed, but "
-            "operation-time consumption scanning is not enabled in this release. "
-            "Keep the affected BOM Component Material Flow rows on Standard ERP / Tag Flow "
-            "until the complete runtime gate is deployed. No Work Order or stock movement "
-            "was created."
-        )
     if mode == "Transfer to WIP by Work Order":
         work_order.skip_transfer = 0
         work_order.transfer_material_against = "Work Order"
@@ -95,6 +82,9 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
                 for row in work_order.required_items]
     restricted_rows = [row for row in all_rows if row["item_code"] in restricted_items]
     rows = [row for row in all_rows if row["item_code"] not in restricted_items]
+    material_rules = {
+        (row.item_code, row.operation or ""): row for row in master.material_flow_rules
+    }
     jobs = []
     for job in frappe.get_all(
         "Job Card",
@@ -117,10 +107,34 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
             )
             for row in items
         ]
+        for material_row in all_material_rows:
+            rule = material_rules.get((material_row["item_code"], job.operation or ""))
+            material_row["wip_presentation_method"] = (
+                (rule.wip_presentation_method if rule else None)
+                or "Standard ERP / Tag Flow"
+            )
+            material_row["standard_bin_qty"] = flt(
+                rule.standard_bin_qty if rule else 0
+            )
+            material_row["wip_bin_pool"] = rule.wip_bin_pool if rule else None
         restricted_job_rows = [row for row in all_material_rows
                                if row["item_code"] in restricted_items]
         material_rows = [row for row in all_material_rows
                          if row["item_code"] not in restricted_items]
+        wip_loads = frappe.get_all(
+            "CFG Kanban WIP Bin Load",
+            {"kanban_cycle": cycle.name, "job_card": job.name,
+             "status": ["in", ["Ready", "In Use", "Consumption Draft"]]},
+            ["name", "status", "item_code", "actual_qty", "stock_uom", "reusable_bin"],
+            order_by="creation asc",
+        )
+        open_wip_consumption = frappe.db.get_value("Stock Entry", {
+            "cfg_kanban_cycle": cycle.name,
+            "work_order": work_order.name,
+            "job_card": job.name,
+            "purpose": "Material Consumption for Manufacture",
+            "docstatus": 0,
+        }, "name")
         jobs.append({**job, "materials": material_rows,
                      "pending_material_qty": sum(row["pending_qty"] for row in material_rows),
                      "has_pending_materials": any(
@@ -132,7 +146,14 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
                      ),
                      "has_shortage": any(
                          row["shortage_qty"] > 0.000001 for row in all_material_rows
-                     )})
+                     ),
+                     "wip_bin_ready_count": sum(
+                         1 for row in wip_loads if row.status == "Ready"
+                     ),
+                     "wip_bin_ready_qty": sum(
+                         flt(row.actual_qty) for row in wip_loads if row.status == "Ready"
+                     ),
+                     "wip_bin_consumption_draft": open_wip_consumption})
 
     incomplete_jobs = [row["name"] for row in jobs if row["status"] != "Completed"]
     remaining_output = max(0, flt(work_order.qty) - flt(work_order.produced_qty))
@@ -278,6 +299,114 @@ def prepare_material_transfer(cycle_name, lines, job_card=None, event_token=None
         )
     return {"command": command.name, "stock_entry": entry.name,
             "docstatus": entry.docstatus, "duplicate": not created}
+
+
+@frappe.whitelist()
+def prepare_wip_bin_consumption(cycle_name, job_card, confirmation,
+                                operator_session_token=None, event_token=None,
+                                requesting_cycle=None):
+    """Create a Draft native consumption entry from the Job Card's Ready WIP bins."""
+    cycle, master, work_order = _production_context(cycle_name)
+    if work_order.docstatus != 1:
+        frappe.throw("Submit the effective Work Order before consuming WIP-bin materials")
+    if (_effective_mode(master, work_order) != "Transfer to WIP by Job Card"
+            or work_order.transfer_material_against != "Job Card"):
+        frappe.throw("Ready WIP Bin consumption requires Transfer to WIP by Job Card")
+    job = frappe.db.get_value(
+        "Job Card", {"name": job_card, "work_order": work_order.name,
+                     "docstatus": ["<", 2]},
+        ["name", "operation", "workstation"], as_dict=True,
+    )
+    if not job:
+        frappe.throw("Job Card does not belong to the effective Work Order")
+    operation_cycle = _validated_operation_requesting_cycle(
+        requesting_cycle, cycle, work_order, job_card
+    )
+    execution = frappe.db.get_value(
+        "CFG Kanban Process Execution",
+        {"kanban_cycle": cycle.name, "job_card": job.name}, "name",
+    )
+    profile, session = require_operator(
+        operator_session_token, "material_transfer", execution=execution,
+        operation=job.operation, workstation=job.workstation,
+    )
+    confirmation = _validated_confirmation(confirmation)
+    _assert_no_open_production_entry(
+        cycle.name, work_order.name, "Material Consumption for Manufacture", job.name
+    )
+    ready = frappe.get_all(
+        "CFG Kanban WIP Bin Load",
+        {"kanban_cycle": cycle.name, "work_order": work_order.name,
+         "job_card": job.name, "status": "Ready"},
+        ["name", "item_code", "batch_no", "actual_qty", "stock_uom",
+         "wip_warehouse"], order_by="creation asc",
+    )
+    if not ready:
+        frappe.throw(f"Job Card {job.name} has no Ready Standard Quantity WIP Bin")
+    grouped = {}
+    for load in ready:
+        key = (load.item_code, load.wip_warehouse, load.batch_no or "", load.stock_uom)
+        grouped[key] = grouped.get(key, 0) + flt(load.actual_qty)
+    lines = [{
+        "item_code": item_code,
+        "source_warehouse": warehouse,
+        "batch_no": batch_no or None,
+        "stock_uom": stock_uom,
+        "qty": qty,
+    } for (item_code, warehouse, batch_no, stock_uom), qty in grouped.items()]
+    identity = event_token or frappe.as_json(lines)
+    key = canonical_key("wip-bin-material-consumption", cycle.name, job.name, identity)
+    command, created = insert_once(frappe.get_doc({
+        "doctype": "CFG ERP Command",
+        "command_type": "Create Production Material Consumption",
+        "source_signal": cycle.signal,
+        "kanban_cycle": cycle.name,
+        "process_execution": execution,
+        "status": "Pending",
+        "target_doctype": "Stock Entry",
+        "request_payload": frappe.as_json({
+            "work_order": work_order.name,
+            "job_card": job.name,
+            "lines": lines,
+            "wip_bin_consumption": 1,
+            "submit": False,
+            "operator": profile.employee,
+            "confirmation": confirmation,
+        }),
+        "requested_on": now_datetime(),
+        "created_by_system": 1,
+        "requested_by_operator": profile.employee,
+        "operator_session": session.name,
+        "terminal_user": session.terminal_user,
+    }), key, ignore_permissions=True)
+    entry = execute_command(command.name)
+    record(
+        "WIP Bin Material Consumption Prepared", card=cycle.kanban_card,
+        cycle=cycle.name, execution=execution,
+        qty=sum(row["qty"] for row in lines),
+        reference_doctype="Stock Entry", reference_name=entry.name,
+        operator=profile.employee, operator_session=session.name,
+        terminal_user=session.terminal_user,
+        notes=(f"Job Card {job.name}; {len(ready)} Ready bin(s); "
+               f"Operator confirmation: {confirmation}"),
+    )
+    if operation_cycle:
+        record(
+            "Operation Card WIP Bin Consumption Prepared",
+            card=operation_cycle.kanban_card, cycle=operation_cycle.name,
+            execution=frappe.db.get_value(
+                "CFG Kanban Process Execution",
+                {"kanban_cycle": operation_cycle.name, "job_card": job.name}, "name",
+            ),
+            qty=sum(row["qty"] for row in lines),
+            reference_doctype="Stock Entry", reference_name=entry.name,
+            operator=profile.employee, operator_session=session.name,
+            terminal_user=session.terminal_user,
+            notes=f"ERP material owner Cycle {cycle.name}; Job Card {job.name}",
+        )
+    return {"command": command.name, "stock_entry": entry.name,
+            "docstatus": entry.docstatus, "duplicate": not created,
+            "ready_bin_count": len(ready)}
 
 
 @frappe.whitelist()

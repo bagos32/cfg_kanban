@@ -1136,14 +1136,25 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}
 		if (state.operator.permissions.material_transfer && flow.mode === "Transfer to WIP by Job Card") {
 			(flow.jobs || []).forEach((job) => {
-				if (!job.has_pending_materials) return;
+				if (!job.has_pending_materials && !job.wip_bin_ready_count && !job.wip_bin_consumption_draft) return;
 				const $job = $(`<div class="frappe-card p-3 mb-2"><div class="row align-items-center">
 					<div class="col-md-4"><strong>${e(job.operation)}</strong><br><small>${document_link("job-card", job.name)} · ${e(job.workstation || "-")}</small></div>
 					<div class="col-md-5">${production_material_table(job.materials || [])}</div>
 					<div class="col-md-3 text-right cfg-job-material-action"></div></div></div>`).appendTo($section);
-				add_action($job.find(".cfg-job-material-action"), __("Prepare Operation Materials"),
-					job.has_shortage ? "btn-warning" : "btn-primary", () =>
-					production_material_dialog(flow, job, job.materials));
+				const $job_actions = $job.find(".cfg-job-material-action");
+				if (job.has_pending_materials) {
+					add_action($job_actions, __("Prepare Operation Materials"),
+						job.has_shortage ? "btn-warning" : "btn-primary", () =>
+						production_material_dialog(flow, job, job.materials));
+				}
+				if (job.wip_bin_ready_count && !job.wip_bin_consumption_draft) {
+					add_action($job_actions, __("Consume Ready WIP Bins"), "btn-success", () =>
+						prepare_wip_bin_consumption_dialog(flow, job));
+					$job.append(`<div class="mt-2 alert alert-success py-2"><small>${__("{0} Ready bin(s), {1} total quantity await Job Card consumption", [job.wip_bin_ready_count, job.wip_bin_ready_qty])}</small></div>`);
+				}
+				if (job.wip_bin_consumption_draft) {
+					$job.append(`<div class="mt-2 alert alert-warning py-2"><small>${__("WIP-bin consumption Draft {0} is open. Use Production Material Trace below to scan its Ready bins, then submit the ERP entry.", [document_link("stock-entry", job.wip_bin_consumption_draft)])}</small></div>`);
+				}
 				if (job.restricted_materials_present) {
 					$job.append(`<div class="mt-2 text-muted"><small>${__("Restricted operation material is included server-side and is not displayed.")}</small></div>`);
 				}
@@ -1187,6 +1198,41 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			`<tr class="${row.shortage_qty > 0.000001 ? "text-danger" : ""}"><td>${e(row.item_code)}</td><td>${e(row.operation || "-")}</td>
 			<td>${e(row.source_warehouse || "-")}</td><td>${e(row.required_qty)} / ${e(row.pending_qty)} ${e(row.stock_uom || "")}</td>
 			<td>${e(row.available_qty)}${row.wip_available_qty !== undefined ? `<br><small>${__("WIP")}: ${e(row.wip_available_qty)}</small>` : ""}${row.shortage_qty > 0.000001 ? `<br><strong>${__("Short")}: ${e(row.shortage_qty)}</strong>` : ""}</td></tr>`).join("")}</tbody></table>`;
+	}
+
+	function prepare_wip_bin_consumption_dialog(flow, job, scanner_mode = false) {
+		let dialog;
+		dialog = new frappe.ui.Dialog({
+			title: __("Consume Ready WIP Bins: {0}", [job.operation || job.name]),
+			fields: [
+				{ fieldname: "summary", fieldtype: "HTML", options:
+					`<div class="alert alert-info"><strong>${frappe.utils.escape_html(job.name)}</strong><br>${__("{0} Ready bin(s), {1} total quantity. This creates a Draft ERPNext consumption; stock changes only after every bin is scanned and the entry is submitted.", [job.wip_bin_ready_count, job.wip_bin_ready_qty])}</div>` },
+				{ fieldname: "confirmation", label: __("Operator Confirmation / Notes"),
+					fieldtype: "Small Text", reqd: 1,
+					default: __("Operator confirmed the Ready WIP bins for this Job Card") },
+				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data",
+					description: __("Scan Confirm / Submit or Cancel. After creation, scan the physical Ready bins in Material Trace.") },
+			],
+			primary_action_label: __("Create Draft and Scan Bins"),
+			primary_action: async (values) => {
+				const response = await frappe.call({
+					method: "cfg_kanban.services.production_material_flow.prepare_wip_bin_consumption",
+					args: {
+						cycle_name: flow.cycle, job_card: job.name,
+						confirmation: values.confirmation,
+						requesting_cycle: flow.requesting_cycle || null,
+						event_token: frappe.utils.get_random(24),
+						operator_session_token: state.session_token,
+					},
+					freeze: true, freeze_message: __("Preparing WIP-bin consumption Draft..."),
+				});
+				dialog.hide();
+				await operator_material_trace_dialog(response.message.stock_entry);
+			},
+		});
+		dialog.show();
+		bind_confirmation_scanner(dialog, true);
+		return dialog;
 	}
 
 	function material_confirmation_fields() {
@@ -1487,6 +1533,18 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			if (!flow.has_pending_materials) return scanner_command_message(__("No Work Order material remains to transfer."));
 			return production_material_dialog(flow, null, flow.materials || [], true);
 		}
+		const ready_bins = (flow.jobs || []).filter((job) =>
+			job.wip_bin_ready_count && !job.wip_bin_consumption_draft);
+		if (ready_bins.length > 1) return scanner_selection_dialog(
+			__("Select Job Card for Ready WIP Bin Consumption"),
+			ready_bins.map((job) => ({ value: job.name,
+				label: `${job.operation || __("Operation")} · ${job.name} · ${job.wip_bin_ready_count} ${__("Ready bin(s)")}`, job })),
+			__("Prepare WIP Bin Consumption"),
+			(choice) => prepare_wip_bin_consumption_dialog(flow, choice.job, true),
+		);
+		if (ready_bins.length === 1) {
+			return prepare_wip_bin_consumption_dialog(flow, ready_bins[0], true);
+		}
 		const pending = (flow.jobs || []).filter((job) => job.has_pending_materials);
 		const active_jobs = new Set((state.context.executions || [])
 			.filter((row) => ["In Progress", "Ready"].includes(row.status)).map((row) => row.job_card));
@@ -1712,6 +1770,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const input_visible = plan.can_edit && input_options.length;
 		const output_visible = plan.can_edit && output_options.length;
 		const wip_visible = plan.can_edit && wip_options.length;
+		const wip_consumption = wip_visible && wip_inputs.some((row) => row.wip_bin_action === "Consume");
 		const scanner_instruction = wip_visible
 			? operator_wip_scanner_instruction(dialog, wip_inputs)
 			: input_visible
@@ -1726,8 +1785,16 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		);
 		["input_section", "input_row", "input_scan", "input_camera", "input_qty", "allocate_input"]
 			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(input_visible)));
-		["wip_bin_section", "wip_bin_row", "wip_source_scan", "wip_bin_scan", "allocate_wip_bin"]
+		["wip_bin_section", "wip_bin_row", "wip_bin_scan", "allocate_wip_bin"]
 			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(wip_visible)));
+		dialog.get_field("wip_source_scan").wrapper.toggle(Boolean(wip_visible && !wip_consumption));
+		dialog.set_df_property("wip_bin_section", "label", wip_consumption
+			? __("Consume Ready Standard Quantity WIP Bin")
+			: __("Load Standard Quantity Reusable WIP Bin"));
+		dialog.set_df_property("wip_bin_scan", "label", wip_consumption
+			? __("Ready Reusable WIP Bin") : __("Empty Reusable WIP Bin"));
+		dialog.set_df_property("allocate_wip_bin", "label", wip_consumption
+			? __("Bind Ready Bin to Consumption") : __("Allocate Full WIP Bin"));
 		["output_section", "output_row", "output_scan", "output_camera", "output_qty",
 			"output_serial_numbers", "handling_unit_type", "stage_output"]
 			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(output_visible)));
@@ -1776,7 +1843,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			await reload();
 		});
 		dialog.fields_dict.lines.$wrapper.find("[data-cancel-wip-bin-load]").off("click").on("click", async (event) => {
-			await frappe.call({ method: "cfg_kanban.services.wip_bin_loads.cancel_transfer_bin", args: {
+			const status = event.currentTarget.dataset.wipBinStatus;
+			const method = status === "Consumption Draft"
+				? "cfg_kanban.services.wip_bin_loads.cancel_consumption_bin"
+				: "cfg_kanban.services.wip_bin_loads.cancel_transfer_bin";
+			await frappe.call({ method, args: {
 				load_name: event.currentTarget.dataset.cancelWipBinLoad,
 				operator_session_token: state.session_token, kanban_card: state.context.card.name,
 			}, freeze: true, freeze_message: __("Releasing Draft WIP Bin allocation...") });
@@ -1838,6 +1909,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				return window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
 			}
 			const row = operator_wip_row(pending_wip, dialog.get_value("wip_bin_row"));
+			if (row?.wip_bin_action === "Consume") {
+				await dialog.set_value("wip_bin_scan", value);
+				return allocate_operator_wip_bin(
+					dialog, dialog.cfg_trace_plan.stock_entry, dialog.cfg_trace_reload
+				);
+			}
 			if (command === "CFG:CMD:NO_SOURCE") {
 				if (row?.tag_required) frappe.throw(__("This Item requires a source Stock Tag."));
 				dialog.cfg_wip_erp_only = true;
@@ -1890,6 +1967,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	function operator_wip_scanner_instruction(dialog, rows) {
 		const row = operator_wip_row(rows, dialog.get_value("wip_bin_row")) || rows[0];
 		if (!row) return __("Select a WIP material row.");
+		if (row.wip_bin_action === "Consume") {
+			return __(`Consumption row: ${row.item_code}. Scan the READY reusable WIP Bin used by this Job Card. ERPNext stock changes only after submission.`);
+		}
 		if (row.tag_policy === "No Physical Tag" || dialog.cfg_wip_erp_only) {
 			return __(`WIP row: ${row.item_code}. Scan an EMPTY reusable WIP Bin. ERPNext stock remains authoritative.`);
 		}
@@ -1903,14 +1983,23 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			row.direction === "Input" && row.wip_bin_required && row.wip_bin_remaining_qty > 0.000001);
 		const row = operator_wip_row(rows, dialog.get_value("wip_bin_row")) || rows[0];
 		if (!row) return;
-		await frappe.call({ method: "cfg_kanban.services.wip_bin_loads.allocate_transfer_bin", args: {
+		const consuming = row.wip_bin_action === "Consume";
+		const method = consuming
+			? "cfg_kanban.services.wip_bin_loads.allocate_consumption_bin"
+			: "cfg_kanban.services.wip_bin_loads.allocate_transfer_bin";
+		const args = {
 			stock_entry, item_row: row.row_name,
-			source_scan: dialog.cfg_wip_erp_only ? null : dialog.get_value("wip_source_scan"),
 			reusable_bin_scan: dialog.get_value("wip_bin_scan"),
 			operator_session_token: state.session_token, kanban_card: state.context.card.name,
 			event_token: frappe.utils.get_random(24),
-		}, freeze: true, freeze_message: __("Reserving source material and WIP Bin...") });
-		frappe.show_alert({ message: __("WIP Bin allocated; ERP stock moves only after Stock Entry submission."), indicator: "green" });
+		};
+		if (!consuming) args.source_scan = dialog.cfg_wip_erp_only ? null : dialog.get_value("wip_source_scan");
+		await frappe.call({ method, args, freeze: true,
+			freeze_message: consuming ? __("Binding Ready WIP Bin to ERP consumption...")
+				: __("Reserving source material and WIP Bin...") });
+		frappe.show_alert({ message: consuming
+			? __("Ready WIP Bin linked; material is consumed only after ERP submission.")
+			: __("WIP Bin allocated; ERP stock moves only after Stock Entry submission."), indicator: "green" });
 		dialog.cfg_wip_erp_only = false;
 		await dialog.set_value("wip_source_scan", "");
 		await dialog.set_value("wip_bin_scan", "");
@@ -1949,7 +2038,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<td>${e(line.status)}</td><td>${line.can_cancel ? `<button class="btn btn-xs btn-danger" data-cancel-operator-trace-line="${e(line.name)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
 		const wip_rows = wip_loads.map((load) => `<tr><td>${__("WIP Bin")}</td><td>${e(load.item_code)}</td>
 			<td>${e(load.reusable_bin)}</td><td>${e(load.actual_qty)} ${e(load.stock_uom)}</td><td>${e(load.status)}</td>
-			<td>${load.status === "Transfer Draft" ? `<button class="btn btn-xs btn-danger" data-cancel-wip-bin-load="${e(load.name)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
+			<td>${["Transfer Draft", "Consumption Draft"].includes(load.status) ? `<button class="btn btn-xs btn-danger" data-cancel-wip-bin-load="${e(load.name)}" data-wip-bin-status="${e(load.status)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
 		return `<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>
 			<th>${__("Direction")}</th><th>${__("Item")}</th><th>${__("Tag")}</th><th>${__("Quantity")}</th>
 			<th>${__("Status")}</th><th></th></tr></thead><tbody>${trace_rows}${wip_rows}</tbody></table></div>`;

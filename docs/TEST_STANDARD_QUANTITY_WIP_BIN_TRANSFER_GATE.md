@@ -1,9 +1,9 @@
-# Standard Quantity WIP Bin — Transfer Scanner Gate Test Guide
+# Standard Quantity WIP Bin — Full Transfer and Consumption Test Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Test gate:** Draft transfer allocation foundation  
-**Status:** Partial acceptance only — do not use on a live production Master yet  
-**Date:** 16 October 2026
+**Test gate:** Full Job Card transfer/consume lifecycle
+**Status:** Ready for controlled server acceptance testing
+**Date:** 18 October 2026
 
 ## 1. What this test covers
 
@@ -24,15 +24,14 @@ The package also proves that:
 - cancelling a submitted transfer restores the source-tag balance through an audit event; and
 - mixed BOM material policies remain independent row by row.
 
-The next package will add scanning and consuming the Ready bin against the correct Job Card. Until
-that is complete, CFG Kanban deliberately blocks Work Order creation for any Master containing the
-WIP-bin method. This prevents a transfer-only deployment from placing material in WIP without a
-controlled floor consumption path.
+The package also binds each Ready bin to the exact Job Card's Draft Material Consumption, returns
+the bin to Empty only after ERPNext submits that consumption, and prevents Job Card/Manufacture
+completion while a physical load remains unconsumed.
 
 ## 2. Acceptance rule for this gate
 
-This gate may be recorded as **configuration and safety checks passed**, but it must not be recorded
-as a complete production-flow acceptance test.
+Record this gate as passed only after both the transfer tests and the Ready-bin consumption tests
+below pass on the development server.
 
 Do not bypass the Work Order safety stop by editing database values, changing a Master after its
 Cycle is released, or attaching a manually created Stock Entry to a Cycle. Those actions would not
@@ -219,28 +218,17 @@ Use a serial-controlled test component with the WIP-bin method.
 Expected result: validation says the serial-controlled Item must use `Standard ERP / Tag Flow` so
 exact serial membership is preserved.
 
-## 9. Current Work Order safety-stop test
+## 9. Work Order release test
 
 1. Create and print a test Production Kanban Card from the configured Master.
 2. Scan the Card in the Production Operator panel.
 3. Trigger the production signal and complete the normal Supervisor approval step.
 
-Expected result:
+Expected result: the approved production flow creates/submits the Work Order according to its normal
+automation policy and ERPNext creates the operation Job Cards. No Stock Entry or WIP Bin Load is
+created until an operator prepares the operation materials.
 
-- no Work Order is created;
-- no Job Card is created;
-- no Stock Entry is created;
-- no WIP Bin Load is created;
-- no Handling Unit quantity ledger entry is created; and
-- the message explains that Draft transfer scanning is installed but operation-time consumption
-  scanning is not enabled yet.
-
-This is the correct result for the current gate.
-
-## 10. Deferred full transfer-scanner acceptance test
-
-Run this section only after the next WIP-bin consumption package removes the Work Order safety
-stop. It is included now so the final feature can be tested without inventing a new procedure.
+## 10. Full transfer-and-consumption acceptance test
 
 ### 10.1 Required source Stock Tag path
 
@@ -375,6 +363,67 @@ Expected result:
 - the Load records its source reversal ledger; and
 - the historical Load record is not deleted.
 
+### 10.8 Create the Job Card consumption Draft
+
+1. Return to the Production or matching Operation Card after both bins are `Ready`.
+2. Confirm that its Job Card shows **2 Ready bin(s), 20 total quantity**.
+3. Select **Consume Ready WIP Bins** and enter the operator confirmation.
+
+Expected result:
+
+- one Draft native `Material Consumption for Manufacture` is created for the exact Job Card;
+- its source Warehouse is the configured WIP Warehouse;
+- its quantity is `20 Kg` and its Item/UOM/Batch agree with the Ready loads;
+- both loads remain `Ready` until they are physically scanned; and
+- ERPNext stock is unchanged.
+
+### 10.9 Scan and correct Ready-bin consumption
+
+1. In the opened Production Material Trace dialog, scan `WIP-BIN-KETTLE-01`.
+
+Expected result: the matching load becomes `Consumption Draft`, the bin becomes `In Use`, and the
+dialog shows `10 / 20 Kg` covered. ERPNext stock is still unchanged.
+
+2. Select **Cancel** on that Draft WIP Bin line.
+
+Expected result: the load and physical bin return to `Ready`; the Draft Stock Entry remains open;
+no stock is consumed and no audit history is deleted.
+
+3. Scan `WIP-BIN-KETTLE-01` again, followed by `WIP-BIN-KETTLE-02`.
+
+Expected result: both loads become `Consumption Draft`, both bins become `In Use`, and the exact
+ERP row is fully covered.
+
+### 10.10 Consumption submission and Empty-bin feedback
+
+1. Scan `CFG:CMD:SUBMIT_MATERIALS` or select **Submit ERP Entry**.
+
+Expected result after successful native ERPNext submission:
+
+- ERPNext consumes `20 Kg` from the WIP Warehouse for the exact Work Order/Job Card;
+- both WIP Bin Loads become `Consumed`;
+- both permanent reusable bins become `Empty` and may be loaded again;
+- each Load keeps both its transfer and consumption Stock Entry links; and
+- the submitted document, load history and Kanban event timeline agree.
+
+### 10.11 Completion guards
+
+Repeat the flow with one Ready bin and try each action before submitting consumption:
+
+1. complete/submit the Job Card; and
+2. prepare or submit Manufacture receipt.
+
+Expected result: Job Card completion identifies the active bin load, and Manufacture submission
+requires the WIP-bin consumption first. After consumption is submitted, both actions may proceed
+subject to their normal ERPNext requirements.
+
+### 10.12 Submitted consumption cancellation
+
+Using an authorized ERPNext user, cancel a submitted WIP-bin consumption Stock Entry.
+
+Expected result: related loads become `Reversed`, physical bins become `Exception`, the Cycle is
+blocked for supervisor reconciliation, and the system does not falsely return those bins to Empty.
+
 ## 11. Evidence to capture
 
 For each test, record:
@@ -399,16 +448,21 @@ For each test, record:
 | Master material-row configuration | Pending | |
 | Mixed material-policy configuration | Pending | |
 | Serial-controlled Item rejection | Pending | |
-| Work Order safety stop | Pending | |
-| Required source transfer scanner | Deferred until consumption gate | |
-| ERP-only source transfer scanner | Deferred until consumption gate | |
-| Optional source transfer scanner | Deferred until consumption gate | |
-| Draft allocation cancellation | Deferred until consumption gate | |
-| Complete-row submission guard | Deferred until consumption gate | |
-| ERP cancellation reversal | Deferred until consumption gate | |
+| Work Order release | Pending | |
+| Required source transfer scanner | Pending | |
+| ERP-only source transfer scanner | Pending | |
+| Optional source transfer scanner | Pending | |
+| Draft allocation cancellation | Pending | |
+| Complete-row submission guard | Pending | |
+| ERP transfer cancellation reversal | Pending | |
+| Ready-bin consumption Draft | Pending | |
+| Consumption scan cancellation/retry | Pending | |
+| Consumption submission to Consumed/Empty | Pending | |
+| Job Card and Manufacture completion guards | Pending | |
+| Submitted consumption cancellation/Exception | Pending | |
 
 ## 13. Final decision for this gate
 
-The current gate passes only when Sections 4–9 pass. Do not activate a live Master using Standard
-Quantity Reusable WIP Bins yet. Full production acceptance requires Sections 10.1–10.7 plus the next
-Job Card consumption and Empty-bin lifecycle test.
+Activate a live Master using Standard Quantity Reusable WIP Bins only after Sections 4–10 pass and
+the captured evidence proves that ERPNext stock, WIP Bin Load status, physical bin state, and Job
+Card scope agree at every stage.

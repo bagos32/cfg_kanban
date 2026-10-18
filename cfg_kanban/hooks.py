@@ -78,6 +78,7 @@ doc_events = {
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_work_order_cancel",
     },
     "Job Card": {
+        "before_submit": "cfg_kanban.services.wip_bin_loads.validate_job_card_bins_consumed",
         "on_update": "cfg_kanban.integrations.erp_feedback.on_job_card_update",
         "on_submit": "cfg_kanban.integrations.erp_feedback.on_job_card_update",
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_job_card_cancel",
@@ -87,6 +88,7 @@ doc_events = {
         "before_submit": "cfg_kanban.integrations.erp_feedback.validate_stock_entry",
         "on_submit": "cfg_kanban.integrations.erp_feedback.on_stock_entry_submit",
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_stock_entry_cancel",
+        "on_trash": "cfg_kanban.services.wip_bin_loads.abandon_draft_stock_entry",
     },
     "Delivery Note": {
         "on_submit": "cfg_kanban.integrations.logistics_feedback.on_delivery_note_submit",

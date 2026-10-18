@@ -1258,8 +1258,13 @@ def create_production_material_consumption(command, payload):
     from erpnext.manufacturing.doctype.work_order.work_order import make_stock_entry
 
     work_order = frappe.get_doc("Work Order", payload["work_order"])
-    if work_order.docstatus != 1 or not work_order.skip_transfer:
-        frappe.throw("Material consumption requires a submitted Skip-WIP Work Order")
+    wip_bin_consumption = bool(payload.get("wip_bin_consumption"))
+    if work_order.docstatus != 1:
+        frappe.throw("Material consumption requires a submitted Work Order")
+    if not work_order.skip_transfer and not wip_bin_consumption:
+        frappe.throw("Non Skip-WIP consumption requires the controlled WIP Bin workflow")
+    if wip_bin_consumption and work_order.transfer_material_against != "Job Card":
+        frappe.throw("WIP Bin consumption requires material transfer against Job Card")
     entry = frappe.get_doc(make_stock_entry(
         work_order.name, "Material Consumption for Manufacture", qty=work_order.qty
     ))
@@ -1280,9 +1285,17 @@ def create_production_material_consumption(command, payload):
         allowed_keys = {(row.item_code, row.source_warehouse) for row in job.items}
         if not allowed_keys:
             frappe.throw(f"Job Card {job.name} has no operation material rows")
-        selected_keys &= allowed_keys
-        restricted_items &= {item_code for item_code, _warehouse in allowed_keys}
+        if not wip_bin_consumption:
+            selected_keys &= allowed_keys
+            restricted_items &= {item_code for item_code, _warehouse in allowed_keys}
         entry.job_card = job.name
+    if wip_bin_consumption:
+        _set_wip_bin_consumption_items(entry, confirmed)
+        entry.cfg_kanban_controlled = 1
+        entry.cfg_kanban_cycle = command.kanban_cycle
+        entry.cfg_kanban_signal = command.source_signal
+        entry.insert(ignore_permissions=True)
+        return entry
     entry.set("items", [
         row.as_dict() for row in entry.items
         if row.s_warehouse and (
@@ -1306,6 +1319,63 @@ def create_production_material_consumption(command, payload):
     if payload.get("submit"):
         entry.submit()
     return entry
+
+
+def _set_wip_bin_consumption_items(entry, confirmed):
+    """Map Ready-bin snapshots onto native ERPNext consumption rows.
+
+    ERPNext supplies valuation and Work Order context. The Kanban payload may split one
+    component into multiple Batch rows, so new rows are cloned only from an ERP-mapped
+    template of the same Item.
+    """
+    templates = {}
+    for row in entry.items:
+        if row.s_warehouse:
+            templates.setdefault(row.item_code, row)
+    if not confirmed:
+        frappe.throw("No Ready WIP Bin quantity was supplied for consumption")
+    entry.set("items", [])
+    for value in confirmed:
+        item_code = value.get("item_code")
+        template = templates.get(item_code)
+        if not template:
+            frappe.throw(
+                f"Ready WIP Bin Item {item_code} is outside the ERPNext Work Order mapping"
+            )
+        qty = flt(value.get("qty"))
+        warehouse = value.get("source_warehouse")
+        stock_uom = value.get("stock_uom") or template.stock_uom
+        if qty <= 0 or not warehouse:
+            frappe.throw("Every WIP Bin consumption row needs positive quantity and WIP Warehouse")
+        if stock_uom != template.stock_uom:
+            frappe.throw(
+                f"WIP Bin UOM {stock_uom} does not match ERP stock UOM {template.stock_uom} "
+                f"for {item_code}"
+            )
+        values = template.as_dict()
+        for fieldname in (
+            "name", "parent", "parenttype", "parentfield", "idx", "docstatus",
+        ):
+            values.pop(fieldname, None)
+        values.update({
+            "s_warehouse": warehouse,
+            "t_warehouse": None,
+            "uom": stock_uom,
+            "stock_uom": stock_uom,
+            "conversion_factor": 1,
+            "qty": qty,
+            "transfer_qty": qty,
+            "batch_no": value.get("batch_no"),
+        })
+        entry.append("items", values)
+    from erpnext.stock.utils import get_stock_balance
+    for row in entry.items:
+        available = flt(get_stock_balance(row.item_code, row.s_warehouse))
+        if flt(row.transfer_qty or row.qty) > available + 0.000001:
+            frappe.throw(
+                f"Insufficient ERPNext WIP stock for {row.item_code} in {row.s_warehouse}: "
+                f"required {row.transfer_qty or row.qty}, available {available}"
+            )
 
 
 @handler("Create Production Manufacture Receipt")

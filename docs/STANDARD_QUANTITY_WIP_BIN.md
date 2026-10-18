@@ -1,7 +1,7 @@
 # CFG Kanban — Standard Quantity Reusable WIP Bin
 
-**Status:** Configuration, immutable audit, and Draft transfer scanner allocation implemented; operation consumption is the next safety gate
-**Date:** 16 October 2026  
+**Status:** Full-bin transfer and Job Card consumption lifecycle implemented; controlled server acceptance required
+**Date:** 18 October 2026
 **ERP stock authority:** ERPNext Work Order, Job Card, and submitted Stock Entry
 
 ## 1. Purpose
@@ -75,7 +75,7 @@ Different material rows in the same BOM/Work Order may use different methods. Th
 runtime applies only to rows explicitly configured as `Standard Quantity Reusable WIP Bin`; all
 other rows continue through normal ERP quantity or physical-tag flow.
 
-## 4. Runtime sequence and current boundary
+## 4. Runtime sequence
 
 The controlled sequence is:
 
@@ -91,7 +91,7 @@ full load consumed against the matching Job Card
 bin = Empty and available for cleaning/refill
 ```
 
-The transfer-allocation part of this sequence is now implemented in **Production Material Trace**.
+The transfer-allocation part of this sequence is implemented in **Production Material Trace**.
 The operator selects the WIP material row (or scans its displayed row number), scans the source
 Stock Tag when the Item policy uses one, and then scans the Empty reusable WIP bin. For an optional
 tag policy, `CFG:CMD:NO_SOURCE` explicitly selects ERP-only source stock. A Draft allocation may be
@@ -103,7 +103,14 @@ normal Stock Tag and no detachable printed child label is required. The load epi
 immutable source lineage and ERP Stock Entry reference. Draft allocation reserves 10 kg; only
 submitted ERPNext transfer feedback removes it from the source tag and marks the bin Ready.
 
-## 5. Required runtime safeguards
+After transfer submission, the exact Job Card shows **Consume Ready WIP Bins**. This creates one
+Draft `Material Consumption for Manufacture` from the Ready load snapshots. In Production Material
+Trace the operator scans each physical Ready bin. A mistaken Draft scan can be cancelled back to
+Ready. Only native ERPNext submission changes the linked load to Consumed and the permanent bin to
+Empty. Job Card submission and Manufacture receipt are blocked while an active load for their
+scope remains unconsumed.
+
+## 5. Runtime safeguards
 
 The runtime gate must not be considered complete until it enforces all of these rules:
 
@@ -116,21 +123,20 @@ The runtime gate must not be considered complete until it enforces all of these 
 5. Source quantity is reserved while the ERP Stock Entry is Draft; it is not deducted early.
 6. Bin becomes Ready only after the native Material Transfer for Manufacture is submitted.
 7. Job Card consumption accepts only a Ready load belonging to that Job Card/operation.
-8. Full-bin consumption is the normal path. A partial exception requires supervisor identity,
-   reason, actual quantity, and exception audit.
+8. Full-bin consumption is the only enabled path in this package. The configured partial-exception
+   fields remain reserved for a later separately controlled supervisor workflow.
 9. Bin becomes Empty only after native ERP consumption is submitted or a controlled reversal is
    completed.
 10. Retry/idempotency guards prevent duplicate transfer, load, consumption, or emptying events.
 
 ## 6. Current deployment boundary
 
-The first gates created the physical roles, pools, Master mapping, immutable load episodes, native
-ERP feedback, and Draft transfer scanner allocation. The source tag may be partially reserved for
-one exact full-bin quantity; rows configured without physical tags remain ERP-only.
+The package now includes physical roles, pools, Master mapping, immutable load episodes, Draft
+transfer allocation, Ready-bin Job Card consumption, native ERP feedback, Draft cancellation, and
+completion guards. The source tag may be partially reserved for one exact full-bin quantity; rows
+configured without physical tags remain ERP-only. Work Order creation is no longer blanket-stopped.
 
-Operation-time scanning and native consumption confirmation are not yet implemented. Therefore, if
-a Master is configured to use the WIP-bin method, Work Order creation remains blocked with a clear
-message and no ERP document or stock mutation occurs. Keep live Masters on **Standard ERP / Tag
-Flow** until the consumption gate is deployed and the complete lifecycle is accepted.
-Serial-controlled components remain on Standard ERP / Tag Flow because a fixed quantity alone is
-not sufficient evidence of exact serial membership.
+Do not enable the method on a live Master until the development-server procedure in
+`docs/TEST_STANDARD_QUANTITY_WIP_BIN_TRANSFER_GATE.md` passes. Partial-bin consumption remains
+disabled. Serial-controlled components remain on Standard ERP / Tag Flow because a fixed quantity
+alone is not sufficient evidence of exact serial membership.

@@ -593,6 +593,7 @@ def _trace_plan(doc, trace):
             allocated = _line_qty(trace, row.name, "Input", ACTIVE_INPUT_STATUSES)
             wip_context = None
             wip_loads = []
+            wip_action = None
             if _purpose(doc) == "Material Transfer for Manufacture":
                 from cfg_kanban.services.wip_bin_loads import (
                     entry_wip_bin_rule,
@@ -601,10 +602,21 @@ def _trace_plan(doc, trace):
                 wip_context = entry_wip_bin_rule(doc, row)
                 if wip_context:
                     wip_loads = transfer_loads_for_row(doc.name, row.name)
+                    wip_action = "Load"
+            elif _purpose(doc) == "Material Consumption for Manufacture":
+                from cfg_kanban.services.wip_bin_loads import (
+                    consumption_loads_for_row,
+                    entry_wip_bin_rule,
+                )
+                wip_context = entry_wip_bin_rule(doc, row)
+                if wip_context:
+                    wip_loads = consumption_loads_for_row(doc.name, row.name)
+                    wip_action = "Consume"
             rows.append(_plan_row(
                 row, "Input", row.s_warehouse, policy.production_input_tag_policy,
                 policy.policy_source, allocated,
                 wip_context=wip_context, wip_loads=wip_loads,
+                wip_action=wip_action,
             ))
         if _is_output_row(doc, row):
             policy = effective_trace_policy(row.item_code, doc.company)
@@ -644,7 +656,7 @@ def _trace_plan(doc, trace):
 
 
 def _plan_row(row, direction, warehouse, tag_policy, policy_source, allocated,
-              wip_context=None, wip_loads=None):
+              wip_context=None, wip_loads=None, wip_action=None):
     from cfg_kanban.services.serial_evidence import erp_row_serials, item_uses_serials
     total = _row_stock_qty(row)
     serial_controlled = item_uses_serials(row.item_code)
@@ -667,6 +679,7 @@ def _plan_row(row, direction, warehouse, tag_policy, policy_source, allocated,
         "tagging_available": tag_policy != NO_TAG and not wip_context,
         "tag_required": tag_policy == "Required Physical Tag",
         "wip_bin_required": bool(wip_context),
+        "wip_bin_action": wip_action,
         "wip_bin_pool": wip_context.get("wip_bin_pool") if wip_context else None,
         "standard_bin_qty": (wip_context.get("standard_bin_qty")
                              if wip_context else 0),

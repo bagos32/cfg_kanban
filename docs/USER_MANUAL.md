@@ -1,9 +1,9 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.57
+**Guide version:** 1.58
 
-**Updated:** 17 October 2026
+**Updated:** 18 October 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
@@ -1126,11 +1126,21 @@ that source tag after ERPNext submits the transfer. A Draft allocation can be ca
 its source reservation. Only submitted ERPNext transfer feedback deducts the reserved source-tag
 quantity and marks the load/bin `Ready`; cancellation restores it through an auditable reversal.
 
-The operation-time WIP-bin consumption scanner is the next safety gate. Work Order creation for a
-Master containing this method therefore remains blocked until that matching Job Card consumption
-gate is complete. This is intentional: a transfer-only deployment must not leave a Ready bin that
-cannot be consumed through the controlled floor workflow. Keep live Masters on `Standard ERP / Tag
-Flow` until the complete WIP-bin lifecycle is accepted. See `docs/STANDARD_QUANTITY_WIP_BIN.md`.
+The operation-time WIP-bin consumption gate is now connected. After the submitted transfer makes
+one or more loads `Ready`, the exact Job Card shows **Consume Ready WIP Bins**. That action creates
+a Draft native `Material Consumption for Manufacture` using only the Ready load quantities and
+their WIP Warehouse/Batch snapshots. In **Production Material Trace**, scan each physical Ready
+bin. A scan changes only the audit/load intent to `Consumption Draft`; it does not change ERP stock.
+An incorrect Draft scan can be cancelled and the bin returns to `Ready`.
+
+Only successful ERPNext submission changes every linked load to `Consumed` and returns its
+reusable physical bin to `Empty`. The Job Card cannot be submitted while a related bin remains
+`Transfer Draft`, `Ready`, `In Use`, or `Consumption Draft`; Manufacture receipt is blocked while
+the Work Order has any such unconsumed load. Cancelling a submitted consumption puts the bin in
+`Exception` for supervisor reconciliation rather than silently claiming that the physical bin is
+empty. Work Order creation is no longer blanket-blocked for a correctly configured WIP-bin Master.
+Use `docs/TEST_STANDARD_QUANTITY_WIP_BIN_TRANSFER_GATE.md` for the complete transfer-and-consumption
+acceptance test before enabling the method on a live production Master.
 
 For **Transfer to WIP by Job Card**, both the main Production Card and the activated reusable
 Process/Station operation Card can prepare the transfer. The operation Card is deliberately limited
@@ -3357,6 +3367,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.58 | 18 October 2026 | Completed the Standard Quantity WIP Bin operation-consumption gate: Ready-load visibility by Job Card, scanner-created Draft consumption, exact Ready-bin/Item/Warehouse/UOM/Batch binding, cancellable Draft scans, submitted ERP feedback to Consumed/Empty, and Job Card/Manufacture completion blocks while physical bins remain unconsumed; removed the temporary Work Order safety stop |
 | 1.57 | 17 October 2026 | Added audited Handling Unit print choices for the existing 45 × 250 mm trace tag plus 50 × 30 mm, 100 × 50 mm, and A6 permanent reusable-bin/bin-slot barcode cards; all formats encode the visible physical identity and keep mutable contents out of the fixed label |
 | 1.56 | 16 October 2026 | Added scanner-first Draft transfer allocation for Standard Quantity WIP Bins: numbered row selection, optional/required/ERP-only source handling, partial reservation from a larger source Stock Tag, Empty pool-bin validation, cancellable Draft loads, source quantity confirmation only after submitted ERP transfer, reversal restoration, and complete-row submission gates; Work Order release remains safely blocked until operation consumption is delivered |
 | 1.55 | 16 October 2026 | Added the immutable Standard WIP Bin Load audit backbone: per-load Item/Batch/quantity and production-context snapshots, one-active-load bin exclusivity, native ERP transfer/consumption row validation, submitted Stock Entry Ready/Consumed confirmation, cancellation reversal/Exception handling, and workspace investigation access; floor scanner allocation remains deliberately gated |
