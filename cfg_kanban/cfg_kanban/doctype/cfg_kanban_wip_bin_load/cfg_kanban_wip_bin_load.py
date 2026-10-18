@@ -9,7 +9,8 @@ ACTIVE_STATUSES = (
 IDENTITY_FIELDS = (
     "reusable_bin", "wip_bin_pool", "company", "item_code", "batch_no",
     "standard_qty", "actual_qty", "stock_uom", "partial_exception",
-    "exception_reason", "approved_by", "kanban_master", "kanban_cycle", "work_order",
+    "exception_reason", "approved_by", "approved_by_operator", "exception_approved_on",
+    "kanban_master", "kanban_cycle", "work_order",
     "job_card", "process_execution", "operation", "workstation",
     "source_handling_unit", "source_warehouse", "wip_warehouse",
     "transfer_stock_entry", "transfer_stock_entry_detail", "idempotency_key",
@@ -36,11 +37,17 @@ class CFGKanbanWIPBinLoad(Document):
             self.partial_exception = 0
             self.exception_reason = None
             self.approved_by = None
+            self.approved_by_operator = None
+            self.exception_approved_on = None
             return
         if not cint(self.partial_exception):
             frappe.throw("Actual WIP Bin quantity must equal its Standard Full-bin Qty")
-        if not self.exception_reason or not self.approved_by:
-            frappe.throw("A partial-bin exception requires a reason and approving supervisor")
+        if (not self.exception_reason or not self.approved_by
+                or not self.approved_by_operator or not self.exception_approved_on):
+            frappe.throw(
+                "A partial-bin exception requires a reason, approving supervisor, "
+                "terminal user, and approval time"
+            )
         if not frappe.db.get_value(
             "CFG Kanban WIP Bin Pool", self.wip_bin_pool,
             "allow_supervisor_partial_exception",

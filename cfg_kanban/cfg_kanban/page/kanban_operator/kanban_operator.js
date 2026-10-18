@@ -762,7 +762,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<tr><td>F8</td><td><code>CFG:CMD:END_SESSION</code></td><td>${__("End operator session after confirmation")}</td></tr>
 			</tbody></table>
 			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
-			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
+			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
 			<p><strong>${__("Progress dialog commands")}</strong>: <code>CFG:QTY:GOOD:+1</code>, <code>CFG:QTY:REJECT:+1</code>, <code>CFG:CMD:CONFIRM</code>, <code>CFG:CMD:CANCEL</code>.</p>
 			<p><strong>${__("Message control")}</strong>: scan the next card to close an error and continue, or scan <code>CFG:CMD:DISMISS</code> to close it.</p>
 			<div class="alert alert-warning">${__("A web page cannot receive scanner keys while the browser address bar is selected. Use full-screen/kiosk mode and configure the scanner to append Enter.")}</div>
@@ -1681,7 +1681,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				{ fieldname: "wip_bin_scan", label: __("Empty Reusable WIP Bin"), fieldtype: "Data",
 					description: __("Scan an Empty bin approved in the configured WIP Bin Pool.") },
 				{ fieldname: "allocate_wip_bin", label: __("Allocate Full WIP Bin"), fieldtype: "Button",
-					click: async () => allocate_operator_wip_bin(dialog, stock_entry, reload) },
+					click: async () => allocate_operator_wip_bin(dialog, stock_entry, reload, false) },
+				{ fieldname: "wip_partial_notice", fieldtype: "HTML" },
+				{ fieldname: "wip_partial_qty", label: __("Approved Partial-bin Quantity"), fieldtype: "Float",
+					description: __("Must be below the configured full-bin quantity and within the remaining ERP material quantity.") },
+				{ fieldname: "wip_partial_reason", label: __("Supervisor Exception Reason"), fieldtype: "Small Text",
+					description: __("Required. This reason and the active supervisor QR identity become immutable audit evidence.") },
+				{ fieldname: "allocate_partial_wip_bin", label: __("Approve and Allocate Partial WIP Bin"), fieldtype: "Button",
+					click: async () => allocate_operator_wip_bin(dialog, stock_entry, reload, true) },
 				{ fieldname: "input_section", label: __("Scan Tagged Material Input"), fieldtype: "Section Break" },
 				{ fieldname: "input_row", label: __("Matched ERP Input Row"), fieldtype: "Select", read_only: 1,
 					description: __("The scanned tag automatically selects the matching Item, Warehouse, UOM, Batch, and remaining ERP row.") },
@@ -1811,12 +1818,17 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			const $wip_select = dialog.get_field("wip_bin_row").$input;
 			$wip_select.off("change.cfg_wip_row").on("change.cfg_wip_row", async () => {
 				dialog.cfg_wip_erp_only = false;
+				dialog.cfg_wip_partial_qty = 0;
 				await dialog.set_value("wip_source_scan", "");
 				await dialog.set_value("wip_bin_scan", "");
+				await dialog.set_value("wip_partial_qty", 0);
+				await dialog.set_value("wip_partial_reason", "");
+				await refresh_wip_partial_controls(dialog, wip_inputs);
 				window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
 			});
 			bind_operator_trace_enter(dialog, "wip_bin_scan", "allocate_wip_bin");
 		}
+		await refresh_wip_partial_controls(dialog, wip_inputs);
 		if (output_visible) {
 			const selected = output_options.includes(dialog.get_value("output_row")) ?
 				dialog.get_value("output_row") : output_options[0];
@@ -1854,6 +1866,40 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			await reload();
 		});
 		window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
+	}
+
+	async function refresh_wip_partial_controls(dialog, rows) {
+		const row = operator_wip_row(rows, dialog.get_value("wip_bin_row")) || rows[0];
+		const transfer = Boolean(row && row.wip_bin_action === "Load");
+		const configured = transfer && Boolean(row.allow_supervisor_partial_exception);
+		const authorized = configured && Boolean(dialog.cfg_trace_plan?.can_approve_partial_wip_bin);
+		["wip_partial_qty", "wip_partial_reason", "allocate_partial_wip_bin"]
+			.forEach((name) => dialog.get_field(name).wrapper.toggle(authorized));
+		const notice = dialog.get_field("wip_partial_notice");
+		notice.wrapper.toggle(transfer);
+		if (!transfer) return;
+		const remaining = Number(row.wip_bin_remaining_qty || 0);
+		const standard = Number(row.standard_bin_qty || 0);
+		const final_remainder = remaining > 0.000001 && remaining < standard - 0.000001;
+		let message;
+		let indicator = "info";
+		if (!configured && final_remainder) {
+			indicator = "warning";
+			message = __("The remaining ERP quantity is below one full bin, but this Pool does not allow a partial-bin exception. Correct the production quantity or update the controlled Pool policy before continuing.");
+		} else if (configured && !authorized) {
+			indicator = final_remainder ? "warning" : "info";
+			message = __("Partial bins require an active Supervisor QR session with Override permission. Full-bin scanning remains available.");
+		} else if (authorized) {
+			message = __("Supervisor partial-bin control is available. Scan Material Quantity, enter the reason, then scan the source tag and Empty WIP Bin; or use the fields below.");
+		} else {
+			message = __("This Pool accepts full-bin allocation only.");
+		}
+		notice.$wrapper.html(`<div class="alert alert-${indicator} py-2">${frappe.utils.escape_html(message)}</div>`);
+		if (authorized && final_remainder && !Number(dialog.get_value("wip_partial_qty") || 0)) {
+			await dialog.set_value("wip_partial_qty", remaining);
+			await dialog.set_value("wip_partial_reason",
+				__("Final ERP material row remainder does not fill the standard WIP bin"));
+		}
 	}
 
 	async function update_operator_output_serial_field(dialog, row) {
@@ -1909,10 +1955,40 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				return window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
 			}
 			const row = operator_wip_row(pending_wip, dialog.get_value("wip_bin_row"));
+			const partial_qty = command.match(/^CFG:QTY:MATERIAL:([+]?(?:\d+\.?\d*|\.\d+))$/);
+			if (partial_qty && row?.wip_bin_action === "Load") {
+				if (!row.allow_supervisor_partial_exception) {
+					frappe.throw(__("This WIP Bin Pool does not allow partial-bin exceptions."));
+				}
+				if (!dialog.cfg_trace_plan?.can_approve_partial_wip_bin) {
+					frappe.throw(__("Switch to a Supervisor QR with Override permission before setting a partial-bin quantity."));
+				}
+				const qty = Number(partial_qty[1]);
+				if (!(qty > 0) || qty >= Number(row.standard_bin_qty) || qty > Number(row.wip_bin_remaining_qty)) {
+					frappe.throw(__("Partial quantity must be above zero, below {0}, and no more than the remaining {1} {2}.",
+						[row.standard_bin_qty, row.wip_bin_remaining_qty, row.stock_uom]));
+				}
+				dialog.cfg_wip_partial_qty = qty;
+				await dialog.set_value("wip_partial_qty", qty);
+				if (Math.abs(qty - Number(row.wip_bin_remaining_qty)) < 0.000001 &&
+					!dialog.get_value("wip_partial_reason")) {
+					await dialog.set_value("wip_partial_reason",
+						__("Final ERP material row remainder does not fill the standard WIP bin"));
+				}
+				frappe.show_alert({ message: __("Partial WIP Bin quantity {0} {1} armed. Confirm the exception reason, then scan the required tag(s).", [qty, row.stock_uom]), indicator: "orange" });
+				return window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
+			}
+			if (command === "CFG:CMD:FULL_BIN" && row?.wip_bin_action === "Load") {
+				dialog.cfg_wip_partial_qty = 0;
+				await dialog.set_value("wip_partial_qty", 0);
+				await dialog.set_value("wip_partial_reason", "");
+				frappe.show_alert({ message: __("Full-bin allocation restored."), indicator: "blue" });
+				return window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
+			}
 			if (row?.wip_bin_action === "Consume") {
 				await dialog.set_value("wip_bin_scan", value);
 				return allocate_operator_wip_bin(
-					dialog, dialog.cfg_trace_plan.stock_entry, dialog.cfg_trace_reload
+					dialog, dialog.cfg_trace_plan.stock_entry, dialog.cfg_trace_reload, false
 				);
 			}
 			if (command === "CFG:CMD:NO_SOURCE") {
@@ -1930,7 +2006,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			}
 			await dialog.set_value("wip_bin_scan", value);
 			return allocate_operator_wip_bin(
-				dialog, dialog.cfg_trace_plan.stock_entry, dialog.cfg_trace_reload
+				dialog, dialog.cfg_trace_plan.stock_entry, dialog.cfg_trace_reload,
+				Boolean(Number(dialog.get_value("wip_partial_qty") || dialog.cfg_wip_partial_qty || 0))
 			);
 		}
 		const pending_inputs = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
@@ -1978,7 +2055,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			: __(`WIP row: ${row.item_code}. Scan its source Stock Tag, then scan the EMPTY reusable WIP Bin. Scan No Source only when this row allows optional tags.`);
 	}
 
-	async function allocate_operator_wip_bin(dialog, stock_entry, reload) {
+	async function allocate_operator_wip_bin(dialog, stock_entry, reload, partial = false) {
 		const rows = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
 			row.direction === "Input" && row.wip_bin_required && row.wip_bin_remaining_qty > 0.000001);
 		const row = operator_wip_row(rows, dialog.get_value("wip_bin_row")) || rows[0];
@@ -1993,16 +2070,30 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			operator_session_token: state.session_token, kanban_card: state.context.card.name,
 			event_token: frappe.utils.get_random(24),
 		};
-		if (!consuming) args.source_scan = dialog.cfg_wip_erp_only ? null : dialog.get_value("wip_source_scan");
+		if (!consuming) {
+			args.source_scan = dialog.cfg_wip_erp_only ? null : dialog.get_value("wip_source_scan");
+			if (partial) {
+				args.actual_qty = Number(dialog.get_value("wip_partial_qty") || dialog.cfg_wip_partial_qty || 0);
+				args.exception_reason = String(dialog.get_value("wip_partial_reason") || "").trim();
+				if (!args.actual_qty || !args.exception_reason) {
+					frappe.throw(__("Enter the approved partial-bin quantity and supervisor exception reason."));
+				}
+			}
+		}
 		await frappe.call({ method, args, freeze: true,
 			freeze_message: consuming ? __("Binding Ready WIP Bin to ERP consumption...")
 				: __("Reserving source material and WIP Bin...") });
 		frappe.show_alert({ message: consuming
 			? __("Ready WIP Bin linked; material is consumed only after ERP submission.")
-			: __("WIP Bin allocated; ERP stock moves only after Stock Entry submission."), indicator: "green" });
+			: partial
+				? __("Supervisor partial-bin exception recorded; ERP stock moves only after Stock Entry submission.")
+				: __("WIP Bin allocated; ERP stock moves only after Stock Entry submission."), indicator: "green" });
 		dialog.cfg_wip_erp_only = false;
+		dialog.cfg_wip_partial_qty = 0;
 		await dialog.set_value("wip_source_scan", "");
 		await dialog.set_value("wip_bin_scan", "");
+		await dialog.set_value("wip_partial_qty", 0);
+		await dialog.set_value("wip_partial_reason", "");
 		await reload();
 	}
 
@@ -2036,8 +2127,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const trace_rows = (plan.lines || []).map((line) => `<tr><td>${e(line.direction)}</td><td>${e(line.item_code)}</td>
 			<td>${e(line.handling_unit || line.pending_tag_code || "-")}</td><td>${e(line.qty)} ${e(line.stock_uom)}${line.serial_count ? `<br><small>${e(line.serial_count)} ${__("serials")}</small>` : ""}</td>
 			<td>${e(line.status)}</td><td>${line.can_cancel ? `<button class="btn btn-xs btn-danger" data-cancel-operator-trace-line="${e(line.name)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
-		const wip_rows = wip_loads.map((load) => `<tr><td>${__("WIP Bin")}</td><td>${e(load.item_code)}</td>
-			<td>${e(load.reusable_bin)}</td><td>${e(load.actual_qty)} ${e(load.stock_uom)}</td><td>${e(load.status)}</td>
+		const wip_rows = wip_loads.map((load) => `<tr><td>${__("WIP Bin")}${load.partial_exception ? `<br><span class="indicator-pill orange">${__("Supervisor Partial Exception")}</span>` : ""}</td><td>${e(load.item_code)}</td>
+			<td>${e(load.reusable_bin)}${load.partial_exception ? `<br><small>${e(load.exception_reason || "")}</small><br><small>${e(load.approved_by_operator || load.approved_by || "")}</small>` : ""}</td><td>${e(load.actual_qty)} ${e(load.stock_uom)}</td><td>${e(load.status)}</td>
 			<td>${["Transfer Draft", "Consumption Draft"].includes(load.status) ? `<button class="btn btn-xs btn-danger" data-cancel-wip-bin-load="${e(load.name)}" data-wip-bin-status="${e(load.status)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
 		return `<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>
 			<th>${__("Direction")}</th><th>${__("Item")}</th><th>${__("Tag")}</th><th>${__("Quantity")}</th>

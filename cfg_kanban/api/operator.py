@@ -125,6 +125,7 @@ def get_scanner_command_sheet(quantity_steps=None):
         ("Prepare Manufacture Receipt", "CFG:CMD:PREPARE_RECEIPT", ""),
         ("Scan Material Tags", "CFG:CMD:SCAN_MATERIALS", ""),
         ("WIP Bin: Use ERP-only Source", "CFG:CMD:NO_SOURCE", ""),
+        ("WIP Bin: Restore Full-bin Mode", "CFG:CMD:FULL_BIN", ""),
         ("Submit Material Entry", "CFG:CMD:SUBMIT_MATERIALS", ""),
     ]
     commands.extend([

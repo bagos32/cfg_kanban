@@ -1,6 +1,6 @@
 # CFG Kanban — Standard Quantity Reusable WIP Bin
 
-**Status:** Full-bin transfer and Job Card consumption lifecycle implemented; controlled server acceptance required
+**Status:** Full lifecycle plus controlled supervisor partial-bin exception implemented; server acceptance required
 **Date:** 18 October 2026
 **ERP stock authority:** ERPNext Work Order, Job Card, and submitted Stock Entry
 
@@ -47,7 +47,8 @@ The pool records these locked safety choices:
 
 - require the physical bin scan;
 - require full-bin consumption by default; and
-- keep supervisor partial-bin exception disabled unless the process is separately approved.
+- keep supervisor partial-bin exception disabled unless the process is separately approved. When
+  enabled, only an active Kanban Supervisor QR profile with Override permission can authorize it.
 
 ### Kanban Master material row
 
@@ -118,13 +119,16 @@ The runtime gate must not be considered complete until it enforces all of these 
 2. Pool Company, Operation, and WIP Warehouse match the effective Job Card, and the scanned bin's
    workstation row matches that Job Card's actual Workstation.
 3. Item and Batch cannot be mixed in one bin load.
-4. Planned quantity is a whole number of full bins unless an approved alternative bin profile or
-   supervisor exception is used.
+4. Planned quantity is a whole number of full bins unless the Pool explicitly permits a supervisor
+   partial-bin exception. The exception quantity must be positive, below the standard capacity,
+   and within the remaining native ERP row. The supervisor reason, Employee identity, terminal
+   User, session, and approval time are immutable audit evidence.
 5. Source quantity is reserved while the ERP Stock Entry is Draft; it is not deducted early.
 6. Bin becomes Ready only after the native Material Transfer for Manufacture is submitted.
 7. Job Card consumption accepts only a Ready load belonging to that Job Card/operation.
-8. Full-bin consumption is the only enabled path in this package. The configured partial-exception
-   fields remain reserved for a later separately controlled supervisor workflow.
+8. A partial load is created only during transfer by a Supervisor with Override permission. Later
+   Job Card consumption scans and consumes that load's exact approved actual quantity; it cannot
+   silently revert to the standard full-bin quantity.
 9. Bin becomes Empty only after native ERP consumption is submitted or a controlled reversal is
    completed.
 10. Retry/idempotency guards prevent duplicate transfer, load, consumption, or emptying events.
@@ -137,6 +141,7 @@ completion guards. The source tag may be partially reserved for one exact full-b
 configured without physical tags remain ERP-only. Work Order creation is no longer blanket-stopped.
 
 Do not enable the method on a live Master until the development-server procedure in
-`docs/TEST_STANDARD_QUANTITY_WIP_BIN_TRANSFER_GATE.md` passes. Partial-bin consumption remains
-disabled. Serial-controlled components remain on Standard ERP / Tag Flow because a fixed quantity
-alone is not sufficient evidence of exact serial membership.
+`docs/TEST_STANDARD_QUANTITY_WIP_BIN_TRANSFER_GATE.md` passes. Keep partial exceptions disabled
+unless the physical verification method and supervisor responsibility are approved. Serial-
+controlled components remain on Standard ERP / Tag Flow because a fixed quantity alone is not
+sufficient evidence of exact serial membership.

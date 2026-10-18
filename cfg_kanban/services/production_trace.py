@@ -27,12 +27,12 @@ TOLERANCE = 0.000001
 @frappe.whitelist()
 def get_stock_entry_trace_plan(stock_entry, operator_session_token=None, kanban_card=None):
     doc = frappe.get_doc("Stock Entry", stock_entry)
-    _authorize_trace_access(
+    operator_actor = _authorize_trace_access(
         doc, "read", operator_session_token=operator_session_token, kanban_card=kanban_card
     )
     _assert_supported(doc)
     trace = _get_trace(doc.name)
-    return _trace_plan(doc, trace)
+    return _trace_plan(doc, trace, operator_actor=operator_actor)
 
 
 @frappe.whitelist()
@@ -585,7 +585,7 @@ def reverse_stock_entry_trace(doc):
     )
 
 
-def _trace_plan(doc, trace):
+def _trace_plan(doc, trace, operator_actor=None):
     rows = []
     for row in doc.items:
         if row.s_warehouse:
@@ -649,6 +649,7 @@ def _trace_plan(doc, trace):
         "trace": trace.name if trace else None,
         "trace_status": trace.status if trace else "Not Started",
         "can_edit": doc.docstatus == 0,
+        "can_approve_partial_wip_bin": _can_approve_partial_wip_bin(operator_actor),
         "can_abandon": bool(trace and trace.status == "Draft" and doc.docstatus == 0),
         "rows": rows,
         "lines": lines,
@@ -681,6 +682,14 @@ def _plan_row(row, direction, warehouse, tag_policy, policy_source, allocated,
         "wip_bin_required": bool(wip_context),
         "wip_bin_action": wip_action,
         "wip_bin_pool": wip_context.get("wip_bin_pool") if wip_context else None,
+        "allow_supervisor_partial_exception": (
+            bool(wip_context.get("allow_supervisor_partial_exception"))
+            if wip_context else False
+        ),
+        "require_full_bin_consumption": (
+            bool(wip_context.get("require_full_bin_consumption"))
+            if wip_context else False
+        ),
         "standard_bin_qty": (wip_context.get("standard_bin_qty")
                              if wip_context else 0),
         "wip_bin_allocated_qty": wip_allocated,
@@ -692,6 +701,18 @@ def _plan_row(row, direction, warehouse, tag_policy, policy_source, allocated,
                                          row.parent, row.name
                                      )],
     }
+
+
+def _can_approve_partial_wip_bin(operator_actor):
+    if not operator_actor:
+        return bool({"Manufacturing Manager", "System Manager"}.intersection(
+            frappe.get_roles(frappe.session.user)
+        ))
+    profile, _session = operator_actor
+    return bool(
+        profile.kanban_role in ("Supervisor", "Development Proxy")
+        and cint(profile.get("can_override"))
+    )
 
 
 def _trace_row_serials(trace, item_row):

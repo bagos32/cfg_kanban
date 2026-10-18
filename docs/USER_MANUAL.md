@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.58
+**Guide version:** 1.59
 
 **Updated:** 18 October 2026
 
@@ -1132,6 +1132,17 @@ a Draft native `Material Consumption for Manufacture` using only the Ready load 
 their WIP Warehouse/Batch snapshots. In **Production Material Trace**, scan each physical Ready
 bin. A scan changes only the audit/load intent to `Consumption Draft`; it does not change ERP stock.
 An incorrect Draft scan can be cancelled and the bin returns to `Ready`.
+
+Normal operation still uses full bins. A partial load is available only when **Allow Supervisor
+Partial-bin Exception** is enabled on the exact Pool and the active operator QR belongs to a
+Kanban **Supervisor** with **Override** permission. In Production Material Trace, scan a material
+quantity command such as `CFG:QTY:MATERIAL:5`, confirm the mandatory exception reason, then scan
+the source tag (when required) and Empty WIP bin. The quantity must be positive, below **Qty per
+Full Bin**, and no more than the remaining ERP row quantity. The Load permanently records its
+standard and actual quantities, reason, approving Employee, terminal ERP User, operator session,
+and approval time. Downstream Job Card consumption uses that exact approved actual quantity.
+`CFG:CMD:FULL_BIN` clears partial mode. Keep this Pool option disabled unless the physical
+verification and supervisor exception procedure are approved.
 
 Only successful ERPNext submission changes every linked load to `Consumed` and returns its
 reusable physical bin to `Empty`. The Job Card cannot be submitted while a related bin remains
@@ -3367,6 +3378,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.59 | 18 October 2026 | Added the controlled Standard Quantity WIP Bin partial exception: Pool opt-in, Supervisor QR plus Override authorization, scanner quantity support, mandatory reason, immutable Employee/User/session/time evidence, exact partial source reservation and downstream consumption, and corrected the Job Card active-bin completion guard |
 | 1.58 | 18 October 2026 | Completed the Standard Quantity WIP Bin operation-consumption gate: Ready-load visibility by Job Card, scanner-created Draft consumption, exact Ready-bin/Item/Warehouse/UOM/Batch binding, cancellable Draft scans, submitted ERP feedback to Consumed/Empty, and Job Card/Manufacture completion blocks while physical bins remain unconsumed; removed the temporary Work Order safety stop |
 | 1.57 | 17 October 2026 | Added audited Handling Unit print choices for the existing 45 × 250 mm trace tag plus 50 × 30 mm, 100 × 50 mm, and A6 permanent reusable-bin/bin-slot barcode cards; all formats encode the visible physical identity and keep mutable contents out of the fixed label |
 | 1.56 | 16 October 2026 | Added scanner-first Draft transfer allocation for Standard Quantity WIP Bins: numbered row selection, optional/required/ERP-only source handling, partial reservation from a larger source Stock Tag, Empty pool-bin validation, cancellable Draft loads, source quantity confirmation only after submitted ERP transfer, reversal restoration, and complete-row submission gates; Work Order release remains safely blocked until operation consumption is delivered |

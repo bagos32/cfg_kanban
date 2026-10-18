@@ -1,7 +1,7 @@
 # Standard Quantity WIP Bin — Full Transfer and Consumption Test Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Test gate:** Full Job Card transfer/consume lifecycle
+**Test gate:** Full Job Card transfer/consume lifecycle and supervisor partial-bin exception
 **Status:** Ready for controlled server acceptance testing
 **Date:** 18 October 2026
 
@@ -124,7 +124,7 @@ Create **CFG Kanban WIP Bin Pool**:
 | WIP Warehouse (`wip_warehouse`) | Test WIP Warehouse |
 | Require Bin Scan (`require_bin_scan`) | Enabled |
 | Require Full-bin Consumption (`require_full_bin_consumption`) | Enabled |
-| Allow Supervisor Partial Exception (`allow_supervisor_partial_exception`) | Disabled |
+| Allow Supervisor Partial Exception (`allow_supervisor_partial_exception`) | Disabled for full-bin tests; enable only for Section 10.13 |
 
 In **Approved Physical WIP Bins**, add both bins and set Workstation to `Kettle`.
 
@@ -423,6 +423,67 @@ Using an authorized ERPNext user, cancel a submitted WIP-bin consumption Stock E
 
 Expected result: related loads become `Reversed`, physical bins become `Exception`, the Cycle is
 blocked for supervisor reconciliation, and the system does not falsely return those bins to Empty.
+
+### 10.13 Controlled supervisor partial-bin exception
+
+Use a dedicated test Pool and do not enable this policy in live production until the exception
+method has been approved.
+
+Preconditions:
+
+1. Enable **Allow Supervisor Partial-bin Exception** on the test Pool.
+2. Use a Draft transfer row whose remaining quantity is below one full bin, for example `5 Kg`
+   remaining against a `10 Kg` standard bin.
+3. First sign in with a normal Operator QR.
+
+Negative test:
+
+1. Scan `CFG:QTY:MATERIAL:5`, then attempt to allocate the bin.
+
+Expected result: the panel refuses the action and requires a Kanban Supervisor with Override
+permission.
+
+Controlled approval test:
+
+1. Switch operator and scan a Supervisor QR whose profile has **Override** enabled.
+2. Reopen Production Material Trace.
+3. Select the correct material row.
+4. Scan `CFG:QTY:MATERIAL:5`. For an exact final ERP remainder, the standard reason is populated;
+   otherwise enter a specific reason.
+5. Scan the source Stock Tag when required, then scan the Empty reusable WIP bin.
+
+Expected result before ERP submission:
+
+- the Load is `Transfer Draft` with Standard Qty `10 Kg` and Actual Qty `5 Kg`;
+- **Partial-bin Exception** is enabled;
+- Exception Reason, approving Employee, terminal ERP User, approval time, and operator session are
+  recorded;
+- a `WIP Bin Partial Exception Approved` timeline event exists; and
+- source reservation is exactly `5 Kg`, not `10 Kg`.
+
+6. Submit the native Material Transfer.
+7. Prepare WIP-bin consumption for the same Job Card and scan the partial bin.
+8. Submit the native Material Consumption.
+
+Expected result:
+
+- ERPNext transfers and consumes exactly `5 Kg`;
+- the partial Load progresses `Ready` → `Consumption Draft` → `Consumed`;
+- the reusable bin returns to `Empty`; and
+- the immutable partial exception evidence remains on the completed Load.
+
+Additional negative tests:
+
+- disable the Pool policy and retry;
+- omit the exception reason;
+- request zero, a negative quantity, a quantity equal to/above `10 Kg`, or more than the ERP row
+  remainder; and
+- use a Supervisor profile without Override permission.
+
+Expected result: every unsafe attempt is rejected without reserving a source tag or physical bin.
+
+Scan `CFG:CMD:FULL_BIN` to clear partial mode and return the trace dialog to normal full-bin
+allocation.
 
 ## 11. Evidence to capture
 

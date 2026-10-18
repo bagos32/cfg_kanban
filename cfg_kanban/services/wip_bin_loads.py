@@ -6,7 +6,7 @@ the Stock Entry submit hook.
 """
 
 import frappe
-from frappe.utils import flt, now_datetime
+from frappe.utils import cint, flt, now_datetime
 
 from cfg_kanban.services.events import record
 from cfg_kanban.services.logistics_foundation import post_quantity_event, resolve_logistics_scan
@@ -27,6 +27,13 @@ def validate_job_card_bins_consumed(doc, method=None):
         {"job_card": doc.name,
          "status": ["in", ["Transfer Draft", "Ready", "In Use", "Consumption Draft"]]},
         ["name", "reusable_bin", "status"], limit_page_length=6,
+    )
+    if not active:
+        return
+    detail = ", ".join(f"{row.reusable_bin} ({row.status})" for row in active[:5])
+    frappe.throw(
+        "Submit the Job Card WIP-bin Material Consumption before completing this Job Card. "
+        f"Active bin load(s): {detail}"
     )
 
 
@@ -63,19 +70,11 @@ def abandon_draft_stock_entry(doc, method=None):
             qty=load.actual_qty, reference_doctype="Stock Entry", reference_name=doc.name,
             notes=f"WIP Bin Load {load.name} restored to Ready",
         )
-    if not active:
-        return
-    detail = ", ".join(f"{row.reusable_bin} ({row.status})" for row in active[:5])
-    frappe.throw(
-        "Submit the Job Card WIP-bin Material Consumption before completing this Job Card. "
-        f"Active bin load(s): {detail}"
-    )
-
-
 @frappe.whitelist()
 def allocate_transfer_bin(stock_entry, item_row, reusable_bin_scan,
                           operator_session_token, kanban_card,
-                          source_scan=None, event_token=None):
+                          source_scan=None, event_token=None, actual_qty=None,
+                          exception_reason=None):
     """Reserve one fixed-quantity bin against a Draft native material-transfer row.
 
     A source Stock Tag is optional or mandatory according to the Item trace policy. Its
@@ -95,6 +94,17 @@ def allocate_transfer_bin(stock_entry, item_row, reusable_bin_scan,
     context = entry_wip_bin_rule(entry, row)
     if not context:
         frappe.throw(f"Item {row.item_code} is not configured for a Standard Quantity WIP Bin")
+    profile, session = actor
+    if event_token:
+        existing = frappe.db.get_value(
+            "CFG Kanban WIP Bin Load", {"idempotency_key": event_token}, "name"
+        )
+        if existing:
+            existing_load = frappe.get_doc("CFG Kanban WIP Bin Load", existing)
+            if (existing_load.transfer_stock_entry != entry.name
+                    or existing_load.transfer_stock_entry_detail != row.name):
+                frappe.throw("This WIP Bin allocation token already belongs to another ERP row")
+            return _allocation_result(entry, row, existing_load)
     from cfg_kanban.services.serial_evidence import item_uses_serials
     if item_uses_serials(row.item_code):
         frappe.throw(
@@ -102,7 +112,23 @@ def allocate_transfer_bin(stock_entry, item_row, reusable_bin_scan,
             "scanner in this release; use Standard ERP / Tag Flow"
         )
     remaining = _remaining_transfer_qty(entry.name, row.name, _row_stock_qty(row))
-    qty = flt(context["standard_bin_qty"])
+    standard_qty = flt(context["standard_bin_qty"])
+    explicit_qty = actual_qty not in (None, "")
+    requested_qty = flt(actual_qty)
+    if explicit_qty and requested_qty <= TOLERANCE:
+        frappe.throw("Partial WIP Bin quantity must be greater than zero")
+    qty = requested_qty if explicit_qty else standard_qty
+    partial_exception = abs(qty - standard_qty) > TOLERANCE
+    exception_reason = (exception_reason or "").strip()
+    if qty > standard_qty + TOLERANCE:
+        frappe.throw(
+            f"A WIP Bin cannot exceed its Standard Full-bin Qty of {standard_qty} "
+            f"{row.stock_uom}"
+        )
+    if partial_exception:
+        _assert_partial_exception_authorized(
+            actor, context, qty, standard_qty, remaining, exception_reason
+        )
     if remaining + TOLERANCE < qty:
         frappe.throw(
             f"Remaining ERP transfer quantity is {remaining} {row.stock_uom}; a full "
@@ -113,7 +139,6 @@ def allocate_transfer_bin(stock_entry, item_row, reusable_bin_scan,
     policy = effective_trace_policy(row.item_code, entry.company)
     batch_no = _tag_batch_no(row)
     source_unit = _resolve_source_unit(source_scan, entry, row, policy, qty, batch_no)
-    profile, session = actor
     key = event_token or (
         f"wip-bin-load:{entry.name}:{row.name}:{bin_unit.name}:{qty}"
     )
@@ -144,9 +169,26 @@ def allocate_transfer_bin(stock_entry, item_row, reusable_bin_scan,
         source_handling_unit=source_unit.name if source_unit else None,
         batch_no=batch_no, process_execution=context.get("process_execution"),
         operator=profile.employee, operator_session=session.name, idempotency_key=key,
+        partial_exception=partial_exception,
+        exception_reason=exception_reason if partial_exception else None,
+        approved_by=frappe.session.user if partial_exception else None,
+        approved_by_operator=profile.employee if partial_exception else None,
+        exception_approved_on=now_datetime() if partial_exception else None,
     )
     if reservation:
         load.db_set("source_reservation_ledger", reservation.name, update_modified=False)
+    if partial_exception:
+        record(
+            "WIP Bin Partial Exception Approved", card=frappe.db.get_value(
+                "CFG Kanban Cycle", load.kanban_cycle, "kanban_card"
+            ), cycle=load.kanban_cycle, execution=load.process_execution,
+            handling_unit=load.reusable_bin, qty=load.actual_qty,
+            reference_doctype="CFG Kanban WIP Bin Load", reference_name=load.name,
+            operator=profile.employee, operator_session=session.name,
+            terminal_user=session.terminal_user,
+            notes=(f"Standard {standard_qty} {row.stock_uom}; actual {qty} "
+                   f"{row.stock_uom}; reason: {exception_reason}"),
+        )
     return _allocation_result(entry, row, load)
 
 
@@ -304,11 +346,20 @@ def entry_wip_bin_rule(entry, row):
     }, ["wip_bin_pool", "standard_bin_qty", "stock_uom"], as_dict=True)
     if not rule:
         return None
+    pool = frappe.db.get_value(
+        "CFG Kanban WIP Bin Pool", rule.wip_bin_pool,
+        ["require_full_bin_consumption", "allow_supervisor_partial_exception"],
+        as_dict=True,
+    ) or {}
     return {
         "kanban_cycle": cycle.name, "kanban_master": cycle.kanban_master,
         "job_card": job.name, "operation": job.operation,
         "workstation": job.workstation, "wip_bin_pool": rule.wip_bin_pool,
         "standard_bin_qty": flt(rule.standard_bin_qty), "stock_uom": rule.stock_uom,
+        "require_full_bin_consumption": bool(cint(pool.get("require_full_bin_consumption"))),
+        "allow_supervisor_partial_exception": bool(cint(
+            pool.get("allow_supervisor_partial_exception")
+        )),
         "process_execution": frappe.db.get_value(
             "CFG Kanban Process Execution",
             {"kanban_cycle": cycle.name, "operation": job.operation}, "name",
@@ -322,7 +373,8 @@ def transfer_loads_for_row(stock_entry, row_name):
         {"transfer_stock_entry": stock_entry, "transfer_stock_entry_detail": row_name,
          "status": ["in", ["Transfer Draft", "Ready"]]},
         ["name", "status", "reusable_bin", "source_handling_unit", "actual_qty",
-         "stock_uom"], order_by="creation asc",
+         "stock_uom", "partial_exception", "exception_reason", "approved_by",
+         "approved_by_operator", "exception_approved_on"], order_by="creation asc",
     )
 
 
@@ -332,7 +384,9 @@ def consumption_loads_for_row(stock_entry, row_name):
         {"consumption_stock_entry": stock_entry,
          "consumption_stock_entry_detail": row_name,
          "status": ["in", ["Consumption Draft", "Consumed"]]},
-        ["name", "status", "reusable_bin", "actual_qty", "stock_uom"],
+        ["name", "status", "reusable_bin", "actual_qty", "stock_uom",
+         "partial_exception", "exception_reason", "approved_by",
+         "approved_by_operator", "exception_approved_on"],
         order_by="creation asc",
     )
 
@@ -341,7 +395,10 @@ def create_transfer_load(*, stock_entry, stock_entry_detail, reusable_bin,
                          kanban_cycle, job_card, item_code, actual_qty,
                          source_handling_unit=None, batch_no=None,
                          process_execution=None, operator=None,
-                         operator_session=None, idempotency_key=None):
+                         operator_session=None, idempotency_key=None,
+                         partial_exception=False, exception_reason=None,
+                         approved_by=None, approved_by_operator=None,
+                         exception_approved_on=None):
     """Create one auditable Draft transfer/load episode for a scanned fixed bin.
 
     The scanner runtime calls this only after ERPNext has created and saved the Draft native
@@ -395,6 +452,11 @@ def create_transfer_load(*, stock_entry, stock_entry_detail, reusable_bin,
         "standard_qty": rule.standard_bin_qty,
         "actual_qty": qty,
         "stock_uom": row.stock_uom,
+        "partial_exception": 1 if partial_exception else 0,
+        "exception_reason": exception_reason if partial_exception else None,
+        "approved_by": approved_by if partial_exception else None,
+        "approved_by_operator": approved_by_operator if partial_exception else None,
+        "exception_approved_on": exception_approved_on if partial_exception else None,
         "kanban_master": cycle.kanban_master,
         "kanban_cycle": cycle.name,
         "work_order": entry.work_order,
@@ -895,6 +957,8 @@ def _allocation_result(entry, row, load):
         "status": load.status, "reusable_bin": load.reusable_bin,
         "source_handling_unit": load.source_handling_unit,
         "actual_qty": flt(load.actual_qty), "stock_uom": load.stock_uom,
+        "partial_exception": bool(load.partial_exception),
+        "exception_reason": load.exception_reason,
         "remaining_qty": _remaining_transfer_qty(entry.name, row.name, _row_stock_qty(row)),
     }
 
@@ -904,7 +968,33 @@ def _consumption_allocation_result(entry, row, load):
         "stock_entry": entry.name, "row_name": row.name, "load": load.name,
         "status": load.status, "reusable_bin": load.reusable_bin,
         "actual_qty": flt(load.actual_qty), "stock_uom": load.stock_uom,
+        "partial_exception": bool(load.partial_exception),
+        "exception_reason": load.exception_reason,
         "remaining_qty": _remaining_consumption_qty(
             entry.name, row.name, _row_stock_qty(row)
         ),
     }
+
+
+def _assert_partial_exception_authorized(actor, context, qty, standard_qty, remaining,
+                                         reason):
+    if qty <= TOLERANCE or qty >= standard_qty - TOLERANCE:
+        frappe.throw(
+            f"Partial WIP Bin quantity must be greater than zero and below the Standard "
+            f"Full-bin Qty of {standard_qty}"
+        )
+    if qty > remaining + TOLERANCE:
+        frappe.throw(
+            f"Partial WIP Bin quantity {qty} exceeds the remaining ERP row quantity "
+            f"{remaining}"
+        )
+    if not context.get("allow_supervisor_partial_exception"):
+        frappe.throw("This WIP Bin Pool does not allow supervisor partial-bin exceptions")
+    profile, _session = actor
+    if (profile.kanban_role not in ("Supervisor", "Development Proxy")
+            or not cint(profile.get("can_override"))):
+        frappe.throw(
+            "A Kanban Supervisor with Override permission must approve a partial WIP Bin"
+        )
+    if not reason:
+        frappe.throw("Supervisor exception reason is required for a partial WIP Bin")

@@ -1734,7 +1734,9 @@ class TestDocTypeSchema(TestCase):
             "kanban_cycle", "work_order", "job_card", "operation", "workstation",
             "source_warehouse", "wip_warehouse", "transfer_stock_entry",
             "consumption_stock_entry", "idempotency_key", "source_reservation_ledger",
-            "source_confirmation_ledger", "source_reversal_ledger",
+            "source_confirmation_ledger", "source_reversal_ledger", "partial_exception",
+            "exception_reason", "approved_by", "approved_by_operator",
+            "exception_approved_on",
         }.issubset(load))
         self.assertTrue(load["idempotency_key"].get("unique"))
 
@@ -1783,6 +1785,16 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def _operation_material_flow_scope", operator)
         self.assertIn("Production Material Control", panel)
         self.assertIn("Prepare Operation Materials", panel)
+        self.assertIn("Approve and Allocate Partial WIP Bin", panel)
+        self.assertIn("CFG:CMD:FULL_BIN", panel)
+
+        wip_service = (APP_ROOT / "services" / "wip_bin_loads.py").read_text()
+        self.assertIn("def _assert_partial_exception_authorized", wip_service)
+        self.assertIn("WIP Bin Partial Exception Approved", wip_service)
+        self.assertIn("A Kanban Supervisor with Override permission", wip_service)
+        self.assertNotIn("if not active:\n        return\n    detail", wip_service.split(
+            "def abandon_draft_stock_entry", 1
+        )[1].split("@frappe.whitelist()", 1)[0])
         self.assertIn("Consume Operation Materials", panel)
         self.assertIn("Select Job Card for Material Consumption", panel)
         self.assertIn("CFG:QTY:MATERIAL:", panel)

@@ -64,6 +64,7 @@ class TestOperatorAuthenticationContract(TestCase):
         self.assertIn("CFG:CMD:DISMISS", api)
         self.assertIn('f"CFG:QTY:GOOD:+{number:g}"', api)
         self.assertIn('f"CFG:QTY:MATERIAL:{number:g}"', api)
+        self.assertIn('("WIP Bin: Restore Full-bin Mode", "CFG:CMD:FULL_BIN", "")', api)
         self.assertIn("install_scanner_shortcuts", console)
         self.assertIn("inputmode: \"none\"", console)
         self.assertIn("Print Command Labels", console)
