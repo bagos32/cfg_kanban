@@ -1813,6 +1813,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def _create_consumption_reconciliation", wip_service)
         self.assertIn("def _create_transfer_reconciliation", wip_service)
         self.assertIn("def _validate_transfer_recovery_correction", wip_service)
+        self.assertIn("def job_card_wip_bin_close_readiness", wip_service)
+        self.assertIn("ACTIVE_LOAD_STATUSES", wip_service)
         self.assertIn("wip-bin-source-cancel-hold", wip_service)
         self.assertIn("Material Returned to Source", wip_service)
         self.assertIn("Material Remains in WIP after ERP Correction", wip_service)
@@ -1820,6 +1822,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def _release_reconciled_cycle_hold", wip_service)
         self.assertIn("WIP Bin Reconciliation Required", wip_service)
         self.assertIn("WIP Bin Reconciliation Resolved", wip_service)
+        self.assertIn("job_card_wip_bin_close_readiness(job_card.name)", operator)
         self.assertNotIn("if not active:\n        return\n    detail", wip_service.split(
             "def abandon_draft_stock_entry", 1
         )[1].split("@frappe.whitelist()", 1)[0])

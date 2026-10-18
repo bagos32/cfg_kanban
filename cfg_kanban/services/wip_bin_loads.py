@@ -16,25 +16,68 @@ from cfg_kanban.services.trace_policy import NO_TAG, effective_trace_policy
 TOLERANCE = 0.000001
 TRANSFER_PURPOSE = "Material Transfer for Manufacture"
 CONSUMPTION_PURPOSES = ("Material Consumption for Manufacture", "Manufacture")
+ACTIVE_LOAD_STATUSES = ("Transfer Draft", "Ready", "In Use", "Consumption Draft")
 
 
 def validate_job_card_bins_consumed(doc, method=None):
     """Prevent Job Card submission while its physical WIP bins remain unconsumed."""
     if doc.docstatus == 2:
         return
+    readiness = job_card_wip_bin_close_readiness(doc.name)
+    if not readiness["ready"]:
+        frappe.throw(readiness["reason"])
+
+
+def job_card_wip_bin_close_readiness(job_card):
+    """Return whether a Job Card has no unresolved physical WIP-bin responsibility.
+
+    Runtime operation Cards may complete in smaller allocations than the ERP Job Card. This gate
+    deliberately uses Job Card scope because a WIP Bin Load is not divisible between runtime
+    cards: the physical bin must be consumed or reconciled before any controlling operation Card
+    is released for reuse.
+    """
+    if not job_card:
+        return {"ready": True, "reason": None, "active_loads": [], "reconciliations": []}
+    reconciliations = frappe.get_all(
+        "CFG Kanban WIP Bin Reconciliation",
+        {"job_card": job_card, "status": "Open"},
+        ["name", "reusable_bin", "reversal_context"],
+        order_by="raised_on asc", limit_page_length=6,
+    )
     active = frappe.get_all(
         "CFG Kanban WIP Bin Load",
-        {"job_card": doc.name,
-         "status": ["in", ["Transfer Draft", "Ready", "In Use", "Consumption Draft"]]},
-        ["name", "reusable_bin", "status"], limit_page_length=6,
+        {"job_card": job_card, "status": ["in", list(ACTIVE_LOAD_STATUSES)]},
+        ["name", "reusable_bin", "status"],
+        order_by="creation asc", limit_page_length=6,
     )
-    if not active:
-        return
-    detail = ", ".join(f"{row.reusable_bin} ({row.status})" for row in active[:5])
-    frappe.throw(
-        "Submit the Job Card WIP-bin Material Consumption before completing this Job Card. "
-        f"Active bin load(s): {detail}"
-    )
+    if reconciliations:
+        detail = ", ".join(
+            f"{row.reusable_bin} ({row.reversal_context or 'Cancellation'})"
+            for row in reconciliations[:5]
+        )
+        return {
+            "ready": False,
+            "reason": (
+                f"Cannot close the Kanban Cycle while Job Card {job_card} has an open WIP Bin "
+                f"supervisor reconciliation: {detail}"
+            ),
+            "active_loads": active,
+            "reconciliations": reconciliations,
+        }
+    if active:
+        detail = ", ".join(
+            f"{row.reusable_bin} ({row.status})" for row in active[:5]
+        )
+        return {
+            "ready": False,
+            "reason": (
+                "Submit or cancel the Job Card WIP-bin material movement before closing this "
+                f"Kanban Cycle. Active bin load(s): {detail}"
+            ),
+            "active_loads": active,
+            "reconciliations": reconciliations,
+        }
+    return {"ready": True, "reason": None, "active_loads": [], "reconciliations": []}
 
 
 def abandon_draft_stock_entry(doc, method=None):

@@ -1181,6 +1181,15 @@ entry cannot be its own correction, and the original history is never deleted. T
 `Stock Entry Cancelled` Cycle/Card hold is restored to its pre-cancellation state only after every
 affected physical bin has been reconciled; an older unrelated hold is preserved. Work Order creation
 is no longer blanket-blocked for a correctly configured WIP-bin Master.
+
+The reusable operation Card also remains locked to its current Cycle while the selected Job Card
+has any `Transfer Draft`, `Ready`, `In Use`, or `Consumption Draft` WIP Bin Load, or any Open WIP
+Bin Reconciliation. The panel disables closure with the exact bin/state reason, and the server
+applies the same rule to **Close Kanban Cycle** and `CFG:CMD:CLOSE_CYCLE`. Submit or cancel the Draft
+movement, consume the Ready bin, or finish the controlled Supervisor reconciliation before the
+operation Card can return to `Available`. This is intentionally Job Card scoped because the
+physical bin load cannot be divided safely between reusable runtime Cards.
+
 Use `docs/TEST_STANDARD_QUANTITY_WIP_BIN_TRANSFER_GATE.md` for the complete transfer-and-consumption
 acceptance test before enabling the method on a live production Master.
 
@@ -3409,6 +3418,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.62 | 18 October 2026 | Added the server-enforced operation-card WIP-bin closure gate: both panel and scanner closure remain blocked while the selected Job Card has an active transfer/Ready/In-Use/consumption load or Open reconciliation, with exact physical bin/state guidance before Card reuse |
 | 1.61 | 18 October 2026 | Extended controlled WIP Bin reconciliation to submitted transfer cancellation: the bin remains Exception, restored source-tag quantity is safety-reserved, Supervisor exact-bin/source verification releases material returned to source, and material left in WIP requires an exact later submitted transfer before a separately linked Ready load is recovered |
 | 1.60 | 18 October 2026 | Added controlled WIP Bin cancellation reconciliation: submitted consumption cancellation now creates a Critical Exception and immutable reconciliation, blocks the bin, requires exact-bin rescan plus Supervisor Override, restores verified material through a separately linked Ready load, or permits Empty only against an exact later submitted ERPNext correction |
 | 1.59 | 18 October 2026 | Added the controlled Standard Quantity WIP Bin partial exception: Pool opt-in, Supervisor QR plus Override authorization, scanner quantity support, mandatory reason, immutable Employee/User/session/time evidence, exact partial source reservation and downstream consumption, and corrected the Job Card active-bin completion guard |

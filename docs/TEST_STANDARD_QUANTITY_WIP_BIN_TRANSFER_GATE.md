@@ -358,10 +358,11 @@ Cancel the submitted Material Transfer using an authorized ERPNext user.
 Expected result:
 
 - each related Load becomes `Reversed`;
-- each reusable bin becomes `Empty` for a transfer reversal;
+- each reusable bin becomes `Exception`, not `Empty`;
 - the source Stock Tag quantity is restored through `WIP Bin Load Reversal` ledger evidence;
+- the restored source-tag quantity is safety-reserved while the physical location is uncertain;
 - the Load records its source reversal ledger; and
-- the historical Load record is not deleted.
+- the historical Load record is not deleted. Complete one controlled outcome in Section 10.15.
 
 ### 10.8 Create the Job Card consumption Draft
 
@@ -598,6 +599,35 @@ Expected result:
 - the reconciliation and Critical Exception become `Resolved`, with immutable Supervisor and ERP
   evidence.
 
+### 10.16 Operation-card closure guard
+
+Run this test with a reusable Process/Station operation Card allocated to the same Job Card.
+
+1. Report enough operation progress for **Close Kanban Cycle** to become relevant.
+2. Leave one WIP Bin Load in each of these conditions in separate repetitions:
+   `Transfer Draft`, `Ready`, `In Use`, or `Consumption Draft`.
+3. Try the visible **Close Kanban Cycle** action and scan `CFG:CMD:CLOSE_CYCLE`.
+
+Expected result:
+
+- both closure paths are rejected by the server;
+- the message identifies the affected physical bin and its state;
+- the operation Card remains attached to its active Cycle and is not returned to `Available`; and
+- no completed Runtime Allocation is written.
+
+4. Cancel the Draft movement correctly or submit the WIP-bin consumption so no active physical
+   load remains.
+5. Repeat closure after ERPNext Job Card progress satisfies the existing runtime quantity checks.
+
+Expected result: the operation Card can close normally.
+
+6. Repeat with a cancelled submitted transfer or consumption and leave its WIP-bin reconciliation
+   Open.
+
+Expected result: closure identifies the Open Supervisor reconciliation and remains blocked. After
+the correct Section 10.14/10.15 reconciliation is completed—and no recovered Ready load remains
+unconsumed—the same server-side closure check can pass.
+
 ## 11. Evidence to capture
 
 For each test, record:
@@ -639,6 +669,9 @@ For each test, record:
 | Submitted transfer cancellation creates Exception/source hold | Pending | |
 | Supervisor material-returned-to-source recovery | Pending | |
 | Supervisor material-remains-in-WIP recovery | Pending | |
+| Operation-card closure blocked by active WIP Bin | Pending | |
+| Operation-card closure blocked by Open reconciliation | Pending | |
+| Operation-card closure succeeds after physical/ERP completion | Pending | |
 
 ## 13. Final decision for this gate
 

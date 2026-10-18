@@ -143,6 +143,11 @@ The runtime gate must not be considered complete until it enforces all of these 
     Supervisor either verifies the material returned to the original source (and rescans that
     source tag when one was used), or links an exact later submitted transfer from Source to WIP
     before recovering a new Ready load for material that physically remained in the bin.
+13. A reusable operation Card cannot close and return to Available while its Job Card has an
+    active WIP-bin load or Open WIP-bin reconciliation. This guard is enforced by the server for
+    both the panel button and `CFG:CMD:CLOSE_CYCLE`; hiding or bypassing the button cannot release
+    the Card. The operator must submit/cancel the Draft material movement, consume every Ready
+    bin, or complete the Supervisor reconciliation first.
 
 ## 6. Current deployment boundary
 
@@ -153,6 +158,8 @@ Critical Exception visibility, exact-bin rescanning, source-tag safety holds, an
 Ready/Empty recovery after a submitted transfer or consumption cancellation. The source tag may be partially reserved for one exact
 full-bin quantity; rows
 configured without physical tags remain ERP-only. Work Order creation is no longer blanket-stopped.
+Runtime operation-card closure also checks the Job Card's complete physical-bin scope before it
+releases the reusable Card, including Open cancellation reconciliations.
 
 Do not enable the method on a live Master until the development-server procedure in
 `docs/TEST_STANDARD_QUANTITY_WIP_BIN_TRANSFER_GATE.md` passes. Keep partial exceptions disabled

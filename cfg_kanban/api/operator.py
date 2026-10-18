@@ -730,6 +730,10 @@ def _runtime_close_readiness(execution, work_order, job_card):
         status = job_card.status if job_card else "Missing"
         return {"ready": False, "reason": (f"Cannot close the Kanban Cycle while ERPNext Job Card "
                 f"is {status}. Start the Job Card and record its production time log first.")}
+    from cfg_kanban.services.wip_bin_loads import job_card_wip_bin_close_readiness
+    wip_bin_readiness = job_card_wip_bin_close_readiness(job_card.name)
+    if not wip_bin_readiness["ready"]:
+        return {"ready": False, "reason": wip_bin_readiness["reason"]}
     if (flt(job_card.total_completed_qty) + 0.000001 >= flt(job_card.for_quantity) and
             job_card.docstatus == 0):
         return {"ready": False, "reason": (
