@@ -1190,6 +1190,16 @@ movement, consume the Ready bin, or finish the controlled Supervisor reconciliat
 operation Card can return to `Available`. This is intentionally Job Card scoped because the
 physical bin load cannot be divided safely between reusable runtime Cards.
 
+Supervisors can monitor the complete pool without opening each load from **CFG Kanban >
+Production Supervisor > WIP Bin Control**. The read-only report includes permanent Empty bins,
+active Draft/Ready/In-Use loads, production references, state age, configuration gaps, physical
+state versus load-status mismatches, duplicate active loads, changed Pool/Workstation context, and
+Open cancellation reconciliations. Use **Attention Only**
+for exceptions and pending actions. Use **Include Disabled / Held Bins** only when investigating
+inactive assignments or unavailable bin identities. The report never posts ERP stock or changes a
+bin; follow the linked native Stock Entry, WIP Bin Load, or reconciliation workflow to correct the
+condition.
+
 Use `docs/TEST_STANDARD_QUANTITY_WIP_BIN_TRANSFER_GATE.md` for the complete transfer-and-consumption
 acceptance test before enabling the method on a live production Master.
 
@@ -3418,6 +3428,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.63 | 18 October 2026 | Added the read-only Supervisor WIP Bin Control report with physical-bin and active-load state, production context, state age, configuration and state-mismatch warnings, Open reconciliation visibility, attention filtering, workspace access, and an acceptance test that preserves ERPNext as stock authority |
 | 1.62 | 18 October 2026 | Added the server-enforced operation-card WIP-bin closure gate: both panel and scanner closure remain blocked while the selected Job Card has an active transfer/Ready/In-Use/consumption load or Open reconciliation, with exact physical bin/state guidance before Card reuse |
 | 1.61 | 18 October 2026 | Extended controlled WIP Bin reconciliation to submitted transfer cancellation: the bin remains Exception, restored source-tag quantity is safety-reserved, Supervisor exact-bin/source verification releases material returned to source, and material left in WIP requires an exact later submitted transfer before a separately linked Ready load is recovered |
 | 1.60 | 18 October 2026 | Added controlled WIP Bin cancellation reconciliation: submitted consumption cancellation now creates a Critical Exception and immutable reconciliation, blocks the bin, requires exact-bin rescan plus Supervisor Override, restores verified material through a separately linked Ready load, or permits Empty only against an exact later submitted ERPNext correction |

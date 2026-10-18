@@ -1,6 +1,6 @@
 # CFG Kanban — Standard Quantity Reusable WIP Bin
 
-**Status:** Full lifecycle, partial-bin exception, and transfer/consumption cancellation reconciliation implemented; server acceptance required
+**Status:** Full lifecycle, closure guard, supervisor control report, partial-bin exception, and transfer/consumption cancellation reconciliation implemented; server acceptance required
 **Date:** 18 October 2026
 **ERP stock authority:** ERPNext Work Order, Job Card, and submitted Stock Entry
 
@@ -149,7 +149,25 @@ The runtime gate must not be considered complete until it enforces all of these 
     the Card. The operator must submit/cancel the Draft material movement, consume every Ready
     bin, or complete the Supervisor reconciliation first.
 
-## 6. Current deployment boundary
+## 6. Supervisor WIP Bin Control
+
+Open **CFG Kanban > Production Supervisor > WIP Bin Control** to see the current physical and
+runtime state of every Standard Quantity WIP Bin. The report starts from permanent Handling Units,
+so it includes available Empty bins as well as bins with an active load.
+
+The report shows Company, Pool, Operation, Workstation, WIP Warehouse, physical bin state, active
+load status, Item, Batch, quantity, Job Card, Work Order, Cycle, age, and any Open reconciliation.
+Use **Attention Only** to isolate configuration gaps, state/load mismatches, Draft movements,
+duplicate active loads, changed Pool/Workstation context, Ready bins awaiting consumption, and
+Exceptions. **Include Disabled / Held Bins** is intended for
+supervisor investigation and also exposes disabled assignments or unavailable identities.
+
+This report is read-only. It does not move stock, change a bin state, submit ERPNext documents, or
+resolve an Exception. ERPNext Stock Entries and the controlled WIP-bin lifecycle remain the
+authorities; the linked load/reconciliation records must be opened to complete the appropriate
+action.
+
+## 7. Current deployment boundary
 
 The package now includes physical roles, pools, Master mapping, immutable load episodes, Draft
 transfer allocation, Ready-bin Job Card consumption, native ERP feedback, Draft cancellation, and

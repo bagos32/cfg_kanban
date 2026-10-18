@@ -73,6 +73,8 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban WIP Bin Pool")
         self.assertEqual(links["WIP Bin Reconciliations"],
                          "CFG Kanban WIP Bin Reconciliation")
+        self.assertEqual(links["WIP Bin Control"], "Kanban WIP Bin Control")
+        self.assertEqual(shortcuts["WIP Bin Control"], "Kanban WIP Bin Control")
         self.assertEqual(links["DocType Action Policies"],
                          "CFG Kanban DocType Action Policy")
         self.assertEqual(links["DocType Action Profiles"],
@@ -97,6 +99,37 @@ class TestDocTypeSchema(TestCase):
         content = json.loads(workspace["content"])
         self.assertEqual(content[0]["data"]["text"].split("<br>")[0],
                          '<span class="h4"><b>Operational Attention</b></span>')
+        self.assertTrue(any(
+            row.get("data", {}).get("shortcut_name") == "WIP Bin Control"
+            for row in content
+        ))
+
+    def test_wip_bin_control_report_exposes_physical_and_runtime_state(self):
+        report_root = (APP_ROOT / "cfg_kanban" / "report" /
+                       "kanban_wip_bin_control")
+        report = json.loads(
+            (report_root / "kanban_wip_bin_control.json").read_text()
+        )
+        controller = (report_root / "kanban_wip_bin_control.py").read_text()
+        client = (report_root / "kanban_wip_bin_control.js").read_text()
+
+        self.assertEqual(report["report_type"], "Script Report")
+        self.assertEqual(report["ref_doctype"], "CFG Kanban Handling Unit")
+        self.assertIn("def _physical_bins", controller)
+        self.assertIn("def _attach_runtime", controller)
+        self.assertIn("CFG Kanban WIP Bin Reconciliation", controller)
+        self.assertIn("Critical: Bin state and load status do not agree", controller)
+        self.assertIn("Critical: More than one active load", controller)
+        self.assertIn("Critical: Active load no longer matches", controller)
+        self.assertIn("Configuration: Bin is not assigned", controller)
+        self.assertIn("return _columns(), rows, None, _chart(rows), _summary(rows)",
+                      controller)
+        for fieldname in (
+            "company", "wip_bin_pool", "operation", "workstation",
+            "wip_warehouse", "wip_bin_state", "load_status", "item_code",
+            "attention_only", "include_unavailable",
+        ):
+            self.assertIn(f'fieldname: "{fieldname}"', client)
 
     def test_workspace_attention_widgets_are_standard_records(self):
         cards_root = APP_ROOT / "cfg_kanban" / "number_card"

@@ -628,6 +628,45 @@ Expected result: closure identifies the Open Supervisor reconciliation and remai
 the correct Section 10.14/10.15 reconciliation is completed—and no recovered Ready load remains
 unconsumed—the same server-side closure check can pass.
 
+### 10.17 Supervisor WIP Bin Control report
+
+1. Open **CFG Kanban > Production Supervisor > WIP Bin Control**.
+2. Confirm that every configured physical WIP bin appears once with its visible Bin Code, Pool,
+   Operation, Workstation, Company, and WIP Warehouse.
+3. Run the transfer and consumption stages again and refresh the report after each ERP event.
+
+Expected result:
+
+- an unused physical bin is `Empty` and **Available**;
+- a Draft transfer is `Reserved` / `Transfer Draft` and asks for Draft submission or cancellation;
+- a submitted transfer is `Ready` / `Ready` and identifies the Item, Batch, quantity, Job Card,
+  Work Order, and Cycle;
+- a Draft consumption is `In Use` / `Consumption Draft`;
+- submitted consumption releases the bin back to `Empty` with no active load; and
+- a cancelled submitted movement shows `Exception`, its Open reconciliation, and a Critical
+  supervisor message.
+
+4. Temporarily create or identify a WIP bin not assigned to a Pool/Workstation.
+
+Expected result: the report marks it as a configuration warning rather than hiding it.
+
+5. Use **Attention Only**.
+
+Expected result: normal Empty/Available bins disappear; Draft, Ready, Exception, mismatch, and
+configuration-warning rows remain.
+
+6. Use the Company, Pool, Operation, Workstation, Warehouse, physical-state, load-status, and Item
+filters individually.
+
+Expected result: each filter limits the report without changing any Handling Unit, load, ERPNext
+Stock Entry, or reconciliation record.
+
+7. Use **Include Disabled / Held Bins** only as a supervisor.
+
+Expected result: disabled Pool assignments and unavailable/held bin identities become visible for
+investigation and remain clearly labelled; no stock or lifecycle state changes merely by opening
+the report.
+
 ## 11. Evidence to capture
 
 For each test, record:
@@ -672,6 +711,9 @@ For each test, record:
 | Operation-card closure blocked by active WIP Bin | Pending | |
 | Operation-card closure blocked by Open reconciliation | Pending | |
 | Operation-card closure succeeds after physical/ERP completion | Pending | |
+| WIP Bin Control physical/load state agreement | Pending | |
+| WIP Bin Control attention/configuration warnings | Pending | |
+| WIP Bin Control filters and read-only behaviour | Pending | |
 
 ## 13. Final decision for this gate
 
