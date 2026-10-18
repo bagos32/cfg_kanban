@@ -244,6 +244,10 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Scan Any Physical Stock Tag", page_source)
         self.assertIn("Print Trace Report", page_source)
         self.assertIn("Reusable Container Episodes", page_source)
+        self.assertIn('frappe.pages["material-genealogy"].on_page_show', page_source)
+        self.assertIn("cfg_kanban_sync_genealogy_route", page_source)
+        self.assertIn("request_serial !== state.request_serial", page_source)
+        self.assertIn("state.pending_scan === value", page_source)
 
     def test_reusable_container_contents_are_immutable_physical_memberships(self):
         schema = json.loads((

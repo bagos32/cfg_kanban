@@ -184,3 +184,12 @@ Do not enable the method on a live Master until the development-server procedure
 unless the physical verification method and supervisor responsibility are approved. Serial-
 controlled components remain on Standard ERP / Tag Flow because a fixed quantity alone is not
 sufficient evidence of exact serial membership.
+
+## 8. Deferred V2 enhancements
+
+The V1 lifecycle is intentionally complete without automatic ageing escalation or analytics. When
+V2 development starts, review `docs/V2_DEFERRED_ENHANCEMENTS.md` before fixing its scope. The WIP
+items that must not be skipped are state-age/andon thresholds, meaningful supervisor escalation,
+bin utilization/turnover/waiting/capacity analysis, and optional controlled cleaning/inspection
+readiness. These enhancements must remain evidence and control layers; they cannot replace
+ERPNext stock authority or silently change a physical-bin state.

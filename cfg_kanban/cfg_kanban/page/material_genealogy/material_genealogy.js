@@ -4,7 +4,13 @@ frappe.pages["material-genealogy"].on_page_load = function (wrapper) {
 		title: __("Material Genealogy Explorer"),
 		single_column: true,
 	});
-	const state = { result: null };
+	const state = {
+		result: null,
+		loaded_scan: null,
+		pending_scan: null,
+		request_serial: 0,
+		route_scan: null,
+	};
 	const $scanner = $(`<div class="frappe-card cfg-genealogy-scanner">
 		<div><h3>${__("Scan Any Physical Stock Tag")}</h3>
 		<p class="text-muted">${__("Read-only trace from ERP receipt through production, Warehouse movements, intercompany handover, and delivery.")}</p></div>
@@ -32,23 +38,45 @@ frappe.pages["material-genealogy"].on_page_load = function (wrapper) {
 		return null;
 	}
 
+	function sync_route_scan() {
+		const value = route_scan_value();
+		if (!value) {
+			if (state.route_scan !== null) clear_result();
+			state.route_scan = null;
+			if (!state.result) focus_scanner();
+			return;
+		}
+		state.route_scan = value;
+		if (state.pending_scan === value || state.loaded_scan === value) return;
+		$scanner.find(".genealogy-scan-input").val(value);
+		load_scan(value);
+	}
+
 	async function load_scan(value) {
 		const $input = $scanner.find(".genealogy-scan-input");
 		const raw = String(value || $input.val() || "").trim();
 		if (!raw) return focus_scanner();
 		$input.val(raw);
+		const request_serial = ++state.request_serial;
+		state.pending_scan = raw;
 		try {
 			const response = await frappe.call({
 				method: "cfg_kanban.services.genealogy.get_handling_unit_genealogy",
 				args: { scan_value: raw }, freeze: true,
 				freeze_message: __("Building upstream and downstream trace..."),
 			});
+			if (request_serial !== state.request_serial) return;
 			state.result = response.message;
+			state.loaded_scan = raw;
+			state.pending_scan = null;
 			render();
 			$scanner.find(".genealogy-message").html(
 				`<small class="text-success">${__("Trace loaded: {0}", [escape(raw)])}</small>`);
 		} catch (error) {
+			if (request_serial !== state.request_serial) return;
 			state.result = null;
+			state.loaded_scan = null;
+			state.pending_scan = null;
 			$result.empty();
 			$scanner.find(".genealogy-message").html(
 				`<small class="text-danger">${__("Trace could not be loaded. Review the validation message.")}</small>`);
@@ -217,7 +245,10 @@ frappe.pages["material-genealogy"].on_page_load = function (wrapper) {
 		} });
 	}
 	function clear_result() {
+		state.request_serial += 1;
 		state.result = null; $result.empty();
+		state.loaded_scan = null;
+		state.pending_scan = null;
 		$scanner.find(".genealogy-scan-input").val("");
 		$scanner.find(".genealogy-message").html(`<small>${__("Scanner ready")}</small>`);
 		focus_scanner();
@@ -237,7 +268,12 @@ frappe.pages["material-genealogy"].on_page_load = function (wrapper) {
 	function escape(value) { return frappe.utils.escape_html(String(value == null ? "" : value)); }
 	function attr(value) { return escape(value).replace(/`/g, "&#96;"); }
 
-	const initial = route_scan_value();
-	if (initial) { $scanner.find(".genealogy-scan-input").val(initial); load_scan(initial); }
-	else focus_scanner();
+	wrapper.cfg_kanban_sync_genealogy_route = sync_route_scan;
+	sync_route_scan();
+};
+
+frappe.pages["material-genealogy"].on_page_show = function (wrapper) {
+	if (wrapper.cfg_kanban_sync_genealogy_route) {
+		wrapper.cfg_kanban_sync_genealogy_route();
+	}
 };

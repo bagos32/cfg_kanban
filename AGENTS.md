@@ -28,6 +28,8 @@
 
 - V1 is the reliable execution foundation: cards, signals, cycles, ERPNext feedback, WIP, operator authorization, tasks, audit, closure, and recovery.
 - V2 adds time study, takt, Standard Work Combination, capacity analysis, actual-versus-standard results, and controlled Kaizen proposals.
+- At the start of V2 planning, explicitly remind the user to review `docs/V2_DEFERRED_ENHANCEMENTS.md`. Do not close V2 scope until every listed item is implemented, rejected, or explicitly deferred by the user with the decision recorded.
+- The V2 review must include the deferred WIP-bin enhancements: configurable state-age/andon thresholds, supervisor escalation notifications, bin utilization/turnover/waiting/capacity analysis, and controlled cleaning/inspection readiness. These are V2 enhancements, not V1 WIP-bin acceptance blockers.
 - V3 adds optional integration with the independent TrackQMS app. TrackQMS guide revision V4.0 is the TrackQMS documentation source revision; it is not CFG Kanban V4.
 - CFG Kanban must remain installable and operational without TrackQMS.
 - Never add a mandatory Link field, import, hook, migration, or runtime dependency from CFG Kanban Core to a TrackQMS DocType.

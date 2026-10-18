@@ -3428,6 +3428,8 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.65 | 18 October 2026 | Corrected Material Genealogy route refresh so opening Full Genealogy for a newly searched Stock Tag reloads that tag instead of retaining the prior cached result; stale slower lookups can no longer overwrite the latest selection |
+| 1.64 | 18 October 2026 | Added the mandatory V2 planning reminder and exit checklist so TPS analysis plus WIP-bin ageing/andon escalation, supervisor notifications, utilization/capacity statistics, and optional controlled cleaning/inspection readiness cannot be silently omitted from future V2 scope |
 | 1.63 | 18 October 2026 | Added the read-only Supervisor WIP Bin Control report with physical-bin and active-load state, production context, state age, configuration and state-mismatch warnings, Open reconciliation visibility, attention filtering, workspace access, and an acceptance test that preserves ERPNext as stock authority |
 | 1.62 | 18 October 2026 | Added the server-enforced operation-card WIP-bin closure gate: both panel and scanner closure remain blocked while the selected Job Card has an active transfer/Ready/In-Use/consumption load or Open reconciliation, with exact physical bin/state guidance before Card reuse |
 | 1.61 | 18 October 2026 | Extended controlled WIP Bin reconciliation to submitted transfer cancellation: the bin remains Exception, restored source-tag quantity is safety-reserved, Supervisor exact-bin/source verification releases material returned to source, and material left in WIP requires an exact later submitted transfer before a separately linked Ready load is recovered |
