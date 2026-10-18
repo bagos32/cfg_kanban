@@ -6,7 +6,7 @@ the Stock Entry submit hook.
 """
 
 import frappe
-from frappe.utils import cint, flt, now_datetime
+from frappe.utils import cint, flt, get_datetime, now_datetime
 
 from cfg_kanban.services.events import record
 from cfg_kanban.services.logistics_foundation import post_quantity_event, resolve_logistics_scan
@@ -699,6 +699,305 @@ def reverse_wip_bin_stock_entry(doc):
             qty=load.actual_qty, reference_doctype="Stock Entry", reference_name=doc.name,
             notes=f"WIP Bin Load {load.name}; physical state {bin_state}",
         )
+        if direction == "consumption":
+            _create_consumption_reconciliation(load, doc)
+
+
+@frappe.whitelist()
+def resolve_wip_bin_reconciliation(reconciliation_name, decision, reusable_bin_scan,
+                                   reason, operator_session_token, kanban_card,
+                                   correction_stock_entry=None, event_token=None):
+    """Resolve a cancelled-consumption physical hold without changing ERP truth.
+
+    The Supervisor either verifies that ERPNext's returned WIP quantity is physically back in
+    the exact scanned bin, or links a separate submitted Stock Entry that removed that exact
+    quantity from WIP before declaring the physical bin Empty.
+    """
+    reason = (reason or "").strip()
+    if not reason:
+        frappe.throw("Supervisor reconciliation reason is required")
+    allowed = ("Material Restored to Bin", "Bin Empty after ERP Correction")
+    if decision not in allowed:
+        frappe.throw("Select a supported WIP Bin reconciliation decision")
+
+    _lock_reconciliation(reconciliation_name)
+    reconciliation = frappe.get_doc(
+        "CFG Kanban WIP Bin Reconciliation", reconciliation_name
+    )
+    _lock_load(reconciliation.wip_bin_load)
+    load = frappe.get_doc("CFG Kanban WIP Bin Load", reconciliation.wip_bin_load)
+    _lock_reusable_bin(load.reusable_bin)
+    profile, session = _authorize_reconciliation(
+        load, operator_session_token, kanban_card
+    )
+    identity = resolve_logistics_scan(reusable_bin_scan)
+    if (not identity or identity.get("identity_type") != "Handling Unit"
+            or identity.get("name") != load.reusable_bin):
+        frappe.throw(f"Scan the affected WIP Bin {load.reusable_bin} to resolve this hold")
+    if reconciliation.status == "Resolved":
+        return _reconciliation_result(reconciliation)
+    if reconciliation.status != "Open":
+        frappe.throw(f"WIP Bin reconciliation is {reconciliation.status}, not Open")
+    unit = frappe.get_doc("CFG Kanban Handling Unit", load.reusable_bin)
+    if load.status != "Reversed" or unit.wip_bin_state != "Exception":
+        frappe.throw(
+            f"Expected Reversed load / Exception bin, found {load.status} / "
+            f"{unit.wip_bin_state or 'Unspecified'}"
+        )
+
+    restored_load = None
+    correction = None
+    if decision == "Material Restored to Bin":
+        if correction_stock_entry:
+            frappe.throw("Do not select an ERP correction when material is restored to the bin")
+        restored_load = _create_recovered_ready_load(
+            load, reconciliation, profile, session, event_token
+        )
+        physical_state = "Ready"
+        evidence = (
+            f"Exact {load.actual_qty} {load.stock_uom} {load.item_code}"
+            f"{f' / Batch {load.batch_no}' if load.batch_no else ''} physically restored "
+            f"to {load.reusable_bin}; recovered as Load {restored_load.name}"
+        )
+    else:
+        correction = _validate_empty_bin_correction(
+            load, reconciliation, correction_stock_entry
+        )
+        physical_state = "Empty"
+        evidence = (
+            f"Bin verified empty after submitted ERPNext correction {correction.name} "
+            f"removed exact {load.actual_qty} {load.stock_uom} from {load.wip_warehouse}"
+        )
+
+    timestamp = now_datetime()
+    frappe.db.set_value(
+        "CFG Kanban Handling Unit", load.reusable_bin,
+        {"wip_bin_state": physical_state, "last_reconciled_on": timestamp},
+        update_modified=False,
+    )
+    reconciliation.db_set({
+        "status": "Resolved", "decision": decision,
+        "correction_stock_entry": correction.name if correction else None,
+        "restored_load": restored_load.name if restored_load else None,
+        "resolved_on": timestamp, "resolved_by_operator": profile.employee,
+        "operator_session": session.name, "terminal_user": session.terminal_user,
+        "reason": reason, "resolution_notes": evidence,
+    }, update_modified=True)
+    _release_reconciled_cycle_hold(reconciliation)
+    load.db_set(
+        "notes", f"{load.notes or ''}\nResolved by {reconciliation.name}: {evidence}".strip(),
+        update_modified=True,
+    )
+    if reconciliation.exception:
+        frappe.db.set_value("CFG Kanban Exception", reconciliation.exception, {
+            "status": "Resolved", "resolved_on": timestamp,
+            "resolved_by": session.terminal_user,
+            "resolution": f"{decision}. {reason}. {evidence}",
+        }, update_modified=True)
+    record(
+        "WIP Bin Reconciliation Resolved", card=frappe.db.get_value(
+            "CFG Kanban Cycle", load.kanban_cycle, "kanban_card"
+        ), cycle=load.kanban_cycle, execution=load.process_execution,
+        handling_unit=load.reusable_bin, qty=load.actual_qty,
+        reference_doctype="CFG Kanban WIP Bin Reconciliation",
+        reference_name=reconciliation.name, operator=profile.employee,
+        operator_session=session.name, terminal_user=session.terminal_user,
+        previous_state="Exception", new_state=physical_state,
+        notes=f"{decision}; {reason}; {evidence}",
+    )
+    return _reconciliation_result(frappe.get_doc(
+        "CFG Kanban WIP Bin Reconciliation", reconciliation.name
+    ))
+
+
+def _create_consumption_reconciliation(load, cancelled_entry):
+    existing = frappe.db.get_value(
+        "CFG Kanban WIP Bin Reconciliation", {"wip_bin_load": load.name}, "name"
+    )
+    if existing:
+        return frappe.get_doc("CFG Kanban WIP Bin Reconciliation", existing)
+    timestamp = now_datetime()
+    cycle = frappe.get_doc("CFG Kanban Cycle", load.kanban_cycle)
+    card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card) if cycle.kanban_card else None
+    reconciliation = frappe.get_doc({
+        "doctype": "CFG Kanban WIP Bin Reconciliation",
+        "status": "Open", "wip_bin_load": load.name,
+        "reusable_bin": load.reusable_bin, "company": load.company,
+        "item_code": load.item_code, "batch_no": load.batch_no,
+        "qty": load.actual_qty, "stock_uom": load.stock_uom,
+        "kanban_cycle": load.kanban_cycle, "work_order": load.work_order,
+        "job_card": load.job_card, "process_execution": load.process_execution,
+        "operation": load.operation, "workstation": load.workstation,
+        "previous_cycle_status": cycle.status,
+        "previous_cycle_blocked": cint(cycle.get("blocked")),
+        "previous_card_blocked": cint(card.get("blocked")) if card else 0,
+        "previous_card_blocked_reason": card.get("blocked_reason") if card else None,
+        "cancelled_stock_entry": cancelled_entry.name,
+        "raised_on": timestamp, "raised_by_system": 1,
+    }).insert(ignore_permissions=True)
+    exception = frappe.get_doc({
+        "doctype": "CFG Kanban Exception",
+        "exception_type": "WIP Bin Consumption Reversal",
+        "severity": "Critical", "status": "Open",
+        "kanban_cycle": load.kanban_cycle,
+        "kanban_card": frappe.db.get_value(
+            "CFG Kanban Cycle", load.kanban_cycle, "kanban_card"
+        ),
+        "process_execution": load.process_execution,
+        "handling_unit": load.reusable_bin,
+        "message": (
+            f"Submitted consumption {cancelled_entry.name} was cancelled. WIP Bin "
+            f"{load.reusable_bin} is blocked until a Supervisor verifies the exact physical "
+            "material state."
+        ),
+        "reference_doctype": "CFG Kanban WIP Bin Reconciliation",
+        "reference_name": reconciliation.name, "raised_on": timestamp,
+    }).insert(ignore_permissions=True)
+    reconciliation.db_set("exception", exception.name, update_modified=False)
+    record(
+        "WIP Bin Reconciliation Required", cycle=load.kanban_cycle,
+        execution=load.process_execution, handling_unit=load.reusable_bin,
+        qty=load.actual_qty,
+        reference_doctype="CFG Kanban WIP Bin Reconciliation",
+        reference_name=reconciliation.name,
+        previous_state="Consumed", new_state="Exception",
+        notes=f"Cancelled consumption {cancelled_entry.name}; Exception {exception.name}",
+    )
+    return reconciliation
+
+
+def _authorize_reconciliation(load, operator_session_token, kanban_card):
+    from cfg_kanban.services.operator_auth import require_operator
+
+    profile, session = require_operator(
+        operator_session_token, action="override",
+        operation=load.operation, workstation=load.workstation,
+    )
+    if profile.kanban_role not in ("Supervisor", "Development Proxy"):
+        frappe.throw("A Kanban Supervisor with Override permission must resolve this WIP Bin")
+    card = frappe.get_doc("CFG Kanban Card", kanban_card)
+    if not card.active_cycle:
+        frappe.throw("Scan the active production or operation Card for this WIP Bin")
+    cycle = frappe.get_doc("CFG Kanban Cycle", card.active_cycle)
+    if cycle.work_order != load.work_order:
+        frappe.throw("The scanned Card does not control this WIP Bin Work Order")
+    if cycle.name != load.kanban_cycle and cycle.selected_job_card != load.job_card:
+        frappe.throw("The scanned operation Card does not control this WIP Bin Job Card")
+    return profile, session
+
+
+def _create_recovered_ready_load(load, reconciliation, profile, session, event_token):
+    key = event_token or f"wip-bin-recovery:{reconciliation.name}"
+    existing = frappe.db.get_value(
+        "CFG Kanban WIP Bin Load", {"idempotency_key": key}, "name"
+    )
+    if existing:
+        recovered = frappe.get_doc("CFG Kanban WIP Bin Load", existing)
+        if recovered.recovery_reconciliation != reconciliation.name:
+            frappe.throw("This reconciliation token belongs to another WIP Bin recovery")
+        return recovered
+    return frappe.get_doc({
+        "doctype": "CFG Kanban WIP Bin Load", "status": "Ready",
+        "reusable_bin": load.reusable_bin, "wip_bin_pool": load.wip_bin_pool,
+        "company": load.company, "item_code": load.item_code,
+        "batch_no": load.batch_no, "standard_qty": load.standard_qty,
+        "actual_qty": load.actual_qty, "stock_uom": load.stock_uom,
+        "partial_exception": load.partial_exception,
+        "exception_reason": load.exception_reason,
+        "approved_by": load.approved_by,
+        "approved_by_operator": load.approved_by_operator,
+        "exception_approved_on": load.exception_approved_on,
+        "kanban_master": load.kanban_master, "kanban_cycle": load.kanban_cycle,
+        "work_order": load.work_order, "job_card": load.job_card,
+        "process_execution": load.process_execution, "operation": load.operation,
+        "workstation": load.workstation,
+        "source_handling_unit": load.source_handling_unit,
+        "source_warehouse": load.source_warehouse,
+        "wip_warehouse": load.wip_warehouse,
+        "source_confirmation_ledger": load.source_confirmation_ledger,
+        "recovery_of_load": load.name,
+        "recovery_reconciliation": reconciliation.name,
+        "idempotency_key": key, "reserved_on": now_datetime(),
+        "reserved_by_operator": profile.employee,
+        "operator_session": session.name, "ready_on": now_datetime(),
+        "notes": (
+            f"Exact physical material restored after cancelled consumption "
+            f"{reconciliation.cancelled_stock_entry}; recovered from {load.name}"
+        ),
+    }).insert(ignore_permissions=True)
+
+
+def _validate_empty_bin_correction(load, reconciliation, correction_stock_entry):
+    if not correction_stock_entry:
+        frappe.throw("Select the submitted ERPNext correction before declaring the bin Empty")
+    if correction_stock_entry == reconciliation.cancelled_stock_entry:
+        frappe.throw("The cancelled consumption cannot be used as its own ERP correction")
+    entry = frappe.get_doc("Stock Entry", correction_stock_entry)
+    if entry.docstatus != 1:
+        frappe.throw("WIP Bin correction Stock Entry must be submitted")
+    if entry.company != load.company:
+        frappe.throw("ERP correction Company does not match the WIP Bin Load")
+    if get_datetime(entry.creation) < get_datetime(reconciliation.creation):
+        frappe.throw("ERP correction must be created after the WIP Bin reconciliation was raised")
+    from cfg_kanban.services.production_trace import _tag_batch_no
+    matching_qty = sum(
+        _row_stock_qty(row) for row in entry.items
+        if row.item_code == load.item_code
+        and row.s_warehouse == load.wip_warehouse
+        and row.stock_uom == load.stock_uom
+        and (_tag_batch_no(row) or "") == (load.batch_no or "")
+    )
+    if abs(flt(matching_qty) - flt(load.actual_qty)) > TOLERANCE:
+        frappe.throw(
+            f"Submitted correction must remove exactly {load.actual_qty} {load.stock_uom} "
+            f"of {load.item_code} from {load.wip_warehouse}; matching quantity is "
+            f"{matching_qty}"
+        )
+    return entry
+
+
+def _release_reconciled_cycle_hold(reconciliation):
+    """Restore only the generic cancellation hold after every physical bin is reconciled."""
+    if frappe.db.exists("CFG Kanban WIP Bin Reconciliation", {
+        "kanban_cycle": reconciliation.kanban_cycle,
+        "status": "Open",
+        "name": ["!=", reconciliation.name],
+    }):
+        return
+    cycle = frappe.get_doc("CFG Kanban Cycle", reconciliation.kanban_cycle)
+    card = (frappe.get_doc("CFG Kanban Card", cycle.kanban_card)
+            if cycle.kanban_card else None)
+    if cycle.status == "Blocked" and cint(cycle.get("blocked")):
+        cycle.db_set({
+            "status": reconciliation.previous_cycle_status or "In Production",
+            "blocked": cint(reconciliation.previous_cycle_blocked),
+        }, update_modified=True)
+    if (card and cint(card.get("blocked"))
+            and (card.get("blocked_reason") or "") == "Stock Entry Cancelled"):
+        card.db_set({
+            "blocked": cint(reconciliation.previous_card_blocked),
+            "blocked_reason": reconciliation.previous_card_blocked_reason,
+        }, update_modified=True)
+
+
+def _reconciliation_result(reconciliation):
+    return {
+        "reconciliation": reconciliation.name, "status": reconciliation.status,
+        "decision": reconciliation.decision,
+        "wip_bin_load": reconciliation.wip_bin_load,
+        "reusable_bin": reconciliation.reusable_bin,
+        "restored_load": reconciliation.restored_load,
+        "correction_stock_entry": reconciliation.correction_stock_entry,
+    }
+
+
+def _lock_reconciliation(name):
+    frappe.db.sql(
+        "select name from `tabCFG Kanban WIP Bin Reconciliation` where name=%s for update",
+        name,
+    )
+    if not frappe.db.exists("CFG Kanban WIP Bin Reconciliation", name):
+        frappe.throw("WIP Bin reconciliation was not found")
 
 
 def _loads_for_entry(stock_entry):

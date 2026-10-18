@@ -13,7 +13,8 @@ IDENTITY_FIELDS = (
     "kanban_master", "kanban_cycle", "work_order",
     "job_card", "process_execution", "operation", "workstation",
     "source_handling_unit", "source_warehouse", "wip_warehouse",
-    "transfer_stock_entry", "transfer_stock_entry_detail", "idempotency_key",
+    "transfer_stock_entry", "transfer_stock_entry_detail", "recovery_of_load",
+    "recovery_reconciliation", "idempotency_key",
 )
 TOLERANCE = 0.000001
 
@@ -69,7 +70,9 @@ class CFGKanbanWIPBinLoad(Document):
             frappe.throw("The reusable WIP Bin must be active and quality released")
         if unit.inventory_company != self.company or unit.current_warehouse != self.wip_warehouse:
             frappe.throw("WIP Bin Company and Warehouse do not match the load snapshot")
-        if self.is_new() and unit.wip_bin_state != "Empty":
+        if self.is_new() and self.recovery_of_load:
+            self._validate_recovery_context(unit)
+        elif self.is_new() and unit.wip_bin_state != "Empty":
             frappe.throw(f"Reusable WIP Bin is {unit.wip_bin_state or 'not Empty'}")
 
         pool = frappe.db.get_value(
@@ -118,6 +121,35 @@ class CFGKanbanWIPBinLoad(Document):
         if (abs(flt(rule.standard_bin_qty) - flt(self.standard_qty)) > TOLERANCE
                 or rule.stock_uom != self.stock_uom):
             frappe.throw("WIP Bin standard quantity/UOM does not match the Kanban Master")
+
+    def _validate_recovery_context(self, unit):
+        if unit.wip_bin_state != "Exception":
+            frappe.throw("A recovered WIP Bin Load requires the physical bin in Exception")
+        original = frappe.db.get_value(
+            "CFG Kanban WIP Bin Load", self.recovery_of_load,
+            ["name", "status", "reusable_bin", "company", "item_code", "batch_no", "actual_qty",
+             "stock_uom", "kanban_cycle", "work_order", "job_card", "operation",
+             "workstation", "wip_warehouse"], as_dict=True,
+        )
+        if not original or original.status != "Reversed":
+            frappe.throw("Recovered WIP Bin Load must reference a Reversed load")
+        fields = (
+            "reusable_bin", "company", "item_code", "batch_no", "stock_uom",
+            "kanban_cycle", "work_order", "job_card", "operation", "workstation",
+            "wip_warehouse",
+        )
+        if any((original.get(field) or "") != (self.get(field) or "") for field in fields):
+            frappe.throw("Recovered WIP Bin Load does not match the reversed physical load")
+        if abs(flt(original.actual_qty) - flt(self.actual_qty)) > TOLERANCE:
+            frappe.throw("Recovered WIP Bin quantity must equal the reversed load quantity")
+        reconciliation = frappe.db.get_value(
+            "CFG Kanban WIP Bin Reconciliation", self.recovery_reconciliation,
+            ["status", "wip_bin_load", "reusable_bin"], as_dict=True,
+        )
+        if (not reconciliation or reconciliation.status != "Open"
+                or reconciliation.wip_bin_load != original.name
+                or reconciliation.reusable_bin != self.reusable_bin):
+            frappe.throw("Select the open reconciliation for this reversed WIP Bin Load")
 
     def _validate_active_bin_exclusivity(self):
         if self.status not in ACTIVE_STATUSES:

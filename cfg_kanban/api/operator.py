@@ -412,6 +412,7 @@ def get_card_live_revision(token, operator_session_token=None):
                 ("Work Order", {"name": cycle.work_order}),
                 ("Job Card", {"work_order": cycle.work_order, "docstatus": ["<", 2]}),
                 ("Stock Entry", {"work_order": cycle.work_order, "docstatus": ["<", 2]}),
+                ("CFG Kanban WIP Bin Reconciliation", {"work_order": cycle.work_order}),
             ):
                 modified = frappe.db.get_value(doctype, filters, "max(modified)")
                 if modified:
@@ -564,6 +565,10 @@ def _operation_material_flow_scope(flow, requesting_cycle, job_card):
     """Limit an operation Card to its selected Job Card's material responsibilities."""
     scoped_jobs = [row for row in (flow.get("jobs") or []) if row.get("name") == job_card]
     flow["jobs"] = scoped_jobs
+    flow["wip_bin_reconciliations"] = [
+        row for row in (flow.get("wip_bin_reconciliations") or [])
+        if row.get("job_card") == job_card
+    ]
     flow["materials"] = []
     flow["has_pending_materials"] = any(
         row.get("has_pending_materials") for row in scoped_jobs

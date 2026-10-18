@@ -1123,6 +1123,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				? __("A restricted production component needs attention. Contact an authorized material controller; its identity is intentionally hidden.")
 				: __("Restricted BOM component(s) are included automatically by ERPNext and are intentionally hidden from this operator view.")}</div>`);
 		}
+		render_wip_bin_reconciliations($section, flow);
 		const $actions = $section.find(".cfg-production-material-actions");
 		if (flow.work_order_docstatus !== 1) {
 			$section.append(`<div class="alert alert-warning">${__("Submit the effective ERPNext Work Order before preparing material transfers or Manufacture receipt.")}</div>`);
@@ -1188,6 +1189,101 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		} else if (flow.incomplete_job_cards && flow.incomplete_job_cards.length) {
 			$section.append(`<div class="alert alert-info">${__("Manufacture receipt becomes available after these Job Cards are completed")}: ${flow.incomplete_job_cards.map((name) => document_link("job-card", name)).join(", ")}</div>`);
 		}
+	}
+
+	function render_wip_bin_reconciliations($section, flow) {
+		const rows = flow.wip_bin_reconciliations || [];
+		if (!rows.length) return;
+		const e = frappe.utils.escape_html;
+		const $block = $(`<div class="alert alert-danger mb-3" data-live-focus="wip-bin-reconciliation">
+			<div class="d-flex justify-content-between align-items-start flex-wrap"><div>
+				<strong>${__("WIP Bin supervisor reconciliation required")}</strong><br>
+				<small>${__("A submitted consumption was cancelled. The affected bin is blocked until its exact physical material state agrees with ERPNext.")}</small>
+			</div><span class="indicator-pill red">${rows.length} ${__("Open")}</span></div>
+		</div>`).appendTo($section);
+		rows.forEach((row) => {
+			const $row = $(`<div class="frappe-card p-3 mt-2">
+				<div class="row align-items-center"><div class="col-md-4">
+					<strong>${e(row.reusable_bin)}</strong><br><small>${e(row.item_code)}${row.batch_no ? ` · ${__("Batch")} ${e(row.batch_no)}` : ""}</small>
+				</div><div class="col-md-3">${e(row.qty)} ${e(row.stock_uom)}<br><small>${document_link("job-card", row.job_card)}</small></div>
+				<div class="col-md-3"><small>${__("Cancelled consumption")}</small><br>${document_link("stock-entry", row.cancelled_stock_entry)}</div>
+				<div class="col-md-2 text-right cfg-wip-reconciliation-action"></div></div>
+			</div>`).appendTo($block);
+			if (flow.can_reconcile_wip_bins) {
+				add_action($row.find(".cfg-wip-reconciliation-action"), __("Reconcile"), "btn-danger", () =>
+					wip_bin_reconciliation_dialog(row));
+			} else {
+				$row.find(".cfg-wip-reconciliation-action").html(
+					`<small class="text-danger">${__("Scan a Supervisor QR with Override permission")}</small>`
+				);
+			}
+		});
+	}
+
+	function wip_bin_reconciliation_dialog(row) {
+		const e = frappe.utils.escape_html;
+		let dialog;
+		dialog = new frappe.ui.Dialog({
+			title: __("Reconcile WIP Bin: {0}", [row.reusable_bin]),
+			fields: [
+				{ fieldname: "summary", fieldtype: "HTML", options:
+					`<div class="alert alert-danger"><strong>${e(row.item_code)} · ${e(row.qty)} ${e(row.stock_uom)}</strong><br>
+					${__("Cancelled consumption")}: ${document_link("stock-entry", row.cancelled_stock_entry)}<br>
+					${__("ERPNext returned this quantity to WIP. Inspect the physical bin before choosing an outcome.")}</div>` },
+				{ fieldname: "decision", label: __("Verified Physical Outcome"), fieldtype: "Select",
+					options: "\nMaterial Restored to Bin\nBin Empty after ERP Correction", reqd: 1,
+					description: __("Restored creates a new Ready load. Empty requires an exact submitted ERPNext correction that removed this quantity from WIP.") },
+				{ fieldname: "reusable_bin_scan", label: __("Scan Affected WIP Bin"),
+					fieldtype: "Data", reqd: 1, description: __("Scan the permanent physical identity printed on this exact bin.") },
+				{ fieldname: "correction_stock_entry", label: __("Submitted ERPNext Correction"),
+					fieldtype: "Link", options: "Stock Entry",
+					depends_on: "eval:doc.decision=='Bin Empty after ERP Correction'",
+					mandatory_depends_on: "eval:doc.decision=='Bin Empty after ERP Correction'",
+					description: __("Must remove the exact Item, Batch, UOM and quantity from the WIP Warehouse after this hold was raised.") },
+				{ fieldname: "reason", label: __("Supervisor Verification / Reason"),
+					fieldtype: "Small Text", reqd: 1 },
+				{ fieldname: "reconciliation_scan", label: __("Scanner Command"), fieldtype: "Data",
+					description: __("Scan Select 1 for Restored, Select 2 for Empty, the physical bin, then Confirm / Submit.") },
+			],
+			primary_action_label: __("Resolve Controlled Hold"),
+			primary_action: async (values) => {
+				if (values.decision === "Bin Empty after ERP Correction" && !values.correction_stock_entry) {
+					frappe.throw(__("Select the submitted ERPNext correction before declaring the bin Empty."));
+				}
+				await frappe.call({
+					method: "cfg_kanban.services.wip_bin_loads.resolve_wip_bin_reconciliation",
+					args: {
+						reconciliation_name: row.name, decision: values.decision,
+						reusable_bin_scan: values.reusable_bin_scan, reason: values.reason,
+						correction_stock_entry: values.correction_stock_entry,
+						operator_session_token: state.session_token,
+						kanban_card: state.context.card.name,
+						event_token: frappe.utils.get_random(24),
+					},
+					freeze: true, freeze_message: __("Reconciling physical WIP Bin and ERPNext evidence..."),
+				});
+				dialog.hide();
+				frappe.show_alert({ message: __("WIP Bin reconciliation resolved and audited."), indicator: "green" });
+				await load_card(state.context.card.qr_code || state.context.card.card_number);
+			},
+		});
+		const scanner = dialog.get_field("reconciliation_scan").$input;
+		scanner.attr({ autocomplete: "off", inputmode: "none" });
+		scanner.on("keydown.cfg_wip_reconcile", async (event) => {
+			if (event.key !== "Enter" && event.key !== "Tab") return;
+			event.preventDefault();
+			const value = String(scanner.val() || "").trim();
+			await dialog.set_value("reconciliation_scan", "");
+			const command = value.toUpperCase();
+			if (command === "CFG:SELECT:1") await dialog.set_value("decision", "Material Restored to Bin");
+			else if (command === "CFG:SELECT:2") await dialog.set_value("decision", "Bin Empty after ERP Correction");
+			else if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(command)) return dialog.hide();
+			else if (["CFG:CMD:CONFIRM", "CFG:CMD:SUBMIT_MATERIALS"].includes(command)) return dialog.get_primary_btn().trigger("click");
+			else if (value) await dialog.set_value("reusable_bin_scan", value);
+			window.setTimeout(() => scanner.trigger("focus"), 80);
+		});
+		dialog.show();
+		window.setTimeout(() => scanner.trigger("focus"), 120);
 	}
 
 	function production_material_table(rows) {

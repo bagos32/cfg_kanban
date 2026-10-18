@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.59
+**Guide version:** 1.60
 
 **Updated:** 18 October 2026
 
@@ -1148,8 +1148,25 @@ Only successful ERPNext submission changes every linked load to `Consumed` and r
 reusable physical bin to `Empty`. The Job Card cannot be submitted while a related bin remains
 `Transfer Draft`, `Ready`, `In Use`, or `Consumption Draft`; Manufacture receipt is blocked while
 the Work Order has any such unconsumed load. Cancelling a submitted consumption puts the bin in
-`Exception` for supervisor reconciliation rather than silently claiming that the physical bin is
-empty. Work Order creation is no longer blanket-blocked for a correctly configured WIP-bin Master.
+`Exception`, creates a Critical Kanban Exception, and creates an Open **CFG Kanban WIP Bin
+Reconciliation** rather than silently claiming that the physical bin is empty. The red recovery
+block appears on the main Production Card and only on the matching Operation Card. A scanned
+Kanban Supervisor with **Override** permission must rescan the affected bin and choose one factual
+outcome:
+
+- **Material Restored to Bin** — physically verify the exact Item, Batch and full reversed
+  quantity. The original Load remains `Reversed`; a separately linked recovered Load becomes
+  `Ready` and the bin returns to `Ready` for normal rescanning.
+- **Bin Empty after ERP Correction** — first post a separate native ERPNext Stock Entry that
+  removes the exact Item, Batch, Stock UOM and quantity from the WIP Warehouse. Link that submitted
+  correction; only then can the bin return to `Empty`.
+
+Both paths record the Supervisor Employee, terminal User, operator session, time, reason, evidence,
+cancelled Stock Entry, and Event history. A normal Operator cannot release the hold, a cancelled
+entry cannot be its own correction, and the original history is never deleted. The generic
+`Stock Entry Cancelled` Cycle/Card hold is restored to its pre-cancellation state only after every
+affected physical bin has been reconciled; an older unrelated hold is preserved. Work Order creation
+is no longer blanket-blocked for a correctly configured WIP-bin Master.
 Use `docs/TEST_STANDARD_QUANTITY_WIP_BIN_TRANSFER_GATE.md` for the complete transfer-and-consumption
 acceptance test before enabling the method on a live production Master.
 
@@ -3378,6 +3395,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.60 | 18 October 2026 | Added controlled WIP Bin cancellation reconciliation: submitted consumption cancellation now creates a Critical Exception and immutable reconciliation, blocks the bin, requires exact-bin rescan plus Supervisor Override, restores verified material through a separately linked Ready load, or permits Empty only against an exact later submitted ERPNext correction |
 | 1.59 | 18 October 2026 | Added the controlled Standard Quantity WIP Bin partial exception: Pool opt-in, Supervisor QR plus Override authorization, scanner quantity support, mandatory reason, immutable Employee/User/session/time evidence, exact partial source reservation and downstream consumption, and corrected the Job Card active-bin completion guard |
 | 1.58 | 18 October 2026 | Completed the Standard Quantity WIP Bin operation-consumption gate: Ready-load visibility by Job Card, scanner-created Draft consumption, exact Ready-bin/Item/Warehouse/UOM/Batch binding, cancellable Draft scans, submitted ERP feedback to Consumed/Empty, and Job Card/Manufacture completion blocks while physical bins remain unconsumed; removed the temporary Work Order safety stop |
 | 1.57 | 17 October 2026 | Added audited Handling Unit print choices for the existing 45 × 250 mm trace tag plus 50 × 30 mm, 100 × 50 mm, and A6 permanent reusable-bin/bin-slot barcode cards; all formats encode the visible physical identity and keep mutable contents out of the fixed label |

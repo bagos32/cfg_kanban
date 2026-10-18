@@ -71,6 +71,8 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Material Trace Policy")
         self.assertEqual(links["Standard WIP Bin Pools"],
                          "CFG Kanban WIP Bin Pool")
+        self.assertEqual(links["WIP Bin Reconciliations"],
+                         "CFG Kanban WIP Bin Reconciliation")
         self.assertEqual(links["DocType Action Policies"],
                          "CFG Kanban DocType Action Policy")
         self.assertEqual(links["DocType Action Profiles"],
@@ -1736,9 +1738,22 @@ class TestDocTypeSchema(TestCase):
             "consumption_stock_entry", "idempotency_key", "source_reservation_ledger",
             "source_confirmation_ledger", "source_reversal_ledger", "partial_exception",
             "exception_reason", "approved_by", "approved_by_operator",
-            "exception_approved_on",
+            "exception_approved_on", "recovery_of_load", "recovery_reconciliation",
         }.issubset(load))
         self.assertTrue(load["idempotency_key"].get("unique"))
+        reconciliation = {row["fieldname"]: row for row in
+                          schemas["CFG Kanban WIP Bin Reconciliation"]["fields"]}
+        self.assertTrue({
+            "status", "decision", "wip_bin_load", "reusable_bin", "company",
+            "item_code", "batch_no", "qty", "stock_uom", "kanban_cycle",
+            "work_order", "job_card", "operation", "workstation",
+            "cancelled_stock_entry", "correction_stock_entry", "restored_load",
+            "exception", "resolved_by_operator", "operator_session", "terminal_user",
+            "reason", "resolution_notes", "previous_cycle_status",
+            "previous_cycle_blocked", "previous_card_blocked",
+            "previous_card_blocked_reason",
+        }.issubset(reconciliation))
+        self.assertTrue(reconciliation["wip_bin_load"].get("unique"))
 
         master_controller = (
             APP_ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_master" /
@@ -1792,6 +1807,12 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def _assert_partial_exception_authorized", wip_service)
         self.assertIn("WIP Bin Partial Exception Approved", wip_service)
         self.assertIn("A Kanban Supervisor with Override permission", wip_service)
+        self.assertIn("def resolve_wip_bin_reconciliation", wip_service)
+        self.assertIn("def _create_consumption_reconciliation", wip_service)
+        self.assertIn("def _validate_empty_bin_correction", wip_service)
+        self.assertIn("def _release_reconciled_cycle_hold", wip_service)
+        self.assertIn("WIP Bin Reconciliation Required", wip_service)
+        self.assertIn("WIP Bin Reconciliation Resolved", wip_service)
         self.assertNotIn("if not active:\n        return\n    detail", wip_service.split(
             "def abandon_draft_stock_entry", 1
         )[1].split("@frappe.whitelist()", 1)[0])
@@ -1844,6 +1865,10 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("allocate_operator_wip_bin", panel)
         self.assertIn("Consume Ready WIP Bins", panel)
         self.assertIn("prepare_wip_bin_consumption_dialog", panel)
+        self.assertIn("render_wip_bin_reconciliations", panel)
+        self.assertIn("wip_bin_reconciliation_dialog", panel)
+        self.assertIn("Material Restored to Bin", panel)
+        self.assertIn("Bin Empty after ERP Correction", panel)
         self.assertIn("allocate_consumption_bin", panel)
         self.assertIn("CFG:CMD:NO_SOURCE", panel)
         self.assertIn('dialog.set_value("input_scan", value)', panel)

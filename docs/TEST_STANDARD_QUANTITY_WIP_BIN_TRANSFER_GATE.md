@@ -422,7 +422,9 @@ subject to their normal ERPNext requirements.
 Using an authorized ERPNext user, cancel a submitted WIP-bin consumption Stock Entry.
 
 Expected result: related loads become `Reversed`, physical bins become `Exception`, the Cycle is
-blocked for supervisor reconciliation, and the system does not falsely return those bins to Empty.
+blocked for supervisor reconciliation, a Critical **CFG Kanban Exception** and Open
+**CFG Kanban WIP Bin Reconciliation** are created, and the system does not falsely return those
+bins to Empty.
 
 ### 10.13 Controlled supervisor partial-bin exception
 
@@ -485,6 +487,59 @@ Expected result: every unsafe attempt is rejected without reserving a source tag
 Scan `CFG:CMD:FULL_BIN` to clear partial mode and return the trace dialog to normal full-bin
 allocation.
 
+### 10.14 Reconcile a cancelled submitted consumption
+
+Run both outcomes on separate test loads. Never use database edits to release the bin.
+
+#### Outcome A — exact material physically restored
+
+1. After Section 10.12, rescan the Production Card or the exact Operation Card.
+2. Confirm the red **WIP Bin supervisor reconciliation required** block identifies the bin, Item,
+   quantity, Job Card, and cancelled Stock Entry.
+3. With a normal Operator QR, try to reconcile it.
+
+Expected result: the panel requires a Supervisor QR with **Override** permission.
+
+4. Switch to that Supervisor QR and select **Reconcile**.
+5. Physically verify that the exact Item, Batch, and complete reversed quantity are back in the
+   affected bin.
+6. Select **Material Restored to Bin**, scan that exact physical bin, enter the verification
+   reason, and confirm. Scanner-only selection may use `CFG:SELECT:1` and
+   `CFG:CMD:CONFIRM`.
+
+Expected result:
+
+- the original consumed Load stays `Reversed` and remains linked to the cancelled Stock Entry;
+- the reconciliation becomes `Resolved` with Supervisor Employee, operator session, terminal User,
+  timestamp, reason, and exact physical evidence;
+- a new Load linked by **Recovered From Reversed Load** becomes `Ready` for the same exact
+  Item/Batch/quantity/Job Card;
+- the permanent bin changes from `Exception` to `Ready`;
+- the Critical Exception becomes `Resolved`; and
+- after all bins from that cancelled entry are reconciled, the generic `Stock Entry Cancelled`
+  Cycle/Card hold returns to its audited pre-cancellation state; and
+- the recovered Ready load can follow the normal Job Card consumption scanner again.
+
+#### Outcome B — bin empty after ERP correction
+
+1. Use a second cancelled-consumption test whose physical bin is actually empty.
+2. In ERPNext, create and submit an authorized correction Stock Entry after the hold was raised.
+   It must remove the exact reversed Item, Batch, Stock UOM, and quantity from the WIP Warehouse.
+3. In the Kanban reconciliation select **Bin Empty after ERP Correction**, scan the affected bin,
+   link that submitted Stock Entry, enter the physical verification reason, and confirm. Scanner
+   selection may use `CFG:SELECT:2`.
+
+Expected result:
+
+- Draft, cancelled, wrong-Company, older, wrong-Item, wrong-Batch, wrong-UOM, wrong-Warehouse, and
+  wrong-quantity correction documents are rejected;
+- the original Load remains `Reversed`;
+- no replacement Ready load is created;
+- the bin changes from `Exception` to `Empty` only after exact ERP evidence passes;
+- the reconciliation and Critical Exception become `Resolved`; and
+- the generic cancellation hold is released only after every affected bin is resolved; and
+- the Event timeline identifies the decision, Supervisor, correction, and reason.
+
 ## 11. Evidence to capture
 
 For each test, record:
@@ -521,6 +576,8 @@ For each test, record:
 | Consumption submission to Consumed/Empty | Pending | |
 | Job Card and Manufacture completion guards | Pending | |
 | Submitted consumption cancellation/Exception | Pending | |
+| Supervisor restored-material recovery to Ready | Pending | |
+| Supervisor ERP-corrected empty-bin recovery | Pending | |
 
 ## 13. Final decision for this gate
 

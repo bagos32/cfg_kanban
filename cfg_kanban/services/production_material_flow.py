@@ -72,7 +72,7 @@ def apply_master_material_flow(work_order, master):
 
 @frappe.whitelist()
 def get_cycle_material_flow(cycle_name, operator_session_token=None):
-    require_operator(operator_session_token)
+    profile, _session = require_operator(operator_session_token)
     cycle, master, work_order = _production_context(cycle_name)
     mode = _effective_mode(master, work_order)
     hidden_policy = get_hidden_item_policy()
@@ -157,6 +157,14 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
 
     incomplete_jobs = [row["name"] for row in jobs if row["status"] != "Completed"]
     remaining_output = max(0, flt(work_order.qty) - flt(work_order.produced_qty))
+    wip_bin_reconciliations = frappe.get_all(
+        "CFG Kanban WIP Bin Reconciliation",
+        {"kanban_cycle": cycle.name, "work_order": work_order.name, "status": "Open"},
+        ["name", "wip_bin_load", "reusable_bin", "item_code", "batch_no", "qty",
+         "stock_uom", "job_card", "operation", "workstation",
+         "cancelled_stock_entry", "exception", "raised_on"],
+        order_by="raised_on asc",
+    )
     return {
         "cycle": cycle.name,
         "work_order": work_order.name,
@@ -175,6 +183,11 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
         "remaining_output_qty": remaining_output,
         "materials": rows,
         "jobs": jobs,
+        "wip_bin_reconciliations": wip_bin_reconciliations,
+        "can_reconcile_wip_bins": bool(
+            profile.kanban_role in ("Supervisor", "Development Proxy")
+            and cint(profile.get("can_override"))
+        ),
         "has_pending_materials": any(row["pending_qty"] > 0.000001 for row in all_rows),
         "restricted_materials_present": bool(restricted_rows),
         "restricted_material_attention": any(
