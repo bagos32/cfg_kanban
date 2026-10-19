@@ -842,6 +842,7 @@ def submit_progress(execution_name, good_qty, reject_qty=0, processed_qty=None,
                       values=values, notes=notes, operator=profile.employee,
                       operator_session=session.name, terminal_user=session.terminal_user)
     erp_command = None
+    erp_result = None
     if execution.job_card and flt(good_qty):
         payload = _job_card_progress_payload(execution, progress, event_token,
                                              employee=profile.employee,
@@ -856,12 +857,17 @@ def submit_progress(execution_name, good_qty, reject_qty=0, processed_qty=None,
             "requested_by_operator": profile.employee, "operator_session": session.name,
             "terminal_user": session.terminal_user,
         }), key, ignore_permissions=True)
-        execute_command(command.name)
+        job_card = execute_command(command.name)
+        erp_result = getattr(job_card, "_cfg_command_result", None)
         erp_command = command.name
     if event_token:
         frappe.db.set_value("CFG Kanban Event", {"reference_doctype": progress.doctype,
             "reference_name": progress.name, "event_type": "Operation Progress"}, "device_id", key)
-    return {"name": progress.name, "erp_command": erp_command, "duplicate": False}
+    return {
+        "name": progress.name, "erp_command": erp_command,
+        "erp_result": erp_result,
+        "duplicate": False,
+    }
 
 
 def _job_card_progress_payload(execution, progress, event_token=None, employee=None,

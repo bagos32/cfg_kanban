@@ -397,13 +397,24 @@ ERP row is fully covered.
 
 ### 10.10 Consumption submission and Empty-bin feedback
 
-1. Scan `CFG:CMD:SUBMIT_MATERIALS` or select **Submit ERP Entry**.
+1. Close Production Material Trace and select **Report Progress** for the matching operation.
+2. Report the full completed quantity required by that Job Card.
+
+Expected result when **Auto-submit Job Card at Target** is enabled: ERPNext saves the Job Card
+completed quantity, but the Job Card remains Draft while the WIP-bin consumption is pending. The
+panel confirms that progress was recorded and auto-submit is waiting for WIP-bin consumption. It
+must not display a cycle-closing error, and the progress transaction must not roll back.
+
+3. Reopen Production Material Trace.
+4. Scan `CFG:CMD:SUBMIT_MATERIALS` or select **Submit ERP Entry**.
 
 Expected result after successful native ERPNext submission:
 
 - ERPNext consumes `20 Kg` from the WIP Warehouse for the exact Work Order/Job Card;
 - both WIP Bin Loads become `Consumed`;
 - both permanent reusable bins become `Empty` and may be loaded again;
+- when site auto-submit is enabled and the target quantity is reached, the deferred Job Card is
+  submitted automatically by the short worker only after the WIP-bin consumption commits;
 - each Load keeps both its transfer and consumption Stock Entry links; and
 - the submitted document, load history and Kanban event timeline agree.
 

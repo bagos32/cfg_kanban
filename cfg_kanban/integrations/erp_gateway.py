@@ -1189,19 +1189,35 @@ def update_job_card(command, payload):
         frappe.throw(f"ERPNext Job Card {job_card.name} quantity verification failed: "
                      f"expected at least {expected_qty}, found {after_qty}")
     auto_submitted = False
+    auto_submit_deferred = False
+    auto_submit_deferred_reason = None
     settings = frappe.get_single("CFG Kanban Settings")
     if (settings.get("auto_submit_job_card") and job_card.docstatus == 0 and
             after_qty + 0.000001 >= flt(job_card.for_quantity)):
-        job_card.submit()
-        job_card.reload()
-        auto_submitted = True
-        if job_card.status != "Completed":
-            frappe.throw(f"ERPNext submitted Job Card {job_card.name}, but its status is {job_card.status}")
+        # A fixed WIP-bin operation must record its ERP Job Card quantity before ERPNext
+        # will accept the matching material consumption.  Do not let the auto-submit
+        # setting turn that valid sequence into a deadlock: retain the Draft Job Card,
+        # submit the consumption, then let WIP-bin feedback retry the Job Card submit.
+        from cfg_kanban.services.wip_bin_loads import job_card_wip_bin_close_readiness
+        readiness = job_card_wip_bin_close_readiness(job_card.name)
+        if readiness["ready"]:
+            job_card.submit()
+            job_card.reload()
+            auto_submitted = True
+            if job_card.status != "Completed":
+                frappe.throw(
+                    f"ERPNext submitted Job Card {job_card.name}, but its status is "
+                    f"{job_card.status}"
+                )
+        else:
+            auto_submit_deferred = True
+            auto_submit_deferred_reason = readiness["reason"]
     job_card._cfg_command_result = _job_card_result(
         job_card, action="progress_updated", before_qty=before_qty,
         applied_qty=0 if existing else delta, operation_progress=progress_ref,
         duplicate=bool(existing), reject_qty=flt(payload.get("reject_qty")),
-        auto_submitted=auto_submitted,
+        auto_submitted=auto_submitted, auto_submit_deferred=auto_submit_deferred,
+        auto_submit_deferred_reason=auto_submit_deferred_reason,
     )
     return job_card
 

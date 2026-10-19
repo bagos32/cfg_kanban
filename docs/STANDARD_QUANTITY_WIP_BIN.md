@@ -108,8 +108,12 @@ After transfer submission, the exact Job Card shows **Consume Ready WIP Bins**. 
 Draft `Material Consumption for Manufacture` from the Ready load snapshots. In Production Material
 Trace the operator scans each physical Ready bin. A mistaken Draft scan can be cancelled back to
 Ready. Only native ERPNext submission changes the linked load to Consumed and the permanent bin to
-Empty. Job Card submission and Manufacture receipt are blocked while an active load for their
-scope remains unconsumed.
+Empty. Report Progress still saves the ERPNext Job Card completed quantity while consumption is
+pending. If site Job Card auto-submit is enabled, submission is deliberately deferred rather than
+failing; after successful WIP-bin consumption commits, the short worker retries that Job Card
+submission without risking rollback of the stock transaction. Manual Job Card submission, Kanban
+Cycle closure, and Manufacture receipt remain blocked while an active load for their scope remains
+unconsumed.
 
 ## 5. Runtime safeguards
 

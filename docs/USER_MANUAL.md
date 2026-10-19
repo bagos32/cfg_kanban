@@ -1,9 +1,9 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.61
+**Guide version:** 1.66
 
-**Updated:** 18 October 2026
+**Updated:** 19 October 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
@@ -1132,6 +1132,16 @@ a Draft native `Material Consumption for Manufacture` using only the Ready load 
 their WIP Warehouse/Batch snapshots. In **Production Material Trace**, scan each physical Ready
 bin. A scan changes only the audit/load intent to `Consumption Draft`; it does not change ERP stock.
 An incorrect Draft scan can be cancelled and the bin returns to `Ready`.
+
+Report the operation's completed quantity before submitting the consumption. When **Auto-submit
+Job Card at Target** is enabled, reaching the Job Card target while a WIP-bin load is active saves
+the ERP progress and explicitly defers submission instead of rolling the progress back. The
+operator sees that auto-submit is waiting for WIP-bin consumption. After the linked ERPNext
+consumption submits successfully and the loads become `Consumed`, CFG Kanban automatically retries
+the deferred Job Card submission through the short worker after the stock transaction commits.
+This preserves ERPNext's required order: completed operation quantity first, authoritative
+material consumption second, Job Card/Cycle closure last, without allowing a later Job Card error
+to roll back valid material consumption.
 
 Normal operation still uses full bins. A partial load is available only when **Allow Supervisor
 Partial-bin Exception** is enabled on the exact Pool and the active operator QR belongs to a
@@ -3428,6 +3438,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.66 | 19 October 2026 | Removed the Standard Quantity WIP Bin progress/consumption deadlock: target progress now persists while Job Card auto-submit is deferred by active bins, submitted consumption retries deferred auto-submit, and Draft WIP-bin cancellation uses a refresh-safe non-submit button with visible confirmation |
 | 1.65 | 18 October 2026 | Corrected Material Genealogy route refresh so opening Full Genealogy for a newly searched Stock Tag reloads that tag instead of retaining the prior cached result; stale slower lookups can no longer overwrite the latest selection |
 | 1.64 | 18 October 2026 | Added the mandatory V2 planning reminder and exit checklist so TPS analysis plus WIP-bin ageing/andon escalation, supervisor notifications, utilization/capacity statistics, and optional controlled cleaning/inspection readiness cannot be silently omitted from future V2 scope |
 | 1.63 | 18 October 2026 | Added the read-only Supervisor WIP Bin Control report with physical-bin and active-load state, production context, state age, configuration and state-mismatch warnings, Open reconciliation visibility, attention filtering, workspace access, and an acceptance test that preserves ERPNext as stock authority |

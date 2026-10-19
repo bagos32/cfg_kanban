@@ -1975,16 +1975,32 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			}, freeze: true, freeze_message: __("Releasing staged trace line...") });
 			await reload();
 		});
-		dialog.fields_dict.lines.$wrapper.find("[data-cancel-wip-bin-load]").off("click").on("click", async (event) => {
+		const $lines = dialog.fields_dict.lines.$wrapper;
+		$lines.off("click.cfg_cancel_wip_bin", "[data-cancel-wip-bin-load]")
+			.on("click.cfg_cancel_wip_bin", "[data-cancel-wip-bin-load]", async (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			const $button = $(event.currentTarget);
+			if ($button.prop("disabled")) return;
+			$button.prop("disabled", true);
 			const status = event.currentTarget.dataset.wipBinStatus;
 			const method = status === "Consumption Draft"
 				? "cfg_kanban.services.wip_bin_loads.cancel_consumption_bin"
 				: "cfg_kanban.services.wip_bin_loads.cancel_transfer_bin";
-			await frappe.call({ method, args: {
-				load_name: event.currentTarget.dataset.cancelWipBinLoad,
-				operator_session_token: state.session_token, kanban_card: state.context.card.name,
-			}, freeze: true, freeze_message: __("Releasing Draft WIP Bin allocation...") });
-			await reload();
+			try {
+				await frappe.call({ method, args: {
+					load_name: event.currentTarget.dataset.cancelWipBinLoad,
+					operator_session_token: state.session_token, kanban_card: state.context.card.name,
+				}, freeze: true, freeze_message: __("Releasing Draft WIP Bin allocation...") });
+				frappe.show_alert({ message: status === "Consumption Draft"
+					? __("WIP Bin removed from Draft consumption and restored to Ready.")
+					: __("Draft WIP Bin allocation cancelled and source reservation released."),
+				indicator: "green" });
+				await reload();
+			} finally {
+				$button.prop("disabled", false);
+				window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
+			}
 		});
 		window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
 	}
@@ -2250,7 +2266,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<td>${e(line.status)}</td><td>${line.can_cancel ? `<button class="btn btn-xs btn-danger" data-cancel-operator-trace-line="${e(line.name)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
 		const wip_rows = wip_loads.map((load) => `<tr><td>${__("WIP Bin")}${load.partial_exception ? `<br><span class="indicator-pill orange">${__("Supervisor Partial Exception")}</span>` : ""}</td><td>${e(load.item_code)}</td>
 			<td>${e(load.reusable_bin)}${load.partial_exception ? `<br><small>${e(load.exception_reason || "")}</small><br><small>${e(load.approved_by_operator || load.approved_by || "")}</small>` : ""}</td><td>${e(load.actual_qty)} ${e(load.stock_uom)}</td><td>${e(load.status)}</td>
-			<td>${["Transfer Draft", "Consumption Draft"].includes(load.status) ? `<button class="btn btn-xs btn-danger" data-cancel-wip-bin-load="${e(load.name)}" data-wip-bin-status="${e(load.status)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
+			<td>${["Transfer Draft", "Consumption Draft"].includes(load.status) ? `<button type="button" class="btn btn-xs btn-danger" data-cancel-wip-bin-load="${e(load.name)}" data-wip-bin-status="${e(load.status)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
 		return `<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>
 			<th>${__("Direction")}</th><th>${__("Item")}</th><th>${__("Tag")}</th><th>${__("Quantity")}</th>
 			<th>${__("Status")}</th><th></th></tr></thead><tbody>${trace_rows}${wip_rows}</tbody></table></div>`;
@@ -2713,13 +2729,16 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					field_key: definition.field_key, label: definition.label,
 					field_type: definition.field_type, value: values[`dynamic_${definition.field_key}`], unit: definition.unit,
 				}));
-				await frappe.call({ method: "cfg_kanban.api.operator.submit_progress", args: {
+				const submitted = await frappe.call({ method: "cfg_kanban.api.operator.submit_progress", args: {
 					execution_name: row.name, good_qty: values.good_qty, reject_qty: values.reject_qty,
 					notes: values.notes, values: dynamic_values, event_token: frappe.utils.get_random(16),
 					operator_session_token: state.session_token,
 				}, freeze: true });
 				dialog.hide();
-				frappe.show_alert({ message: __("Progress recorded"), indicator: "green" });
+				const deferred = submitted.message?.erp_result?.auto_submit_deferred;
+				frappe.show_alert({ message: deferred
+					? __("Progress recorded. Job Card auto-submit is waiting for WIP-bin consumption.")
+					: __("Progress recorded"), indicator: deferred ? "blue" : "green" }, 7);
 				await load_card(state.context.card.qr_code);
 			},
 		});
