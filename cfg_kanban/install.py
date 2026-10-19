@@ -142,9 +142,16 @@ def _custom_fields():
              "read_only": 1, "unique": 1, "insert_after": "completed_qty", "module": "CFG Kanban"},
         ],
         "Stock Entry": common + [
+            {"fieldname": "cfg_kanban_job_card", "label": "Kanban Material Job Card",
+             "fieldtype": "Link", "options": "Job Card", "read_only": 1,
+             "insert_after": "cfg_kanban_signal", "module": "CFG Kanban",
+             "description": (
+                 "CFG Kanban operation owner for Work Order-scoped material consumption. "
+                 "ERPNext only permits its native Job Card field on material transfers."
+             )},
             {"fieldname": "cfg_logistics_route", "label": "Logistics Route",
              "fieldtype": "Link", "options": "CFG Kanban Logistics Route", "read_only": 1,
-             "insert_after": "cfg_kanban_signal", "module": "CFG Kanban"},
+             "insert_after": "cfg_kanban_job_card", "module": "CFG Kanban"},
             {"fieldname": "cfg_movement_manifest", "label": "Movement Manifest",
              "fieldtype": "Link", "options": "CFG Kanban Movement Manifest", "read_only": 1,
              "insert_after": "cfg_logistics_route", "module": "CFG Kanban"},

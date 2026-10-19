@@ -594,7 +594,8 @@ def _production_stock_entries(cycle, job_card=None):
             "purpose": ["in", sorted(SUPPORTED_PURPOSES)],
         },
         fields=["name", "purpose", "stock_entry_type", "docstatus", "posting_date",
-                "posting_time", "cfg_kanban_cycle", "job_card", "modified"],
+                "posting_time", "cfg_kanban_cycle", "job_card",
+                "cfg_kanban_job_card", "modified"],
         order_by="modified desc",
         limit_page_length=20,
     )
@@ -606,7 +607,7 @@ def _production_stock_entries(cycle, job_card=None):
                     "Material Transfer for Manufacture",
                     "Material Consumption for Manufacture",
                 )
-                and row.job_card == job_card]
+                and (row.cfg_kanban_job_card or row.job_card) == job_card]
     if not rows:
         return []
     traces = frappe.get_all(

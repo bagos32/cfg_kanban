@@ -1304,7 +1304,12 @@ def create_production_material_consumption(command, payload):
         if not wip_bin_consumption:
             selected_keys &= allowed_keys
             restricted_items &= {item_code for item_code, _warehouse in allowed_keys}
-        entry.job_card = job.name
+        # ERPNext v15 deliberately permits its native ``job_card`` link only on
+        # Material Transfer for Manufacture (and Repack). Material Consumption for
+        # Manufacture is posted against the Work Order, so retain the operation owner
+        # in an app-owned audit field instead of creating an ERP-invalid Stock Entry.
+        entry.job_card = None
+        entry.cfg_kanban_job_card = job.name
     if wip_bin_consumption:
         _set_wip_bin_consumption_items(entry, confirmed)
         entry.cfg_kanban_controlled = 1

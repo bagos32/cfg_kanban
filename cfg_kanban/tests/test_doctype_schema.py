@@ -1801,6 +1801,7 @@ class TestDocTypeSchema(TestCase):
         service = (APP_ROOT / "services" / "production_material_flow.py").read_text()
         runtime_selector = (APP_ROOT / "services" / "runtime_selector.py").read_text()
         gateway = (APP_ROOT / "integrations" / "erp_gateway.py").read_text()
+        install = (APP_ROOT / "install.py").read_text()
         operator = (APP_ROOT / "api" / "operator.py").read_text()
         panel = (
             APP_ROOT / "cfg_kanban" / "page" / "kanban_operator" /
@@ -1832,6 +1833,11 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Draft {purpose} {existing} already exists", service)
         self.assertIn('@handler("Create Production Material Transfer")', gateway)
         self.assertIn('@handler("Create Production Material Consumption")', gateway)
+        self.assertIn('entry.cfg_kanban_job_card = job.name', gateway)
+        self.assertIn('entry.job_card = None', gateway)
+        self.assertIn('"fieldname": "cfg_kanban_job_card"', install)
+        self.assertIn('"cfg_kanban_job_card": job.name', service)
+        self.assertIn("coalesce(nullif(se.cfg_kanban_job_card, ''), se.job_card)", service)
         self.assertIn('@handler("Create Production Manufacture Receipt")', gateway)
         self.assertIn("def _resolve_manufacture_batch", gateway)
         self.assertIn("make_job_transfer", gateway)
@@ -1894,6 +1900,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def allocate_consumption_bin", load_service)
         self.assertIn("def cancel_consumption_bin", load_service)
         self.assertIn("def entry_wip_bin_rule", load_service)
+        self.assertIn('entry.get("cfg_kanban_job_card")', load_service)
         self.assertIn('event_type="WIP Bin Load"', load_service)
         self.assertIn('event_type="WIP Bin Load Reversal"', load_service)
         self.assertIn("def bind_consumption_draft", load_service)

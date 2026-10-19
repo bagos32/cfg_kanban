@@ -131,7 +131,7 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
         open_wip_consumption = frappe.db.get_value("Stock Entry", {
             "cfg_kanban_cycle": cycle.name,
             "work_order": work_order.name,
-            "job_card": job.name,
+            "cfg_kanban_job_card": job.name,
             "purpose": "Material Consumption for Manufacture",
             "docstatus": 0,
         }, "name")
@@ -969,7 +969,7 @@ def _job_consumed_quantities(job_card):
         inner join `tabStock Entry` se on se.name = sed.parent
         where se.docstatus = 1
           and se.purpose = 'Material Consumption for Manufacture'
-          and se.job_card = %s
+          and coalesce(nullif(se.cfg_kanban_job_card, ''), se.job_card) = %s
           and sed.s_warehouse is not null
         group by sed.item_code, sed.s_warehouse
     """, job_card, as_dict=True)
@@ -1046,7 +1046,11 @@ def _assert_no_open_production_entry(cycle_name, work_order, purpose, job_card=N
         "docstatus": 0,
     }
     if job_card:
-        filters["job_card"] = job_card
+        filters[
+            "cfg_kanban_job_card"
+            if purpose == "Material Consumption for Manufacture"
+            else "job_card"
+        ] = job_card
     existing = frappe.db.get_value("Stock Entry", filters, "name")
     if existing:
         scope = f" for Job Card {job_card}" if job_card else ""

@@ -936,7 +936,8 @@ def _operation_card_controls_entry(cycle, doc, linked_cycle):
     owner_cycle = frappe.db.get_value("Work Order", cycle.work_order, "cfg_kanban_cycle")
     return bool(
         linked_cycle == owner_cycle
-        and doc.get("job_card") == cycle.selected_job_card
+        and (doc.get("cfg_kanban_job_card") or doc.get("job_card"))
+        == cycle.selected_job_card
         and frappe.db.get_value("Job Card", cycle.selected_job_card, "work_order")
         == cycle.work_order
     )

@@ -92,6 +92,13 @@ full load consumed against the matching Job Card
 bin = Empty and available for cleaning/refill
 ```
 
+The Job Card wording above describes CFG Kanban's operational ownership. ERPNext v15 records
+`Material Consumption for Manufacture` natively against the **Work Order** and does not permit its
+native Job Card field on that Stock Entry type. CFG Kanban therefore stores the exact operation
+owner in the read-only **Kanban Material Job Card** (`cfg_kanban_job_card`) field. The Cycle, WIP
+Bin Load, Process Execution, command, and event audit retain the same Job Card and operation; ERP
+stock posting remains valid Work Order consumption.
+
 The transfer-allocation part of this sequence is implemented in **Production Material Trace**.
 The operator selects the WIP material row (or scans its displayed row number), scans the source
 Stock Tag when the Item policy uses one, and then scans the Empty reusable WIP bin. For an optional
@@ -109,8 +116,9 @@ Draft `Material Consumption for Manufacture` from the Ready load snapshots. In P
 Trace the operator scans each physical Ready bin. A mistaken Draft scan can be cancelled back to
 Ready. Only native ERPNext submission changes the linked load to Consumed and the permanent bin to
 Empty. Report Progress still saves the ERPNext Job Card completed quantity while consumption is
-pending. ERPNext requires the operation Job Card to complete before it accepts the matching
-production consumption, so Job Card submission is allowed when loads are `Ready`, `In Use`, or
+pending. CFG Kanban retains the operation owner in **Kanban Material Job Card** while ERPNext posts
+the consumption against the Work Order. ERPNext requires the operation Job Card to complete before
+it accepts the matching production consumption, so Job Card submission is allowed when loads are `Ready`, `In Use`, or
 `Consumption Draft`. Only a `Transfer Draft` load or Open reconciliation blocks Job Card
 submission. Kanban Cycle closure and Manufacture receipt retain the stricter rule and remain
 blocked until every load is `Consumed`.

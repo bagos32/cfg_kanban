@@ -429,7 +429,11 @@ def entry_wip_bin_rule(entry, row):
     )
     if not cycle:
         return None
-    job_card = entry.get("job_card") or cycle.selected_job_card
+    job_card = (
+        entry.get("cfg_kanban_job_card")
+        or entry.get("job_card")
+        or cycle.selected_job_card
+    )
     if not job_card:
         return None
     job = frappe.db.get_value(
@@ -601,7 +605,8 @@ def bind_consumption_draft(load_name, stock_entry, stock_entry_detail):
         frappe.throw("WIP Bin consumption requires a Draft production consumption Stock Entry")
     if entry.get("cfg_kanban_cycle") != load.kanban_cycle or entry.work_order != load.work_order:
         frappe.throw("Consumption Stock Entry does not belong to the WIP Bin Load production context")
-    if entry.get("job_card") and entry.job_card != load.job_card:
+    entry_job_card = entry.get("cfg_kanban_job_card") or entry.get("job_card")
+    if entry_job_card and entry_job_card != load.job_card:
         frappe.throw("Consumption Stock Entry Job Card does not match the WIP Bin Load")
     row = _entry_row(entry, stock_entry_detail)
     _assert_consumption_row(load, row)

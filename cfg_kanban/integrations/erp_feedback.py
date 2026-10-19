@@ -45,7 +45,10 @@ def _cycle(doc):
     # Work Order and does not consistently copy custom fields between versions.
     # Both documents are audited bridges back to the owning Kanban Cycle.
     work_order = _link_value(getattr(doc, "work_order", None))
-    job_card = _link_value(getattr(doc, "job_card", None))
+    job_card = (
+        _link_value(getattr(doc, "cfg_kanban_job_card", None))
+        or _link_value(getattr(doc, "job_card", None))
+    )
     if job_card:
         job_context = frappe.db.get_value(
             "Job Card", job_card, ["cfg_kanban_cycle", "work_order"], as_dict=True
@@ -67,7 +70,7 @@ def prepare_stock_entry(doc, method=None):
     from a Job Card cannot persist the literal text ``None`` as a Cycle link.
     Unrelated ERPNext Stock Entries remain untouched.
     """
-    for fieldname in ("cfg_kanban_cycle", "cfg_kanban_signal"):
+    for fieldname in ("cfg_kanban_cycle", "cfg_kanban_signal", "cfg_kanban_job_card"):
         if doc.meta.has_field(fieldname) and not _link_value(doc.get(fieldname)):
             doc.set(fieldname, None)
 

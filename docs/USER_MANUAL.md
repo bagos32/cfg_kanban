@@ -1075,7 +1075,7 @@ The four modes behave as follows:
 | Follow ERPNext BOM / Work Order | Preserves the Work Order's native transfer policy. Existing Masters remain compatible; loaded component source rules are still applied. |
 | Transfer to WIP by Work Order | **Prepare WIP Transfer** appears once for all required materials. Submit that ERP entry before starting a Job Card. |
 | Transfer to WIP by Job Card | **Prepare Operation Materials** appears per Job Card and contains only BOM components assigned to its Item Operation. Submit that operation's transfer before starting it. |
-| Skip WIP Transfer | No WIP transfer is made. When the Work Order is configured against Job Cards, **Consume Operation Materials** creates a native Draft `Material Consumption for Manufacture` for the selected Job Card; Work Order scope uses **Consume Work Order Materials**. The final Manufacture entry consumes only the remaining inputs and receives output. |
+| Skip WIP Transfer | No WIP transfer is made. When the Work Order is configured against Job Cards, **Consume Operation Materials** creates a native Draft `Material Consumption for Manufacture` for the selected operation. ERPNext posts that entry against the Work Order; CFG Kanban preserves the exact operation owner in **Kanban Material Job Card**. Work Order scope uses **Consume Work Order Materials**. The final Manufacture entry consumes only the remaining inputs and receives output. |
 
 #### Standard-quantity reusable WIP bins — configuration and audit foundation
 
@@ -1132,6 +1132,13 @@ a Draft native `Material Consumption for Manufacture` using only the Ready load 
 their WIP Warehouse/Batch snapshots. In **Production Material Trace**, scan each physical Ready
 bin. A scan changes only the audit/load intent to `Consumption Draft`; it does not change ERP stock.
 An incorrect Draft scan can be cancelled and the bin returns to `Ready`.
+
+ERPNext v15 permits its native Stock Entry **Job Card** field on `Material Transfer for
+Manufacture`, but not on `Material Consumption for Manufacture`. Consumption therefore remains a
+native Work Order transaction. CFG Kanban writes the operation owner to the read-only **Kanban
+Material Job Card** (`cfg_kanban_job_card`) field and uses it for operation-card visibility,
+duplicate-draft protection, WIP-bin matching, and consumed-quantity calculation. This is an audit
+bridge, not a replacement for ERPNext stock authority.
 
 Report the operation's completed quantity before submitting the consumption. ERPNext requires the
 operation Job Card to complete before it accepts the matching production consumption. Therefore,
