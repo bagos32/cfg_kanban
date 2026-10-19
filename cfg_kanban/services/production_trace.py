@@ -326,16 +326,32 @@ def abandon_draft_trace(stock_entry, reason, operator_session_token=None,
 
 def validate_stock_entry_trace(doc):
     """Enforce only explicit Required policies; ERP-only rows remain untouched."""
-    if _purpose(doc) not in SUPPORTED_PURPOSES:
+    purpose = _purpose(doc)
+    if purpose not in SUPPORTED_PURPOSES:
         return
     trace = _get_trace(doc.name)
     for row in doc.items:
         if row.s_warehouse:
-            if _purpose(doc) == "Material Transfer for Manufacture":
-                from cfg_kanban.services.wip_bin_loads import entry_wip_bin_rule
-                if entry_wip_bin_rule(doc, row):
-                    # The fixed-bin service validates source tag policy, reserves only the
-                    # standard bin quantity, and requires complete ERP-row coverage.
+            if purpose in (
+                "Material Transfer for Manufacture",
+                "Material Consumption for Manufacture",
+            ):
+                from cfg_kanban.services.wip_bin_loads import (
+                    consumption_loads_for_row,
+                    entry_wip_bin_rule,
+                    transfer_loads_for_row,
+                )
+                loads = (
+                    transfer_loads_for_row(doc.name, row.name)
+                    if purpose == "Material Transfer for Manufacture"
+                    else consumption_loads_for_row(doc.name, row.name)
+                )
+                if loads or entry_wip_bin_rule(doc, row):
+                    # Standard-quantity WIP Bin allocation is the physical evidence for
+                    # this row. Its service enforces the source-tag policy on transfer,
+                    # the Ready-bin scan on consumption, and complete ERP-row coverage.
+                    # Requiring a second ordinary production-input trace would double
+                    # allocate the same material.
                     continue
             policy = effective_trace_policy(row.item_code, doc.company)
             allocated = _line_qty(trace, row.name, "Input", ACTIVE_INPUT_STATUSES)

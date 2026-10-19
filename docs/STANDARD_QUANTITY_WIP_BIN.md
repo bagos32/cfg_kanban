@@ -123,6 +123,12 @@ it accepts the matching production consumption, so Job Card submission is allowe
 submission. Kanban Cycle closure and Manufacture receipt retain the stricter rule and remain
 blocked until every load is `Consumed`.
 
+For a component whose production-input trace policy requires a physical tag, the source Stock Tag
+is verified and reserved when the material is loaded into the WIP bin. During consumption, scanning
+the exact Ready WIP bin is the physical evidence for that ERP row. CFG Kanban must not demand a
+second ordinary production-input tag allocation for the same quantity. The WIP-bin validator still
+requires complete ERP-row coverage and rejects a missing, mismatched, or partial bin allocation.
+
 The final Manufacture draft must be created only after this consumption is submitted. The
 Operator panel treats any `Ready`, `In Use`, `Consumption Draft`, or unsubmitted `Transfer Draft`
 load as a receipt prerequisite and keeps **Prepare Manufacture Receipt** unavailable. This prevents

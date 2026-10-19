@@ -1133,6 +1133,11 @@ their WIP Warehouse/Batch snapshots. In **Production Material Trace**, scan each
 bin. A scan changes only the audit/load intent to `Consumption Draft`; it does not change ERP stock.
 An incorrect Draft scan can be cancelled and the bin returns to `Ready`.
 
+If the component normally requires a production-input Stock Tag, that policy is enforced when the
+source material is allocated into the WIP bin. At consumption, the matching Ready WIP-bin scan is
+the physical input evidence; the system does not require a duplicate ordinary input-tag allocation
+for the same Stock Entry row. Submission still requires WIP Bin Loads to cover the complete row.
+
 ERPNext v15 permits its native Stock Entry **Job Card** field on `Material Transfer for
 Manufacture`, but not on `Material Consumption for Manufacture`. Consumption therefore remains a
 native Work Order transaction. CFG Kanban writes the operation owner to the read-only **Kanban

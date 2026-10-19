@@ -1901,6 +1901,9 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def cancel_consumption_bin", load_service)
         self.assertIn("def entry_wip_bin_rule", load_service)
         self.assertIn('entry.get("cfg_kanban_job_card")', load_service)
+        self.assertIn("consumption_loads_for_row", (
+            APP_ROOT / "services" / "production_trace.py"
+        ).read_text())
         self.assertIn('event_type="WIP Bin Load"', load_service)
         self.assertIn('event_type="WIP Bin Load Reversal"', load_service)
         self.assertIn("def bind_consumption_draft", load_service)
