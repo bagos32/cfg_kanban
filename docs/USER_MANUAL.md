@@ -3269,9 +3269,13 @@ by default and contains only the latest 10 authorized terminal-state Manifests; 
 does not delete this audit history. Older history remains accessible by scanning a Stock Tag,
 scanning/entering the Manifest number, or using the normal Desk list.
 
-The prominent **Scan / Change Operator** action makes the next credential scan replace the active
-operator identity. Its larger touch target is used both in the active-operator banner and the
-Logistics toolbar; it does not end or alter the current Manifest.
+The full operator identity block stays in the normal page flow instead of permanently occupying the
+sticky header. When it scrolls fully out of view, the scanner's compact sticky status footer retains
+the active operator name (and the role where screen width permits); scrolling back up restores the
+full block and hides the compact name. **Change Operator** and **End Session** have equal-width, equal-height
+touch targets in the full identity block. **Change Operator** makes the next credential scan replace
+the active identity; it does not end or alter the current Manifest. The separate Logistics toolbar
+also retains its prominent operator-change action.
 
 An unused **Draft** or **Prepared** Manifest can be cancelled by an override-authorized operator
 with a reason; prepared physical-tag reservations are released. For a Card-triggered Transfer, this

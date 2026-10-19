@@ -26,6 +26,39 @@
 	background: var(--bg-color);
 }
 
+.cfg-logistics-compact-identity {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	max-width: 55%;
+	opacity: 0;
+	visibility: hidden;
+	pointer-events: none;
+	transition: opacity 120ms ease;
+}
+
+.cfg-logistics-compact-identity.is-visible {
+	opacity: 1;
+	visibility: visible;
+}
+
+.cfg-logistics-compact-identity strong {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.cfg-logistics-compact-identity small {
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.cfg-logistics-identity-host {
+	margin-top: 8px;
+}
+
 .cfg-logistics-scanner,
 .cfg-logistics-manifest,
 .cfg-logistics-empty,
@@ -71,7 +104,15 @@
 .cfg-logistics-scan-row { margin-top: 10px; }
 .cfg-logistics-scan-row input { min-height: 48px; font-size: 16px; }
 .cfg-logistics-scan-row .camera-scan { min-height: 48px; white-space: nowrap; font-weight: 700; }
-.cfg-logistics-scanner .scanner-message { margin-top: 6px; min-height: 18px; }
+.cfg-logistics-scanner-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	min-height: 28px;
+	margin-top: 4px;
+}
+.cfg-logistics-scanner .scanner-message { min-width: 0; min-height: 18px; }
 .cfg-logistics-active { border-left: 5px solid var(--blue-500); }
 .cfg-logistics-route { justify-content: space-around; text-align: center; padding: 14px; background: var(--subtle-fg); border-radius: 8px; }
 .cfg-logistics-route > div:not(.cfg-logistics-arrow) { display: flex; flex-direction: column; }
@@ -86,6 +127,21 @@
 	padding-left: 18px;
 	padding-right: 18px;
 	font-weight: 700;
+	white-space: nowrap;
+}
+
+.cfg-logistics-session-actions {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px;
+	width: min(100%, 320px);
+}
+
+.cfg-logistics-session-actions .btn,
+.cfg-logistics-session-actions .cfg-change-operator {
+	width: 100%;
+	min-height: 44px;
+	padding: 8px 12px;
 	white-space: nowrap;
 }
 .cfg-logistics-docs { justify-content: space-between; }
@@ -188,6 +244,10 @@
 	.cfg-logistics-scan-row { display: grid; grid-template-columns: 1fr; }
 	.cfg-logistics-scan-row .camera-scan { width: 100%; min-height: 52px; font-size: 16px; }
 	.cfg-logistics-identity, .cfg-logistics-route { align-items: stretch; }
+	.cfg-logistics-identity { flex-direction: column; }
+	.cfg-logistics-session-actions { width: 100%; }
+	.cfg-logistics-compact-identity { max-width: 60%; }
+	.cfg-logistics-compact-identity small, .cfg-logistics-compact-identity .indicator-pill { display: none; }
 	.cfg-logistics-toolbar .btn { flex: 1 1 45%; }
 	.cfg-logistics-toolbar .cfg-change-operator { flex-basis: 55%; }
 	.cfg-logistics-docs { display: grid; }

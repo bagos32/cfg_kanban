@@ -18,9 +18,13 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<input class="form-control logistics-scan-input" autocomplete="off" spellcheck="false"
 				placeholder="${__("Scan Kanban Card, Stock Tag, or KMF number")}">
 			<button class="btn btn-primary camera-scan">${__("Scan with Camera")}</button>
-		</div><div class="scanner-message text-muted"><small>${__("Ready")}</small></div>
+		</div><div class="cfg-logistics-scanner-footer">
+			<div class="scanner-message text-muted"><small>${__("Ready")}</small></div>
+			<div class="cfg-logistics-compact-identity" aria-hidden="true"></div>
+		</div>
 	</div>`).appendTo($sticky);
-	const $identity = $("<div></div>").appendTo($sticky);
+	const $compact_identity = $scanner.find(".cfg-logistics-compact-identity");
+	const $identity = $("<div class='cfg-logistics-identity-host'></div>").appendTo(page.main);
 	const $lookup = $("<div class='cfg-logistics-lookup mt-3'></div>").appendTo(page.main);
 	const $active = $("<div class='cfg-logistics-active mt-3'></div>").appendTo(page.main);
 	const $reconciliation = $("<div class='cfg-logistics-reconciliation mt-3'></div>").appendTo(page.main);
@@ -46,6 +50,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	$actions.find(".switch-operator").on("click", identify_operator);
 	$actions.find(".production-panel").on("click", () => frappe.set_route("kanban-operator"));
 	$actions.find(".service-panel").on("click", () => frappe.set_route("kanban-tasks"));
+	install_compact_identity_scroll();
 	page.set_primary_action(__("Refresh"), load, "refresh");
 	page.add_inner_button(__("Identify Operator"), identify_operator);
 
@@ -110,6 +115,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 
 	function show_login(message) {
 		state.operator = null; state.manifest = null;
+		$compact_identity.removeClass("is-visible").empty().attr("aria-hidden", "true");
 		$identity.html(`<div class="alert alert-warning cfg-logistics-identity"><div><small>${__("Active operator")}</small>
 			<strong>${__("Not identified")}</strong></div><button class="btn btn-primary login-operator">${__("Scan / Enter Operator")}</button></div>`);
 		$identity.find(".login-operator").on("click", identify_operator);
@@ -123,11 +129,41 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		$identity.html(`<div class="alert alert-info cfg-logistics-identity"><div><small>${__("Active operator")}</small>
 			<strong>${e(state.operator.employee_name || state.operator.employee)}</strong>
 			<span>${e(state.operator.kanban_role || "")}</span></div>
-			<div><button class="btn btn-primary switch cfg-change-operator">${__("Scan / Change Operator")}</button>
+			<div class="cfg-logistics-session-actions"><button class="btn btn-primary switch cfg-change-operator">${__("Change Operator")}</button>
 			<button class="btn btn-default end">${__("End Session")}</button></div></div>`);
+		$compact_identity.html(`<span class="indicator-pill green">${__("Operator")}</span>
+			<strong>${e(state.operator.employee_name || state.operator.employee)}</strong>
+			<small>${e(state.operator.kanban_role || "")}</small>`);
 		$identity.find(".switch").on("click", identify_operator);
 		$identity.find(".end").on("click", () => frappe.confirm(__("End operator session?"), end_session));
+		window.requestAnimationFrame(update_compact_identity_visibility);
 		update_scanner_state();
+	}
+
+	function install_compact_identity_scroll() {
+		const scroll_container = $(page.main).closest(".layout-main-section-wrapper").get(0) || window;
+		$(scroll_container).off("scroll.cfg_logistics_identity")
+			.on("scroll.cfg_logistics_identity", update_compact_identity_visibility);
+		if (scroll_container !== window) {
+			$(window).off("scroll.cfg_logistics_identity")
+				.on("scroll.cfg_logistics_identity", update_compact_identity_visibility);
+		}
+		$(window).off("resize.cfg_logistics_identity")
+			.on("resize.cfg_logistics_identity", update_compact_identity_visibility);
+	}
+
+	function update_compact_identity_visibility() {
+		const full_identity = $identity.find(".cfg-logistics-identity").get(0);
+		const sticky = $sticky.get(0);
+		if (!state.operator || !full_identity || !sticky) {
+			$compact_identity.removeClass("is-visible").attr("aria-hidden", "true");
+			return;
+		}
+		const full_rect = full_identity.getBoundingClientRect();
+		const sticky_rect = sticky.getBoundingClientRect();
+		const show_compact = full_rect.bottom <= sticky_rect.bottom + 4;
+		$compact_identity.toggleClass("is-visible", show_compact)
+			.attr("aria-hidden", show_compact ? "false" : "true");
 	}
 
 	function render_active() {
