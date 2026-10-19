@@ -641,50 +641,144 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	function current_live_action(context) {
 		if (!context || !context.card) return null;
-		if (context.work_order_attention?.severity === "warning") {
-			return { key: "work-order-attention", title: __("Work Order attention required"),
-				detail: context.work_order_attention.message, status: __("Attention"), colour: "orange" };
-		}
-		const blocking_task = (context.process_tasks || []).find((row) =>
-			row.blocking && ["Blocked", "Awaiting Verification"].includes(row.status));
-		if (blocking_task) return { key: `task:${blocking_task.name}`, title: blocking_task.task_name,
-			detail: __("Blocking process task requires attention"), status: blocking_task.status,
-			colour: indicator(blocking_task.status) };
-		const active_execution = (context.executions || []).find((row) => row.status === "In Progress");
-		if (active_execution) return execution_live_action(active_execution);
-		const active_task = (context.process_tasks || []).find((row) => row.status === "In Progress");
-		if (active_task) return { key: `task:${active_task.name}`, title: active_task.task_name,
-			detail: active_task.workstation || active_task.linked_operation || __("Process task"),
-			status: active_task.status, colour: "blue" };
-		const ready_execution = (context.executions || []).find((row) => row.status === "Ready");
-		if (ready_execution) return execution_live_action(ready_execution);
-		const ready_task = (context.process_tasks || []).find((row) => row.status === "Ready");
-		if (ready_task) return { key: `task:${ready_task.name}`, title: ready_task.task_name,
-			detail: ready_task.workstation || ready_task.linked_operation || __("Process task"),
-			status: ready_task.status, colour: "green" };
+		const permissions = state.operator?.permissions || {};
 		const flow = context.production_material_flow;
-		if (flow?.has_shortage || flow?.restricted_material_attention || flow?.has_pending_materials ||
-			flow?.wip_bin_receipt_ready === false ||
-			(flow?.all_job_cards_completed && flow?.remaining_output_qty > 0.000001)) {
+		const entries = context.production_stock_entries || [];
+		const executions = context.executions || [];
+		const process_tasks = context.process_tasks || [];
+		if ((flow?.wip_bin_reconciliations || []).length) {
+			return { key: "wip-bin-reconciliation", title: __("WIP Bin reconciliation"),
+				detail: __("A supervisor must resolve the physical and ERP stock difference"),
+				status: __("Blocked"), colour: "red" };
+		}
+		const blocking_task = process_tasks.find((row) => row.blocking &&
+			["Blocked", "Awaiting Verification", "In Progress", "Ready"].includes(row.status));
+		if (blocking_task) return { key: `task:${blocking_task.name}`, title: blocking_task.task_name,
+			detail: process_task_next_instruction(blocking_task), status: blocking_task.status,
+			colour: indicator(blocking_task.status) };
+		if (!context.cycle && context.card.current_state === "Available" && permissions.consume) {
+			return { key: "active-card", title: __("Activate production card"),
+				detail: __("Consume or trigger this Card to create the next production Cycle"),
+				status: __("Ready"), colour: "green" };
+		}
+		if (flow?.has_shortage || flow?.restricted_material_attention) {
 			return { key: "production-material", title: __("Production material control"),
 				detail: flow.has_shortage ? __("Material shortage requires attention") :
-					flow.wip_bin_receipt_ready === false ? flow.wip_bin_receipt_block_reason :
-					flow.all_job_cards_completed ? __("Manufacture receipt is ready") :
-					__("Material preparation is pending"),
-				status: flow.has_shortage || flow.wip_bin_receipt_ready === false ?
-					__("Action Required") : __("Ready"),
-				colour: flow.has_shortage || flow.wip_bin_receipt_ready === false ?
-					"orange" : "green" };
+					__("A restricted component needs an authorized material controller"),
+				status: __("Action Required"), colour: "orange" };
+		}
+
+		const active_execution = executions.find((row) => ["In Progress", "Paused"].includes(row.status));
+		const ready_execution = executions.find((row) => row.status === "Ready");
+		const next_execution = active_execution || ready_execution;
+		const next_job = next_execution
+			? (flow?.jobs || []).find((row) => row.name === next_execution.job_card)
+			: null;
+		const entry_for_job = (purpose) => entries.find((row) => row.docstatus === 0 &&
+			(!purpose || row.purpose === purpose) &&
+			(!next_execution || !row_effective_job_card(row) ||
+				row_effective_job_card(row) === next_execution.job_card));
+		const pending_transfer = entry_for_job("Material Transfer for Manufacture");
+		if (pending_transfer) return material_entry_live_action(pending_transfer);
+
+		if (next_execution?.status === "Ready") {
+			if (next_job?.has_pending_materials && permissions.material_transfer) {
+				return { key: `material-job:${next_job.name}`, title: __("Issue operation materials"),
+					detail: __("Prepare and confirm materials for {0} before starting", [next_job.operation]),
+					status: __("Next Step"), colour: "orange" };
+			}
+			if (permissions.start) return execution_live_action(next_execution, "start");
+		}
+
+		if (active_execution) {
+			if (!active_execution.job_card_target_reached && permissions.report_progress) {
+				return execution_live_action(active_execution, "report_progress");
+			}
+			if (next_job?.wip_bin_ready_count && !next_job.wip_bin_consumption_draft &&
+				permissions.material_transfer) {
+				return { key: `material-job:${next_job.name}`, title: __("Consume Ready WIP Bins"),
+					detail: __("Prepare the verified WIP-bin consumption for {0}", [next_job.operation]),
+					status: __("Next Step"), colour: "orange" };
+			}
+			const consumption = entry_for_job("Material Consumption for Manufacture");
+			if (consumption) return material_entry_live_action(consumption);
+			if (active_execution.job_card_needs_submit && permissions.complete) {
+				return execution_live_action(active_execution, "complete");
+			}
+			if (active_execution.runtime_allocation && active_execution.can_close_runtime_cycle &&
+				permissions.complete) {
+				return execution_live_action(active_execution, "close");
+			}
+			if (permissions.report_progress) return execution_live_action(active_execution, "report_progress");
+		}
+
+		const pending_material_entry = entries.find((row) => row.docstatus === 0 && [
+			"Material Transfer for Manufacture", "Material Consumption for Manufacture",
+		].includes(row.purpose));
+		if (pending_material_entry) return material_entry_live_action(pending_material_entry);
+		if (flow?.has_pending_materials && permissions.material_transfer) {
+			return { key: "production-material", title: __("Prepare production materials"),
+				detail: __("Issue or consume the next required material quantity"),
+				status: __("Next Step"), colour: "orange" };
+		}
+		const active_task = process_tasks.find((row) => row.status === "In Progress");
+		if (active_task) return { key: `task:${active_task.name}`, title: active_task.task_name,
+			detail: process_task_next_instruction(active_task), status: active_task.status,
+			colour: "blue" };
+		const ready_task = process_tasks.find((row) => row.status === "Ready");
+		if (ready_task) return { key: `task:${ready_task.name}`, title: ready_task.task_name,
+			detail: process_task_next_instruction(ready_task), status: ready_task.status,
+			colour: "green" };
+		if (flow?.all_job_cards_completed && flow?.remaining_output_qty > 0.000001 &&
+			flow?.wip_bin_receipt_ready !== false && permissions.production_receipt) {
+			return { key: "production-material", title: __("Receive manufactured product"),
+				detail: __("Prepare and confirm the finished-goods Manufacture receipt"),
+				status: __("Next Step"), colour: "green" };
+		}
+		if (flow?.wip_bin_receipt_ready === false) {
+			return { key: "production-material", title: __("Complete WIP-bin consumption"),
+				detail: flow.wip_bin_receipt_block_reason,
+				status: __("Action Required"), colour: "orange" };
+		}
+		if (context.work_order_attention?.severity === "warning") {
+			return { key: "work-order-attention", title: __("Supervisor ERP attention"),
+				detail: context.work_order_attention.message, status: __("Attention"), colour: "orange" };
 		}
 		return { key: "active-card", title: context.card.card_number,
 			detail: context.cycle ? `${__("Cycle")}: ${context.cycle.status}` : __("Waiting for activation"),
 			status: context.card.current_state, colour: indicator(context.card.current_state) };
 	}
 
-	function execution_live_action(row) {
+	function row_effective_job_card(row) {
+		return row.cfg_kanban_job_card || row.job_card;
+	}
+
+	function material_entry_live_action(row) {
+		const needs_scan = !["Draft", "Confirmed"].includes(row.trace_status);
+		return { key: `stock-entry:${row.name}`,
+			title: needs_scan ? __("Scan or verify material") : __("Submit material movement"),
+			detail: `${row.purpose} · ${row.name}`,
+			status: needs_scan ? __("Scan Required") : __("Ready to Submit"),
+			colour: needs_scan ? "orange" : "green" };
+	}
+
+	function process_task_next_instruction(task) {
+		if (task.status === "Ready") return __("Start this required process task");
+		if (task.status === "In Progress") return __("Complete this process task");
+		if (task.status === "Awaiting Verification") return __("Supervisor verification is required");
+		return __("Resolve this blocking process task");
+	}
+
+	function execution_live_action(row, action) {
+		const instructions = {
+			start: __("Start this operation"),
+			report_progress: __("Report the current good and reject quantities"),
+			complete: __("Complete the ERPNext Job Card"),
+			close: __("Close the completed Kanban Cycle"),
+		};
 		return { key: `execution:${row.name}`, title: `${row.sequence}.${row.lane_sequence || 1} ${row.operation}`,
-			detail: `${row.workstation || __("No workstation")} · ${row.good_qty || 0} / ${row.target_qty || row.allocated_qty || 0}`,
-			status: row.status, colour: indicator(row.status) };
+			detail: `${instructions[action] || row.workstation || __("Continue operation")} · ${row.good_qty || 0} / ${row.target_qty || row.allocated_qty || 0}`,
+			status: __("Next Step"), colour: action === "start" ? "green" : "blue" };
 	}
 
 	function render_live_current_action() {
@@ -1143,7 +1237,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (state.operator.permissions.material_transfer && flow.mode === "Transfer to WIP by Job Card") {
 			(flow.jobs || []).forEach((job) => {
 				if (!job.has_pending_materials && !job.wip_bin_ready_count && !job.wip_bin_consumption_draft) return;
-				const $job = $(`<div class="frappe-card p-3 mb-2"><div class="row align-items-center">
+				const $job = $(`<div class="frappe-card p-3 mb-2" data-live-focus="material-job:${e(job.name)}"><div class="row align-items-center">
 					<div class="col-md-4"><strong>${e(job.operation)}</strong><br><small>${document_link("job-card", job.name)} · ${e(job.workstation || "-")}</small></div>
 					<div class="col-md-5">${production_material_table(job.materials || [])}</div>
 					<div class="col-md-3 text-right cfg-job-material-action"></div></div></div>`).appendTo($section);
@@ -1170,7 +1264,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			if (flow.transfer_material_against === "Job Card") {
 				(flow.jobs || []).forEach((job) => {
 					if (!job.has_pending_materials) return;
-					const $job = $(`<div class="frappe-card p-3 mb-2"><div class="row align-items-center">
+					const $job = $(`<div class="frappe-card p-3 mb-2" data-live-focus="material-job:${e(job.name)}"><div class="row align-items-center">
 						<div class="col-md-4"><strong>${e(job.operation)}</strong><br><small>${document_link("job-card", job.name)} · ${e(job.workstation || "-")}</small></div>
 						<div class="col-md-5">${production_material_table(job.materials || [])}</div>
 						<div class="col-md-3 text-right cfg-job-material-action"></div></div></div>`).appendTo($section);
@@ -1764,7 +1858,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		entries.forEach((row) => {
 			const trace_color = row.trace_status === "Confirmed" ? "green" :
 				row.trace_status === "Draft" ? "orange" : "grey";
-			const $row = $(`<div class="frappe-card p-3 mb-2"><div class="row align-items-center">
+			const $row = $(`<div class="frappe-card p-3 mb-2" data-live-focus="stock-entry:${e(row.name)}"><div class="row align-items-center">
 				<div class="col-md-4"><strong>${document_link("stock-entry", row.name)}</strong><br>
 					<small>${e(row.purpose || row.stock_entry_type || "-")}</small></div>
 				<div class="col-md-2"><span class="indicator-pill ${row.docstatus === 1 ? "green" : "orange"}">${e(row.erp_status)}</span></div>

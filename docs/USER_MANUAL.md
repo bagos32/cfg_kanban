@@ -257,9 +257,14 @@ status, Process Task, ERP command, Work Order, and production Stock Entry change
 without rescanning the Card. The complete Card context is downloaded only when that revision changes.
 
 The compact sticky **Current action** strip shows **Connecting**, **Live**, **Checking**, or a retry
-warning, followed by the most relevant blocking, in-progress, or ready action. **Go to current work**
-scrolls directly to that operation/task/material block. When an external update changes actionable
-work, the panel flashes, shows a short update alert, and normally scrolls to the new current action.
+warning, followed by the next operator-actionable floor step. The guide follows process gates,
+material shortage, the first incomplete operation's material issue or consumption, Draft ERP
+material scanning/submission, Start, Report Progress, Job Card completion, WIP-bin consumption,
+finished-goods receipt, and Cycle closure. A general Work Order warning is only a fallback when no
+operator floor action is available. **Go to current work** scrolls directly to the exact operation,
+task, Job Card material row, or Stock Entry action instead of sending a normal operator to the Work
+Order link. When an external update changes actionable work, the panel flashes, shows a short update
+alert, and normally scrolls to the new current action.
 It preserves the operator's position instead when they recently touched or manually scrolled the
 screen. Automatic checking also pauses while a dialog is open and resumes when the page is visible.
 Use **Refresh** on the Current action strip for an immediate check; scanning remains available at all
@@ -1955,8 +1960,10 @@ Operational command labels have no function-key equivalent:
   controlled Work Order/Job Card allocation before activation.
 - `CFG:CMD:START` starts the operation when exactly one execution lane is Ready.
 - `CFG:CMD:REPORT_PROGRESS` opens progress entry when exactly one execution lane is eligible.
-- `CFG:CMD:GO_TO_CURRENT_WORK` scrolls the open Card to its most relevant blocking, in-progress,
-  ready, task, or material-control section while keeping the fixed scanner armed.
+- `CFG:CMD:GO_TO_CURRENT_WORK` follows the same workflow-aware priority as the on-screen button and
+  scrolls the open Card to the next actionable task, exact material/Stock Entry row, Start, Report
+  Progress, completion, receipt, or closure stage while keeping the fixed scanner armed. A Work
+  Order warning is not selected while an operator floor action is available.
 - `CFG:CMD:CLOSE_CYCLE` opens the guarded final confirmation for exactly one eligible runtime
   Process/Station Cycle. It never closes immediately: scan `CFG:CMD:CONFIRM` to proceed or
   `CFG:CMD:CANCEL` to return. The server rechecks operator permission, full allocated quantity,

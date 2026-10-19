@@ -1207,6 +1207,11 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Go to current work", operator_panel)
         self.assertIn("scrollIntoView", operator_panel)
         self.assertIn("preventScroll: true", operator_panel)
+        self.assertIn("function material_entry_live_action", operator_panel)
+        self.assertIn("function process_task_next_instruction", operator_panel)
+        self.assertIn('data-live-focus="material-job:', operator_panel)
+        self.assertIn('data-live-focus="stock-entry:', operator_panel)
+        self.assertIn('title: __("Supervisor ERP attention")', operator_panel)
         self.assertIn("Overall route progress", operator_panel)
 
         operator_api = (APP_ROOT / "api" / "operator.py").read_text()
