@@ -693,26 +693,53 @@ def discard_premature_manufacture_draft(stock_entry, reason,
             f"Material Trace {trace.name} is already attached. Discard its Draft trace first, "
             "then discard this premature Manufacture draft."
         )
-    for command_name in frappe.get_all(
+    command_names = frappe.get_all(
         "CFG ERP Command",
         filters={"target_doctype": "Stock Entry", "target_document": entry.name},
         pluck="name",
-    ):
+    )
+    for command_name in command_names:
         frappe.db.set_value("CFG ERP Command", command_name, {
             "status": "Cancelled",
             "target_document": None,
             "last_error": f"Premature Draft {entry.name} discarded: {explanation}",
         }, update_modified=False)
     entry_name = entry.name
+    audit_reference = command_names[0] if command_names else None
+    _detach_discarded_stock_entry_events(
+        entry_name, explanation, audit_reference=audit_reference
+    )
     frappe.delete_doc("Stock Entry", entry_name, ignore_permissions=True)
     record(
         "Premature Manufacture Draft Discarded", card=cycle.kanban_card,
-        cycle=cycle.name, reference_doctype="Stock Entry", reference_name=entry_name,
+        cycle=cycle.name,
+        reference_doctype="CFG ERP Command" if audit_reference else None,
+        reference_name=audit_reference,
         operator=profile.employee, operator_session=session.name,
         terminal_user=session.terminal_user,
-        notes=(f"Blocked by active WIP Bin material; {explanation}"),
+        notes=(f"Discarded Draft Stock Entry {entry_name}; blocked by active WIP Bin "
+               f"material; {explanation}"),
     )
     return {"discarded_stock_entry": entry_name, "cycle": cycle.name}
+
+
+def _detach_discarded_stock_entry_events(stock_entry, reason, audit_reference=None):
+    """Preserve immutable Events without leaving a Dynamic Link to a deleted ERP draft."""
+    events = frappe.get_all(
+        "CFG Kanban Event",
+        filters={"reference_doctype": "Stock Entry", "reference_name": stock_entry},
+        fields=["name", "notes"],
+    )
+    suffix = f"Discarded Draft Stock Entry reference: {stock_entry}. Reason: {reason}"
+    for event in events:
+        notes = cstr(event.notes).strip()
+        if suffix not in notes:
+            notes = f"{notes}\n{suffix}".strip()
+        frappe.db.set_value("CFG Kanban Event", event.name, {
+            "reference_doctype": "CFG ERP Command" if audit_reference else None,
+            "reference_name": audit_reference,
+            "notes": notes,
+        }, update_modified=False)
 
 
 def _validated_finished_batch(cycle, work_order, batch_no):

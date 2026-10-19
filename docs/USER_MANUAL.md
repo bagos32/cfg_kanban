@@ -1149,7 +1149,9 @@ submitted. If an older deployment already created a premature Draft Manufacture 
 **Discard Premature Draft**, record the reason, consume and submit the Ready bin through its exact
 Job Card, and then create a new Manufacture receipt. The recovery discards only the unsubmitted ERP
 draft; it preserves the WIP-bin load and the audit trail. If a Material Trace is already attached,
-an authorized supervisor must discard that Draft trace first.
+an authorized supervisor must discard that Draft trace first. Events previously linked to the
+unposted Stock Entry keep its exact document number in audit notes and are relinked to the retained
+ERP Command before the Draft Stock Entry is deleted.
 
 Normal operation still uses full bins. A partial load is available only when **Allow Supervisor
 Partial-bin Exception** is enabled on the exact Pool and the active operator QR belongs to a

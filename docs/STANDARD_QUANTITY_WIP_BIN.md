@@ -125,7 +125,9 @@ For a draft created by an older release before this gate existed, use **Discard 
 on that Draft Manufacture row. This controlled action is allowed only while an active WIP-bin load
 still blocks the receipt, only when no Material Trace has already been staged, and always requires
 a reason. It cancels the originating ERP command reference and records the discard in the Kanban
-timeline. It does not delete or reallocate the WIP-bin load. Then use **Consume Ready WIP Bins** on
+timeline. Existing immutable Events retain the discarded Stock Entry number as audit text and are
+relinked to the retained ERP Command, so their Dynamic Link does not block deletion of the unposted
+draft. It does not delete or reallocate the WIP-bin load. Then use **Consume Ready WIP Bins** on
 the Job Card that owns the load, scan the physical Ready bin in Production Material Trace, submit
 the Material Consumption entry, and prepare a fresh Manufacture receipt.
 

@@ -1821,6 +1821,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def prepare_material_consumption", service)
         self.assertIn("def prepare_manufacture_receipt", service)
         self.assertIn("def discard_premature_manufacture_draft", service)
+        self.assertIn("def _detach_discarded_stock_entry_events", service)
+        self.assertIn("Discarded Draft Stock Entry reference", service)
         self.assertIn("manufacture_receipt_wip_bin_readiness", service)
         self.assertIn("def job_card_material_readiness", service)
         self.assertIn("def _validated_operation_requesting_cycle", service)
