@@ -401,9 +401,10 @@ ERP row is fully covered.
 2. Report the full completed quantity required by that Job Card.
 
 Expected result when **Auto-submit Job Card at Target** is enabled: ERPNext saves the Job Card
-completed quantity, but the Job Card remains Draft while the WIP-bin consumption is pending. The
-panel confirms that progress was recorded and auto-submit is waiting for WIP-bin consumption. It
-must not display a cycle-closing error, and the progress transaction must not roll back.
+completed quantity and submits the Job Card even while the bin is `Ready`, `In Use`, or
+`Consumption Draft`. ERPNext requires the operation to be completed before it accepts production
+consumption. It must not display a cycle-closing error, and the progress transaction must not roll
+back. A `Transfer Draft` load or Open WIP-bin reconciliation must still block Job Card submission.
 
 3. Reopen Production Material Trace.
 4. Scan `CFG:CMD:SUBMIT_MATERIALS` or select **Submit ERP Entry**.
@@ -413,8 +414,7 @@ Expected result after successful native ERPNext submission:
 - ERPNext consumes `20 Kg` from the WIP Warehouse for the exact Work Order/Job Card;
 - both WIP Bin Loads become `Consumed`;
 - both permanent reusable bins become `Empty` and may be loaded again;
-- when site auto-submit is enabled and the target quantity is reached, the deferred Job Card is
-  submitted automatically by the short worker only after the WIP-bin consumption commits;
+- the already-completed Job Card remains linked to the consumed bins and operation;
 - each Load keeps both its transfer and consumption Stock Entry links; and
 - the submitted document, load history and Kanban event timeline agree.
 
@@ -425,9 +425,10 @@ Repeat the flow with one Ready bin and try each action before submitting consump
 1. complete/submit the Job Card; and
 2. prepare or submit Manufacture receipt.
 
-Expected result: Job Card completion identifies the active bin load, and Manufacture submission
-requires the WIP-bin consumption first. After consumption is submitted, both actions may proceed
-subject to their normal ERPNext requirements.
+Expected result: Job Card completion is allowed for `Ready`, `In Use`, and `Consumption Draft`
+loads because ERPNext requires operation completion before production consumption. Kanban Cycle
+closure and Manufacture submission remain blocked until consumption is submitted and every load
+becomes `Consumed`. A `Transfer Draft` load or Open reconciliation still blocks Job Card completion.
 
 ### 10.12 Submitted consumption cancellation
 

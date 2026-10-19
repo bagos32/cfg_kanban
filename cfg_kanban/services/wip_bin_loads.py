@@ -17,15 +17,73 @@ TOLERANCE = 0.000001
 TRANSFER_PURPOSE = "Material Transfer for Manufacture"
 CONSUMPTION_PURPOSES = ("Material Consumption for Manufacture", "Manufacture")
 ACTIVE_LOAD_STATUSES = ("Transfer Draft", "Ready", "In Use", "Consumption Draft")
+JOB_CARD_SUBMIT_BLOCK_STATUSES = ("Transfer Draft",)
+
+
+def validate_job_card_wip_bin_submission(doc, method=None):
+    """Allow ERP operation completion once transfer is authoritative.
+
+    ERPNext requires the Job Card operation to be completed before it will submit the matching
+    production consumption. Ready/In Use/Consumption Draft bins therefore cannot block Job Card
+    submission; Cycle closure and Manufacture receipt retain the stricter consumed-bin gate.
+    """
+    if doc.docstatus == 2:
+        return
+    readiness = job_card_wip_bin_submit_readiness(doc.name)
+    if not readiness["ready"]:
+        frappe.throw(readiness["reason"])
 
 
 def validate_job_card_bins_consumed(doc, method=None):
-    """Prevent Job Card submission while its physical WIP bins remain unconsumed."""
-    if doc.docstatus == 2:
-        return
-    readiness = job_card_wip_bin_close_readiness(doc.name)
-    if not readiness["ready"]:
-        frappe.throw(readiness["reason"])
+    """Backward-compatible alias for sites whose cached hooks still reference the old name."""
+    return validate_job_card_wip_bin_submission(doc, method)
+
+
+def job_card_wip_bin_submit_readiness(job_card):
+    """Return whether ERPNext may submit the operation Job Card without a WIP deadlock."""
+    if not job_card:
+        return {"ready": True, "reason": None, "blocking_loads": [], "reconciliations": []}
+    reconciliations = frappe.get_all(
+        "CFG Kanban WIP Bin Reconciliation",
+        {"job_card": job_card, "status": "Open"},
+        ["name", "reusable_bin", "reversal_context"],
+        order_by="raised_on asc", limit_page_length=6,
+    )
+    blocking = frappe.get_all(
+        "CFG Kanban WIP Bin Load",
+        {"job_card": job_card, "status": ["in", list(JOB_CARD_SUBMIT_BLOCK_STATUSES)]},
+        ["name", "reusable_bin", "status"],
+        order_by="creation asc", limit_page_length=6,
+    )
+    if reconciliations:
+        detail = ", ".join(
+            f"{row.reusable_bin} ({row.reversal_context or 'Cancellation'})"
+            for row in reconciliations[:5]
+        )
+        return {
+            "ready": False,
+            "reason": (
+                f"Cannot complete Job Card {job_card} while a WIP Bin supervisor "
+                f"reconciliation is open: {detail}"
+            ),
+            "blocking_loads": blocking,
+            "reconciliations": reconciliations,
+        }
+    if blocking:
+        detail = ", ".join(
+            f"{row.reusable_bin} ({row.status})" for row in blocking[:5]
+        )
+        return {
+            "ready": False,
+            "reason": (
+                "Submit or cancel the Draft WIP-bin transfer before completing this Job Card. "
+                f"Blocking bin load(s): {detail}"
+            ),
+            "blocking_loads": blocking,
+            "reconciliations": reconciliations,
+        }
+    return {"ready": True, "reason": None, "blocking_loads": [],
+            "reconciliations": reconciliations}
 
 
 def job_card_wip_bin_close_readiness(job_card):
@@ -669,8 +727,8 @@ def confirm_wip_bin_stock_entry(doc):
             }, update_modified=True)
             bin_state = "Empty"
             event_type = "WIP Bin Load Consumed"
-            if load.job_card:
-                deferred_job_cards.add(load.job_card)
+        if load.job_card:
+            deferred_job_cards.add(load.job_card)
         frappe.db.set_value(
             "CFG Kanban Handling Unit", load.reusable_bin,
             "wip_bin_state", bin_state, update_modified=False,
@@ -681,17 +739,17 @@ def confirm_wip_bin_stock_entry(doc):
             reference_doctype="Stock Entry", reference_name=doc.name,
             notes=f"WIP Bin Load {load.name}; ERPNext confirmed",
         )
-    if direction == "consumption" and deferred_job_cards:
+    if deferred_job_cards:
         _submit_deferred_job_cards(deferred_job_cards, doc)
 
 
-def _submit_deferred_job_cards(job_cards, consumption_entry):
-    """Queue target-reached Job Cards after their WIP-bin consumption is authoritative.
+def _submit_deferred_job_cards(job_cards, production_entry):
+    """Queue target-reached Job Cards after their WIP transfer becomes authoritative.
 
     Progress reporting deliberately leaves these Job Cards in Draft while any physical bin
-    responsibility is unresolved.  A submitted ERPNext consumption entry is the first safe point
-    at which auto-submit may be retried.  Run the retry after commit so a later Job Card validation
-    cannot roll back already-valid ERPNext material consumption.
+    transfer remains Draft. A submitted ERPNext transfer is the first safe point at which the
+    operation may complete. Run the retry after commit so Job Card validation cannot roll back an
+    already-valid ERPNext stock movement.
     """
     settings = frappe.get_single("CFG Kanban Settings")
     if not settings.get("auto_submit_job_card"):
@@ -701,22 +759,22 @@ def _submit_deferred_job_cards(job_cards, consumption_entry):
             "cfg_kanban.services.wip_bin_loads.submit_deferred_job_card",
             queue="short", enqueue_after_commit=True,
             job_card_name=job_card_name,
-            consumption_entry_name=consumption_entry.name,
+            production_entry_name=production_entry.name,
         )
 
 
-def submit_deferred_job_card(job_card_name, consumption_entry_name):
-    """Background retry for a Job Card whose target progress preceded WIP consumption."""
+def submit_deferred_job_card(job_card_name, production_entry_name):
+    """Background retry for target progress recorded before the WIP transfer submitted."""
     settings = frappe.get_single("CFG Kanban Settings")
     if not settings.get("auto_submit_job_card"):
         return
-    if frappe.db.get_value("Stock Entry", consumption_entry_name, "docstatus") != 1:
+    if frappe.db.get_value("Stock Entry", production_entry_name, "docstatus") != 1:
         return
     job_card = frappe.get_doc("Job Card", job_card_name)
     if (job_card.docstatus != 0 or
             flt(job_card.total_completed_qty) + TOLERANCE < flt(job_card.for_quantity)):
         return
-    readiness = job_card_wip_bin_close_readiness(job_card.name)
+    readiness = job_card_wip_bin_submit_readiness(job_card.name)
     if not readiness["ready"]:
         return
     job_card.submit()
@@ -726,16 +784,20 @@ def submit_deferred_job_card(job_card_name, consumption_entry_name):
             f"ERPNext submitted Job Card {job_card.name} after WIP-bin consumption, "
             f"but its status is {job_card.status}"
         )
+    cycle = frappe.db.get_value(
+        "CFG Kanban WIP Bin Load",
+        {"job_card": job_card.name, "transfer_stock_entry": production_entry_name},
+        "kanban_cycle",
+    ) or frappe.db.get_value(
+        "CFG Kanban WIP Bin Load",
+        {"job_card": job_card.name, "consumption_stock_entry": production_entry_name},
+        "kanban_cycle",
+    )
     record(
         "Deferred Job Card Auto-submit Completed",
-        cycle=frappe.db.get_value(
-            "CFG Kanban WIP Bin Load",
-            {"job_card": job_card.name,
-             "consumption_stock_entry": consumption_entry_name},
-            "kanban_cycle",
-        ),
+        cycle=cycle,
         reference_doctype="Job Card", reference_name=job_card.name,
-        notes=f"Released after submitted WIP-bin consumption {consumption_entry_name}",
+        notes=f"Released after submitted WIP-bin stock movement {production_entry_name}",
     )
 
 

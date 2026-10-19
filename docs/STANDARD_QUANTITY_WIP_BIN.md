@@ -109,11 +109,11 @@ Draft `Material Consumption for Manufacture` from the Ready load snapshots. In P
 Trace the operator scans each physical Ready bin. A mistaken Draft scan can be cancelled back to
 Ready. Only native ERPNext submission changes the linked load to Consumed and the permanent bin to
 Empty. Report Progress still saves the ERPNext Job Card completed quantity while consumption is
-pending. If site Job Card auto-submit is enabled, submission is deliberately deferred rather than
-failing; after successful WIP-bin consumption commits, the short worker retries that Job Card
-submission without risking rollback of the stock transaction. Manual Job Card submission, Kanban
-Cycle closure, and Manufacture receipt remain blocked while an active load for their scope remains
-unconsumed.
+pending. ERPNext requires the operation Job Card to complete before it accepts the matching
+production consumption, so Job Card submission is allowed when loads are `Ready`, `In Use`, or
+`Consumption Draft`. Only a `Transfer Draft` load or Open reconciliation blocks Job Card
+submission. Kanban Cycle closure and Manufacture receipt retain the stricter rule and remain
+blocked until every load is `Consumed`.
 
 ## 5. Runtime safeguards
 

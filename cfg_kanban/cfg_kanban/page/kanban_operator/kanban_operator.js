@@ -2737,7 +2737,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				dialog.hide();
 				const deferred = submitted.message?.erp_result?.auto_submit_deferred;
 				frappe.show_alert({ message: deferred
-					? __("Progress recorded. Job Card auto-submit is waiting for WIP-bin consumption.")
+					? __("Progress recorded. Job Card auto-submit is waiting for the WIP-bin prerequisite.")
 					: __("Progress recorded"), indicator: deferred ? "blue" : "green" }, 7);
 				await load_card(state.context.card.qr_code);
 			},

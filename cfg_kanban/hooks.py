@@ -78,7 +78,7 @@ doc_events = {
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_work_order_cancel",
     },
     "Job Card": {
-        "before_submit": "cfg_kanban.services.wip_bin_loads.validate_job_card_bins_consumed",
+        "before_submit": "cfg_kanban.services.wip_bin_loads.validate_job_card_wip_bin_submission",
         "on_update": "cfg_kanban.integrations.erp_feedback.on_job_card_update",
         "on_submit": "cfg_kanban.integrations.erp_feedback.on_job_card_update",
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_job_card_cancel",

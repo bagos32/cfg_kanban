@@ -1194,12 +1194,12 @@ def update_job_card(command, payload):
     settings = frappe.get_single("CFG Kanban Settings")
     if (settings.get("auto_submit_job_card") and job_card.docstatus == 0 and
             after_qty + 0.000001 >= flt(job_card.for_quantity)):
-        # A fixed WIP-bin operation must record its ERP Job Card quantity before ERPNext
-        # will accept the matching material consumption.  Do not let the auto-submit
-        # setting turn that valid sequence into a deadlock: retain the Draft Job Card,
-        # submit the consumption, then let WIP-bin feedback retry the Job Card submit.
-        from cfg_kanban.services.wip_bin_loads import job_card_wip_bin_close_readiness
-        readiness = job_card_wip_bin_close_readiness(job_card.name)
+        # ERPNext requires the operation Job Card to complete before it accepts production
+        # consumption. Ready/Consumption Draft WIP bins are therefore permitted here; only an
+        # unsubmitted transfer or open reconciliation defers the Job Card. Cycle closure and
+        # Manufacture receipt keep the stricter all-bins-consumed gate.
+        from cfg_kanban.services.wip_bin_loads import job_card_wip_bin_submit_readiness
+        readiness = job_card_wip_bin_submit_readiness(job_card.name)
         if readiness["ready"]:
             job_card.submit()
             job_card.reload()
