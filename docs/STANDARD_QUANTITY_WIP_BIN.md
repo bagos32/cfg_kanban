@@ -115,6 +115,20 @@ production consumption, so Job Card submission is allowed when loads are `Ready`
 submission. Kanban Cycle closure and Manufacture receipt retain the stricter rule and remain
 blocked until every load is `Consumed`.
 
+The final Manufacture draft must be created only after this consumption is submitted. The
+Operator panel treats any `Ready`, `In Use`, `Consumption Draft`, or unsubmitted `Transfer Draft`
+load as a receipt prerequisite and keeps **Prepare Manufacture Receipt** unavailable. This prevents
+ERPNext from mapping still-unconsumed WIP material into a premature Manufacture draft and making
+it appear that the bin allocation was lost.
+
+For a draft created by an older release before this gate existed, use **Discard Premature Draft**
+on that Draft Manufacture row. This controlled action is allowed only while an active WIP-bin load
+still blocks the receipt, only when no Material Trace has already been staged, and always requires
+a reason. It cancels the originating ERP command reference and records the discard in the Kanban
+timeline. It does not delete or reallocate the WIP-bin load. Then use **Consume Ready WIP Bins** on
+the Job Card that owns the load, scan the physical Ready bin in Production Material Trace, submit
+the Material Consumption entry, and prepare a fresh Manufacture receipt.
+
 ## 5. Runtime safeguards
 
 The runtime gate must not be considered complete until it enforces all of these rules:

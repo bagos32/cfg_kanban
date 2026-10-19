@@ -664,13 +664,17 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			status: ready_task.status, colour: "green" };
 		const flow = context.production_material_flow;
 		if (flow?.has_shortage || flow?.restricted_material_attention || flow?.has_pending_materials ||
+			flow?.wip_bin_receipt_ready === false ||
 			(flow?.all_job_cards_completed && flow?.remaining_output_qty > 0.000001)) {
 			return { key: "production-material", title: __("Production material control"),
 				detail: flow.has_shortage ? __("Material shortage requires attention") :
+					flow.wip_bin_receipt_ready === false ? flow.wip_bin_receipt_block_reason :
 					flow.all_job_cards_completed ? __("Manufacture receipt is ready") :
 					__("Material preparation is pending"),
-				status: flow.has_shortage ? __("Attention") : __("Ready"),
-				colour: flow.has_shortage ? "orange" : "green" };
+				status: flow.has_shortage || flow.wip_bin_receipt_ready === false ?
+					__("Action Required") : __("Ready"),
+				colour: flow.has_shortage || flow.wip_bin_receipt_ready === false ?
+					"orange" : "green" };
 		}
 		return { key: "active-card", title: context.card.card_number,
 			detail: context.cycle ? `${__("Cycle")}: ${context.cycle.status}` : __("Waiting for activation"),
@@ -1037,7 +1041,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				.appendTo($actions).on("click", () => show_timeline(cycle.name));
 		}
 		render_production_material_flow(production_material_flow);
-		render_production_stock_entries(production_stock_entries || [], effective_work_order);
+		render_production_stock_entries(production_stock_entries || [], effective_work_order,
+			production_material_flow);
 		render_process_tasks(process_tasks || []);
 		render_summaries(operation_summaries || []);
 		render_executions(executions || []);
@@ -1183,9 +1188,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			$section.append(`<div class="alert alert-info">${__("Skip-WIP consumption uses a native ERPNext Material Consumption for Manufacture entry. A partial tag scan consumes only the confirmed quantity; the balance stays available on the same tag. ERPNext stock changes only when the entry is submitted.")}</div>`);
 		}
 		if (state.operator.permissions.production_receipt &&
-			flow.all_job_cards_completed && flow.remaining_output_qty > 0.000001) {
+			flow.all_job_cards_completed && flow.remaining_output_qty > 0.000001 &&
+			flow.wip_bin_receipt_ready !== false) {
 			add_action($actions, __("Prepare Manufacture Receipt"), "btn-success", () =>
 				manufacture_receipt_dialog(flow));
+		} else if (flow.wip_bin_receipt_ready === false) {
+			$section.append(`<div class="alert alert-warning" data-live-focus="production-material">
+				<strong>${__("Manufacture receipt is waiting for WIP-bin consumption")}</strong><br>
+				${e(flow.wip_bin_receipt_block_reason || "")}</div>`);
 		} else if (flow.incomplete_job_cards && flow.incomplete_job_cards.length) {
 			$section.append(`<div class="alert alert-info">${__("Manufacture receipt becomes available after these Job Cards are completed")}: ${flow.incomplete_job_cards.map((name) => document_link("job-card", name)).join(", ")}</div>`);
 		}
@@ -1688,6 +1698,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			!flow.all_job_cards_completed || !(flow.remaining_output_qty > 0.000001)) {
 			return scanner_command_message(__("Manufacture receipt is not ready for scanner confirmation."));
 		}
+		if (flow.wip_bin_receipt_ready === false) {
+			return scanner_command_message(flow.wip_bin_receipt_block_reason ||
+				__("Consume and submit the Ready WIP Bin material first."));
+		}
 		return manufacture_receipt_dialog(flow, true);
 	}
 
@@ -1736,7 +1750,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		return false;
 	}
 
-	function render_production_stock_entries(entries, work_order) {
+	function render_production_stock_entries(entries, work_order, flow) {
 		if (!work_order) return;
 		const e = frappe.utils.escape_html;
 		const $section = $(`<div class="cfg-material-trace-section"><h4>${__("Production Material Trace")}</h4></div>`)
@@ -1775,6 +1789,27 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 						}, freeze: true, freeze_message: __("Submitting ERPNext stock entry...") });
 						await load_card(state.context.card.qr_code);
 					});
+				});
+			}
+			if (row.can_submit && row.purpose === "Manufacture" &&
+				flow?.wip_bin_receipt_ready === false &&
+				state.operator.permissions.production_receipt) {
+				add_action($actions, __("Discard Premature Draft"), "btn-danger", () => {
+					frappe.prompt([
+						{ fieldname: "reason", label: __("Reason"), fieldtype: "Small Text",
+							reqd: 1, default: __("Created before WIP-bin consumption was completed") },
+					], async (values) => {
+						await frappe.call({
+							method: "cfg_kanban.services.production_material_flow.discard_premature_manufacture_draft",
+							args: { stock_entry: row.name, reason: values.reason,
+								operator_session_token: state.session_token },
+							freeze: true,
+							freeze_message: __("Discarding premature Manufacture draft..."),
+						});
+						frappe.show_alert({ message: __("Premature Manufacture draft discarded"),
+							indicator: "orange" });
+						await load_card(state.context.card.qr_code || state.context.card.card_number);
+					}, __("Discard Premature Manufacture Draft"), __("Discard Draft"));
 				});
 			}
 		});

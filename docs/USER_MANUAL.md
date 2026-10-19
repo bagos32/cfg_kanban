@@ -1142,6 +1142,15 @@ stricter Kanban closure rule: the operation may complete first, but its Kanban C
 released and Manufacture receipt cannot submit until the WIP-bin consumption is authoritative and
 every related load is `Consumed`.
 
+Do not prepare the final Manufacture receipt while any WIP-bin load remains `Transfer Draft`,
+`Ready`, `In Use`, or `Consumption Draft`. The Operator panel displays the blocking bin and keeps
+**Prepare Manufacture Receipt** unavailable until the native Material Consumption entry is
+submitted. If an older deployment already created a premature Draft Manufacture entry, select
+**Discard Premature Draft**, record the reason, consume and submit the Ready bin through its exact
+Job Card, and then create a new Manufacture receipt. The recovery discards only the unsubmitted ERP
+draft; it preserves the WIP-bin load and the audit trail. If a Material Trace is already attached,
+an authorized supervisor must discard that Draft trace first.
+
 Normal operation still uses full bins. A partial load is available only when **Allow Supervisor
 Partial-bin Exception** is enabled on the exact Pool and the active operator QR belongs to a
 Kanban **Supervisor** with **Override** permission. In Production Material Trace, scan a material

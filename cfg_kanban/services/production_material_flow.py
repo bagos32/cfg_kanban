@@ -170,6 +170,10 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
         reconciliation.reversal_context = (
             reconciliation.reversal_context or "Consumption Cancellation"
         )
+    from cfg_kanban.services.wip_bin_loads import manufacture_receipt_wip_bin_readiness
+    receipt_wip_readiness = manufacture_receipt_wip_bin_readiness(
+        work_order.name, cycle.name
+    )
     return {
         "cycle": cycle.name,
         "work_order": work_order.name,
@@ -201,6 +205,9 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
         "has_shortage": any(row["shortage_qty"] > 0 for row in all_rows),
         "all_job_cards_completed": not incomplete_jobs and bool(jobs),
         "incomplete_job_cards": incomplete_jobs,
+        "wip_bin_receipt_ready": receipt_wip_readiness["ready"],
+        "wip_bin_receipt_block_reason": receipt_wip_readiness["reason"],
+        "active_wip_bin_loads": receipt_wip_readiness["active_loads"],
         "material_transfer_posting_mode": master.get("material_transfer_posting_mode")
             or "Create Draft for Review",
         "material_consumption_posting_mode": "Create Draft for Review",
@@ -583,6 +590,12 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
     if incomplete:
         frappe.throw("Complete the ERPNext Job Card(s) before receiving output: "
                      + ", ".join(incomplete))
+    from cfg_kanban.services.wip_bin_loads import manufacture_receipt_wip_bin_readiness
+    receipt_wip_readiness = manufacture_receipt_wip_bin_readiness(
+        work_order.name, cycle.name
+    )
+    if not receipt_wip_readiness["ready"]:
+        frappe.throw(receipt_wip_readiness["reason"])
     hidden_policy = get_hidden_item_policy()
     server_manage_restricted = bool(
         hidden_policy["items"] and not hidden_policy["can_view"]
@@ -637,6 +650,69 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
                   f"Operator confirmation: {confirmation}"))
     return {"command": command.name, "stock_entry": entry.name,
             "docstatus": entry.docstatus, "duplicate": not created}
+
+
+@frappe.whitelist()
+def discard_premature_manufacture_draft(stock_entry, reason,
+                                        operator_session_token=None):
+    """Discard only a clean, Kanban-created Manufacture draft blocked by WIP bins.
+
+    The Stock Entry never posted stock. Its command and event remain as audit evidence, while
+    the operator can complete WIP-bin consumption and create a fresh ERPNext-mapped receipt.
+    """
+    explanation = (reason or "").strip()
+    if not explanation:
+        frappe.throw("A discard reason is required")
+    frappe.db.sql(
+        "select name from `tabStock Entry` where name=%s for update", stock_entry
+    )
+    entry = frappe.get_doc("Stock Entry", stock_entry)
+    if (entry.docstatus != 0 or entry.purpose != "Manufacture"
+            or not entry.get("cfg_kanban_controlled")
+            or not entry.get("cfg_kanban_cycle")):
+        frappe.throw("Only a Kanban-controlled Draft Manufacture entry can be discarded here")
+    cycle = frappe.get_doc("CFG Kanban Cycle", entry.cfg_kanban_cycle)
+    if cycle.work_order != entry.work_order:
+        frappe.throw("Manufacture draft does not match its Kanban Cycle Work Order")
+    profile, session = require_operator(operator_session_token, "production_receipt")
+    from cfg_kanban.services.wip_bin_loads import manufacture_receipt_wip_bin_readiness
+    readiness = manufacture_receipt_wip_bin_readiness(
+        entry.work_order, entry.cfg_kanban_cycle
+    )
+    if readiness["ready"]:
+        frappe.throw(
+            "This Manufacture draft is no longer blocked by an active WIP Bin; review it "
+            "instead of discarding it through premature-draft recovery"
+        )
+    trace = frappe.db.get_value(
+        "CFG Kanban Material Trace", {"stock_entry": entry.name}, ["name", "status"],
+        as_dict=True,
+    )
+    if trace:
+        frappe.throw(
+            f"Material Trace {trace.name} is already attached. Discard its Draft trace first, "
+            "then discard this premature Manufacture draft."
+        )
+    for command_name in frappe.get_all(
+        "CFG ERP Command",
+        filters={"target_doctype": "Stock Entry", "target_document": entry.name},
+        pluck="name",
+    ):
+        frappe.db.set_value("CFG ERP Command", command_name, {
+            "status": "Cancelled",
+            "target_document": None,
+            "last_error": f"Premature Draft {entry.name} discarded: {explanation}",
+        }, update_modified=False)
+    entry_name = entry.name
+    frappe.delete_doc("Stock Entry", entry_name, ignore_permissions=True)
+    record(
+        "Premature Manufacture Draft Discarded", card=cycle.kanban_card,
+        cycle=cycle.name, reference_doctype="Stock Entry", reference_name=entry_name,
+        operator=profile.employee, operator_session=session.name,
+        terminal_user=session.terminal_user,
+        notes=(f"Blocked by active WIP Bin material; {explanation}"),
+    )
+    return {"discarded_stock_entry": entry_name, "cycle": cycle.name}
 
 
 def _validated_finished_batch(cycle, work_order, batch_no):

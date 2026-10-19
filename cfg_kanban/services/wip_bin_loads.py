@@ -1498,6 +1498,18 @@ def _resolve_ready_load(scan_value, context, entry, row):
 
 
 def _assert_no_unconsumed_loads(work_order, cycle_name=None):
+    readiness = manufacture_receipt_wip_bin_readiness(work_order, cycle_name)
+    if not readiness["ready"]:
+        frappe.throw(readiness["reason"])
+
+
+def manufacture_receipt_wip_bin_readiness(work_order, cycle_name=None):
+    """Return the physical-bin gate that must be clear before final manufacture.
+
+    A submitted transfer proves that material reached WIP; it does not prove consumption.
+    Keeping this as a separate, reusable readiness result lets the operator panel prevent a
+    premature Manufacture draft instead of allowing ERPNext to show the same inputs again.
+    """
     filters = {
         "work_order": work_order,
         "status": ["in", ["Transfer Draft", "Ready", "In Use", "Consumption Draft"]],
@@ -1512,10 +1524,15 @@ def _assert_no_unconsumed_loads(work_order, cycle_name=None):
         detail = ", ".join(
             f"{row.reusable_bin} ({row.status})" for row in active[:5]
         )
-        frappe.throw(
-            "Submit the WIP-bin Material Consumption entry before Manufacture receipt. "
-            f"Active bin load(s): {detail}"
-        )
+        return {
+            "ready": False,
+            "reason": (
+                "Consume and submit the Ready WIP Bin material before preparing the "
+                f"Manufacture receipt. Active bin load(s): {detail}"
+            ),
+            "active_loads": active,
+        }
+    return {"ready": True, "reason": None, "active_loads": []}
 
 
 def _resolve_reusable_bin(scan_value, context, entry, row):
