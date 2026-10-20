@@ -1135,6 +1135,9 @@ destination WIP bin. Scanner Enter/Tab cannot dismiss the dialog, and clicking o
 effect. Close it deliberately with its close control or `CFG:CMD:CANCEL`. The **Cancel** action on a
 Draft material line releases the staged tag; the **Cancel** action on a Draft WIP-bin load also
 releases its source reservation and returns the reusable bin to its prior safe state.
+The Scanner Ready field captures Enter/Tab before the surrounding modal can handle it. If the next
+different tag or command arrives while the source scan is still completing, it is retained and
+processed immediately afterward instead of being silently discarded.
 
 The operation-time WIP-bin consumption gate is now connected. After the submitted transfer makes
 one or more loads `Ready`, the exact Job Card shows **Consume Ready WIP Bins**. That action creates
@@ -3478,6 +3481,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.69 | 20 October 2026 | Made the persistent Material Trace Scanner Ready field capture scanner suffixes directly and queue the next different WIP-bin tag or command instead of dropping it while the source scan finishes |
 | 1.68 | 20 October 2026 | Kept Production Material Trace open across source-tag and WIP-bin scans, isolated scanner Enter/Tab from modal dismissal, and repaired both ordinary staged-material and Draft WIP-bin cancellation controls |
 | 1.67 | 19 October 2026 | Corrected the ERPNext manufacturing order for WIP bins: Job Card completion now permits Ready/In-Use/Consumption-Draft loads so ERPNext can accept their material consumption, while Transfer Draft/Open reconciliation still block Job Card submission and Cycle/Manufacture closure remain blocked until every load is Consumed |
 | 1.66 | 19 October 2026 | Removed the Standard Quantity WIP Bin progress/consumption deadlock: target progress now persists while Job Card auto-submit is deferred by active bins, submitted consumption retries deferred auto-submit, and Draft WIP-bin cancellation uses a refresh-safe non-submit button with visible confirmation |

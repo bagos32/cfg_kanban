@@ -1991,6 +1991,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		});
 		state.active_material_trace_dialog = { dialog, stock_entry };
 		dialog.onhide = () => {
+			if (dialog.cfg_trace_scan_input && dialog.cfg_trace_scan_handler) {
+				dialog.cfg_trace_scan_input.removeEventListener(
+					"keydown", dialog.cfg_trace_scan_handler, true
+				);
+			}
 			dialog.$wrapper.off(".cfg_material_trace_persist");
 			if (state.active_material_trace_dialog?.dialog === dialog) state.active_material_trace_dialog = null;
 			focus_scanner();
@@ -2239,25 +2244,50 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	function bind_material_trace_scanner(dialog) {
 		const field = dialog.get_field("trace_scan");
 		field.$input.attr({ autocomplete: "off", inputmode: "none" });
-		field.$input.off("keydown.cfg_material_trace_scanner")
-			.on("keydown.cfg_material_trace_scanner", (event) => {
-				if (event.key !== "Enter" && event.key !== "Tab") return;
-				event.preventDefault();
-				event.stopPropagation();
-				run_material_trace_scan(dialog, field.$input.val());
-			});
+		field.$input.off("keydown.cfg_material_trace_scanner");
+		if (dialog.cfg_trace_scan_input && dialog.cfg_trace_scan_handler) {
+			dialog.cfg_trace_scan_input.removeEventListener(
+				"keydown", dialog.cfg_trace_scan_handler, true
+			);
+		}
+		const input = field.$input.get(0);
+		const handler = (event) => {
+			if (event.key !== "Enter" && event.key !== "Tab") return;
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			const value = input.value;
+			input.value = "";
+			run_material_trace_scan(dialog, value);
+		};
+		input.addEventListener("keydown", handler, true);
+		dialog.cfg_trace_scan_input = input;
+		dialog.cfg_trace_scan_handler = handler;
 	}
 
 	async function run_material_trace_scan(dialog, raw_value) {
-		if (dialog.cfg_material_scan_lock) return;
+		const value = String(raw_value || "").trim();
+		if (dialog.cfg_material_scan_lock) {
+			if (value && value !== dialog.cfg_active_material_scan) {
+				dialog.cfg_pending_material_scan = value;
+			}
+			return;
+		}
+		dialog.cfg_active_material_scan = value;
 		dialog.cfg_material_scan_lock = true;
 		try {
-			await handle_material_trace_scan(dialog, raw_value);
+			await handle_material_trace_scan(dialog, value);
 		} finally {
 			window.setTimeout(() => {
 				dialog.cfg_material_scan_lock = false;
-				refocus_operator_material_trace(dialog, 0);
-			}, 180);
+				dialog.cfg_active_material_scan = null;
+				const pending = dialog.cfg_pending_material_scan;
+				dialog.cfg_pending_material_scan = null;
+				if (pending && !dialog.cfg_operator_close_requested) {
+					run_material_trace_scan(dialog, pending);
+				} else {
+					refocus_operator_material_trace(dialog, 0);
+				}
+			}, 80);
 		}
 	}
 
