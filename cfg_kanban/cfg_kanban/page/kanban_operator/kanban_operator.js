@@ -2004,7 +2004,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			window.clearTimeout(dialog.cfg_trace_scan_timer);
 			dialog.$wrapper.off(".cfg_material_trace_persist");
 			if (state.active_material_trace_dialog?.dialog === dialog) state.active_material_trace_dialog = null;
-			focus_scanner();
+			restore_scanner_focus();
 		};
 		dialog.show();
 		configure_operator_material_trace_dialog(dialog);
@@ -2024,6 +2024,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				".modal-header .close, .modal-header .btn-modal-close, .modal-header [data-dismiss='modal']", () => {
 					dialog.cfg_operator_close_requested = true;
 				})
+			.on("click.cfg_material_trace_persist", "[data-cancel-wip-bin-load]", (event) => {
+				cancel_operator_wip_bin_load(dialog, event);
+			})
+			.on("click.cfg_material_trace_persist", "[data-cancel-operator-trace-line]", (event) => {
+				cancel_operator_trace_line(dialog, event);
+			})
 			.off("hide.bs.modal.cfg_material_trace_persist")
 			.on("hide.bs.modal.cfg_material_trace_persist", (event) => {
 				if (!dialog.cfg_material_scan_lock || dialog.cfg_operator_close_requested) return;
@@ -2034,7 +2040,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	function close_operator_material_trace_dialog(dialog) {
 		dialog.cfg_operator_close_requested = true;
+		dialog.cfg_pending_material_scan = null;
+		window.clearTimeout(dialog.cfg_trace_scan_timer);
+		dialog.$wrapper.one("hidden.bs.modal.cfg_material_trace_restore", () => {
+			restore_scanner_focus();
+		});
 		dialog.hide();
+		// Bootstrap finishes its modal transition after Dialog.onhide. Keep a fallback
+		// for themes that do not emit hidden.bs.modal reliably in full-screen mode.
+		window.setTimeout(() => restore_scanner_focus(), 400);
 	}
 
 	function refocus_operator_material_trace(dialog, delay = 80) {
@@ -2144,53 +2158,60 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			bind_operator_trace_enter(dialog, "output_scan", "stage_output");
 		}
 		bind_material_trace_scanner(dialog);
-		dialog.fields_dict.lines.$wrapper.find("[data-cancel-operator-trace-line]")
-			.off("click.cfg_cancel_trace_line").on("click.cfg_cancel_trace_line", async (event) => {
-				event.preventDefault();
-				event.stopPropagation();
-				const $button = $(event.currentTarget);
-				if ($button.prop("disabled")) return;
-				$button.prop("disabled", true);
-				try {
-					await frappe.call({ method: "cfg_kanban.services.production_trace.cancel_trace_line", args: {
-						stock_entry: plan.stock_entry, trace_line: event.currentTarget.dataset.cancelOperatorTraceLine,
-						operator_session_token: state.session_token, kanban_card: state.context.card.name,
-					}, freeze: true, freeze_message: __("Releasing staged trace line...") });
-					frappe.show_alert({ message: __("Staged material released"), indicator: "green" });
-					await reload();
-				} finally {
-					$button.prop("disabled", false);
-					refocus_operator_material_trace(dialog);
-				}
-			});
-		const $lines = dialog.fields_dict.lines.$wrapper;
-		$lines.find("[data-cancel-wip-bin-load]")
-			.off("click.cfg_cancel_wip_bin").on("click.cfg_cancel_wip_bin", async (event) => {
-			event.preventDefault();
-			event.stopPropagation();
-			const $button = $(event.currentTarget);
-			if ($button.prop("disabled")) return;
-			$button.prop("disabled", true);
-			const status = event.currentTarget.dataset.wipBinStatus;
-			const method = status === "Consumption Draft"
-				? "cfg_kanban.services.wip_bin_loads.cancel_consumption_bin"
-				: "cfg_kanban.services.wip_bin_loads.cancel_transfer_bin";
-			try {
-				await frappe.call({ method, args: {
-					load_name: event.currentTarget.dataset.cancelWipBinLoad,
-					operator_session_token: state.session_token, kanban_card: state.context.card.name,
-				}, freeze: true, freeze_message: __("Releasing Draft WIP Bin allocation...") });
-				frappe.show_alert({ message: status === "Consumption Draft"
-					? __("WIP Bin removed from Draft consumption and restored to Ready.")
-					: __("Draft WIP Bin allocation cancelled and source reservation released."),
-				indicator: "green" });
-				await reload();
-			} finally {
-				$button.prop("disabled", false);
-				refocus_operator_material_trace(dialog);
-			}
-		});
 		refocus_operator_material_trace(dialog);
+	}
+
+	async function cancel_operator_trace_line(dialog, event) {
+		event.preventDefault();
+		event.stopImmediatePropagation();
+		event.stopPropagation();
+		const $button = $(event.target).closest("[data-cancel-operator-trace-line]");
+		if ($button.prop("disabled")) return;
+		$button.prop("disabled", true);
+		try {
+			await frappe.call({ method: "cfg_kanban.services.production_trace.cancel_trace_line", args: {
+				stock_entry: dialog.cfg_trace_plan.stock_entry,
+				trace_line: $button.attr("data-cancel-operator-trace-line"),
+				operator_session_token: state.session_token, kanban_card: state.context.card.name,
+			}, freeze: true, freeze_message: __("Releasing staged trace line...") });
+			frappe.show_alert({ message: __("Staged material released"), indicator: "green" });
+			if (typeof dialog.cfg_trace_reload === "function") {
+				await dialog.cfg_trace_reload();
+			}
+		} finally {
+			$button.prop("disabled", false);
+			refocus_operator_material_trace(dialog);
+		}
+	}
+
+	async function cancel_operator_wip_bin_load(dialog, event) {
+		event.preventDefault();
+		event.stopImmediatePropagation();
+		event.stopPropagation();
+		const $button = $(event.target).closest("[data-cancel-wip-bin-load]");
+		if ($button.prop("disabled")) return;
+		$button.prop("disabled", true);
+		const load_name = $button.attr("data-cancel-wip-bin-load");
+		const status = $button.attr("data-wip-bin-status");
+		const method = status === "Consumption Draft"
+			? "cfg_kanban.services.wip_bin_loads.cancel_consumption_bin"
+			: "cfg_kanban.services.wip_bin_loads.cancel_transfer_bin";
+		try {
+			await frappe.call({ method, args: {
+				load_name,
+				operator_session_token: state.session_token, kanban_card: state.context.card.name,
+			}, freeze: true, freeze_message: __("Releasing Draft WIP Bin allocation...") });
+			frappe.show_alert({ message: status === "Consumption Draft"
+				? __("WIP Bin removed from Draft consumption and restored to Ready.")
+				: __("Draft WIP Bin allocation cancelled and source reservation released."),
+			indicator: "green" });
+			if (typeof dialog.cfg_trace_reload === "function") {
+				await dialog.cfg_trace_reload();
+			}
+		} finally {
+			$button.prop("disabled", false);
+			refocus_operator_material_trace(dialog);
+		}
 	}
 
 	async function refresh_wip_partial_controls(dialog, rows) {
@@ -2513,10 +2534,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const e = frappe.utils.escape_html;
 		const trace_rows = (plan.lines || []).map((line) => `<tr><td>${e(line.direction)}</td><td>${e(line.item_code)}</td>
 			<td>${e(line.handling_unit || line.pending_tag_code || "-")}</td><td>${e(line.qty)} ${e(line.stock_uom)}${line.serial_count ? `<br><small>${e(line.serial_count)} ${__("serials")}</small>` : ""}</td>
-			<td>${e(line.status)}</td><td>${line.can_cancel ? `<button type="button" class="btn btn-xs btn-danger" data-cancel-operator-trace-line="${e(line.name)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
+			<td>${e(line.status)}</td><td>${line.can_cancel ? `<button type="button" class="btn btn-xs btn-danger" data-cancel-operator-trace-line="${e(line.name)}">${__("Release Loaded Material")}</button>` : ""}</td></tr>`).join("");
 		const wip_rows = wip_loads.map((load) => `<tr><td>${__("WIP Bin")}${load.partial_exception ? `<br><span class="indicator-pill orange">${__("Supervisor Partial Exception")}</span>` : ""}</td><td>${e(load.item_code)}</td>
 			<td>${e(load.reusable_bin)}${load.partial_exception ? `<br><small>${e(load.exception_reason || "")}</small><br><small>${e(load.approved_by_operator || load.approved_by || "")}</small>` : ""}</td><td>${e(load.actual_qty)} ${e(load.stock_uom)}</td><td>${e(load.status)}</td>
-			<td>${["Transfer Draft", "Consumption Draft"].includes(load.status) ? `<button type="button" class="btn btn-xs btn-danger" data-cancel-wip-bin-load="${e(load.name)}" data-wip-bin-status="${e(load.status)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
+			<td>${["Transfer Draft", "Consumption Draft"].includes(load.status) ? `<button type="button" class="btn btn-xs btn-danger" data-cancel-wip-bin-load="${e(load.name)}" data-wip-bin-status="${e(load.status)}">${__("Cancel Loaded Material")}</button>` : ""}</td></tr>`).join("");
 		return `<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>
 			<th>${__("Direction")}</th><th>${__("Item")}</th><th>${__("Tag")}</th><th>${__("Quantity")}</th>
 			<th>${__("Status")}</th><th></th></tr></thead><tbody>${trace_rows}${wip_rows}</tbody></table></div>`;

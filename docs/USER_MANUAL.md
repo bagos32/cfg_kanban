@@ -1,9 +1,9 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.67
+**Guide version:** 1.71
 
-**Updated:** 19 October 2026
+**Updated:** 20 October 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
@@ -1132,9 +1132,15 @@ its source reservation. Only submitted ERPNext transfer feedback deducts the res
 quantity and marks the load/bin `Ready`; cancellation restores it through an auditable reversal.
 The Material Trace dialog remains open after the source-tag scan so the same operator can scan the
 destination WIP bin. Scanner Enter/Tab cannot dismiss the dialog, and clicking outside it has no
-effect. Close it deliberately with its close control or `CFG:CMD:CANCEL`. The **Cancel** action on a
-Draft material line releases the staged tag; the **Cancel** action on a Draft WIP-bin load also
-releases its source reservation and returns the reusable bin to its prior safe state.
+effect. Close it deliberately with its close control or `CFG:CMD:CANCEL`. This command only exits
+the current Material Trace window; after the window finishes closing, focus is restored to the main
+Operator **Scanner Ready** field. It does not reverse material already loaded into the Draft.
+Use **Release Loaded Material** on an ordinary Draft material line to release that staged tag. Use
+**Cancel Loaded Material** on a `Transfer Draft` or `Consumption Draft` WIP-bin row to reverse that
+specific allocation while keeping Material Trace open. A transfer cancellation releases its source
+reservation and returns the reusable bin to `Empty`; a consumption cancellation removes the bin
+from the Draft consumption and restores it to `Ready`. These row actions remain bound after the
+table refreshes and display a success message before the refreshed state is shown.
 The Scanner Ready field captures Enter/Tab before the surrounding modal can handle it. If the next
 different tag or command arrives while the source scan is still completing, it is retained and
 processed immediately afterward instead of being silently discarded.
@@ -3484,6 +3490,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.71 | 20 October 2026 | Separated scanner Cancel from material reversal: closing Production Material Trace now restores the main Scanner Ready field after the modal transition, while persistent Release/Cancel Loaded Material row actions reverse the selected Draft allocation without closing the dialog |
 | 1.70 | 20 October 2026 | Added suffix-independent Scanner Ready processing and focus-time handler rebinding so a scanned reusable WIP-bin code is recognized and allocated instead of remaining as inactive text after the source-tag step |
 | 1.69 | 20 October 2026 | Made the persistent Material Trace Scanner Ready field capture scanner suffixes directly and queue the next different WIP-bin tag or command instead of dropping it while the source scan finishes |
 | 1.68 | 20 October 2026 | Kept Production Material Trace open across source-tag and WIP-bin scans, isolated scanner Enter/Tab from modal dismissal, and repaired both ordinary staged-material and Draft WIP-bin cancellation controls |
