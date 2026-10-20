@@ -2100,7 +2100,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const input_visible = plan.can_edit && input_options.length;
 		const output_visible = plan.can_edit && output_options.length;
 		const wip_visible = plan.can_edit && wip_options.length;
-		const wip_consumption = wip_visible && wip_inputs.some((row) => row.wip_bin_action === "Consume");
+		// The Stock Entry purpose is the authority for scanner behaviour. A stale row
+		// selection must never turn a consumption scan back into the two-scan load flow.
+		const wip_consumption = wip_visible &&
+			plan.purpose === "Material Consumption for Manufacture";
 		const scanner_instruction = wip_visible
 			? operator_wip_scanner_instruction(dialog, wip_inputs)
 			: input_visible
@@ -2115,8 +2118,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		);
 		["input_section", "input_row", "input_scan", "input_camera", "input_qty", "allocate_input"]
 			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(input_visible)));
-		["wip_bin_section", "wip_bin_row", "wip_bin_scan", "allocate_wip_bin"]
+		["wip_bin_section", "wip_bin_scan", "allocate_wip_bin"]
 			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(wip_visible)));
+		dialog.get_field("wip_bin_row").wrapper.toggle(Boolean(wip_visible && !wip_consumption));
 		dialog.get_field("wip_source_scan").wrapper.toggle(Boolean(wip_visible && !wip_consumption));
 		dialog.set_df_property("wip_bin_section", "label", wip_consumption
 			? __("Consume Ready Standard Quantity WIP Bin")
@@ -2151,7 +2155,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			});
 			bind_operator_trace_enter(dialog, "wip_bin_scan", "allocate_wip_bin");
 		}
-		await refresh_wip_partial_controls(dialog, wip_inputs);
+		await refresh_wip_partial_controls(dialog, wip_inputs, wip_consumption);
 		if (output_visible) {
 			const selected = output_options.includes(dialog.get_value("output_row")) ?
 				dialog.get_value("output_row") : output_options[0];
@@ -2226,9 +2230,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}
 	}
 
-	async function refresh_wip_partial_controls(dialog, rows) {
+	async function refresh_wip_partial_controls(dialog, rows, force_consumption = false) {
 		const row = operator_wip_row(rows, dialog.get_value("wip_bin_row")) || rows[0];
-		const transfer = Boolean(row && row.wip_bin_action === "Load");
+		const transfer = Boolean(row && !force_consumption && row.wip_bin_action === "Load");
 		const configured = transfer && Boolean(row.allow_supervisor_partial_exception);
 		const authorized = configured && Boolean(dialog.cfg_trace_plan?.can_approve_partial_wip_bin);
 		["wip_partial_qty", "wip_partial_reason", "allocate_partial_wip_bin"]
@@ -2365,6 +2369,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const pending_wip = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
 			row.direction === "Input" && row.wip_bin_required && row.wip_bin_remaining_qty > 0.000001);
 		if (pending_wip.length) {
+			const consumption_entry = dialog.cfg_trace_plan?.purpose ===
+				"Material Consumption for Manufacture";
+			if (consumption_entry) {
+				await dialog.set_value("wip_bin_scan", value);
+				return allocate_operator_wip_bin(
+					dialog, dialog.cfg_trace_plan.stock_entry, dialog.cfg_trace_reload, false
+				);
+			}
 			if (/^(CFG:SELECT:)?\d+$/.test(command)) {
 				const index = parseInt(command.replace("CFG:SELECT:", ""), 10) - 1;
 				if (pending_wip[index]) {
@@ -2466,8 +2478,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	function operator_wip_scanner_instruction(dialog, rows) {
 		const row = operator_wip_row(rows, dialog.get_value("wip_bin_row")) || rows[0];
 		if (!row) return __("Select a WIP material row.");
-		if (row.wip_bin_action === "Consume") {
-			return __(`Consumption row: ${row.item_code}. Scan the READY reusable WIP Bin used by this Job Card. ERPNext stock changes only after submission.`);
+		if (dialog.cfg_trace_plan?.purpose === "Material Consumption for Manufacture" ||
+			row.wip_bin_action === "Consume") {
+			return __("Scan the READY reusable WIP Bin. Its Item, Warehouse, UOM, Batch, and exact ERP consumption row are resolved automatically. ERPNext stock changes only after submission.");
 		}
 		if (row.tag_policy === "No Physical Tag" || dialog.cfg_wip_erp_only) {
 			return __(`WIP row: ${row.item_code}. Scan an EMPTY reusable WIP Bin. ERPNext stock remains authoritative.`);
@@ -2482,12 +2495,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			row.direction === "Input" && row.wip_bin_required && row.wip_bin_remaining_qty > 0.000001);
 		const row = operator_wip_row(rows, dialog.get_value("wip_bin_row")) || rows[0];
 		if (!row) return;
-		const consuming = row.wip_bin_action === "Consume";
+		const consuming = dialog.cfg_trace_plan?.purpose ===
+			"Material Consumption for Manufacture" || row.wip_bin_action === "Consume";
 		const method = consuming
 			? "cfg_kanban.services.wip_bin_loads.allocate_consumption_bin"
 			: "cfg_kanban.services.wip_bin_loads.allocate_transfer_bin";
 		const args = {
-			stock_entry, item_row: row.row_name,
+			stock_entry, item_row: consuming ? null : row.row_name,
 			reusable_bin_scan: dialog.get_value("wip_bin_scan"),
 			operator_session_token: state.session_token, kanban_card: state.context.card.name,
 			event_token: frappe.utils.get_random(24),
@@ -2502,11 +2516,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				}
 			}
 		}
-		await frappe.call({ method, args, freeze: true,
+		const response = await frappe.call({ method, args, freeze: true,
 			freeze_message: consuming ? __("Binding Ready WIP Bin to ERP consumption...")
 				: __("Reserving source material and WIP Bin...") });
+		const result = response.message || {};
 		frappe.show_alert({ message: consuming
-			? __("Ready WIP Bin linked; material is consumed only after ERP submission.")
+			? __("Ready WIP Bin linked to {0}: {1} {2}. Material is consumed only after ERP submission.",
+				[result.item_code || row.item_code, result.actual_qty || 0,
+					result.stock_uom || row.stock_uom])
 			: partial
 				? __("Supervisor partial-bin exception recorded; ERP stock moves only after Stock Entry submission.")
 				: __("WIP Bin allocated; ERP stock moves only after Stock Entry submission."), indicator: "green" });

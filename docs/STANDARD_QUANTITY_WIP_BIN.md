@@ -113,9 +113,12 @@ submitted ERPNext transfer feedback removes it from the source tag and marks the
 
 After transfer submission, the exact Job Card shows **Consume Ready WIP Bins**. This creates one
 Draft `Material Consumption for Manufacture` from the Ready load snapshots. In Production Material
-Trace the operator scans each physical Ready bin. A mistaken Draft scan can be cancelled back to
-Ready. Only native ERPNext submission changes the linked load to Consumed and the permanent bin to
-Empty. Report Progress still saves the ERPNext Job Card completed quantity while consumption is
+Trace the operator scans each physical Ready bin once. The consumption flow does not ask for the
+original source tag or require an ERP row selection: the Ready-bin load snapshot resolves the exact
+Item, WIP Warehouse, UOM, Batch, Cycle, Job Card, and ERP row, and the panel confirms the resolved
+Item/quantity. A mistaken Draft scan can be cancelled back to Ready. Only native ERPNext submission
+changes the linked load to Consumed and the permanent bin to Empty. Report Progress still saves the
+ERPNext Job Card completed quantity while consumption is
 pending. CFG Kanban retains the operation owner in **Kanban Material Job Card** while ERPNext posts
 the consumption against the Work Order. ERPNext requires the operation Job Card to complete before
 it accepts the matching production consumption, so Job Card submission is allowed when loads are `Ready`, `In Use`, or

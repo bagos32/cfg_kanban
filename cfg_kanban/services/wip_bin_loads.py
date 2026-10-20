@@ -333,8 +333,8 @@ def cancel_transfer_bin(load_name, operator_session_token, kanban_card):
 
 
 @frappe.whitelist()
-def allocate_consumption_bin(stock_entry, item_row, reusable_bin_scan,
-                             operator_session_token, kanban_card,
+def allocate_consumption_bin(stock_entry, item_row=None, reusable_bin_scan=None,
+                             operator_session_token=None, kanban_card=None,
                              event_token=None):
     """Bind one Ready fixed-quantity WIP bin to a Draft consumption row.
 
@@ -351,7 +351,11 @@ def allocate_consumption_bin(stock_entry, item_row, reusable_bin_scan,
     )
     if entry.docstatus != 0 or _purpose(entry) != "Material Consumption for Manufacture":
         frappe.throw("Ready WIP Bin scanning requires a Draft Material Consumption entry")
-    row = _entry_row(entry, item_row)
+    # A Ready-bin scan is sufficient for consumption. Resolve its immutable Ready-load
+    # snapshot first and use that to select the exact ERP Item/Warehouse/UOM/Batch row.
+    # ``item_row`` remains accepted for compatibility with already-open browser clients.
+    row = (_entry_row(entry, item_row) if item_row
+           else _consumption_row_for_ready_bin(entry, reusable_bin_scan))
     context = entry_wip_bin_rule(entry, row)
     if not context:
         frappe.throw(f"Item {row.item_code} is not configured for a Standard Quantity WIP Bin")
@@ -1372,7 +1376,10 @@ def _loads_for_entry(stock_entry):
         return transfer, "transfer"
     if consumption:
         return consumption, "consumption"
-    purpose = frappe.db.get_value("Stock Entry", stock_entry, "stock_entry_type")
+    purpose_values = frappe.db.get_value(
+        "Stock Entry", stock_entry, ["purpose", "stock_entry_type"], as_dict=True
+    ) or {}
+    purpose = purpose_values.get("purpose") or purpose_values.get("stock_entry_type")
     return [], "transfer" if purpose == TRANSFER_PURPOSE else "consumption"
 
 
@@ -1417,7 +1424,9 @@ def _row_stock_qty(row):
 
 
 def _purpose(doc):
-    return doc.get("stock_entry_type") or doc.get("purpose")
+    # ``purpose`` is ERPNext's canonical transaction behaviour. ``stock_entry_type``
+    # may be a customized label and must not turn a consumption into a transfer flow.
+    return doc.get("purpose") or doc.get("stock_entry_type")
 
 
 def _lock_reusable_bin(reusable_bin):
@@ -1465,6 +1474,63 @@ def _remaining_consumption_qty(stock_entry, row_name, row_qty):
         (stock_entry, row_name),
     )[0][0]
     return max(flt(row_qty) - flt(allocated), 0)
+
+
+def _consumption_row_for_ready_bin(entry, scan_value):
+    """Resolve a scanned Ready WIP Bin to one unambiguous ERP consumption row."""
+    identity = resolve_logistics_scan(scan_value)
+    if not identity or identity.get("identity_type") != "Handling Unit":
+        frappe.throw("Scan a Ready Standard Quantity WIP Bin")
+    unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
+    if (unit.tag_kind != "Reusable Container"
+            or unit.reusable_container_role != "Standard Quantity WIP Bin"):
+        frappe.throw(f"Tag {unit.handling_unit_id} is not a Standard Quantity WIP Bin")
+
+    entry_job_card = entry.get("cfg_kanban_job_card") or entry.get("job_card")
+    summaries = frappe.get_all(
+        "CFG Kanban WIP Bin Load",
+        {"reusable_bin": unit.name,
+         "status": ["in", ["Ready", "Consumption Draft"]]},
+        ["name", "status", "wip_bin_pool", "kanban_cycle", "work_order",
+         "job_card", "item_code", "batch_no", "wip_warehouse", "stock_uom",
+         "consumption_stock_entry", "consumption_stock_entry_detail"],
+        order_by="creation desc",
+    )
+    matches = []
+    for load in summaries:
+        if (load.kanban_cycle != entry.get("cfg_kanban_cycle")
+                or load.work_order != entry.work_order
+                or (entry_job_card and load.job_card != entry_job_card)):
+            continue
+        if (load.status == "Consumption Draft"
+                and load.consumption_stock_entry != entry.name):
+            continue
+        for row in entry.items:
+            context = entry_wip_bin_rule(entry, row)
+            if not context or context.get("wip_bin_pool") != load.wip_bin_pool:
+                continue
+            if (row.item_code != load.item_code
+                    or row.s_warehouse != load.wip_warehouse
+                    or row.stock_uom != load.stock_uom
+                    or (row.get("batch_no") or "") != (load.batch_no or "")):
+                continue
+            if (load.status == "Consumption Draft"
+                    and load.consumption_stock_entry_detail != row.name):
+                continue
+            matches.append((load.name, row.name))
+
+    unique_rows = {row_name for _load_name, row_name in matches}
+    if not matches:
+        frappe.throw(
+            f"Ready WIP Bin {unit.handling_unit_id} does not match any pending Item, "
+            "WIP Warehouse, UOM, Batch, Cycle, or Job Card row in this consumption"
+        )
+    if len(unique_rows) != 1:
+        frappe.throw(
+            f"Ready WIP Bin {unit.handling_unit_id} matches multiple ERP rows. "
+            "Separate the rows by Batch or correct the Draft consumption before scanning."
+        )
+    return _entry_row(entry, next(iter(unique_rows)))
 
 
 def _resolve_ready_load(scan_value, context, entry, row):
@@ -1632,6 +1698,7 @@ def _consumption_allocation_result(entry, row, load):
     return {
         "stock_entry": entry.name, "row_name": row.name, "load": load.name,
         "status": load.status, "reusable_bin": load.reusable_bin,
+        "item_code": row.item_code,
         "actual_qty": flt(load.actual_qty), "stock_uom": load.stock_uom,
         "partial_exception": bool(load.partial_exception),
         "exception_reason": load.exception_reason,
