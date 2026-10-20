@@ -1130,6 +1130,11 @@ Bin** from a larger source tag; for example, loading a 10 kg bin from a 25 kg ta
 that source tag after ERPNext submits the transfer. A Draft allocation can be cancelled and releases
 its source reservation. Only submitted ERPNext transfer feedback deducts the reserved source-tag
 quantity and marks the load/bin `Ready`; cancellation restores it through an auditable reversal.
+The Material Trace dialog remains open after the source-tag scan so the same operator can scan the
+destination WIP bin. Scanner Enter/Tab cannot dismiss the dialog, and clicking outside it has no
+effect. Close it deliberately with its close control or `CFG:CMD:CANCEL`. The **Cancel** action on a
+Draft material line releases the staged tag; the **Cancel** action on a Draft WIP-bin load also
+releases its source reservation and returns the reusable bin to its prior safe state.
 
 The operation-time WIP-bin consumption gate is now connected. After the submitted transfer makes
 one or more loads `Ready`, the exact Job Card shows **Consume Ready WIP Bins**. That action creates
@@ -3473,6 +3478,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.68 | 20 October 2026 | Kept Production Material Trace open across source-tag and WIP-bin scans, isolated scanner Enter/Tab from modal dismissal, and repaired both ordinary staged-material and Draft WIP-bin cancellation controls |
 | 1.67 | 19 October 2026 | Corrected the ERPNext manufacturing order for WIP bins: Job Card completion now permits Ready/In-Use/Consumption-Draft loads so ERPNext can accept their material consumption, while Transfer Draft/Open reconciliation still block Job Card submission and Cycle/Manufacture closure remain blocked until every load is Consumed |
 | 1.66 | 19 October 2026 | Removed the Standard Quantity WIP Bin progress/consumption deadlock: target progress now persists while Job Card auto-submit is deferred by active bins, submitted consumption retries deferred auto-submit, and Draft WIP-bin cancellation uses a refresh-safe non-submit button with visible confirmation |
 | 1.65 | 18 October 2026 | Corrected Material Genealogy route refresh so opening Full Genealogy for a newly searched Stock Tag reloads that tag instead of retaining the prior cached result; stale slower lookups can no longer overwrite the latest selection |

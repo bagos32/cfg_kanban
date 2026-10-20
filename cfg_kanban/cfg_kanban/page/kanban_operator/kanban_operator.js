@@ -471,7 +471,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			const trace_dialog = state.active_material_trace_dialog?.dialog;
 			if (trace_dialog?.$wrapper && trace_dialog.$wrapper.is(":visible") &&
 				$top_modal.is(trace_dialog.$wrapper)) {
-				handle_material_trace_scan(trace_dialog, value);
+				run_material_trace_scan(trace_dialog, value);
 				return true;
 			}
 			if (value.toUpperCase() === "CFG:CMD:CONFIRM") {
@@ -1829,7 +1829,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (!candidates.length) return scanner_command_message(__("No Draft production entry is ready to submit."));
 		const stock_entry = candidates[0].name;
 		if (state.active_material_trace_dialog?.dialog) {
-			state.active_material_trace_dialog.dialog.hide();
+			close_operator_material_trace_dialog(state.active_material_trace_dialog.dialog);
 		}
 		await frappe.call({ method: "cfg_kanban.services.production_material_flow.submit_production_stock_entry", args: {
 			stock_entry, event_token: frappe.utils.get_random(24),
@@ -1991,11 +1991,46 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		});
 		state.active_material_trace_dialog = { dialog, stock_entry };
 		dialog.onhide = () => {
+			dialog.$wrapper.off(".cfg_material_trace_persist");
 			if (state.active_material_trace_dialog?.dialog === dialog) state.active_material_trace_dialog = null;
 			focus_scanner();
 		};
 		dialog.show();
+		configure_operator_material_trace_dialog(dialog);
 		await refresh_operator_trace_dialog(dialog, plan, reload);
+	}
+
+	function configure_operator_material_trace_dialog(dialog) {
+		dialog.cfg_operator_close_requested = false;
+		const modal = dialog.$wrapper.data("bs.modal");
+		if (modal && modal._config) {
+			modal._config.backdrop = "static";
+			modal._config.keyboard = false;
+		}
+		dialog.$wrapper
+			.off("click.cfg_material_trace_persist")
+			.on("click.cfg_material_trace_persist",
+				".modal-header .close, .modal-header .btn-modal-close, .modal-header [data-dismiss='modal']", () => {
+					dialog.cfg_operator_close_requested = true;
+				})
+			.off("hide.bs.modal.cfg_material_trace_persist")
+			.on("hide.bs.modal.cfg_material_trace_persist", (event) => {
+				if (!dialog.cfg_material_scan_lock || dialog.cfg_operator_close_requested) return;
+				event.preventDefault();
+				refocus_operator_material_trace(dialog);
+			});
+	}
+
+	function close_operator_material_trace_dialog(dialog) {
+		dialog.cfg_operator_close_requested = true;
+		dialog.hide();
+	}
+
+	function refocus_operator_material_trace(dialog, delay = 80) {
+		window.setTimeout(() => {
+			if (dialog.cfg_operator_close_requested || !dialog.$wrapper.is(":visible")) return;
+			dialog.get_field("trace_scan")?.set_focus();
+		}, delay);
 	}
 
 	async function load_operator_trace_plan(stock_entry) {
@@ -2097,16 +2132,28 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			bind_operator_trace_enter(dialog, "output_scan", "stage_output");
 		}
 		bind_material_trace_scanner(dialog);
-		dialog.fields_dict.lines.$wrapper.find("[data-cancel-operator-trace-line]").off("click").on("click", async (event) => {
-			await frappe.call({ method: "cfg_kanban.services.production_trace.cancel_trace_line", args: {
-				stock_entry: plan.stock_entry, trace_line: event.currentTarget.dataset.cancelOperatorTraceLine,
-				operator_session_token: state.session_token, kanban_card: state.context.card.name,
-			}, freeze: true, freeze_message: __("Releasing staged trace line...") });
-			await reload();
-		});
+		dialog.fields_dict.lines.$wrapper.find("[data-cancel-operator-trace-line]")
+			.off("click.cfg_cancel_trace_line").on("click.cfg_cancel_trace_line", async (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				const $button = $(event.currentTarget);
+				if ($button.prop("disabled")) return;
+				$button.prop("disabled", true);
+				try {
+					await frappe.call({ method: "cfg_kanban.services.production_trace.cancel_trace_line", args: {
+						stock_entry: plan.stock_entry, trace_line: event.currentTarget.dataset.cancelOperatorTraceLine,
+						operator_session_token: state.session_token, kanban_card: state.context.card.name,
+					}, freeze: true, freeze_message: __("Releasing staged trace line...") });
+					frappe.show_alert({ message: __("Staged material released"), indicator: "green" });
+					await reload();
+				} finally {
+					$button.prop("disabled", false);
+					refocus_operator_material_trace(dialog);
+				}
+			});
 		const $lines = dialog.fields_dict.lines.$wrapper;
-		$lines.off("click.cfg_cancel_wip_bin", "[data-cancel-wip-bin-load]")
-			.on("click.cfg_cancel_wip_bin", "[data-cancel-wip-bin-load]", async (event) => {
+		$lines.find("[data-cancel-wip-bin-load]")
+			.off("click.cfg_cancel_wip_bin").on("click.cfg_cancel_wip_bin", async (event) => {
 			event.preventDefault();
 			event.stopPropagation();
 			const $button = $(event.currentTarget);
@@ -2128,10 +2175,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				await reload();
 			} finally {
 				$button.prop("disabled", false);
-				window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
+				refocus_operator_material_trace(dialog);
 			}
 		});
-		window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
+		refocus_operator_material_trace(dialog);
 	}
 
 	async function refresh_wip_partial_controls(dialog, rows) {
@@ -2179,9 +2226,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		dialog.get_field(scan_field).$input.off("keydown.cfg_material_trace").on("keydown.cfg_material_trace", (event) => {
 			if (event.key !== "Enter" && event.key !== "Tab") return;
 			event.preventDefault();
+			event.stopPropagation();
 			const value = String(dialog.get_value(scan_field) || "").trim().toUpperCase();
 			if (value === "CFG:CMD:SUBMIT_MATERIALS") return submit_scanner_material_entry();
-			if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(value)) return dialog.hide();
+			if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(value)) {
+				return close_operator_material_trace_dialog(dialog);
+			}
 			dialog.get_field(action_field).$input.trigger("click");
 		});
 	}
@@ -2193,8 +2243,22 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			.on("keydown.cfg_material_trace_scanner", (event) => {
 				if (event.key !== "Enter" && event.key !== "Tab") return;
 				event.preventDefault();
-				handle_material_trace_scan(dialog, field.$input.val());
+				event.stopPropagation();
+				run_material_trace_scan(dialog, field.$input.val());
 			});
+	}
+
+	async function run_material_trace_scan(dialog, raw_value) {
+		if (dialog.cfg_material_scan_lock) return;
+		dialog.cfg_material_scan_lock = true;
+		try {
+			await handle_material_trace_scan(dialog, raw_value);
+		} finally {
+			window.setTimeout(() => {
+				dialog.cfg_material_scan_lock = false;
+				refocus_operator_material_trace(dialog, 0);
+			}, 180);
+		}
 	}
 
 	async function handle_material_trace_scan(dialog, raw_value) {
@@ -2205,7 +2269,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (command === "CFG:CMD:SUBMIT_MATERIALS" || command === "CFG:CMD:CONFIRM") {
 			return submit_scanner_material_entry();
 		}
-		if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(command)) return dialog.hide();
+		if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(command)) {
+			return close_operator_material_trace_dialog(dialog);
+		}
 		const pending_wip = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
 			row.direction === "Input" && row.wip_bin_required && row.wip_bin_remaining_qty > 0.000001);
 		if (pending_wip.length) {
@@ -2392,7 +2458,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const e = frappe.utils.escape_html;
 		const trace_rows = (plan.lines || []).map((line) => `<tr><td>${e(line.direction)}</td><td>${e(line.item_code)}</td>
 			<td>${e(line.handling_unit || line.pending_tag_code || "-")}</td><td>${e(line.qty)} ${e(line.stock_uom)}${line.serial_count ? `<br><small>${e(line.serial_count)} ${__("serials")}</small>` : ""}</td>
-			<td>${e(line.status)}</td><td>${line.can_cancel ? `<button class="btn btn-xs btn-danger" data-cancel-operator-trace-line="${e(line.name)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
+			<td>${e(line.status)}</td><td>${line.can_cancel ? `<button type="button" class="btn btn-xs btn-danger" data-cancel-operator-trace-line="${e(line.name)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
 		const wip_rows = wip_loads.map((load) => `<tr><td>${__("WIP Bin")}${load.partial_exception ? `<br><span class="indicator-pill orange">${__("Supervisor Partial Exception")}</span>` : ""}</td><td>${e(load.item_code)}</td>
 			<td>${e(load.reusable_bin)}${load.partial_exception ? `<br><small>${e(load.exception_reason || "")}</small><br><small>${e(load.approved_by_operator || load.approved_by || "")}</small>` : ""}</td><td>${e(load.actual_qty)} ${e(load.stock_uom)}</td><td>${e(load.status)}</td>
 			<td>${["Transfer Draft", "Consumption Draft"].includes(load.status) ? `<button type="button" class="btn btn-xs btn-danger" data-cancel-wip-bin-load="${e(load.name)}" data-wip-bin-status="${e(load.status)}">${__("Cancel")}</button>` : ""}</td></tr>`).join("");
