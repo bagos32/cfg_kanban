@@ -299,6 +299,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (!value) return;
 		state.last_operator_interaction_at = Date.now();
 		scan.set_value("");
+		const trace_dialog = state.active_material_trace_dialog?.dialog;
+		if (trace_dialog?.$wrapper?.is(":visible")) {
+			return run_material_trace_scan(trace_dialog, value);
+		}
 		if (await dispatch_scanner_command(value)) return;
 		if (!state.operator || state.awaiting_operator_scan) {
 			state.awaiting_operator_scan = false;
@@ -2264,11 +2268,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	}
 
 	function bind_operator_trace_enter(dialog, scan_field, action_field) {
-		dialog.get_field(scan_field).$input.off("keydown.cfg_material_trace").on("keydown.cfg_material_trace", (event) => {
+		dialog.get_field(scan_field).$input.off("keydown.cfg_material_trace").on("keydown.cfg_material_trace", async (event) => {
 			if (event.key !== "Enter" && event.key !== "Tab") return;
 			event.preventDefault();
-			event.stopPropagation();
-			const value = String(dialog.get_value(scan_field) || "").trim().toUpperCase();
+			event.stopImmediatePropagation();
+			const direct_scan_value = String(event.currentTarget.value || "").trim();
+			await dialog.set_value(scan_field, direct_scan_value);
+			const value = direct_scan_value.toUpperCase();
 			if (value === "CFG:CMD:SUBMIT_MATERIALS") return submit_scanner_material_entry();
 			if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(value)) {
 				return close_operator_material_trace_dialog(dialog);

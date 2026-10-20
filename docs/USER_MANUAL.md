@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.76
+**Guide version:** 1.77
 
 **Updated:** 20 October 2026
 
@@ -1161,6 +1161,10 @@ a Draft native `Material Consumption for Manufacture` using only the Ready load 
 their WIP Warehouse/Batch snapshots. In **Production Material Trace**, scan each physical Ready
 bin. A scan changes only the audit/load intent to `Consumption Draft`; it does not change ERP stock.
 An incorrect Draft scan can be cancelled and the bin returns to `Ready`.
+The fixed scanner may use either the persistent **Scanner Ready** field or the visible **Ready
+Reusable WIP Bin** field. The direct field reads the browser's completed scan before allocation, and
+any scan that falls back to the underlying Production scanner while Material Trace is open is
+redirected into the same Material Trace workflow instead of being treated as a Kanban Card.
 
 If the component normally requires a production-input Stock Tag, that policy is enforced when the
 source material is allocated into the WIP bin. At consumption, the matching Ready WIP-bin scan is
@@ -3508,6 +3512,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.77 | 20 October 2026 | Restored reliable Ready WIP-bin recognition in the full Production Material Trace dialog: direct-field Enter/Tab now synchronizes the completed browser scan before allocation, and scans reaching the underlying Production scanner are redirected to the open trace workflow |
 | 1.76 | 20 October 2026 | Reverted the progressive Production Material Trace presentation from 1.74 after floor acceptance found scanner-command and field-visibility regressions; restored the previously proven persistent scanner dialog and full material controls while retaining later production-cycle closure work |
 | 1.75 | 20 October 2026 | Added all-or-nothing main-production closure of related Process/Station runtime Cycles: eligible operation Cards are completed and recycled automatically, while incomplete quantity, Job Card, WIP-bin, task-gate or ownership conditions keep the main Card open with an exact blocker |
 | 1.73 | 20 October 2026 | Added a persistent **Scan Operator with Camera** action directly in the Production scanner header before login and while switching operator, while retaining fixed-scanner and credential/PIN alternatives |
