@@ -275,7 +275,8 @@ On short or tablet-sized Production terminals, the sticky header uses a single c
 operator-and-station row. The Employee name remains prominent, the Station stays visible beside it,
 and repeated scanner guidance and Current-action detail text are collapsed. Scanner state, the next
 action title, **Go to current work**, and Refresh remain available without occupying most of the
-working area.
+working area. Before an operator is identified, **Scan Operator with Camera** is displayed directly
+in this scanner header; it does not depend on finding the Desk page-menu action.
 
 When a separate Process or Station Kanban Card reports against a Job Card belonging to an open
 Production Card, ERPNext remains the quantity authority. The Production Card mirrors the cumulative
@@ -3496,6 +3497,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.73 | 20 October 2026 | Added a persistent **Scan Operator with Camera** action directly in the Production scanner header before login and while switching operator, while retaining fixed-scanner and credential/PIN alternatives |
 | 1.72 | 20 October 2026 | Compressed the Production Operator sticky header for 8-inch tablets: operator and Station now share one row, repeated scanner/current-action guidance collapses on short screens, and the essential scanner state, current action and navigation controls remain visible |
 | 1.71 | 20 October 2026 | Separated scanner Cancel from material reversal: closing Production Material Trace now restores the main Scanner Ready field after the modal transition, while persistent Release/Cancel Loaded Material row actions reverse the selected Draft allocation without closing the dialog |
 | 1.70 | 20 October 2026 | Added suffix-independent Scanner Ready processing and focus-time handler rebinding so a scanned reusable WIP-bin code is recognized and allocated instead of remaining as inactive text after the source-tag step |

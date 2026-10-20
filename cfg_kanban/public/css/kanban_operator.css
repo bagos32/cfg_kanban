@@ -436,6 +436,13 @@
 .cfg-scanner-ready.orange { border-left: 5px solid var(--orange-500); }
 .cfg-scanner-ready.red { border-left: 5px solid var(--red-500); }
 
+.cfg-scanner-ready .cfg-operator-camera-header {
+	flex: 0 0 auto;
+	min-height: 38px;
+	font-weight: 700;
+	white-space: nowrap;
+}
+
 .cfg-kanban-operator .btn,
 .cfg-kanban-card-camera .btn {
 	min-height: 44px;
@@ -505,6 +512,8 @@
 
 	.cfg-operator-sticky-shell .cfg-scanner-ready {
 		min-height: 32px;
+		align-items: center;
+		flex-direction: row;
 		padding: 5px 8px;
 		gap: 6px;
 	}
@@ -516,6 +525,13 @@
 	.cfg-operator-sticky-shell .cfg-scanner-ready .indicator-pill {
 		font-size: 10px;
 		line-height: 1.2;
+	}
+
+	.cfg-operator-sticky-shell .cfg-operator-camera-header {
+		min-height: 32px;
+		margin-left: auto;
+		padding: 4px 8px;
+		font-size: 11px;
 	}
 
 	.cfg-operator-sticky-shell .cfg-production-identity {

@@ -837,10 +837,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	function set_scanner_message(message, color) {
 		state.scanner_message = message;
 		const indicator_color = color || "green";
+		const operator_camera = (!state.operator || state.awaiting_operator_scan)
+			? `<button type="button" class="btn btn-primary btn-sm cfg-operator-camera-header">${__("Scan Operator with Camera")}</button>`
+			: "";
 		$scanner_status.html(`<div class="cfg-scanner-ready ${indicator_color}">
 			<span class="indicator-pill ${indicator_color}">${frappe.utils.escape_html(message)}</span>
 			<small>${__("No field selection or deletion is required. Scanner suffix should be Enter.")}</small>
+			${operator_camera}
 		</div>`);
+		$scanner_status.find(".cfg-operator-camera-header").on("click", scan_operator_qr);
 	}
 
 	function show_scanner_help() {

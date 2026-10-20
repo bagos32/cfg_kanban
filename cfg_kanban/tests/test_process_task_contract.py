@@ -127,6 +127,8 @@ class TestProcessTaskContract(TestCase):
         self.assertIn("cfg-production-identity", operator_console)
         self.assertIn("cfg-production-operator-details", operator_console)
         self.assertIn("cfg-production-station", operator_console)
+        self.assertIn("cfg-operator-camera-header", operator_console)
+        self.assertIn("Scan Operator with Camera", operator_console)
         self.assertIn("Active Work", operator_console)
         operator_css = (ROOT / "public" / "css" / "kanban_operator.css").read_text()
         self.assertIn("@media (max-width: 1100px), (max-height: 850px)", operator_css)
