@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.71
+**Guide version:** 1.74
 
 **Updated:** 20 October 2026
 
@@ -2046,6 +2046,16 @@ output row exists. Scans captured before browser focus reaches this field are ro
 window instead of being interpreted as a new Kanban card. Rows marked **No Physical Tag** require no
 scan and remain controlled by the ERPNext Stock Entry.
 
+The normal floor view is deliberately progressive. It shows one highlighted **NEXT STEP**, the
+persistent scanner field, and one **Scan Material with Camera** action. ERP row tables, manual row
+selectors, quantities, output-tag options and staged-line history remain hidden under **Show manual
+controls and ERP material details**. After a successful scan, a compact confirmation card appears
+with the accepted tag, Item, quantity, Warehouse and Batch. For a two-scan WIP-bin load, the first
+source scan changes the highlighted instruction to **Scan the empty WIP Bin**; the final scan then
+shows the allocated bin confirmation. Supervisor partial-bin controls remain visible whenever that
+controlled exception is the active required step. This compact display does not weaken ERPNext
+validation, cancellation, audit history, or scanner-command behavior.
+
 The scanner determines the active stage from the Stock Entry's pending input/output rows, not from
 the visual position of fields in the popup. If a scanned Handling Unit belongs to an Item outside
 the remaining input list, the system identifies that Item and rejects it without allocating or
@@ -3497,6 +3507,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.74 | 20 October 2026 | Simplified Production Material Trace into a progressive scanner workflow: one highlighted next action, compact scan confirmation, a single camera action, and optional manual/ERP details while retaining validation, cancellation and audit controls |
 | 1.73 | 20 October 2026 | Added a persistent **Scan Operator with Camera** action directly in the Production scanner header before login and while switching operator, while retaining fixed-scanner and credential/PIN alternatives |
 | 1.72 | 20 October 2026 | Compressed the Production Operator sticky header for 8-inch tablets: operator and Station now share one row, repeated scanner/current-action guidance collapses on short screens, and the essential scanner state, current action and navigation controls remain visible |
 | 1.71 | 20 October 2026 | Separated scanner Cancel from material reversal: closing Production Material Trace now restores the main Scanner Ready field after the modal transition, while persistent Release/Cancel Loaded Material row actions reverse the selected Draft allocation without closing the dialog |
