@@ -1927,16 +1927,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		dialog = new frappe.ui.Dialog({
 			title: __("Production Material Trace: {0}", [stock_entry]), size: "extra-large",
 			fields: [
-				{ fieldname: "trace_next_step", fieldtype: "HTML" },
+				{ fieldname: "summary", fieldtype: "HTML" },
 				{ fieldname: "trace_scanner_status", fieldtype: "HTML" },
 				{ fieldname: "trace_scan", label: __("Scanner Ready — Scan Material Tag or Command"), fieldtype: "Data",
 					description: __("This field remains armed. A physical tag is matched to its ERP row automatically. Scan Submit Materials when staging is complete, or Cancel to close.") },
-				{ fieldname: "trace_camera", label: __("Scan Material with Camera"), fieldtype: "Button",
-					click: () => open_camera_scanner((value) => run_material_trace_scan(dialog, value)) },
-				{ fieldname: "trace_confirmation", fieldtype: "HTML" },
-				{ fieldname: "show_trace_details", label: __("Show manual controls and ERP material details"),
-					fieldtype: "Check", default: 0 },
-				{ fieldname: "summary", fieldtype: "HTML" },
 				{ fieldname: "wip_bin_section", label: __("Load Standard Quantity Reusable WIP Bin"), fieldtype: "Section Break" },
 				{ fieldname: "wip_bin_row", label: __("WIP Bin ERP Material Row"), fieldtype: "Select",
 					description: __("Use the numbered scanner command to select a different row when more than one material uses fixed WIP bins.") },
@@ -1966,15 +1960,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				{ fieldname: "input_qty", label: __("Stock Quantity (0 = automatic)"), fieldtype: "Float", default: 0 },
 				{ fieldname: "allocate_input", label: __("Allocate Input Tag"), fieldtype: "Button",
 					click: async () => {
-						const scan_value = dialog.get_value("input_scan");
-						const response = await frappe.call({ method: "cfg_kanban.services.production_trace.allocate_input_tag", args: {
+						await frappe.call({ method: "cfg_kanban.services.production_trace.allocate_input_tag", args: {
 							stock_entry, item_row: null,
-							scan_value, qty: dialog.get_value("input_qty") || 0,
+							scan_value: dialog.get_value("input_scan"), qty: dialog.get_value("input_qty") || 0,
 							operator_session_token: state.session_token, kanban_card: state.context.card.name,
 						}, freeze: true, freeze_message: __("Reserving tagged production input...") });
-						const accepted = [...(response.message?.lines || [])].reverse()
-							.find((line) => line.direction === "Input");
-						dialog.cfg_trace_confirmation = { scan_value, direction: "Input", ...accepted };
 						frappe.show_alert({ message: __("Input tag reserved"), indicator: "green" });
 						await dialog.set_value("input_scan", "");
 						await reload();
@@ -1992,17 +1982,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					options: "Pallet\nMesh\nTote\nContainer\nReusable Box\nOther", default: "Container" },
 				{ fieldname: "stage_output", label: __("Stage Output Tag"), fieldtype: "Button",
 					click: async () => {
-						const scan_value = dialog.get_value("output_scan");
-						const response = await frappe.call({ method: "cfg_kanban.services.production_trace.stage_output_tag", args: {
+						await frappe.call({ method: "cfg_kanban.services.production_trace.stage_output_tag", args: {
 							stock_entry, item_row: operator_trace_row_name(dialog.get_value("output_row")),
-							scan_value, qty: dialog.get_value("output_qty"),
+							scan_value: dialog.get_value("output_scan"), qty: dialog.get_value("output_qty"),
 							handling_unit_type: dialog.get_value("handling_unit_type"),
 							serial_numbers: dialog.get_value("output_serial_numbers"),
 							operator_session_token: state.session_token, kanban_card: state.context.card.name,
 						}, freeze: true, freeze_message: __("Staging production output tag...") });
-						const accepted = [...(response.message?.lines || [])].reverse()
-							.find((line) => line.direction === "Output");
-						dialog.cfg_trace_confirmation = { scan_value, direction: "Output", ...accepted };
 						frappe.show_alert({ message: __("Output tag staged pending ERP submission"), indicator: "green" });
 						await dialog.set_value("output_scan", "");
 						await reload();
@@ -2012,7 +1998,6 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			],
 		});
 		state.active_material_trace_dialog = { dialog, stock_entry };
-		dialog.$wrapper.addClass("cfg-material-trace-dialog");
 		dialog.onhide = () => {
 			if (dialog.cfg_trace_scan_input && dialog.cfg_trace_scan_handler) {
 				dialog.cfg_trace_scan_input.removeEventListener(
@@ -2031,9 +2016,6 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		};
 		dialog.show();
 		configure_operator_material_trace_dialog(dialog);
-		dialog.get_field("show_trace_details").$input
-			.off("change.cfg_trace_details")
-			.on("change.cfg_trace_details", () => refresh_operator_trace_progressive_ui(dialog));
 		await refresh_operator_trace_dialog(dialog, plan, reload);
 	}
 
@@ -2114,7 +2096,6 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const input_visible = plan.can_edit && input_options.length;
 		const output_visible = plan.can_edit && output_options.length;
 		const wip_visible = plan.can_edit && wip_options.length;
-		const ready_to_submit = Boolean(plan.can_edit && !input_visible && !output_visible && !wip_visible);
 		const wip_consumption = wip_visible && wip_inputs.some((row) => row.wip_bin_action === "Consume");
 		const scanner_instruction = wip_visible
 			? operator_wip_scanner_instruction(dialog, wip_inputs)
@@ -2122,11 +2103,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			? __("Scanner ready for an INPUT handling-unit tag. The Item, Warehouse, UOM, Batch, and ERP row are selected automatically.")
 			: output_visible
 				? __("All required input tags are staged. Scanner ready for an unused OUTPUT tag.")
-				: ready_to_submit
+				: plan.can_submit
 					? __("Tag staging is complete. Scan Submit Materials to post the ERPNext entry.")
 					: __("No physical tag scan is required for the remaining ERP rows.");
-		dialog.cfg_trace_ui = { inputs, wip_inputs, outputs, input_visible, output_visible,
-			wip_visible, wip_consumption, ready_to_submit, scanner_instruction };
+		dialog.fields_dict.trace_scanner_status.$wrapper.html(
+			`<div class="alert alert-success py-2"><strong>${__("Scanner Ready")}</strong><br>${scanner_instruction}</div>`
+		);
 		["input_section", "input_row", "input_scan", "input_camera", "input_qty", "allocate_input"]
 			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(input_visible)));
 		["wip_bin_section", "wip_bin_row", "wip_bin_scan", "allocate_wip_bin"]
@@ -2184,93 +2166,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			bind_operator_trace_enter(dialog, "output_scan", "stage_output");
 		}
 		bind_material_trace_scanner(dialog);
-		refresh_operator_trace_progressive_ui(dialog);
 		refocus_operator_material_trace(dialog);
-	}
-
-	function refresh_operator_trace_progressive_ui(dialog) {
-		const plan = dialog.cfg_trace_plan || {};
-		const ui = dialog.cfg_trace_ui || {};
-		const details = Boolean(dialog.get_value("show_trace_details"));
-		const e = frappe.utils.escape_html;
-		const current_instruction = ui.wip_visible
-			? operator_wip_scanner_instruction(dialog, ui.wip_inputs || [])
-			: ui.scanner_instruction;
-		let step_label = __("Review material status");
-		let step_number = 1;
-		let tone = "blue";
-		if (ui.wip_visible) {
-			const row = operator_wip_row(ui.wip_inputs || [], dialog.get_value("wip_bin_row")) ||
-				(ui.wip_inputs || [])[0];
-			step_number = dialog.get_value("wip_source_scan") || dialog.cfg_wip_erp_only ? 2 : 1;
-			step_label = row?.wip_bin_action === "Consume"
-				? __("Scan the Ready WIP Bin")
-				: step_number === 1 ? __("Scan the source material tag") : __("Scan the empty WIP Bin");
-		} else if (ui.input_visible) {
-			step_label = __("Scan the material input tag");
-		} else if (ui.output_visible) {
-			step_label = __("Scan an unused output tag");
-		} else if (ui.ready_to_submit) {
-			step_number = 3;
-			step_label = __("Submit the ERP material entry");
-			tone = "green";
-		} else {
-			step_number = 3;
-			tone = "gray";
-		}
-		dialog.fields_dict.trace_next_step.$wrapper.html(`<div class="cfg-material-next-step ${tone}">
-			<span class="cfg-material-step-number">${step_number}</span><div><small>${__("NEXT STEP")}</small>
-			<strong>${e(step_label)}</strong><span>${e(current_instruction || "")}</span></div></div>`);
-		dialog.fields_dict.trace_scanner_status.$wrapper.html(
-			`<div class="cfg-material-scanner-ready"><span class="indicator green"></span><strong>${__("Scanner Ready")}</strong></div>`
-		);
-		dialog.fields_dict.trace_confirmation.$wrapper.html(operator_trace_confirmation(dialog, plan));
-		dialog.get_field("trace_confirmation").wrapper.toggle(Boolean(dialog.cfg_trace_confirmation));
-
-		["summary", "line_section", "lines"].forEach((name) =>
-			dialog.get_field(name).wrapper.toggle(details));
-		const manual_groups = {
-			wip: ["wip_bin_section", "wip_bin_row", "wip_source_scan", "wip_bin_scan", "allocate_wip_bin"],
-			input: ["input_section", "input_row", "input_scan", "input_camera", "input_qty", "allocate_input"],
-			output: ["output_section", "output_row", "output_scan", "output_camera", "output_qty",
-				"output_serial_numbers", "handling_unit_type", "stage_output"],
-		};
-		manual_groups.wip.forEach((name) => dialog.get_field(name).wrapper.toggle(
-			details && Boolean(ui.wip_visible) && (name !== "wip_source_scan" || !ui.wip_consumption)));
-		manual_groups.input.forEach((name) => dialog.get_field(name).wrapper.toggle(
-			details && Boolean(ui.input_visible)));
-		manual_groups.output.forEach((name) => dialog.get_field(name).wrapper.toggle(
-			details && Boolean(ui.output_visible)));
-		// Partial-bin approval is an active controlled step, not optional diagnostic detail.
-		if (!details) {
-			["wip_partial_notice", "wip_partial_qty", "wip_partial_reason", "allocate_partial_wip_bin"]
-				.forEach((name) => {
-					if (!dialog.get_field(name).wrapper.is(":visible")) return;
-					dialog.get_field(name).wrapper.toggle(Boolean(ui.wip_visible));
-				});
-		}
-	}
-
-	function operator_trace_confirmation(dialog, plan) {
-		const confirmation = dialog.cfg_trace_confirmation;
-		if (!confirmation) return "";
-		const e = frappe.utils.escape_html;
-		const normalized = String(confirmation.scan_value || "").trim().toUpperCase();
-		const lines = plan.lines || [];
-		const line = [...lines].reverse().find((candidate) =>
-			String(candidate.handling_unit || candidate.pending_tag_code || "").trim().toUpperCase() === normalized);
-		const row = (plan.rows || []).find((candidate) =>
-			candidate.row_name === confirmation.row_name) || (plan.rows || []).find((candidate) =>
-			candidate.direction === (line?.direction || confirmation.direction) &&
-			candidate.item_code === line?.item_code && candidate.warehouse === line?.warehouse);
-		return `<div class="cfg-material-scan-confirmation"><div class="cfg-material-confirmation-title">
-			<span class="indicator-pill green">${e(confirmation.label || __("Scan accepted"))}</span><strong>${e(confirmation.scan_value || line?.handling_unit || line?.pending_tag_code || "-")}</strong></div>
-			<div class="cfg-material-confirmation-grid">
-				<div><small>${__("Item")}</small><strong>${e(line?.item_code || confirmation.item_code || row?.item_code || "-")}</strong></div>
-				<div><small>${__("Quantity")}</small><strong>${e(line?.qty ?? confirmation.qty ?? "-")} ${e(line?.stock_uom || confirmation.stock_uom || row?.stock_uom || "")}</strong></div>
-				<div><small>${__("Warehouse")}</small><strong>${e(line?.warehouse || confirmation.warehouse || row?.warehouse || "-")}</strong></div>
-				<div><small>${__("Batch")}</small><strong>${e(line?.batch_no || confirmation.batch_no || row?.batch_no || "-")}</strong></div>
-			</div></div>`;
 	}
 
 	async function cancel_operator_trace_line(dialog, event) {
@@ -2433,12 +2329,6 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		dialog.cfg_active_material_scan = value;
 		dialog.cfg_material_scan_lock = true;
 		try {
-			const command = value.toUpperCase();
-			if (!command.startsWith("CFG:CMD:") && !command.startsWith("CFG:SELECT:") &&
-				!command.startsWith("CFG:QTY:")) {
-				dialog.cfg_trace_confirmation = null;
-				refresh_operator_trace_progressive_ui(dialog);
-			}
 			await handle_material_trace_scan(dialog, value);
 		} finally {
 			window.setTimeout(() => {
@@ -2520,19 +2410,13 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			if (command === "CFG:CMD:NO_SOURCE") {
 				if (row?.tag_required) frappe.throw(__("This Item requires a source Stock Tag."));
 				dialog.cfg_wip_erp_only = true;
-				dialog.cfg_trace_confirmation = { scan_value: __("ERP-only stock"), direction: "Input",
-					row_name: row?.row_name, qty: row?.standard_bin_qty, label: __("Source confirmed") };
 				await dialog.set_value("wip_source_scan", "");
-				refresh_operator_trace_progressive_ui(dialog);
 				frappe.show_alert({ message: __("ERP-only source selected; scan the empty WIP Bin."), indicator: "blue" });
 				return window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
 			}
 			if (!row?.tag_required && row?.tag_policy === "No Physical Tag") dialog.cfg_wip_erp_only = true;
 			if (!dialog.cfg_wip_erp_only && !dialog.get_value("wip_source_scan")) {
 				await dialog.set_value("wip_source_scan", value);
-				dialog.cfg_trace_confirmation = { scan_value: value, direction: "Input",
-					row_name: row?.row_name, qty: row?.standard_bin_qty, label: __("Source tag captured") };
-				refresh_operator_trace_progressive_ui(dialog);
 				frappe.show_alert({ message: __("Source tag captured; now scan the empty WIP Bin."), indicator: "blue" });
 				return window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
 			}
@@ -2612,16 +2496,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				}
 			}
 		}
-		const response = await frappe.call({ method, args, freeze: true,
+		await frappe.call({ method, args, freeze: true,
 			freeze_message: consuming ? __("Binding Ready WIP Bin to ERP consumption...")
 				: __("Reserving source material and WIP Bin...") });
-		const accepted = response.message || {};
-		dialog.cfg_trace_confirmation = {
-			scan_value: dialog.get_value("wip_bin_scan") || accepted.reusable_bin, direction: "Input",
-			row_name: row.row_name,
-			qty: accepted.actual_qty, stock_uom: accepted.stock_uom,
-			label: consuming ? __("Ready WIP Bin accepted") : __("WIP Bin allocated"),
-		};
 		frappe.show_alert({ message: consuming
 			? __("Ready WIP Bin linked; material is consumed only after ERP submission.")
 			: partial

@@ -1823,7 +1823,6 @@ class TestDocTypeSchema(TestCase):
             APP_ROOT / "cfg_kanban" / "page" / "kanban_operator" /
             "kanban_operator.js"
         ).read_text()
-        panel_css = (APP_ROOT / "public" / "css" / "kanban_operator.css").read_text()
         master_form = (APP_ROOT / "public" / "js" /
                        "cfg_kanban_master.js").read_text()
         hooks = (APP_ROOT / "hooks.py").read_text()
@@ -1950,12 +1949,6 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("handle_confirmation_scanner_value(active_dialog, value)", panel)
         self.assertIn('command_dialog.get_field("scanner_command")?.set_focus()', panel)
         self.assertIn("Scanner Ready — Scan Material Tag or Command", panel)
-        self.assertIn("Show manual controls and ERP material details", panel)
-        self.assertIn("refresh_operator_trace_progressive_ui", panel)
-        self.assertIn("operator_trace_confirmation", panel)
-        self.assertIn("Scan Material with Camera", panel)
-        self.assertIn("cfg-material-next-step", panel_css)
-        self.assertIn("cfg-material-confirmation-grid", panel_css)
         self.assertIn("run_material_trace_scan(trace_dialog, value)", panel)
         self.assertIn("configure_operator_material_trace_dialog", panel)
         self.assertIn("bind_material_trace_scanner(dialog)", panel)
