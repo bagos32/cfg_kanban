@@ -271,6 +271,12 @@ Use **Refresh** on the Current action strip for an immediate check; scanning rem
 times. Scanner focus is restored invisibly after live navigation without moving the page back to the
 scanner field, so the operator remains at the selected current-work block.
 
+On short or tablet-sized Production terminals, the sticky header uses a single compact
+operator-and-station row. The Employee name remains prominent, the Station stays visible beside it,
+and repeated scanner guidance and Current-action detail text are collapsed. Scanner state, the next
+action title, **Go to current work**, and Refresh remain available without occupying most of the
+working area.
+
 When a separate Process or Station Kanban Card reports against a Job Card belonging to an open
 Production Card, ERPNext remains the quantity authority. The Production Card mirrors the cumulative
 Job Card quantity into its own execution lane and Operation Result without writing the quantity back
@@ -3490,6 +3496,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.72 | 20 October 2026 | Compressed the Production Operator sticky header for 8-inch tablets: operator and Station now share one row, repeated scanner/current-action guidance collapses on short screens, and the essential scanner state, current action and navigation controls remain visible |
 | 1.71 | 20 October 2026 | Separated scanner Cancel from material reversal: closing Production Material Trace now restores the main Scanner Ready field after the modal transition, while persistent Release/Cancel Loaded Material row actions reverse the selected Draft allocation without closing the dialog |
 | 1.70 | 20 October 2026 | Added suffix-independent Scanner Ready processing and focus-time handler rebinding so a scanned reusable WIP-bin code is recognized and allocated instead of remaining as inactive text after the source-tag step |
 | 1.69 | 20 October 2026 | Made the persistent Material Trace Scanner Ready field capture scanner suffixes directly and queue the next different WIP-bin tag or command instead of dropping it while the source scan finishes |

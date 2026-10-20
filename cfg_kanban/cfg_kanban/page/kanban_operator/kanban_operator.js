@@ -1014,11 +1014,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			return;
 		}
 		const e = frappe.utils.escape_html;
-		$operator_identity.html(`<div><small>${__("Active operator")}</small><strong>${e(state.operator.employee_name)}</strong>
-			<span>${e(state.operator.employee)} · ${e(state.operator.kanban_role || "")}</span>
+		$operator_identity.html(`<div class="cfg-production-operator-details"><small>${__("Active operator")}</small>
+			<strong class="cfg-production-operator-name">${e(state.operator.employee_name)}</strong>
+			<span class="cfg-production-operator-meta">${e(state.operator.employee)} · ${e(state.operator.kanban_role || "")}</span>
 			${state.operator.development_proxy ? `<span class="indicator-pill orange ml-2">${__("Administrator Proxy")}</span>` : ""}</div>
-			<div><small>${__("Station")}</small><strong>${e(state.operator.station || "-")}</strong></div>
-			<button class="btn btn-default btn-sm refresh-shared-session">${__("Refresh Session")}</button>`);
+			<div class="cfg-production-station"><small>${__("Station")}</small><strong>${e(state.operator.station || "-")}</strong></div>
+			<button class="btn btn-default btn-sm refresh-shared-session" title="${__("Refresh operator session")}" aria-label="${__("Refresh operator session")}">${__("Refresh")}</button>`);
 		$operator_identity.find(".refresh-shared-session").on("click", refresh_console);
 		if (state.access && state.access.can_use_development_proxy) {
 			$("<button class='btn btn-warning btn-sm mb-3'>" + __("Change Development Proxy Employee") + "</button>")

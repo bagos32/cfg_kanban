@@ -299,6 +299,44 @@
 	display: block;
 }
 
+.cfg-production-operator-details {
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.cfg-production-operator-name,
+.cfg-production-operator-meta,
+.cfg-production-station strong {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.cfg-production-operator-name {
+	font-size: 17px;
+	line-height: 1.15;
+}
+
+.cfg-production-operator-meta {
+	font-size: 11px;
+	line-height: 1.2;
+	color: var(--text-muted);
+}
+
+.cfg-production-station {
+	min-width: 110px;
+	max-width: 32%;
+	padding-left: 12px;
+	border-left: 1px solid var(--border-color);
+}
+
+.cfg-production-station small,
+.cfg-production-operator-details > small {
+	font-size: 9px;
+	line-height: 1;
+	text-transform: uppercase;
+}
+
 .cfg-live-current-action {
 	display: flex;
 	align-items: center;
@@ -454,6 +492,132 @@
 	.cfg-scanner-ready {
 		align-items: flex-start;
 		flex-direction: column;
+	}
+}
+
+/* Production terminals are commonly 8-inch tablets. Keep the scanner, operator/station
+   identity, and current action visible without allowing the sticky shell to consume the
+   working area. This also overrides the older phone rule that stacked the identity fields. */
+@media (max-width: 1100px), (max-height: 850px) {
+	.cfg-operator-sticky-shell {
+		padding-top: 4px;
+	}
+
+	.cfg-operator-sticky-shell .cfg-scanner-ready {
+		min-height: 32px;
+		padding: 5px 8px;
+		gap: 6px;
+	}
+
+	.cfg-operator-sticky-shell .cfg-scanner-ready > small {
+		display: none;
+	}
+
+	.cfg-operator-sticky-shell .cfg-scanner-ready .indicator-pill {
+		font-size: 10px;
+		line-height: 1.2;
+	}
+
+	.cfg-operator-sticky-shell .cfg-production-identity {
+		min-height: 42px;
+		align-items: center;
+		flex-direction: row;
+		gap: 7px;
+		padding: 5px 8px;
+	}
+
+	.cfg-production-operator-details > small {
+		display: none;
+	}
+
+	.cfg-production-operator-name {
+		font-size: 16px;
+	}
+
+	.cfg-production-operator-meta {
+		font-size: 10px;
+	}
+
+	.cfg-production-station {
+		display: flex !important;
+		min-width: 0;
+		max-width: 34%;
+		align-items: baseline;
+		gap: 4px;
+		padding-left: 7px;
+	}
+
+	.cfg-production-station small {
+		flex: 0 0 auto;
+		font-size: 8px;
+	}
+
+	.cfg-production-station strong {
+		min-width: 0;
+		font-size: 12px;
+	}
+
+	.cfg-operator-sticky-shell .refresh-shared-session {
+		min-height: 30px;
+		padding: 3px 7px;
+		font-size: 10px;
+	}
+
+	.cfg-operator-sticky-shell .cfg-live-current-action {
+		min-height: 38px;
+		align-items: center;
+		flex-direction: row;
+		gap: 6px;
+		padding: 4px 7px;
+	}
+
+	.cfg-operator-sticky-shell .cfg-live-action-copy {
+		min-width: 0;
+		gap: 5px;
+	}
+
+	.cfg-operator-sticky-shell .cfg-live-action-copy > .cfg-live-connection,
+	.cfg-operator-sticky-shell .cfg-live-action-copy small,
+	.cfg-operator-sticky-shell .cfg-live-action-copy span:not(.indicator-pill) {
+		display: none;
+	}
+
+	.cfg-operator-sticky-shell .cfg-live-action-copy strong {
+		font-size: 12px;
+	}
+
+	.cfg-operator-sticky-shell .cfg-live-action-copy .indicator-pill {
+		font-size: 9px;
+	}
+
+	.cfg-operator-sticky-shell .cfg-live-action-buttons {
+		display: flex;
+		flex: 0 0 auto;
+		gap: 4px;
+	}
+
+	.cfg-operator-sticky-shell .cfg-live-action-buttons .btn {
+		min-height: 30px;
+		padding: 3px 6px;
+		font-size: 10px;
+	}
+}
+
+@media (max-width: 600px) {
+	.cfg-production-operator-meta {
+		display: none;
+	}
+
+	.cfg-production-station {
+		max-width: 38%;
+	}
+
+	.cfg-production-station small {
+		display: none;
+	}
+
+	.cfg-operator-sticky-shell .cfg-live-action-copy > .indicator-pill:last-child {
+		display: none;
 	}
 }
 
