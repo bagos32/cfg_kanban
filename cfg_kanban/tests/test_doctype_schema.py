@@ -876,9 +876,16 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('event_type="Physical Production Cycle Completed"', feedback)
         self.assertIn('event_type="Physical Production Card Recycled"', feedback)
         self.assertIn('card.db_set("active_cycle", None', feedback)
+        self.assertIn("def _complete_related_operation_cycles(owner_cycle):", feedback)
+        self.assertIn("def _related_operation_close_context(", feedback)
+        self.assertIn("Related Operation Cycle Auto-Completed", feedback)
+        self.assertIn("Related Operation Card Auto-Released", feedback)
+        self.assertIn("Related operation Card cycle(s) are not ready", feedback)
+        self.assertIn('result["related_operation_cycles"] = related', feedback)
         self.assertIn("reconcile_physical_production_cycle(card.active_cycle)", operator_api)
         self.assertIn('"production_reconciliation": production_reconciliation', operator_api)
         self.assertIn("Production card is waiting to recycle", operator_panel)
+        self.assertIn("Related operation Cards automatically closed and released", operator_panel)
 
     def test_same_company_tagged_warehouse_transfer_is_guided_by_erp_stock_entry(self):
         service = (APP_ROOT / "services" / "production_trace.py").read_text()

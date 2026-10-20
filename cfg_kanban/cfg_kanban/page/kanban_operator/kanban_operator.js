@@ -1088,8 +1088,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		(route_warnings || []).forEach((warning) => $root.append(
 			`<div class="alert alert-warning">${e(warning)}</div>`));
 		if (production_reconciliation?.completed) {
+			const related_closed = production_reconciliation.related_operation_cycles?.closed?.length || 0;
 			$root.append(`<div class="alert alert-success"><strong>${__("Production cycle completed")}</strong><br>
-				${__("ERPNext completion was verified and this reusable Card is Available for its next production cycle.")}</div>`);
+				${__("ERPNext completion was verified and this reusable Card is Available for its next production cycle.")}
+				${related_closed ? `<br>${__("Related operation Cards automatically closed and released")}: <strong>${e(related_closed)}</strong>` : ""}</div>`);
 		} else if (production_reconciliation?.reason &&
 			cycle && (["Production Complete", "Waiting FG Receipt"].includes(cycle.status) ||
 				effective_work_order?.status === "Completed")) {

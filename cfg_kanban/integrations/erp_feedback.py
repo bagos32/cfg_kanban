@@ -422,9 +422,18 @@ def reconcile_physical_production_cycle(
         return {"completed": False, "reason": "Cycle or Card requires supervisor attention"}
 
     if cycle.status == "Completed":
-        return _release_completed_physical_card(
+        related = _complete_related_operation_cycles(cycle)
+        if related["blockers"]:
+            return {
+                "completed": False,
+                "reason": _related_operation_block_reason(related["blockers"]),
+                "related_operation_cycles": related,
+            }
+        result = _release_completed_physical_card(
             cycle, card, reference_doctype, reference_name
         )
+        result["related_operation_cycles"] = related
+        return result
     if not cycle.work_order:
         return {"completed": False, "reason": "Cycle has no effective Work Order"}
     work_order = frappe.db.get_value(
@@ -474,6 +483,14 @@ def reconcile_physical_production_cycle(
             "reason": f"Card state {card.current_state} requires controlled reconciliation",
         }
 
+    related = _complete_related_operation_cycles(cycle)
+    if related["blockers"]:
+        return {
+            "completed": False,
+            "reason": _related_operation_block_reason(related["blockers"]),
+            "related_operation_cycles": related,
+        }
+
     cycle.db_set({
         "actual_good_qty": received_qty,
         "completed_on": now_datetime(),
@@ -483,10 +500,167 @@ def reconcile_physical_production_cycle(
         reference_doctype=reference_doctype or "Work Order",
         reference_name=reference_name or cycle.work_order,
     )
-    return _release_completed_physical_card(
+    result = _release_completed_physical_card(
         cycle, card, reference_doctype or "Work Order",
         reference_name or cycle.work_order,
     )
+    result["related_operation_cycles"] = related
+    return result
+
+
+def _complete_related_operation_cycles(owner_cycle):
+    """Close Process/Station card allocations proved complete by the owning production Cycle.
+
+    The function preflights every active related allocation before changing any one of them. This
+    prevents the main physical Card from recycling while an operation Card still has incomplete
+    Kanban quantity, ERP Job Card, WIP-bin, or Process Task evidence.
+    """
+    if not owner_cycle.work_order:
+        return {"closed": [], "already_released": [], "blockers": []}
+    names = [row[0] for row in frappe.db.sql("""
+        select name
+        from `tabCFG Kanban Cycle`
+        where work_order=%s
+          and name != %s
+          and ifnull(runtime_allocation, '') != ''
+          and status != 'Cancelled'
+        order by creation asc
+        for update
+    """, (owner_cycle.work_order, owner_cycle.name))]
+    candidates = []
+    blockers = []
+    already_released = []
+    for name in names:
+        cycle = frappe.get_doc("CFG Kanban Cycle", name)
+        card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card)
+        if card.card_type not in ("Process Kanban", "Station Kanban"):
+            continue
+        if cycle.status == "Completed" and card.active_cycle != cycle.name:
+            already_released.append(cycle.name)
+            continue
+        blocker, context = _related_operation_close_context(owner_cycle, cycle, card)
+        if blocker:
+            blockers.append(blocker)
+        else:
+            candidates.append(context)
+    if blockers:
+        return {"closed": [], "already_released": already_released, "blockers": blockers}
+
+    closed = []
+    for context in candidates:
+        cycle = context["cycle"]
+        card = context["card"]
+        execution = context["execution"]
+        allocation = context["allocation"]
+        completed_on = now_datetime()
+        if execution.status != "Completed":
+            execution.db_set({"status": "Completed", "completed_on": completed_on},
+                             update_modified=True)
+        if allocation.status != "Completed":
+            notes = (allocation.notes or "").strip()
+            closure_note = f"Auto-closed with main production Cycle {owner_cycle.name}"
+            allocation.db_set({
+                "status": "Completed", "completed_on": completed_on,
+                "good_qty": execution.good_qty, "reject_qty": execution.reject_qty,
+                "notes": f"{notes}\n{closure_note}".strip(),
+            }, update_modified=True)
+        cycle.db_set({
+            "completed_on": completed_on, "actual_good_qty": execution.good_qty,
+            "reject_qty": execution.reject_qty,
+        }, update_modified=True)
+        set_cycle_state(
+            cycle, "Completed", event_type="Related Operation Cycle Auto-Completed",
+            reference_doctype="CFG Kanban Cycle", reference_name=owner_cycle.name,
+        )
+        recalculate(cycle.name, execution.operation)
+        if card.current_state == "Production Released":
+            transition_card(
+                card, "In Production", event_type="Related Operation Reconciled",
+                cycle=cycle.name,
+            )
+            card.reload()
+        if card.current_state == "In Production":
+            transition_card(
+                card, "Produced", event_type="Related Operation Completed",
+                cycle=cycle.name,
+            )
+            card.reload()
+        if card.current_state == "Produced":
+            transition_card(
+                card, "Available", event_type="Related Operation Card Recycled",
+                cycle=cycle.name,
+            )
+            card.reload()
+        if card.active_cycle == cycle.name:
+            card.db_set("active_cycle", None, update_modified=False)
+        record(
+            "Related Operation Card Auto-Released", card=card.name, cycle=cycle.name,
+            execution=execution.name, qty=execution.good_qty,
+            reference_doctype="CFG Kanban Cycle", reference_name=owner_cycle.name,
+            notes=(f"ERPNext Work Order {owner_cycle.work_order} and Job Card "
+                   f"{execution.job_card} are complete; main production closure released this "
+                   "related operation Card."),
+        )
+        closed.append({
+            "cycle": cycle.name, "card": card.name, "operation": execution.operation,
+            "job_card": execution.job_card,
+        })
+    return {"closed": closed, "already_released": already_released, "blockers": []}
+
+
+def _related_operation_close_context(owner_cycle, cycle, card):
+    label = f"{card.card_number or card.name} / {cycle.name}"
+    if card.blocked:
+        return f"{label}: Card is Blocked", None
+    if card.active_cycle != cycle.name:
+        return f"{label}: Card active Cycle does not match this operation Cycle", None
+    if card.current_state not in ("Production Released", "In Production", "Produced", "Available"):
+        return f"{label}: Card state is {card.current_state}", None
+    allocation = frappe.get_doc("CFG Kanban Runtime Allocation", cycle.runtime_allocation)
+    if (allocation.kanban_cycle != cycle.name or allocation.kanban_card != card.name or
+            allocation.work_order != owner_cycle.work_order):
+        return f"{label}: runtime allocation ownership does not match the main Work Order", None
+    if allocation.status == "Cancelled":
+        return f"{label}: runtime allocation is Cancelled", None
+    executions = frappe.get_all(
+        "CFG Kanban Process Execution",
+        filters={"kanban_cycle": cycle.name, "runtime_allocation": allocation.name},
+        pluck="name",
+    )
+    if len(executions) != 1:
+        return f"{label}: expected one runtime execution, found {len(executions)}", None
+    execution = frappe.get_doc("CFG Kanban Process Execution", executions[0])
+    if flt(execution.processed_qty) + 0.000001 < flt(execution.target_qty):
+        return (f"{label}: operation {execution.operation} reported "
+                f"{flt(execution.processed_qty)} of {flt(execution.target_qty)}"), None
+    job = frappe.db.get_value(
+        "Job Card", execution.job_card,
+        ["name", "work_order", "status", "docstatus"], as_dict=True,
+    )
+    if (not job or job.work_order != owner_cycle.work_order or job.docstatus != 1 or
+            job.status != "Completed"):
+        status = job.status if job else "Missing"
+        return f"{label}: ERPNext Job Card {execution.job_card} is {status}", None
+    from cfg_kanban.services.wip_bin_loads import job_card_wip_bin_close_readiness
+    wip_readiness = job_card_wip_bin_close_readiness(job.name)
+    if not wip_readiness["ready"]:
+        return f"{label}: {wip_readiness['reason']}", None
+    from cfg_kanban.services.process_tasks import evaluate_gate
+    gate = evaluate_gate(cycle.name, "Before Cycle Close")
+    if not gate["open"]:
+        task_blockers = ", ".join(
+            f"{row['task_name']} ({row['status']})" for row in gate["blockers"]
+        )
+        return f"{label}: Before Cycle Close is blocked by {task_blockers}", None
+    return None, {
+        "cycle": cycle, "card": card, "allocation": allocation,
+        "execution": execution,
+    }
+
+
+def _related_operation_block_reason(blockers):
+    return ("Related operation Card cycle(s) are not ready to close automatically: "
+            + "; ".join(blockers))
 
 
 def _release_completed_physical_card(

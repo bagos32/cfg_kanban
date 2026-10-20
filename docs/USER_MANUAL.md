@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.74
+**Guide version:** 1.75
 
 **Updated:** 20 October 2026
 
@@ -1384,6 +1384,17 @@ Closure marks the execution/allocation/Cycle Completed and returns the reusable 
 Production Released → In Production → Produced → Available. It clears Active Cycle. If several
 card cycles feed one larger Job Card, the Job Card remains open until cumulative completed quantity
 reaches its own full target.
+
+The operator no longer needs to revisit every related Process/Station Card after the main physical
+production Card becomes ready to close. Main Cycle reconciliation first finds every runtime Cycle
+for the same effective Work Order and pre-checks them as one set. Any operation Card whose full
+Kanban allocation is reported, submitted Job Card is Completed, WIP-bin state is safe, and Before
+Cycle Close task gate is open is completed and recycled together with the main Card. The automatic
+closure retains separate Cycle, allocation, execution, Card-transition and Event audit records.
+If even one related operation Cycle is genuinely incomplete or inconsistent, none of the remaining
+operation Cards are auto-closed and the main Card stays open with the exact blocking Card/Cycle and
+reason. The individual **Close Kanban Cycle** action remains available when an operation Card must
+be released before the overall Work Order and finished-goods receipt are complete.
 
 ## 9. Stock-based Sales Order proposals
 
@@ -3507,6 +3518,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.75 | 20 October 2026 | Added all-or-nothing main-production closure of related Process/Station runtime Cycles: eligible operation Cards are completed and recycled automatically, while incomplete quantity, Job Card, WIP-bin, task-gate or ownership conditions keep the main Card open with an exact blocker |
 | 1.74 | 20 October 2026 | Simplified Production Material Trace into a progressive scanner workflow: one highlighted next action, compact scan confirmation, a single camera action, and optional manual/ERP details while retaining validation, cancellation and audit controls |
 | 1.73 | 20 October 2026 | Added a persistent **Scan Operator with Camera** action directly in the Production scanner header before login and while switching operator, while retaining fixed-scanner and credential/PIN alternatives |
 | 1.72 | 20 October 2026 | Compressed the Production Operator sticky header for 8-inch tablets: operator and Station now share one row, repeated scanner/current-action guidance collapses on short screens, and the essential scanner state, current action and navigation controls remain visible |
