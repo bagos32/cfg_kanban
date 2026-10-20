@@ -1138,6 +1138,9 @@ releases its source reservation and returns the reusable bin to its prior safe s
 The Scanner Ready field captures Enter/Tab before the surrounding modal can handle it. If the next
 different tag or command arrives while the source scan is still completing, it is retained and
 processed immediately afterward instead of being silently discarded.
+If a scanner does not transmit its configured Enter/Tab suffix, the completed code is automatically
+accepted after a short scanner-input pause. This fallback applies equally to commands, source Stock
+Tags, and reusable WIP-bin codes; the visible code must not remain idle in the Scanner Ready field.
 
 The operation-time WIP-bin consumption gate is now connected. After the submitted transfer makes
 one or more loads `Ready`, the exact Job Card shows **Consume Ready WIP Bins**. That action creates
@@ -3481,6 +3484,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.70 | 20 October 2026 | Added suffix-independent Scanner Ready processing and focus-time handler rebinding so a scanned reusable WIP-bin code is recognized and allocated instead of remaining as inactive text after the source-tag step |
 | 1.69 | 20 October 2026 | Made the persistent Material Trace Scanner Ready field capture scanner suffixes directly and queue the next different WIP-bin tag or command instead of dropping it while the source scan finishes |
 | 1.68 | 20 October 2026 | Kept Production Material Trace open across source-tag and WIP-bin scans, isolated scanner Enter/Tab from modal dismissal, and repaired both ordinary staged-material and Draft WIP-bin cancellation controls |
 | 1.67 | 19 October 2026 | Corrected the ERPNext manufacturing order for WIP bins: Job Card completion now permits Ready/In-Use/Consumption-Draft loads so ERPNext can accept their material consumption, while Transfer Draft/Open reconciliation still block Job Card submission and Cycle/Manufacture closure remain blocked until every load is Consumed |

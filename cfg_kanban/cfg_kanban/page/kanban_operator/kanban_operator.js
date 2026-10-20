@@ -1996,6 +1996,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					"keydown", dialog.cfg_trace_scan_handler, true
 				);
 			}
+			if (dialog.cfg_trace_scan_input && dialog.cfg_trace_input_handler) {
+				dialog.cfg_trace_scan_input.removeEventListener(
+					"input", dialog.cfg_trace_input_handler, true
+				);
+			}
+			window.clearTimeout(dialog.cfg_trace_scan_timer);
 			dialog.$wrapper.off(".cfg_material_trace_persist");
 			if (state.active_material_trace_dialog?.dialog === dialog) state.active_material_trace_dialog = null;
 			focus_scanner();
@@ -2034,6 +2040,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	function refocus_operator_material_trace(dialog, delay = 80) {
 		window.setTimeout(() => {
 			if (dialog.cfg_operator_close_requested || !dialog.$wrapper.is(":visible")) return;
+			bind_material_trace_scanner(dialog);
 			dialog.get_field("trace_scan")?.set_focus();
 		}, delay);
 	}
@@ -2250,18 +2257,36 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				"keydown", dialog.cfg_trace_scan_handler, true
 			);
 		}
+		if (dialog.cfg_trace_scan_input && dialog.cfg_trace_input_handler) {
+			dialog.cfg_trace_scan_input.removeEventListener(
+				"input", dialog.cfg_trace_input_handler, true
+			);
+		}
+		window.clearTimeout(dialog.cfg_trace_scan_timer);
 		const input = field.$input.get(0);
+		const submit = () => {
+			window.clearTimeout(dialog.cfg_trace_scan_timer);
+			const value = String(input.value || "").trim();
+			if (!value) return;
+			input.value = "";
+			run_material_trace_scan(dialog, value);
+		};
 		const handler = (event) => {
 			if (event.key !== "Enter" && event.key !== "Tab") return;
 			event.preventDefault();
 			event.stopImmediatePropagation();
-			const value = input.value;
-			input.value = "";
-			run_material_trace_scan(dialog, value);
+			submit();
+		};
+		const input_handler = () => {
+			window.clearTimeout(dialog.cfg_trace_scan_timer);
+			if (!String(input.value || "").trim()) return;
+			dialog.cfg_trace_scan_timer = window.setTimeout(submit, 180);
 		};
 		input.addEventListener("keydown", handler, true);
+		input.addEventListener("input", input_handler, true);
 		dialog.cfg_trace_scan_input = input;
 		dialog.cfg_trace_scan_handler = handler;
+		dialog.cfg_trace_input_handler = input_handler;
 	}
 
 	async function run_material_trace_scan(dialog, raw_value) {

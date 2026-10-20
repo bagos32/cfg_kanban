@@ -1946,6 +1946,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("configure_operator_material_trace_dialog", panel)
         self.assertIn("bind_material_trace_scanner(dialog)", panel)
         self.assertIn('input.addEventListener("keydown", handler, true)', panel)
+        self.assertIn('input.addEventListener("input", input_handler, true)', panel)
+        self.assertIn("cfg_trace_scan_timer", panel)
         self.assertIn("cfg_pending_material_scan", panel)
         self.assertIn("dialog.cfg_trace_plan = plan", panel)
         self.assertIn("pending_inputs.length", panel)
