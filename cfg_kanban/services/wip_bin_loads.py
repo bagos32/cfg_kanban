@@ -16,7 +16,9 @@ from cfg_kanban.services.trace_policy import NO_TAG, effective_trace_policy
 TOLERANCE = 0.000001
 TRANSFER_PURPOSE = "Material Transfer for Manufacture"
 CONSUMPTION_PURPOSES = ("Material Consumption for Manufacture", "Manufacture")
-ACTIVE_LOAD_STATUSES = ("Transfer Draft", "Ready", "In Use", "Consumption Draft")
+ACTIVE_LOAD_STATUSES = (
+    "Transfer Draft", "Ready", "In Use", "Consumption Draft", "Return Draft",
+)
 JOB_CARD_SUBMIT_BLOCK_STATUSES = ("Transfer Draft",)
 
 
@@ -158,7 +160,10 @@ def abandon_draft_stock_entry(doc, method=None):
             )
         load.db_set({
             "status": "Ready", "consumption_stock_entry": None,
-            "consumption_stock_entry_detail": None, "in_use_on": None,
+            "consumption_stock_entry_detail": None, "consumed_qty": 0,
+            "return_qty": 0, "consumption_reason": None,
+            "consumption_reported_by": None, "consumption_reported_on": None,
+            "in_use_on": None,
             "notes": f"ERP Draft {doc.name} deleted; physical WIP Bin restored to Ready",
         }, update_modified=True)
         frappe.db.set_value(
@@ -338,7 +343,8 @@ def cancel_transfer_bin(load_name, operator_session_token, kanban_card):
 @frappe.whitelist()
 def allocate_consumption_bin(stock_entry, item_row=None, reusable_bin_scan=None,
                              operator_session_token=None, kanban_card=None,
-                             event_token=None):
+                             event_token=None, actual_qty=None,
+                             exception_reason=None):
     """Bind one Ready fixed-quantity WIP bin to a Draft consumption row.
 
     Scanning records intent only. ERPNext Stock Entry submission remains the event that
@@ -366,22 +372,50 @@ def allocate_consumption_bin(stock_entry, item_row=None, reusable_bin_scan=None,
     load = _resolve_ready_load(reusable_bin_scan, context, entry, row)
     if load.status == "Consumption Draft":
         return _consumption_allocation_result(entry, row, load)
-    if flt(load.actual_qty) > remaining + TOLERANCE:
+    consumed_qty = flt(actual_qty) if actual_qty not in (None, "") else flt(load.actual_qty)
+    if consumed_qty <= 0:
+        frappe.throw("Actual WIP Bin consumption must be positive")
+    if consumed_qty > flt(load.actual_qty) + TOLERANCE:
         frappe.throw(
-            f"Ready WIP Bin {load.reusable_bin} contains {load.actual_qty} {load.stock_uom}, "
+            f"Actual consumption {consumed_qty} exceeds the prepared WIP Bin quantity "
+            f"{load.actual_qty} {load.stock_uom}"
+        )
+    if consumed_qty > remaining + TOLERANCE:
+        frappe.throw(
+            f"Ready WIP Bin consumption {consumed_qty} {load.stock_uom} "
             f"but the selected ERP row has only {remaining} remaining"
         )
-    bound = bind_consumption_draft(load.name, entry.name, row.name)
     profile, session = actor
+    reason = (exception_reason or "").strip()
+    partial = consumed_qty < flt(load.actual_qty) - TOLERANCE
+    if partial and not reason:
+        frappe.throw("Enter why actual consumption is lower than the prepared WIP Bin quantity")
+    if partial and context["require_full_bin_consumption"]:
+        if not context["allow_supervisor_partial_exception"]:
+            frappe.throw(
+                "This WIP Bin Pool requires full-bin consumption and does not allow a "
+                "supervisor partial-consumption exception"
+            )
+        if not _actor_can_approve_partial_consumption(profile):
+            frappe.throw(
+                "Switch to a Supervisor QR with Override permission before reporting "
+                "partial consumption for this WIP Bin Pool"
+            )
+    bound = bind_consumption_draft(
+        load.name, entry.name, row.name, consumed_qty=consumed_qty,
+        consumption_reason=reason, reported_by=profile.employee,
+    )
     bound.db_set("in_use_on", now_datetime(), update_modified=False)
     record(
         "WIP Bin Consumption Draft Bound", card=frappe.db.get_value(
             "CFG Kanban Cycle", bound.kanban_cycle, "kanban_card"
         ), cycle=bound.kanban_cycle, execution=bound.process_execution,
-        handling_unit=bound.reusable_bin, qty=bound.actual_qty,
+        handling_unit=bound.reusable_bin, qty=bound.consumed_qty,
         reference_doctype="Stock Entry", reference_name=entry.name,
         operator=profile.employee, operator_session=session.name,
-        notes=f"WIP Bin Load {bound.name}; ERP Draft only; token {event_token or '-'}",
+        notes=(f"WIP Bin Load {bound.name}; prepared {bound.actual_qty}; "
+               f"actual consumed {bound.consumed_qty}; return {bound.return_qty}; "
+               f"ERP Draft only; token {event_token or '-'}"),
     )
     return _consumption_allocation_result(entry, row, bound)
 
@@ -407,6 +441,11 @@ def cancel_consumption_bin(load_name, operator_session_token, kanban_card):
         "status": "Ready",
         "consumption_stock_entry": None,
         "consumption_stock_entry_detail": None,
+        "consumed_qty": 0,
+        "return_qty": 0,
+        "consumption_reason": None,
+        "consumption_reported_by": None,
+        "consumption_reported_on": None,
         "in_use_on": None,
         "notes": "Removed from Draft consumption; physical WIP Bin restored to Ready",
     }, update_modified=True)
@@ -495,8 +534,9 @@ def consumption_loads_for_row(stock_entry, row_name):
         "CFG Kanban WIP Bin Load",
         {"consumption_stock_entry": stock_entry,
          "consumption_stock_entry_detail": row_name,
-         "status": ["in", ["Consumption Draft", "Consumed"]]},
-        ["name", "status", "reusable_bin", "actual_qty", "stock_uom",
+         "status": ["in", ["Consumption Draft", "Return Draft", "Consumed"]]},
+        ["name", "status", "reusable_bin", "actual_qty", "consumed_qty",
+         "return_qty", "consumption_reason", "stock_uom",
          "partial_exception", "exception_reason", "approved_by",
          "approved_by_operator", "exception_approved_on"],
         order_by="creation asc",
@@ -609,7 +649,9 @@ def create_transfer_load(*, stock_entry, stock_entry_detail, reusable_bin,
     return load, True
 
 
-def bind_consumption_draft(load_name, stock_entry, stock_entry_detail):
+def bind_consumption_draft(load_name, stock_entry, stock_entry_detail,
+                           consumed_qty=None, consumption_reason=None,
+                           reported_by=None):
     """Bind a Ready/In-Use load to a Draft ERP consumption row without consuming it."""
     _lock_load(load_name)
     load = frappe.get_doc("CFG Kanban WIP Bin Load", load_name)
@@ -625,11 +667,21 @@ def bind_consumption_draft(load_name, stock_entry, stock_entry_detail):
         frappe.throw("Consumption Stock Entry Job Card does not match the WIP Bin Load")
     row = _entry_row(entry, stock_entry_detail)
     _assert_consumption_row(load, row)
+    consumed = flt(consumed_qty) if consumed_qty not in (None, "") else flt(load.actual_qty)
+    returned = max(flt(load.actual_qty) - consumed, 0)
     load.db_set({
         "status": "Consumption Draft",
         "consumption_stock_entry": entry.name,
         "consumption_stock_entry_detail": row.name,
-        "notes": "Awaiting ERPNext consumption submission",
+        "consumed_qty": consumed,
+        "return_qty": returned,
+        "consumption_reason": (consumption_reason or None),
+        "consumption_reported_by": reported_by,
+        "consumption_reported_on": now_datetime(),
+        "notes": (
+            f"Awaiting ERPNext consumption submission; prepared {load.actual_qty}; "
+            f"consume {consumed}; return {returned}"
+        ),
     }, update_modified=True)
     frappe.db.set_value(
         "CFG Kanban Handling Unit", load.reusable_bin, "wip_bin_state", "In Use",
@@ -638,10 +690,51 @@ def bind_consumption_draft(load_name, stock_entry, stock_entry_detail):
     return frappe.get_doc("CFG Kanban WIP Bin Load", load.name)
 
 
+def finalize_wip_bin_consumption_entry(stock_entry):
+    """Apply scanned actual-use quantities to the Draft native consumption rows.
+
+    The draft is initially mapped from the complete prepared loads so every Ready bin can be
+    matched safely. Immediately before Kanban submits it, this function reduces each ERP row to
+    the sum explicitly reported by the operator. The unused balance never enters consumption.
+    """
+    entry = frappe.get_doc("Stock Entry", stock_entry)
+    if entry.docstatus != 0 or _purpose(entry) != "Material Consumption for Manufacture":
+        return entry
+    loads, direction = _loads_for_entry(entry.name)
+    if not loads or direction != "consumption":
+        return entry
+    totals = {}
+    for load in loads:
+        if load.status != "Consumption Draft":
+            frappe.throw(
+                f"WIP Bin Load {load.name} is {load.status}; expected Consumption Draft"
+            )
+        qty = flt(load.consumed_qty or load.actual_qty)
+        if qty <= 0:
+            frappe.throw(f"WIP Bin Load {load.name} has no positive actual consumption")
+        totals[load.consumption_stock_entry_detail] = (
+            totals.get(load.consumption_stock_entry_detail, 0) + qty
+        )
+    rows = {row.name: row for row in entry.items}
+    if set(totals) != set(rows):
+        frappe.throw(
+            "Every WIP-bin consumption row must have at least one scanned Ready bin before "
+            "submitting the ERP entry"
+        )
+    for row_name, stock_qty in totals.items():
+        row = rows[row_name]
+        conversion = flt(row.conversion_factor) or 1
+        row.transfer_qty = stock_qty
+        row.qty = stock_qty / conversion
+    entry.save(ignore_permissions=True)
+    return frappe.get_doc("Stock Entry", entry.name)
+
+
 def validate_wip_bin_stock_entry(doc):
     """Validate every linked load and require complete coverage of WIP-bin material rows."""
     purpose = _purpose(doc)
-    if purpose not in (TRANSFER_PURPOSE, *CONSUMPTION_PURPOSES):
+    is_unused_return = bool(doc.get("cfg_wip_bin_return_load"))
+    if purpose not in (TRANSFER_PURPOSE, *CONSUMPTION_PURPOSES) and not is_unused_return:
         return
     if purpose == "Manufacture":
         _assert_no_unconsumed_loads(doc.work_order, doc.get("cfg_kanban_cycle"))
@@ -667,25 +760,36 @@ def validate_wip_bin_stock_entry(doc):
         )
     if not loads:
         return
-    expected_statuses = (
-        ("Transfer Draft", "Ready") if direction == "transfer"
-        else ("Consumption Draft", "Consumed")
-    )
+    expected_statuses = {
+        "transfer": ("Transfer Draft", "Ready"),
+        "consumption": ("Consumption Draft", "Return Draft", "Consumed"),
+        "return": ("Return Draft", "Consumed"),
+    }[direction]
     rows = {row.name: row for row in doc.items}
     allocated = {}
     for load in loads:
         if load.status not in expected_statuses:
             frappe.throw(f"WIP Bin Load {load.name} is {load.status}; expected {expected_statuses[0]}")
-        row_name = (load.transfer_stock_entry_detail if direction == "transfer"
-                    else load.consumption_stock_entry_detail)
+        row_name = (
+            load.transfer_stock_entry_detail if direction == "transfer"
+            else load.return_stock_entry_detail if direction == "return"
+            else load.consumption_stock_entry_detail
+        )
         row = rows.get(row_name)
         if not row:
             frappe.throw(f"WIP Bin Load {load.name} no longer matches a Stock Entry row")
         if direction == "transfer":
             _assert_transfer_row(load, row, doc)
+        elif direction == "return":
+            _assert_return_row(load, row, doc)
         else:
             _assert_consumption_row(load, row)
-        allocated[row.name] = allocated.get(row.name, 0) + flt(load.actual_qty)
+        load_qty = (
+            flt(load.actual_qty) if direction == "transfer"
+            else flt(load.return_qty) if direction == "return"
+            else flt(load.consumed_qty or load.actual_qty)
+        )
+        allocated[row.name] = allocated.get(row.name, 0) + load_qty
     for row_name, qty in allocated.items():
         row_qty = _row_stock_qty(rows[row_name])
         if abs(qty - row_qty) > TOLERANCE:
@@ -738,15 +842,56 @@ def confirm_wip_bin_stock_entry(doc):
             }, update_modified=True)
             bin_state = "Ready"
             event_type = "WIP Bin Load Ready"
+        elif direction == "consumption":
+            if load.status in ("Return Draft", "Consumed"):
+                continue
+            if flt(load.return_qty) > TOLERANCE:
+                return_entry = _create_wip_bin_return_draft(load)
+                load.db_set({
+                    "status": "Return Draft", "consumed_on": timestamp,
+                    "return_stock_entry": return_entry.name,
+                    "return_stock_entry_detail": return_entry.items[0].name,
+                    "notes": (
+                        f"Consumed {load.consumed_qty} by submitted ERPNext entry {doc.name}; "
+                        f"unused {load.return_qty} awaits WIP return {return_entry.name}"
+                    ),
+                }, update_modified=True)
+                bin_state = "In Use"
+                event_type = "WIP Bin Partial Consumption Confirmed"
+            else:
+                load.db_set({
+                    "status": "Consumed", "consumed_on": timestamp,
+                    "notes": f"Consumed by submitted ERPNext entry {doc.name}",
+                }, update_modified=True)
+                bin_state = "Empty"
+                event_type = "WIP Bin Load Consumed"
         else:
             if load.status == "Consumed":
                 continue
+            ledger = None
+            if load.source_handling_unit:
+                ledger = post_quantity_event(
+                    event_type="WIP Bin Unused Material Return",
+                    qty=load.return_qty, stock_uom=load.stock_uom,
+                    idempotency_key=f"wip-bin-unused-return:{load.name}:{doc.name}",
+                    destination_handling_unit=load.source_handling_unit,
+                    item_code=load.item_code, batch_no=load.batch_no,
+                    source_company=load.company, source_warehouse=load.wip_warehouse,
+                    destination_company=load.company,
+                    destination_warehouse=load.source_warehouse,
+                    reference_doctype="Stock Entry", reference_name=doc.name,
+                    reason=f"ERPNext confirmed unused WIP Bin return {load.name}",
+                )
             load.db_set({
-                "status": "Consumed", "consumed_on": timestamp,
-                "notes": f"Consumed by submitted ERPNext entry {doc.name}",
+                "status": "Consumed", "returned_on": timestamp,
+                "return_confirmation_ledger": ledger.name if ledger else None,
+                "notes": (
+                    f"Consumed {load.consumed_qty}; unused {load.return_qty} returned by "
+                    f"submitted ERPNext entry {doc.name}"
+                ),
             }, update_modified=True)
             bin_state = "Empty"
-            event_type = "WIP Bin Load Consumed"
+            event_type = "WIP Bin Unused Material Returned"
         if load.job_card:
             deferred_job_cards.add(load.job_card)
         frappe.db.set_value(
@@ -755,12 +900,48 @@ def confirm_wip_bin_stock_entry(doc):
         )
         record(
             event_type, cycle=load.kanban_cycle, execution=load.process_execution,
-            handling_unit=load.reusable_bin, qty=load.actual_qty,
+            handling_unit=load.reusable_bin,
+            qty=(load.return_qty if direction == "return"
+                 else load.consumed_qty if direction == "consumption"
+                 else load.actual_qty),
             reference_doctype="Stock Entry", reference_name=doc.name,
             notes=f"WIP Bin Load {load.name}; ERPNext confirmed",
         )
     if deferred_job_cards:
         _submit_deferred_job_cards(deferred_job_cards, doc)
+
+
+def _create_wip_bin_return_draft(load):
+    """Create the native WIP-to-source transfer for an operator-reported unused balance."""
+    existing = load.get("return_stock_entry")
+    if existing and frappe.db.exists("Stock Entry", existing):
+        return frappe.get_doc("Stock Entry", existing)
+    entry = frappe.get_doc({
+        "doctype": "Stock Entry",
+        "stock_entry_type": "Material Transfer",
+        "purpose": "Material Transfer",
+        "company": load.company,
+        "from_warehouse": load.wip_warehouse,
+        "to_warehouse": load.source_warehouse,
+        "cfg_kanban_controlled": 1,
+        "cfg_kanban_cycle": load.kanban_cycle,
+        "cfg_kanban_job_card": load.job_card,
+        "cfg_wip_bin_return_load": load.name,
+    })
+    entry.append("items", {
+        "item_code": load.item_code,
+        "s_warehouse": load.wip_warehouse,
+        "t_warehouse": load.source_warehouse,
+        "qty": load.return_qty,
+        "transfer_qty": load.return_qty,
+        "uom": load.stock_uom,
+        "stock_uom": load.stock_uom,
+        "conversion_factor": 1,
+        "batch_no": load.batch_no,
+    })
+    entry.set_missing_values()
+    entry.insert(ignore_permissions=True)
+    return entry
 
 
 def _submit_deferred_job_cards(job_cards, production_entry):
@@ -837,10 +1018,19 @@ def reverse_wip_bin_stock_entry(doc):
             )
         if direction == "consumption" and load.status != "Consumed":
             frappe.throw(
-                f"Cannot cancel consumption: WIP Bin Load {load.name} is {load.status}"
+                f"Cannot cancel consumption: WIP Bin Load {load.name} is {load.status}. "
+                "Submit the unused-material return or reconcile it first."
+            )
+        if direction == "return" and load.status != "Consumed":
+            frappe.throw(
+                f"Cannot cancel unused-material return: WIP Bin Load {load.name} is "
+                f"{load.status}"
             )
         submitted_transfer = direction == "transfer" and load.status == "Ready"
-        bin_state = "Exception" if (direction == "consumption" or submitted_transfer) else "Empty"
+        bin_state = (
+            "Exception" if direction in ("consumption", "return") or submitted_transfer
+            else "Empty"
+        )
         reversal_ledger = None
         if (submitted_transfer and load.source_handling_unit
                 and not load.source_confirmation_ledger):
@@ -896,6 +1086,8 @@ def reverse_wip_bin_stock_entry(doc):
         )
         if direction == "consumption":
             _create_consumption_reconciliation(load, doc)
+        elif direction == "return":
+            _create_stock_entry_reconciliation(load, doc, "return")
         elif submitted_transfer:
             _create_transfer_reconciliation(load, doc)
 
@@ -944,6 +1136,7 @@ def resolve_wip_bin_reconciliation(reconciliation_name, decision, reusable_bin_s
             f"{unit.wip_bin_state or 'Unspecified'}"
         )
 
+    affected_qty = flt(reconciliation.qty)
     restored_load = None
     correction = None
     source_resolution_ledger = None
@@ -955,7 +1148,7 @@ def resolve_wip_bin_reconciliation(reconciliation_name, decision, reusable_bin_s
         )
         physical_state = "Ready"
         evidence = (
-            f"Exact {load.actual_qty} {load.stock_uom} {load.item_code}"
+            f"Exact {affected_qty} {load.stock_uom} {load.item_code}"
             f"{f' / Batch {load.batch_no}' if load.batch_no else ''} physically restored "
             f"to {load.reusable_bin}; recovered as Load {restored_load.name}"
         )
@@ -966,7 +1159,7 @@ def resolve_wip_bin_reconciliation(reconciliation_name, decision, reusable_bin_s
         physical_state = "Empty"
         evidence = (
             f"Bin verified empty after submitted ERPNext correction {correction.name} "
-            f"removed exact {load.actual_qty} {load.stock_uom} from {load.wip_warehouse}"
+            f"removed exact {affected_qty} {load.stock_uom} from {load.wip_warehouse}"
         )
     elif decision == "Material Returned to Source":
         if correction_stock_entry:
@@ -974,7 +1167,7 @@ def resolve_wip_bin_reconciliation(reconciliation_name, decision, reusable_bin_s
         _verify_source_handling_unit_scan(load, source_handling_unit_scan)
         if reconciliation.source_hold_ledger:
             source_resolution_ledger = post_quantity_event(
-                event_type="Unreserve", qty=load.actual_qty,
+                event_type="Unreserve", qty=affected_qty,
                 stock_uom=load.stock_uom,
                 idempotency_key=f"wip-bin-source-returned:{reconciliation.name}",
                 source_handling_unit=load.source_handling_unit,
@@ -987,7 +1180,7 @@ def resolve_wip_bin_reconciliation(reconciliation_name, decision, reusable_bin_s
             )
         physical_state = "Empty"
         evidence = (
-            f"Exact {load.actual_qty} {load.stock_uom} {load.item_code} physically returned "
+            f"Exact {affected_qty} {load.stock_uom} {load.item_code} physically returned "
             f"from {load.reusable_bin} to {load.source_warehouse}"
             f"{f' / Source Tag {load.source_handling_unit}' if load.source_handling_unit else ''}"
         )
@@ -997,7 +1190,7 @@ def resolve_wip_bin_reconciliation(reconciliation_name, decision, reusable_bin_s
         )
         if reconciliation.source_hold_ledger:
             source_resolution_ledger = post_quantity_event(
-                event_type="WIP Bin Load", qty=load.actual_qty,
+                event_type="WIP Bin Load", qty=affected_qty,
                 stock_uom=load.stock_uom,
                 idempotency_key=f"wip-bin-source-remains:{reconciliation.name}",
                 source_handling_unit=load.source_handling_unit,
@@ -1020,7 +1213,7 @@ def resolve_wip_bin_reconciliation(reconciliation_name, decision, reusable_bin_s
         )
         physical_state = "Ready"
         evidence = (
-            f"Bin still holds exact {load.actual_qty} {load.stock_uom} {load.item_code}; "
+            f"Bin still holds exact {affected_qty} {load.stock_uom} {load.item_code}; "
             f"submitted correction {correction.name} restored ERP stock to "
             f"{load.wip_warehouse}; recovered as Load {restored_load.name}"
         )
@@ -1057,7 +1250,7 @@ def resolve_wip_bin_reconciliation(reconciliation_name, decision, reusable_bin_s
         "WIP Bin Reconciliation Resolved", card=frappe.db.get_value(
             "CFG Kanban Cycle", load.kanban_cycle, "kanban_card"
         ), cycle=load.kanban_cycle, execution=load.process_execution,
-        handling_unit=load.reusable_bin, qty=load.actual_qty,
+        handling_unit=load.reusable_bin, qty=affected_qty,
         reference_doctype="CFG Kanban WIP Bin Reconciliation",
         reference_name=reconciliation.name, operator=profile.employee,
         operator_session=session.name, terminal_user=session.terminal_user,
@@ -1100,7 +1293,16 @@ def _create_stock_entry_reconciliation(load, cancelled_entry, direction):
                 "awaits physical reconciliation"
             ),
         )
-    context = "Transfer Cancellation" if direction == "transfer" else "Consumption Cancellation"
+    context = {
+        "transfer": "Transfer Cancellation",
+        "consumption": "Consumption Cancellation",
+        "return": "Unused Return Cancellation",
+    }[direction]
+    affected_qty = (
+        flt(load.actual_qty) if direction == "transfer"
+        else flt(load.return_qty) if direction == "return"
+        else flt(load.consumed_qty or load.actual_qty)
+    )
     reconciliation = frappe.get_doc({
         "doctype": "CFG Kanban WIP Bin Reconciliation",
         "status": "Open", "reversal_context": context,
@@ -1108,7 +1310,7 @@ def _create_stock_entry_reconciliation(load, cancelled_entry, direction):
         "reusable_bin": load.reusable_bin, "company": load.company,
         "source_handling_unit": load.source_handling_unit,
         "item_code": load.item_code, "batch_no": load.batch_no,
-        "qty": load.actual_qty, "stock_uom": load.stock_uom,
+        "qty": affected_qty, "stock_uom": load.stock_uom,
         "kanban_cycle": load.kanban_cycle, "work_order": load.work_order,
         "job_card": load.job_card, "process_execution": load.process_execution,
         "operation": load.operation, "workstation": load.workstation,
@@ -1145,7 +1347,7 @@ def _create_stock_entry_reconciliation(load, cancelled_entry, direction):
     record(
         "WIP Bin Reconciliation Required", cycle=load.kanban_cycle,
         execution=load.process_execution, handling_unit=load.reusable_bin,
-        qty=load.actual_qty,
+        qty=affected_qty,
         reference_doctype="CFG Kanban WIP Bin Reconciliation",
         reference_name=reconciliation.name,
         previous_state="Ready" if direction == "transfer" else "Consumed",
@@ -1193,12 +1395,17 @@ def _create_recovered_ready_load(load, reconciliation, profile, session, event_t
         "reusable_bin": load.reusable_bin, "wip_bin_pool": load.wip_bin_pool,
         "company": load.company, "item_code": load.item_code,
         "batch_no": load.batch_no, "standard_qty": load.standard_qty,
-        "actual_qty": load.actual_qty, "stock_uom": load.stock_uom,
-        "partial_exception": load.partial_exception,
-        "exception_reason": load.exception_reason,
-        "approved_by": load.approved_by,
-        "approved_by_operator": load.approved_by_operator,
-        "exception_approved_on": load.exception_approved_on,
+        "actual_qty": flt(reconciliation.qty), "stock_uom": load.stock_uom,
+        "partial_exception": cint(
+            flt(reconciliation.qty) < flt(load.standard_qty) - TOLERANCE
+        ),
+        "exception_reason": (
+            f"Controlled recovery of {reconciliation.qty} after "
+            f"{reconciliation.reversal_context or 'ERP cancellation'}"
+        ),
+        "approved_by": frappe.session.user,
+        "approved_by_operator": profile.employee,
+        "exception_approved_on": now_datetime(),
         "kanban_master": load.kanban_master, "kanban_cycle": load.kanban_cycle,
         "work_order": load.work_order, "job_card": load.job_card,
         "process_execution": load.process_execution, "operation": load.operation,
@@ -1225,7 +1432,7 @@ def _create_recovered_ready_load(load, reconciliation, profile, session, event_t
 
 
 def _reconciliation_decisions(context):
-    if not context or context == "Consumption Cancellation":
+    if not context or context in ("Consumption Cancellation", "Unused Return Cancellation"):
         return ("Material Restored to Bin", "Bin Empty after ERP Correction")
     if context == "Transfer Cancellation":
         return ("Material Returned to Source", "Material Remains in WIP after ERP Correction")
@@ -1277,12 +1484,12 @@ def _validate_transfer_recovery_correction(load, reconciliation, correction_stoc
         and row.t_warehouse == load.wip_warehouse
         and row.stock_uom == load.stock_uom
         and (_tag_batch_no(row) or "") == (load.batch_no or "")
-        and abs(_row_stock_qty(row) - flt(load.actual_qty)) <= TOLERANCE
+        and abs(_row_stock_qty(row) - flt(reconciliation.qty)) <= TOLERANCE
     ]
     if len(candidates) != 1:
         frappe.throw(
             f"Submitted correction must contain one unused row moving exactly "
-            f"{load.actual_qty} {load.stock_uom} of {load.item_code} from "
+            f"{reconciliation.qty} {load.stock_uom} of {load.item_code} from "
             f"{load.source_warehouse} to {load.wip_warehouse}; matching rows: "
             f"{len(candidates)}"
         )
@@ -1309,9 +1516,9 @@ def _validate_empty_bin_correction(load, reconciliation, correction_stock_entry)
         and row.stock_uom == load.stock_uom
         and (_tag_batch_no(row) or "") == (load.batch_no or "")
     )
-    if abs(flt(matching_qty) - flt(load.actual_qty)) > TOLERANCE:
+    if abs(flt(matching_qty) - flt(reconciliation.qty)) > TOLERANCE:
         frappe.throw(
-            f"Submitted correction must remove exactly {load.actual_qty} {load.stock_uom} "
+            f"Submitted correction must remove exactly {reconciliation.qty} {load.stock_uom} "
             f"of {load.item_code} from {load.wip_warehouse}; matching quantity is "
             f"{matching_qty}"
         )
@@ -1367,9 +1574,10 @@ def _lock_reconciliation(name):
 def _loads_for_entry(stock_entry):
     fields = [
         "name", "status", "reusable_bin", "item_code", "batch_no", "actual_qty",
+        "consumed_qty", "return_qty", "source_handling_unit",
         "stock_uom", "company", "source_warehouse", "wip_warehouse", "kanban_cycle",
         "process_execution", "transfer_stock_entry_detail",
-        "consumption_stock_entry_detail",
+        "consumption_stock_entry_detail", "return_stock_entry_detail",
     ]
     transfer = frappe.get_all(
         "CFG Kanban WIP Bin Load",
@@ -1379,14 +1587,21 @@ def _loads_for_entry(stock_entry):
     consumption = frappe.get_all(
         "CFG Kanban WIP Bin Load",
         {"consumption_stock_entry": stock_entry,
-         "status": ["in", ["Consumption Draft", "Consumed"]]}, fields,
+         "status": ["in", ["Consumption Draft", "Return Draft", "Consumed"]]}, fields,
     )
-    if transfer and consumption:
-        frappe.throw("One Stock Entry cannot be both WIP Bin transfer and consumption")
+    returned = frappe.get_all(
+        "CFG Kanban WIP Bin Load",
+        {"return_stock_entry": stock_entry,
+         "status": ["in", ["Return Draft", "Consumed"]]}, fields,
+    )
+    if sum(bool(value) for value in (transfer, consumption, returned)) > 1:
+        frappe.throw("One Stock Entry cannot represent multiple WIP Bin movement directions")
     if transfer:
         return transfer, "transfer"
     if consumption:
         return consumption, "consumption"
+    if returned:
+        return returned, "return"
     purpose_values = frappe.db.get_value(
         "Stock Entry", stock_entry, ["purpose", "stock_entry_type"], as_dict=True
     ) or {}
@@ -1465,6 +1680,16 @@ def _assert_consumption_row(load, row):
         frappe.throw(f"WIP Bin Load {load.name} no longer matches its ERP consumption row")
 
 
+def _assert_return_row(load, row, entry):
+    if (row.item_code != load.item_code
+            or row.s_warehouse != load.wip_warehouse
+            or row.t_warehouse != load.source_warehouse
+            or row.stock_uom != load.stock_uom
+            or (row.get("batch_no") or "") != (load.batch_no or "")
+            or entry.company != load.company):
+        frappe.throw(f"WIP Bin Load {load.name} no longer matches its unused-material return row")
+
+
 def _row_stock_qty(row):
     return flt(row.get("transfer_qty") or row.get("qty"))
 
@@ -1512,7 +1737,7 @@ def _remaining_transfer_qty(stock_entry, row_name, row_qty):
 def _remaining_consumption_qty(stock_entry, row_name, row_qty):
     allocated = frappe.db.sql(
         """
-        select coalesce(sum(actual_qty), 0)
+        select coalesce(sum(case when consumed_qty > 0 then consumed_qty else actual_qty end), 0)
         from `tabCFG Kanban WIP Bin Load`
         where consumption_stock_entry=%s and consumption_stock_entry_detail=%s
           and status in ('Consumption Draft', 'Consumed')
@@ -1629,7 +1854,7 @@ def manufacture_receipt_wip_bin_readiness(work_order, cycle_name=None):
     """
     filters = {
         "work_order": work_order,
-        "status": ["in", ["Transfer Draft", "Ready", "In Use", "Consumption Draft"]],
+        "status": ["in", list(ACTIVE_LOAD_STATUSES)],
     }
     if cycle_name:
         filters["kanban_cycle"] = cycle_name
@@ -1746,13 +1971,23 @@ def _consumption_allocation_result(entry, row, load):
         "stock_entry": entry.name, "row_name": row.name, "load": load.name,
         "status": load.status, "reusable_bin": load.reusable_bin,
         "item_code": row.item_code,
-        "actual_qty": flt(load.actual_qty), "stock_uom": load.stock_uom,
+        "prepared_qty": flt(load.actual_qty),
+        "actual_qty": flt(load.consumed_qty or load.actual_qty),
+        "consumed_qty": flt(load.consumed_qty or load.actual_qty),
+        "return_qty": flt(load.return_qty), "stock_uom": load.stock_uom,
         "partial_exception": bool(load.partial_exception),
         "exception_reason": load.exception_reason,
         "remaining_qty": _remaining_consumption_qty(
             entry.name, row.name, _row_stock_qty(row)
         ),
     }
+
+
+def _actor_can_approve_partial_consumption(profile):
+    return bool(
+        profile.kanban_role in ("Supervisor", "Development Proxy")
+        and cint(profile.get("can_override"))
+    )
 
 
 def _assert_partial_exception_authorized(actor, context, qty, standard_qty, remaining,

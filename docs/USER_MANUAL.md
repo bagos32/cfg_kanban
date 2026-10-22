@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.80
+**Guide version:** 1.83
 
 **Updated:** 22 October 2026
 
@@ -985,6 +985,7 @@ The first print increments Print Count. Every reprint requires a reason and crea
 For permanent access cards use their specific saved-card print action:
 
 - **Workstation Queue Card:** Print Kanban → Print Workstation Queue Card.
+- **General Service Point Location Card:** Print Kanban → Print General Service Location Card.
 - **Supplier Receiving Location Card:** Print Kanban → Print Supplier Receiving Location Card.
 - **Warehouse Operations Location Card:** Print Kanban → Print Warehouse Operations Card.
 - **DocType Action Card:** Print Kanban → Print DocType Action Card (CR80 horizontal).
@@ -1176,6 +1177,32 @@ Tag and do not select an Item row first. The Ready-bin identity resolves the exa
 UOM, Batch, Cycle, Job Card, and ERP consumption row; the confirmation message displays the resolved
 Item and quantity. A scan changes only the audit/load intent to `Consumption Draft`; it does not
 change ERP stock.
+
+When the actual quantity used is lower than the prepared quantity, use the same visible quantity
+control used for partial loading, or scan `CFG:QTY:MATERIAL:<quantity>` before scanning the Ready
+bin. In this consumption context the field is labelled **Actual Quantity Consumed**; it never
+rewrites **Actual Load Qty**. Enter a **Consumption Adjustment Reason**. If the Pool has **Require
+Full-bin Consumption** disabled, this is a normal operator-reported actual. If it is enabled, a
+lower quantity is accepted only when **Allow Supervisor Partial-bin Exception** is also enabled and
+the active QR belongs to a Kanban Supervisor with Override permission. `CFG:CMD:FULL_BIN` clears the
+reported adjustment and restores consumption of the full prepared quantity.
+
+When **Submit ERP Entry** is scanned or selected, CFG Kanban reduces the native Draft `Material
+Consumption for Manufacture` rows to the sum of the reported actual quantities before ERPNext
+submits them. For every affected bin the immutable audit therefore retains three separate values:
+prepared, consumed, and unused return. If unused quantity exists, submission creates a second Draft
+native `Material Transfer` from the WIP Warehouse back to that load's original source Warehouse.
+The bin becomes `Return Draft` / `In Use`, not Empty. Select or scan **Submit Materials** again to
+submit the visible **Confirm Unused Material Return** entry. Only that submitted ERP return makes
+the bin `Consumed` / `Empty`; when the original load came from a Stock Tag, its returned quantity is
+restored to that source tag from ERP feedback. This preserves the physical and accounting sequence:
+prepared to WIP, actual use consumed, unused balance returned.
+
+While the consumption is still Draft, **Current Trace Lines** deliberately displays all three
+quantities instead of calling the complete prepared bin quantity consumed: **Prepared**, **Actual
+Used**, and **Unused Return**. Treat **Actual Used** as the amount that will be posted when the
+consumption entry submits; **Prepared** remains the immutable physical load audit value.
+
 An incorrect Draft scan can be cancelled and the bin returns to `Ready`.
 The fixed scanner may use either the persistent **Scanner Ready** field or the visible **Ready
 Reusable WIP Bin** field. The direct field reads the browser's completed scan before allocation, and
@@ -1185,7 +1212,9 @@ redirected into the same Material Trace workflow instead of being treated as a K
 If the component normally requires a production-input Stock Tag, that policy is enforced when the
 source material is allocated into the WIP bin. At consumption, the matching Ready WIP-bin scan is
 the physical input evidence; the system does not require a duplicate ordinary input-tag allocation
-for the same Stock Entry row. Submission still requires WIP Bin Loads to cover the complete row.
+for the same Stock Entry row. Every prepared bin represented by the Draft must be scanned. The
+consumption row itself is then finalized to actual use, rather than falsely forcing the consumed
+quantity to equal the quantity originally prepared.
 
 ERPNext v15 permits its native Stock Entry **Job Card** field on `Material Transfer for
 Manufacture`, but not on `Material Consumption for Manufacture`. Consumption therefore remains a
@@ -1204,7 +1233,7 @@ released and Manufacture receipt cannot submit until the WIP-bin consumption is 
 every related load is `Consumed`.
 
 Do not prepare the final Manufacture receipt while any WIP-bin load remains `Transfer Draft`,
-`Ready`, `In Use`, or `Consumption Draft`. The Operator panel displays the blocking bin and keeps
+`Ready`, `In Use`, `Consumption Draft`, or `Return Draft`. The Operator panel displays the blocking bin and keeps
 **Prepare Manufacture Receipt** unavailable until the native Material Consumption entry is
 submitted. If an older deployment already created a premature Draft Manufacture entry, select
 **Discard Premature Draft**, record the reason, consume and submit the Ready bin through its exact
@@ -1225,8 +1254,10 @@ and approval time. Downstream Job Card consumption uses that exact approved actu
 `CFG:CMD:FULL_BIN` clears partial mode. Keep this Pool option disabled unless the physical
 verification and supervisor exception procedure are approved.
 
-Only successful ERPNext submission changes every linked load to `Consumed` and returns its
-reusable physical bin to `Empty`. The Job Card is blocked only by `Transfer Draft` or Open
+Full consumption needs one successful ERPNext consumption submission to change the load to
+`Consumed` and return its physical bin to `Empty`. Partial consumption first changes it to
+`Return Draft`; the separate successful unused-material return submission completes the load and
+empties the bin. The Job Card is blocked only by `Transfer Draft` or Open
 reconciliation; `Ready`, `In Use`, and `Consumption Draft` loads permit Job Card completion so
 ERPNext can subsequently accept their consumption. Kanban Card/Cycle release and Manufacture
 receipt remain blocked while the Work Order has any unconsumed load. Cancelling a submitted
@@ -1266,7 +1297,7 @@ affected physical bin has been reconciled; an older unrelated hold is preserved.
 is no longer blanket-blocked for a correctly configured WIP-bin Master.
 
 The reusable operation Card also remains locked to its current Cycle while the selected Job Card
-has any `Transfer Draft`, `Ready`, `In Use`, or `Consumption Draft` WIP Bin Load, or any Open WIP
+has any `Transfer Draft`, `Ready`, `In Use`, `Consumption Draft`, or `Return Draft` WIP Bin Load, or any Open WIP
 Bin Reconciliation. The panel disables closure with the exact bin/state reason, and the server
 applies the same rule to **Close Kanban Cycle** and `CFG:CMD:CLOSE_CYCLE`. Submit or cancel the Draft
 movement, consume the Ready bin, or finish the controlled Supervisor reconciliation before the
@@ -3536,6 +3567,9 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.83 | 22 October 2026 | Corrected WIP-bin Current Trace Lines to distinguish Prepared, Actual Used, and Unused Return quantities and to keep a linked Return Draft visible instead of displaying the original full prepared load as consumed |
+| 1.82 | 22 October 2026 | Added context-sensitive actual WIP-bin consumption: the existing quantity command/control now records actual use separately from prepared quantity, applies Pool-based routine/supervisor rules, reduces the native consumption Draft before submission, automatically creates a WIP-to-source Draft for unused balance, keeps the bin In Use until that ERP return submits, and restores returned source-tag quantity from ERP feedback |
+| 1.81 | 22 October 2026 | Added the missing General Service Point Location Card print action and dedicated A6 permanent-location QR format |
 | 1.80 | 22 October 2026 | Added Item-specific physical capacity per reusable WIP-bin Handling Unit, allowing heterogeneous bins in one pool (for example 1 + 2 against an ERP requirement of 3); scanner allocation now uses the scanned bin capacity, permits a zero Master fallback when every active Pool bin is configured, and reserves partial-bin exceptions only for actual under-filling |
 | 1.79 | 22 October 2026 | Added scalable Operational Inventory drill-down: Active Tags now count only active identities, the count opens exact Company/Warehouse/Item/UOM tag rows, and Tag Detail shows quantities, batch, quality, movement, custodian/location, reconciliation and scan evidence with a Summary View return action |
 | 1.78 | 20 October 2026 | Corrected WIP-bin consumption to a true single-scan flow: the Draft Stock Entry purpose now controls the UI, source-tag/row-selection controls are excluded, and the scanned Ready bin securely resolves its exact Item, Warehouse, UOM, Batch, Cycle, Job Card and ERP consumption row before Draft binding |

@@ -124,8 +124,9 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
         wip_loads = frappe.get_all(
             "CFG Kanban WIP Bin Load",
             {"kanban_cycle": cycle.name, "job_card": job.name,
-             "status": ["in", ["Ready", "In Use", "Consumption Draft"]]},
-            ["name", "status", "item_code", "actual_qty", "stock_uom", "reusable_bin"],
+             "status": ["in", ["Ready", "In Use", "Consumption Draft", "Return Draft"]]},
+            ["name", "status", "item_code", "actual_qty", "consumed_qty", "return_qty",
+             "stock_uom", "reusable_bin", "return_stock_entry"],
             order_by="creation asc",
         )
         open_wip_consumption = frappe.db.get_value("Stock Entry", {
@@ -787,10 +788,25 @@ def submit_production_stock_entry(stock_entry, event_token=None,
     if not cycle_name:
         frappe.throw("Stock Entry is not controlled by a CFG Kanban production Cycle")
     cycle, _master, work_order = _production_context(cycle_name)
-    if entry.work_order != work_order.name or entry.docstatus != 0:
+    wip_return_load = entry.get("cfg_wip_bin_return_load")
+    if entry.docstatus != 0 or (
+            entry.work_order != work_order.name and not wip_return_load):
         frappe.throw("Only a Draft Stock Entry for the effective Work Order can be submitted")
+    if wip_return_load:
+        return_context = frappe.db.get_value(
+            "CFG Kanban WIP Bin Load", wip_return_load,
+            ["kanban_cycle", "work_order", "status"], as_dict=True,
+        )
+        if (not return_context or return_context.kanban_cycle != cycle.name
+                or return_context.work_order != work_order.name
+                or return_context.status != "Return Draft"):
+            frappe.throw("Unused-material return does not match the active WIP Bin load")
+    elif entry.purpose == "Material Consumption for Manufacture":
+        from cfg_kanban.services.wip_bin_loads import finalize_wip_bin_consumption_entry
+        entry = finalize_wip_bin_consumption_entry(entry.name)
     action = ("material_transfer" if entry.purpose in (
-        "Material Transfer for Manufacture", "Material Consumption for Manufacture"
+        "Material Transfer", "Material Transfer for Manufacture",
+        "Material Consumption for Manufacture",
     ) else "production_receipt")
     profile, session = require_operator(operator_session_token, action)
     key = canonical_key("submit-production-stock-entry", entry.name,

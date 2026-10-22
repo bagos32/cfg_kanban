@@ -4,7 +4,7 @@ from frappe.utils import cint, flt
 
 
 ACTIVE_STATUSES = (
-    "Reserved", "Transfer Draft", "Ready", "In Use", "Consumption Draft",
+    "Reserved", "Transfer Draft", "Ready", "In Use", "Consumption Draft", "Return Draft",
 )
 IDENTITY_FIELDS = (
     "reusable_bin", "wip_bin_pool", "company", "item_code", "batch_no",
@@ -22,6 +22,7 @@ TOLERANCE = 0.000001
 class CFGKanbanWIPBinLoad(Document):
     def validate(self):
         self._validate_quantity()
+        self._validate_consumption_quantities()
         self._validate_context()
         self._validate_active_bin_exclusivity()
         self._validate_immutable_identity()
@@ -34,6 +35,12 @@ class CFGKanbanWIPBinLoad(Document):
             frappe.throw("Standard and actual WIP Bin quantities must be positive")
         if flt(self.actual_qty) > flt(self.standard_qty) + TOLERANCE:
             frappe.throw("A fixed-capacity WIP Bin cannot be loaded above its Standard Full-bin Qty")
+        if self.recovery_of_load:
+            # A controlled ERP cancellation may restore only the quantity affected by that
+            # movement (for example, the consumed part of a partially used bin). The open
+            # reconciliation and scanned Supervisor identity are the approval evidence; the
+            # original pool's ordinary partial-load switch must not prevent physical recovery.
+            return
         if abs(flt(self.actual_qty) - flt(self.standard_qty)) <= TOLERANCE:
             self.partial_exception = 0
             self.exception_reason = None
@@ -54,6 +61,20 @@ class CFGKanbanWIPBinLoad(Document):
             "allow_supervisor_partial_exception",
         ):
             frappe.throw("This WIP Bin Pool does not allow partial-bin exceptions")
+
+    def _validate_consumption_quantities(self):
+        consumed = flt(self.consumed_qty)
+        returned = flt(self.return_qty)
+        if consumed < -TOLERANCE or returned < -TOLERANCE:
+            frappe.throw("Consumed and returned WIP Bin quantities cannot be negative")
+        if consumed > flt(self.actual_qty) + TOLERANCE:
+            frappe.throw("Actual consumption cannot exceed the prepared WIP Bin quantity")
+        if consumed or returned:
+            expected_return = max(flt(self.actual_qty) - consumed, 0)
+            if abs(returned - expected_return) > TOLERANCE:
+                frappe.throw("Unused return quantity must equal prepared quantity minus consumed quantity")
+        if returned > TOLERANCE and not (self.consumption_reason or "").strip():
+            frappe.throw("A consumption adjustment reason is required for unused material")
 
     def _validate_context(self):
         unit = frappe.db.get_value(
@@ -147,16 +168,16 @@ class CFGKanbanWIPBinLoad(Document):
         )
         if any((original.get(field) or "") != (self.get(field) or "") for field in fields):
             frappe.throw("Recovered WIP Bin Load does not match the reversed physical load")
-        if abs(flt(original.actual_qty) - flt(self.actual_qty)) > TOLERANCE:
-            frappe.throw("Recovered WIP Bin quantity must equal the reversed load quantity")
         reconciliation = frappe.db.get_value(
             "CFG Kanban WIP Bin Reconciliation", self.recovery_reconciliation,
-            ["status", "wip_bin_load", "reusable_bin"], as_dict=True,
+            ["status", "wip_bin_load", "reusable_bin", "qty"], as_dict=True,
         )
         if (not reconciliation or reconciliation.status != "Open"
                 or reconciliation.wip_bin_load != original.name
                 or reconciliation.reusable_bin != self.reusable_bin):
             frappe.throw("Select the open reconciliation for this reversed WIP Bin Load")
+        if abs(flt(reconciliation.qty) - flt(self.actual_qty)) > TOLERANCE:
+            frappe.throw("Recovered WIP Bin quantity must equal the reconciled movement quantity")
 
     def _validate_active_bin_exclusivity(self):
         if self.status not in ACTIVE_STATUSES:

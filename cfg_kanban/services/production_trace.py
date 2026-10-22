@@ -326,6 +326,8 @@ def abandon_draft_trace(stock_entry, reason, operator_session_token=None,
 
 def validate_stock_entry_trace(doc):
     """Enforce only explicit Required policies; ERP-only rows remain untouched."""
+    if doc.get("cfg_wip_bin_return_load"):
+        return
     purpose = _purpose(doc)
     if purpose not in SUPPORTED_PURPOSES:
         return
@@ -394,6 +396,8 @@ def validate_stock_entry_trace(doc):
 
 
 def confirm_stock_entry_trace(doc):
+    if doc.get("cfg_wip_bin_return_load"):
+        return
     if _purpose(doc) not in SUPPORTED_PURPOSES:
         return
     trace = _get_trace(doc.name)
@@ -496,6 +500,8 @@ def confirm_stock_entry_trace(doc):
 
 
 def reverse_stock_entry_trace(doc):
+    if doc.get("cfg_wip_bin_return_load"):
+        return
     if _purpose(doc) not in SUPPORTED_PURPOSES:
         return
     trace = _get_trace(doc.name)
@@ -679,7 +685,12 @@ def _plan_row(row, direction, warehouse, tag_policy, policy_source, allocated,
     serial_controlled = item_uses_serials(row.item_code)
     row_serials = erp_row_serials(row) if serial_controlled else []
     wip_loads = wip_loads or []
-    wip_allocated = sum(flt(load.actual_qty) for load in wip_loads)
+    wip_prepared_bound = sum(flt(load.actual_qty) for load in wip_loads)
+    wip_allocated = sum(
+        flt(load.consumed_qty or load.actual_qty)
+        if wip_action == "Consume" else flt(load.actual_qty)
+        for load in wip_loads
+    )
     return {
         "row_name": row.name,
         "direction": direction,
@@ -709,7 +720,9 @@ def _plan_row(row, direction, warehouse, tag_policy, policy_source, allocated,
         "standard_bin_qty": (wip_context.get("standard_bin_qty")
                              if wip_context else 0),
         "wip_bin_allocated_qty": wip_allocated,
-        "wip_bin_remaining_qty": max(total - wip_allocated, 0),
+        "wip_bin_remaining_qty": max(
+            total - (wip_prepared_bound if wip_action == "Consume" else wip_allocated), 0
+        ),
         "wip_bin_loads": wip_loads,
         "serial_controlled": serial_controlled,
         "available_serial_numbers": [value for value in row_serials

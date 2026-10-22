@@ -3,12 +3,15 @@ from frappe import _
 from frappe.utils import cint, flt, now_datetime, time_diff_in_hours
 
 
-ACTIVE_LOAD_STATUSES = ("Transfer Draft", "Ready", "In Use", "Consumption Draft")
+ACTIVE_LOAD_STATUSES = (
+    "Transfer Draft", "Ready", "In Use", "Consumption Draft", "Return Draft",
+)
 EXPECTED_BIN_STATES = {
     "Transfer Draft": "Reserved",
     "Ready": "Ready",
     "In Use": "In Use",
     "Consumption Draft": "In Use",
+    "Return Draft": "In Use",
 }
 
 
@@ -83,6 +86,7 @@ def _attach_runtime(rows):
         "CFG Kanban WIP Bin Load",
         {"reusable_bin": ["in", bin_names], "status": ["in", list(ACTIVE_LOAD_STATUSES)]},
         ["name", "reusable_bin", "status", "item_code", "batch_no", "actual_qty",
+         "consumed_qty", "return_qty", "return_stock_entry",
          "stock_uom", "wip_bin_pool", "company", "operation", "workstation",
          "wip_warehouse", "source_handling_unit", "kanban_cycle", "work_order", "job_card",
          "transfer_stock_entry", "consumption_stock_entry", "reserved_on", "ready_on",
@@ -112,6 +116,7 @@ def _attach_runtime(rows):
         for load in frappe.get_all(
                 "CFG Kanban WIP Bin Load", {"name": ["in", reversed_names]},
                 ["name", "reusable_bin", "status", "item_code", "batch_no", "actual_qty",
+                 "consumed_qty", "return_qty", "return_stock_entry",
                  "stock_uom", "wip_bin_pool", "company", "operation", "workstation",
                  "wip_warehouse", "source_handling_unit", "kanban_cycle", "work_order", "job_card",
                  "transfer_stock_entry", "consumption_stock_entry", "modified"],
@@ -124,9 +129,10 @@ def _attach_runtime(rows):
         row["active_load_count"] = active_count_by_bin.get(row.reusable_bin, 0)
         if load:
             for fieldname in (
-                "name", "status", "item_code", "batch_no", "actual_qty", "stock_uom",
+                "name", "status", "item_code", "batch_no", "actual_qty", "consumed_qty",
+                "return_qty", "stock_uom",
                 "source_handling_unit", "kanban_cycle", "work_order", "job_card",
-                "transfer_stock_entry", "consumption_stock_entry",
+                "transfer_stock_entry", "consumption_stock_entry", "return_stock_entry",
             ):
                 target = "wip_bin_load" if fieldname == "name" else (
                     "load_status" if fieldname == "status" else fieldname
@@ -154,7 +160,7 @@ def _state_timestamp(row, load, reconciliation):
         return load.get("reserved_on") or load.modified
     if load.status == "Ready":
         return load.get("ready_on") or load.modified
-    if load.status in ("In Use", "Consumption Draft"):
+    if load.status in ("In Use", "Consumption Draft", "Return Draft"):
         return load.get("in_use_on") or load.modified
     return load.modified
 
@@ -191,6 +197,8 @@ def _attention(row, load, reconciliation):
             return _("Action: Awaiting Job Card consumption"), "Warning"
         if load.status in ("In Use", "Consumption Draft"):
             return _("Action: Submit or cancel consumption Draft"), "Warning"
+        if load.status == "Return Draft":
+            return _("Action: Submit unused-material return Draft"), "Warning"
         if load.status == "Reversed":
             return _("Critical: Reversed load requires reconciliation"), "Critical"
     if row.wip_bin_state != "Empty":
@@ -237,6 +245,8 @@ def _columns():
         {"label": _("Batch"), "fieldname": "batch_no", "fieldtype": "Link",
          "options": "Batch", "width": 110},
         {"label": _("Qty"), "fieldname": "actual_qty", "fieldtype": "Float", "width": 75},
+        {"label": _("Consumed"), "fieldname": "consumed_qty", "fieldtype": "Float", "width": 80},
+        {"label": _("To Return"), "fieldname": "return_qty", "fieldtype": "Float", "width": 80},
         {"label": _("UOM"), "fieldname": "stock_uom", "fieldtype": "Link",
          "options": "UOM", "width": 75},
         {"label": _("Job Card"), "fieldname": "job_card", "fieldtype": "Link",

@@ -1880,14 +1880,21 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				<div class="col-md-3 text-right cfg-material-trace-actions"></div>
 			</div></div>`).appendTo($section);
 			const $actions = $row.find(".cfg-material-trace-actions");
-			const label = row.can_stage_trace ? __("Scan Material Tags") :
+			if (row.is_wip_bin_return) {
+				$row.find(".col-md-4").append(`<br><small class="text-warning">${__("Unused WIP-bin material return to source warehouse")}</small>`);
+			}
+			const label = row.is_wip_bin_return ? __("View Return Entry") :
+				row.can_stage_trace ? __("Scan Material Tags") :
 				row.trace_status === "Confirmed" ? __("View Confirmed Trace") : __("View ERP-Only Entry");
 			const css = row.can_stage_trace ? "btn-primary" : "btn-default";
-			add_action($actions, label, css, () => operator_material_trace_dialog(row.name));
+			if (!row.is_wip_bin_return) {
+				add_action($actions, label, css, () => operator_material_trace_dialog(row.name));
+			}
 			const can_submit = row.submit_permission === "material_transfer" ?
 				state.operator.permissions.material_transfer : state.operator.permissions.production_receipt;
 			if (row.can_submit && can_submit) {
-				add_action($actions, __("Submit ERP Entry"), "btn-success", () => {
+				add_action($actions, row.is_wip_bin_return
+					? __("Confirm Unused Material Return") : __("Submit ERP Entry"), "btn-success", () => {
 					frappe.confirm(__("Submit {0}? ERPNext stock will change only if all validations pass.", [row.name]), async () => {
 						await frappe.call({ method: "cfg_kanban.services.production_material_flow.submit_production_stock_entry", args: {
 							stock_entry: row.name, event_token: frappe.utils.get_random(24),
@@ -1945,10 +1952,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				{ fieldname: "allocate_wip_bin", label: __("Allocate Full WIP Bin"), fieldtype: "Button",
 					click: async () => allocate_operator_wip_bin(dialog, stock_entry, reload, false) },
 				{ fieldname: "wip_partial_notice", fieldtype: "HTML" },
-				{ fieldname: "wip_partial_qty", label: __("Approved Partial-bin Quantity"), fieldtype: "Float",
-					description: __("Must be below the configured full-bin quantity and within the remaining ERP material quantity.") },
-				{ fieldname: "wip_partial_reason", label: __("Supervisor Exception Reason"), fieldtype: "Small Text",
-					description: __("Required. This reason and the active supervisor QR identity become immutable audit evidence.") },
+				{ fieldname: "wip_partial_qty", label: __("Partial-bin Quantity"), fieldtype: "Float",
+					description: __("During loading this is the quantity prepared. During consumption this is the actual quantity used.") },
+				{ fieldname: "wip_partial_reason", label: __("Quantity Adjustment Reason"), fieldtype: "Small Text",
+					description: __("Required whenever the quantity is lower than the prepared or full-bin quantity.") },
 				{ fieldname: "allocate_partial_wip_bin", label: __("Approve and Allocate Partial WIP Bin"), fieldtype: "Button",
 					click: async () => allocate_operator_wip_bin(dialog, stock_entry, reload, true) },
 				{ fieldname: "input_section", label: __("Scan Tagged Material Input"), fieldtype: "Section Break" },
@@ -2232,17 +2239,35 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	async function refresh_wip_partial_controls(dialog, rows, force_consumption = false) {
 		const row = operator_wip_row(rows, dialog.get_value("wip_bin_row")) || rows[0];
-		const transfer = Boolean(row && !force_consumption && row.wip_bin_action === "Load");
+		const consumption = Boolean(row && (force_consumption || row.wip_bin_action === "Consume"));
+		const transfer = Boolean(row && !consumption && row.wip_bin_action === "Load");
 		const configured = transfer && Boolean(row.allow_supervisor_partial_exception);
-		const authorized = configured && Boolean(dialog.cfg_trace_plan?.can_approve_partial_wip_bin);
+		const consumption_needs_supervisor = consumption && Boolean(row.require_full_bin_consumption);
+		const authorized = consumption
+			? (!consumption_needs_supervisor || (row.allow_supervisor_partial_exception &&
+				Boolean(dialog.cfg_trace_plan?.can_approve_partial_wip_bin)))
+			: configured && Boolean(dialog.cfg_trace_plan?.can_approve_partial_wip_bin);
 		["wip_partial_qty", "wip_partial_reason", "allocate_partial_wip_bin"]
 			.forEach((name) => dialog.get_field(name).wrapper.toggle(authorized));
 		const notice = dialog.get_field("wip_partial_notice");
-		notice.wrapper.toggle(transfer);
-		if (!transfer) return;
+		notice.wrapper.toggle(Boolean(row));
+		dialog.set_df_property("wip_partial_qty", "label", consumption
+			? __("Actual Quantity Consumed") : __("Approved Partial-bin Quantity"));
+		dialog.set_df_property("wip_partial_reason", "label", consumption
+			? __("Consumption Adjustment Reason") : __("Supervisor Exception Reason"));
+		dialog.set_df_property("allocate_partial_wip_bin", "label", consumption
+			? __("Report Actual Use and Bind Bin") : __("Approve and Allocate Partial WIP Bin"));
+		if (!row) return;
 		let message;
 		let indicator = "info";
-		if (configured && !authorized) {
+		if (consumption && consumption_needs_supervisor && !authorized) {
+			message = row.allow_supervisor_partial_exception
+				? __("This Pool requires full-bin consumption. Switch to a Supervisor QR with Override permission to report a lower actual quantity.")
+				: __("This Pool requires full-bin consumption and does not permit partial-consumption exceptions.");
+			indicator = "warning";
+		} else if (consumption) {
+			message = __("Enter or scan the actual quantity used, add a reason, then scan the Ready WIP Bin. The balance will become a separate WIP-to-source return Draft after ERP consumption is submitted.");
+		} else if (configured && !authorized) {
 			message = __("Partial bins require an active Supervisor QR session with Override permission. Full-bin scanning remains available.");
 		} else if (authorized) {
 			message = __("Supervisor partial-bin control is available. Each scanned bin supplies its own Item-specific full capacity. Use a Material Quantity command and reason only when that physical bin is deliberately under-filled.");
@@ -2271,7 +2296,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(value)) {
 				return close_operator_material_trace_dialog(dialog);
 			}
-			dialog.get_field(action_field).$input.trigger("click");
+			const selected_action = scan_field === "wip_bin_scan" &&
+				Number(dialog.get_value("wip_partial_qty") || dialog.cfg_wip_partial_qty || 0)
+				? "allocate_partial_wip_bin" : action_field;
+			dialog.get_field(selected_action).$input.trigger("click");
 		});
 	}
 
@@ -2359,30 +2387,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (pending_wip.length) {
 			const consumption_entry = dialog.cfg_trace_plan?.purpose ===
 				"Material Consumption for Manufacture";
-			if (consumption_entry) {
-				await dialog.set_value("wip_bin_scan", value);
-				return allocate_operator_wip_bin(
-					dialog, dialog.cfg_trace_plan.stock_entry, dialog.cfg_trace_reload, false
-				);
-			}
-			if (/^(CFG:SELECT:)?\d+$/.test(command)) {
-				const index = parseInt(command.replace("CFG:SELECT:", ""), 10) - 1;
-				if (pending_wip[index]) {
-					dialog.cfg_wip_erp_only = false;
-					await dialog.set_value("wip_source_scan", "");
-					await dialog.set_value("wip_bin_scan", "");
-					await dialog.set_value("wip_bin_row", operator_wip_row_option(pending_wip[index], index));
-				}
-				else frappe.show_alert({ message: __("That WIP material row number is not available."), indicator: "orange" });
-				return window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
-			}
-			const row = operator_wip_row(pending_wip, dialog.get_value("wip_bin_row"));
+			const row = operator_wip_row(pending_wip, dialog.get_value("wip_bin_row")) || pending_wip[0];
 			const partial_qty = command.match(/^CFG:QTY:MATERIAL:([+]?(?:\d+\.?\d*|\.\d+))$/);
-			if (partial_qty && row?.wip_bin_action === "Load") {
-				if (!row.allow_supervisor_partial_exception) {
+			if (partial_qty && row && ["Load", "Consume"].includes(row.wip_bin_action)) {
+				const consuming = consumption_entry || row.wip_bin_action === "Consume";
+				if (!consuming && !row.allow_supervisor_partial_exception) {
 					frappe.throw(__("This WIP Bin Pool does not allow partial-bin exceptions."));
 				}
-				if (!dialog.cfg_trace_plan?.can_approve_partial_wip_bin) {
+				if ((!consuming || row.require_full_bin_consumption) &&
+					!dialog.cfg_trace_plan?.can_approve_partial_wip_bin) {
 					frappe.throw(__("Switch to a Supervisor QR with Override permission before setting a partial-bin quantity."));
 				}
 				const qty = Number(partial_qty[1]);
@@ -2397,14 +2410,37 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					await dialog.set_value("wip_partial_reason",
 						__("Final ERP material row remainder does not fill the standard WIP bin"));
 				}
-				frappe.show_alert({ message: __("Partial WIP Bin quantity {0} {1} armed. Confirm the exception reason, then scan the required tag(s).", [qty, row.stock_uom]), indicator: "orange" });
+				frappe.show_alert({ message: consuming
+					? __("Actual consumption {0} {1} armed. Enter the adjustment reason, then scan the Ready WIP Bin.", [qty, row.stock_uom])
+					: __("Partial WIP Bin quantity {0} {1} armed. Confirm the exception reason, then scan the required tag(s).", [qty, row.stock_uom]), indicator: "orange" });
 				return window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
 			}
-			if (command === "CFG:CMD:FULL_BIN" && row?.wip_bin_action === "Load") {
+			if (command === "CFG:CMD:FULL_BIN" &&
+				["Load", "Consume"].includes(row?.wip_bin_action)) {
 				dialog.cfg_wip_partial_qty = 0;
 				await dialog.set_value("wip_partial_qty", 0);
 				await dialog.set_value("wip_partial_reason", "");
-				frappe.show_alert({ message: __("Full-bin allocation restored."), indicator: "blue" });
+				frappe.show_alert({ message: row.wip_bin_action === "Consume"
+					? __("Full prepared quantity consumption restored.")
+					: __("Full-bin allocation restored."), indicator: "blue" });
+				return window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
+			}
+			if (consumption_entry) {
+				await dialog.set_value("wip_bin_scan", value);
+				return allocate_operator_wip_bin(
+					dialog, dialog.cfg_trace_plan.stock_entry, dialog.cfg_trace_reload,
+					Boolean(Number(dialog.get_value("wip_partial_qty") || dialog.cfg_wip_partial_qty || 0))
+				);
+			}
+			if (/^(CFG:SELECT:)?\d+$/.test(command)) {
+				const index = parseInt(command.replace("CFG:SELECT:", ""), 10) - 1;
+				if (pending_wip[index]) {
+					dialog.cfg_wip_erp_only = false;
+					await dialog.set_value("wip_source_scan", "");
+					await dialog.set_value("wip_bin_scan", "");
+					await dialog.set_value("wip_bin_row", operator_wip_row_option(pending_wip[index], index));
+				}
+				else frappe.show_alert({ message: __("That WIP material row number is not available."), indicator: "orange" });
 				return window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
 			}
 			if (row?.wip_bin_action === "Consume") {
@@ -2496,12 +2532,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		};
 		if (!consuming) {
 			args.source_scan = dialog.cfg_wip_erp_only ? null : dialog.get_value("wip_source_scan");
-			if (partial) {
-				args.actual_qty = Number(dialog.get_value("wip_partial_qty") || dialog.cfg_wip_partial_qty || 0);
-				args.exception_reason = String(dialog.get_value("wip_partial_reason") || "").trim();
-				if (!args.actual_qty || !args.exception_reason) {
-					frappe.throw(__("Enter the approved partial-bin quantity and supervisor exception reason."));
-				}
+		}
+		if (partial) {
+			args.actual_qty = Number(dialog.get_value("wip_partial_qty") || dialog.cfg_wip_partial_qty || 0);
+			args.exception_reason = String(dialog.get_value("wip_partial_reason") || "").trim();
+			if (!args.actual_qty || !args.exception_reason) {
+				frappe.throw(consuming
+					? __("Enter the actual consumed quantity and adjustment reason.")
+					: __("Enter the approved partial-bin quantity and supervisor exception reason."));
 			}
 		}
 		const response = await frappe.call({ method, args, freeze: true,
@@ -2509,8 +2547,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				: __("Reserving source material and WIP Bin...") });
 		const result = response.message || {};
 		frappe.show_alert({ message: consuming
-			? __("Ready WIP Bin linked to {0}: {1} {2}. Material is consumed only after ERP submission.",
-				[result.item_code || row.item_code, result.actual_qty || 0,
+			? __("Ready WIP Bin linked to {0}: prepared {1}, consume {2}, return {3} {4}. ERP stock changes only after submission.",
+				[result.item_code || row.item_code, result.prepared_qty || result.actual_qty || 0,
+					result.consumed_qty || result.actual_qty || 0, result.return_qty || 0,
 					result.stock_uom || row.stock_uom])
 			: partial
 				? __("Supervisor partial-bin exception recorded; ERP stock moves only after Stock Entry submission.")
@@ -2556,9 +2595,19 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const trace_rows = (plan.lines || []).map((line) => `<tr><td>${e(line.direction)}</td><td>${e(line.item_code)}</td>
 			<td>${e(line.handling_unit || line.pending_tag_code || "-")}</td><td>${e(line.qty)} ${e(line.stock_uom)}${line.serial_count ? `<br><small>${e(line.serial_count)} ${__("serials")}</small>` : ""}</td>
 			<td>${e(line.status)}</td><td>${line.can_cancel ? `<button type="button" class="btn btn-xs btn-danger" data-cancel-operator-trace-line="${e(line.name)}">${__("Release Loaded Material")}</button>` : ""}</td></tr>`).join("");
-		const wip_rows = wip_loads.map((load) => `<tr><td>${__("WIP Bin")}${load.partial_exception ? `<br><span class="indicator-pill orange">${__("Supervisor Partial Exception")}</span>` : ""}</td><td>${e(load.item_code)}</td>
-			<td>${e(load.reusable_bin)}${load.partial_exception ? `<br><small>${e(load.exception_reason || "")}</small><br><small>${e(load.approved_by_operator || load.approved_by || "")}</small>` : ""}</td><td>${e(load.actual_qty)} ${e(load.stock_uom)}</td><td>${e(load.status)}</td>
-			<td>${["Transfer Draft", "Consumption Draft"].includes(load.status) ? `<button type="button" class="btn btn-xs btn-danger" data-cancel-wip-bin-load="${e(load.name)}" data-wip-bin-status="${e(load.status)}">${__("Cancel Loaded Material")}</button>` : ""}</td></tr>`).join("");
+		const consumption_plan = plan.purpose === "Material Consumption for Manufacture";
+		const wip_rows = wip_loads.map((load) => {
+			const quantity = consumption_plan
+				? `<strong>${__("Prepared")}: ${e(load.actual_qty)} ${e(load.stock_uom)}</strong><br>
+					<span class="text-success">${__("Actual Used")}: ${e(load.consumed_qty || 0)} ${e(load.stock_uom)}</span><br>
+					<span class="text-warning">${__("Unused Return")}: ${e(load.return_qty || 0)} ${e(load.stock_uom)}</span>`
+				: `${e(load.actual_qty)} ${e(load.stock_uom)}`;
+			const consumption_reason = consumption_plan && load.consumption_reason
+				? `<br><small>${__("Reason")}: ${e(load.consumption_reason)}</small>` : "";
+			return `<tr><td>${consumption_plan ? __("WIP Bin Consumption") : __("WIP Bin")}${load.partial_exception ? `<br><span class="indicator-pill orange">${__("Supervisor Partial Exception")}</span>` : ""}</td><td>${e(load.item_code)}</td>
+			<td>${e(load.reusable_bin)}${load.partial_exception ? `<br><small>${e(load.exception_reason || "")}</small><br><small>${e(load.approved_by_operator || load.approved_by || "")}</small>` : ""}${consumption_reason}</td><td>${quantity}</td><td>${e(load.status)}</td>
+			<td>${["Transfer Draft", "Consumption Draft"].includes(load.status) ? `<button type="button" class="btn btn-xs btn-danger" data-cancel-wip-bin-load="${e(load.name)}" data-wip-bin-status="${e(load.status)}">${__("Cancel Loaded Material")}</button>` : ""}</td></tr>`;
+		}).join("");
 		return `<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr>
 			<th>${__("Direction")}</th><th>${__("Item")}</th><th>${__("Tag")}</th><th>${__("Quantity")}</th>
 			<th>${__("Status")}</th><th></th></tr></thead><tbody>${trace_rows}${wip_rows}</tbody></table></div>`;

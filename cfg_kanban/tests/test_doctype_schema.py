@@ -187,6 +187,20 @@ class TestDocTypeSchema(TestCase):
             self.assertIn("STOCK TRANSFER", print_format["html"])
             self.assertIn("STOCK WITHDRAWAL", print_format["html"])
 
+    def test_general_service_location_card_is_printable(self):
+        card_js = (APP_ROOT / "public" / "js" / "cfg_kanban_card.js").read_text()
+        self.assertIn('__("Print General Service Location Card")', card_js)
+        self.assertIn('"CFG General Service Location Card"', card_js)
+
+        print_format = json.loads((
+            APP_ROOT / "cfg_kanban" / "print_format" /
+            "cfg_general_service_location_card" /
+            "cfg_general_service_location_card.json"
+        ).read_text())
+        self.assertEqual(print_format["doc_type"], "CFG Kanban Card")
+        self.assertIn("GENERAL SERVICE LOCATION", print_format["html"])
+        self.assertIn("get_qr_svg(doc.qr_code or doc.card_number", print_format["html"])
+
     def test_customer_scan_point_has_visible_printable_site_identity(self):
         schema = json.loads((
             ROOT / "cfg_kanban_customer_scan_point" /
@@ -1808,10 +1822,17 @@ class TestDocTypeSchema(TestCase):
             "source_confirmation_ledger", "source_reversal_ledger", "partial_exception",
             "exception_reason", "approved_by", "approved_by_operator",
             "exception_approved_on", "recovery_of_load", "recovery_reconciliation",
+            "consumed_qty", "return_qty", "consumption_reason",
+            "consumption_reported_by", "consumption_reported_on",
+            "return_stock_entry", "return_stock_entry_detail",
+            "return_confirmation_ledger", "returned_on",
         }.issubset(load))
+        self.assertIn("Return Draft", load["status"]["options"])
         self.assertTrue(load["idempotency_key"].get("unique"))
         reconciliation = {row["fieldname"]: row for row in
                           schemas["CFG Kanban WIP Bin Reconciliation"]["fields"]}
+        self.assertIn("Unused Return Cancellation",
+                      reconciliation["reversal_context"]["options"])
         self.assertTrue({
             "status", "reversal_context", "decision", "wip_bin_load",
             "reusable_bin", "source_handling_unit", "company",
@@ -1868,6 +1889,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('entry.cfg_kanban_job_card = job.name', gateway)
         self.assertIn('entry.job_card = None', gateway)
         self.assertIn('"fieldname": "cfg_kanban_job_card"', install)
+        self.assertIn('"fieldname": "cfg_wip_bin_return_load"', install)
         self.assertIn('"cfg_kanban_job_card": job.name', service)
         self.assertIn("coalesce(nullif(se.cfg_kanban_job_card, ''), se.job_card)", service)
         self.assertIn('@handler("Create Production Manufacture Receipt")', gateway)
@@ -1910,6 +1932,10 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Consume Operation Materials", panel)
         self.assertIn("Select Job Card for Material Consumption", panel)
         self.assertIn("CFG:QTY:MATERIAL:", panel)
+        self.assertIn("Actual Quantity Consumed", panel)
+        self.assertIn('__("Actual Used")', panel)
+        self.assertIn('__("Unused Return")', panel)
+        self.assertIn("Confirm Unused Material Return", panel)
         self.assertIn("Prepare Manufacture Receipt", panel)
         self.assertIn("Discard Premature Draft", panel)
         self.assertIn("wip_bin_receipt_ready", panel)
@@ -1930,6 +1956,10 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def allocate_transfer_bin", load_service)
         self.assertIn("def cancel_transfer_bin", load_service)
         self.assertIn("def allocate_consumption_bin", load_service)
+        self.assertIn("def finalize_wip_bin_consumption_entry", load_service)
+        self.assertIn("def _create_wip_bin_return_draft", load_service)
+        self.assertIn('event_type="WIP Bin Unused Material Return"', load_service)
+        self.assertIn("Actual consumption cannot exceed", load_controller)
         self.assertIn("def wip_bin_full_qty", load_service)
         self.assertIn("bin_unit.name, row.item_code, row.stock_uom", load_service)
         self.assertIn('"standard_qty": standard_qty', load_service)

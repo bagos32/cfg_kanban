@@ -1475,9 +1475,17 @@ def submit_production_stock_entry(command, payload):
         return entry
     if entry.docstatus != 0 or entry.get("cfg_kanban_cycle") != command.kanban_cycle:
         frappe.throw("ERP Command can submit only its own Draft production Stock Entry")
-    if entry.purpose not in ("Material Transfer for Manufacture", "Manufacture",
-                             "Material Consumption for Manufacture"):
+    supported = entry.purpose in (
+        "Material Transfer for Manufacture", "Manufacture",
+        "Material Consumption for Manufacture",
+    ) or bool(
+        entry.purpose == "Material Transfer" and entry.get("cfg_wip_bin_return_load")
+    )
+    if not supported:
         frappe.throw("Stock Entry is not a supported production transaction")
+    if entry.purpose == "Material Consumption for Manufacture":
+        from cfg_kanban.services.wip_bin_loads import finalize_wip_bin_consumption_entry
+        entry = finalize_wip_bin_consumption_entry(entry.name)
     entry.submit()
     return entry
 

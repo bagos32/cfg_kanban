@@ -149,9 +149,13 @@ def _custom_fields():
                  "CFG Kanban operation owner for Work Order-scoped material consumption. "
                  "ERPNext only permits its native Job Card field on material transfers."
              )},
+            {"fieldname": "cfg_wip_bin_return_load", "label": "WIP Bin Return Load",
+             "fieldtype": "Link", "options": "CFG Kanban WIP Bin Load", "read_only": 1,
+             "insert_after": "cfg_kanban_job_card", "module": "CFG Kanban",
+             "description": "Identifies the controlled return of unused material from a reusable WIP bin."},
             {"fieldname": "cfg_logistics_route", "label": "Logistics Route",
              "fieldtype": "Link", "options": "CFG Kanban Logistics Route", "read_only": 1,
-             "insert_after": "cfg_kanban_job_card", "module": "CFG Kanban"},
+             "insert_after": "cfg_wip_bin_return_load", "module": "CFG Kanban"},
             {"fieldname": "cfg_movement_manifest", "label": "Movement Manifest",
              "fieldtype": "Link", "options": "CFG Kanban Movement Manifest", "read_only": 1,
              "insert_after": "cfg_logistics_route", "module": "CFG Kanban"},

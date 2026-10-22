@@ -85,6 +85,10 @@ frappe.ui.form.on("CFG Kanban Card", {
 			frm.add_custom_button(__("Print Operational Card"), () => cfg_card_print(frm,
 				"CFG Kanban Operational Card"), __("Print Kanban"));
 		}
+		if (frm.doc.card_type === "Location Card" && frm.doc.location_purpose === "General Service Point") {
+			frm.add_custom_button(__("Print General Service Location Card"), () => cfg_card_print(frm,
+				"CFG General Service Location Card"), __("Print Kanban"));
+		}
 		if (frm.doc.card_type === "Location Card" && frm.doc.location_purpose === "Supplier Receiving") {
 			frm.add_custom_button(__("Print Supplier Receiving Location Card"), () => cfg_card_print(frm,
 				"CFG Supplier Receiving Location Card"), __("Print Kanban"));

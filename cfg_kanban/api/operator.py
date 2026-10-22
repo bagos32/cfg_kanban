@@ -586,6 +586,9 @@ def _production_stock_entries(cycle, job_card=None):
     """Return only ERP transactions belonging to the scanned production Work Order."""
     if not cycle.work_order:
         return []
+    fields = ["name", "purpose", "stock_entry_type", "docstatus", "posting_date",
+              "posting_time", "cfg_kanban_cycle", "job_card",
+              "cfg_kanban_job_card", "cfg_wip_bin_return_load", "modified"]
     rows = frappe.get_all(
         "Stock Entry",
         filters={
@@ -593,14 +596,27 @@ def _production_stock_entries(cycle, job_card=None):
             "docstatus": ["<", 2],
             "purpose": ["in", sorted(SUPPORTED_PURPOSES)],
         },
-        fields=["name", "purpose", "stock_entry_type", "docstatus", "posting_date",
-                "posting_time", "cfg_kanban_cycle", "job_card",
-                "cfg_kanban_job_card", "modified"],
+        fields=fields,
         order_by="modified desc",
         limit_page_length=20,
     )
     rows = [row for row in rows
             if not row.cfg_kanban_cycle or row.cfg_kanban_cycle == cycle.name]
+    return_names = frappe.get_all(
+        "CFG Kanban WIP Bin Load",
+        filters={"kanban_cycle": cycle.name,
+                 "return_stock_entry": ["is", "set"]},
+        pluck="return_stock_entry", limit_page_length=0,
+    )
+    if return_names:
+        rows.extend(frappe.get_all(
+            "Stock Entry",
+            filters={"name": ["in", list(dict.fromkeys(return_names))],
+                     "docstatus": ["<", 2]},
+            fields=fields, order_by="modified desc", limit_page_length=0,
+        ))
+        rows = list({row.name: row for row in rows}.values())
+        rows.sort(key=lambda row: row.modified, reverse=True)
     if job_card:
         rows = [row for row in rows
                 if row.purpose in (
@@ -621,10 +637,12 @@ def _production_stock_entries(cycle, job_card=None):
         row["erp_status"] = "Draft" if row.docstatus == 0 else "Submitted"
         row["trace"] = trace.name if trace else None
         row["trace_status"] = trace.status if trace else "Not Started"
-        row["can_stage_trace"] = row.docstatus == 0
+        row["is_wip_bin_return"] = bool(row.cfg_wip_bin_return_load)
+        row["can_stage_trace"] = row.docstatus == 0 and not row.is_wip_bin_return
         row["can_submit"] = row.docstatus == 0
         row["submit_permission"] = (
             "material_transfer" if row.purpose in (
+                "Material Transfer",
                 "Material Transfer for Manufacture",
                 "Material Consumption for Manufacture",
             )
