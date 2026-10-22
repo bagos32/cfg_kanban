@@ -364,58 +364,46 @@ Expected result:
 - the Load records its source reversal ledger; and
 - the historical Load record is not deleted. Complete one controlled outcome in Section 10.15.
 
-### 10.8 Create the Job Card consumption Draft
+### 10.8 Record operation use before downstream operations finish
 
 1. Return to the Production or matching Operation Card after both bins are `Ready`.
 2. Confirm that its Job Card shows **2 Ready bin(s), 20 total quantity**.
-3. Select **Consume Ready WIP Bins** and enter the operator confirmation.
+3. Select **Record WIP Bin Use** and scan `WIP-BIN-KETTLE-01`, then
+   `WIP-BIN-KETTLE-02`.
 
 Expected result:
 
-- one Draft native `Material Consumption for Manufacture` is created for the exact Job Card;
-- its source Warehouse is the configured WIP Warehouse;
-- its quantity is `20 Kg` and its Item/UOM/Batch agree with the Ready loads;
-- both loads remain `Ready` until they are physically scanned; and
+- no ERP Stock Entry is created while the owning Cooking Job Card is still incomplete;
+- both loads become `Consumption Pending ERP` and both bins become `In Use`;
+- each load records its actual consumed quantity, Item/UOM/Batch and Job Card; and
 - ERPNext stock is unchanged.
 
-### 10.9 Scan and correct Ready-bin consumption
+### 10.9 Correct a recorded bin before ERP posting
 
-1. In the opened Production Material Trace dialog, scan `WIP-BIN-KETTLE-01`.
+1. Select **Undo Use** beside `WIP-BIN-KETTLE-01`.
+2. Confirm it returns to `Ready`, with no ERP stock change and no deleted audit history.
+3. Select **Record WIP Bin Use** and scan `WIP-BIN-KETTLE-01` again.
 
-Expected result: the matching load becomes `Consumption Draft`, the bin becomes `In Use`, and the
-dialog shows `10 / 20 Kg` covered. ERPNext stock is still unchanged.
-
-2. Select **Cancel** on that Draft WIP Bin line.
-
-Expected result: the load and physical bin return to `Ready`; the Draft Stock Entry remains open;
-no stock is consumed and no audit history is deleted.
-
-3. Scan `WIP-BIN-KETTLE-01` again, followed by `WIP-BIN-KETTLE-02`.
-
-Expected result: both loads become `Consumption Draft`, both bins become `In Use`, and the exact
-ERP row is fully covered.
+Expected result: both loads are again `Consumption Pending ERP` and the operation is eligible to
+close after its required progress is reported.
 
 ### 10.10 Consumption submission and Empty-bin feedback
 
-1. Close Production Material Trace and select **Report Progress** for the matching operation.
+1. Close the WIP Bin Use window and select **Report Progress** for the matching operation.
 2. Report the full completed quantity required by that Job Card.
 
 Expected result when **Auto-submit Job Card at Target** is enabled: ERPNext saves the Job Card
 completed quantity and submits the Job Card even while the bin is `Ready`, `In Use`, or
-`Consumption Draft`. ERPNext requires the operation to be completed before it accepts production
+`Consumption Pending ERP`. ERPNext requires the operation to be completed before it accepts production
 consumption. It must not display a cycle-closing error, and the progress transaction must not roll
 back. A `Transfer Draft` load or Open WIP-bin reconciliation must still block Job Card submission.
 
-3. Reopen Production Material Trace and scan every Ready bin into the exact operation-owned Draft.
-4. If a downstream Job Card is still incomplete, confirm that **Submit ERP Entry** is replaced by
-   **ERP Posting Pending**. Close the operation Kanban Cycle; its operator must not wait for the
-   entire route.
-5. Complete the remaining Work Order Job Cards.
-6. Verify every Work Order Operation row has updated to the Stock Entry's required finished-goods
-   quantity. If a Job Card says Completed but its Work Order row is still lower, refresh/reconcile
-   that ERPNext operation first; CFG Kanban must show the exact row and keep submission disabled.
-7. Return to the main Production Card and scan `CFG:CMD:SUBMIT_MATERIALS`, or select **Submit ERP
-   Entry**, for each operation-owned consumption Draft.
+3. As soon as the Cooking Job Card is submitted and Completed, select **Prepare ERP Consumption**
+   for Cooking. Confirm that the Draft is created and the already-recorded bins are bound without
+   rescanning. Moulding may still be Ready, In Progress, or incomplete.
+4. Scan `CFG:CMD:SUBMIT_MATERIALS`, or select **Submit ERP Entry**.
+5. Close the Cooking operation Card. Moulding is released by Cooking progress completion, not by
+   the WIP consumption status; it never has to finish before Cooking consumption can post.
 
 Expected result after successful native ERPNext submission:
 
@@ -426,9 +414,8 @@ Expected result after successful native ERPNext submission:
 - each Load keeps both its transfer and consumption Stock Entry links; and
 - the submitted document, load history and Kanban event timeline agree.
 
-Negative check: before the last Work Order Operation reaches `100`, try the scanner submit command.
-The panel must report **ERP Work Order operation update required**, identify `Kanban Moulding` and
-its completed/required quantity, and must not create or execute a Submit ERP Command.
+Negative check: before the Cooking Job Card reaches its target, try **Prepare ERP Consumption**.
+The panel must identify Cooking as incomplete. It must not mention Moulding or create a Draft.
 
 ### 10.11 Completion guards
 
@@ -437,13 +424,13 @@ Repeat the flow with one Ready bin and try each action before submitting consump
 1. complete/submit the Job Card; and
 2. prepare or submit Manufacture receipt.
 
-Expected result: Job Card completion is allowed for `Ready`, `In Use`, and `Consumption Draft`
+Expected result: Job Card completion is allowed for `Ready`, `In Use`, `Consumption Pending ERP`, and `Consumption Draft`
 loads because ERPNext requires operation completion before production consumption. Operation
 Kanban Cycle closure remains blocked for `Transfer Draft`, `Ready`, `In Use`, `Return Draft`, or
 Open reconciliation. It becomes available when every Ready bin has been scanned and only valid
-`Consumption Draft` loads remain. The operation Card is released, but the bin stays `In Use`, ERP
-submission stays pending, and Manufacture remains blocked until every route operation is complete
-and every load becomes `Consumed`.
+`Consumption Pending ERP` loads remain. The operation Card is released, but the bin stays `In Use`.
+ERP submission waits only for its owning Job Card, while Manufacture remains blocked until every
+load becomes `Consumed`.
 
 ### 10.12 Submitted consumption cancellation
 
@@ -651,8 +638,9 @@ Expected result for a valid `Consumption Draft` after every Ready bin was scanne
 - the physical bin remains `In Use` and cannot be loaded again; and
 - final Manufacture receipt remains blocked until that Draft is submitted successfully.
 
-4. For a blocking state, cancel or complete its required movement. For `Consumption Draft`, leave
-   the Draft pending and complete downstream Job Cards before submitting it from the main Card.
+4. For a blocking state, cancel or complete its required movement. A `Consumption Draft` may remain
+   pending after operation-card closure, but it becomes submittable as soon as its own Job Card is
+   complete; do not wait for or inspect downstream Job Cards.
 5. Repeat closure after ERPNext Job Card progress satisfies the existing runtime quantity checks.
 
 Expected result: the operation Card can close normally.

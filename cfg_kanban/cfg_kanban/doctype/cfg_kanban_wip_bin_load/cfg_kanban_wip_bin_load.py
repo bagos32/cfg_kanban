@@ -4,7 +4,8 @@ from frappe.utils import cint, flt
 
 
 ACTIVE_STATUSES = (
-    "Reserved", "Transfer Draft", "Ready", "In Use", "Consumption Draft", "Return Draft",
+    "Reserved", "Transfer Draft", "Ready", "In Use", "Consumption Pending ERP",
+    "Consumption Draft", "Return Draft",
 )
 IDENTITY_FIELDS = (
     "reusable_bin", "wip_bin_pool", "company", "item_code", "batch_no",

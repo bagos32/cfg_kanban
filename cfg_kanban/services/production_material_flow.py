@@ -132,7 +132,8 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
         wip_loads = frappe.get_all(
             "CFG Kanban WIP Bin Load",
             {"kanban_cycle": cycle.name, "job_card": job.name,
-             "status": ["in", ["Ready", "In Use", "Consumption Draft", "Return Draft"]]},
+             "status": ["in", ["Ready", "In Use", "Consumption Pending ERP",
+                               "Consumption Draft", "Return Draft"]]},
             ["name", "status", "item_code", "actual_qty", "consumed_qty", "return_qty",
              "stock_uom", "reusable_bin", "return_stock_entry"],
             order_by="creation asc",
@@ -144,6 +145,9 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
             "purpose": "Material Consumption for Manufacture",
             "docstatus": 0,
         }, "name")
+        operation_readiness = operation_consumption_submission_readiness(
+            work_order.name, job.name
+        )
         jobs.append({**job, "materials": material_rows,
                      "pending_material_qty": sum(row["pending_qty"] for row in material_rows),
                      "has_pending_materials": any(
@@ -162,7 +166,22 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
                      "wip_bin_ready_qty": sum(
                          flt(row.actual_qty) for row in wip_loads if row.status == "Ready"
                      ),
-                     "wip_bin_consumption_draft": open_wip_consumption})
+                     "wip_bin_pending_erp_count": sum(
+                         1 for row in wip_loads if row.status == "Consumption Pending ERP"
+                     ),
+                     "wip_bin_pending_erp_qty": sum(
+                         flt(row.consumed_qty)
+                         for row in wip_loads if row.status == "Consumption Pending ERP"
+                     ),
+                     "wip_bin_pending_erp_loads": [
+                         {"name": row.name, "reusable_bin": row.reusable_bin,
+                          "item_code": row.item_code, "consumed_qty": flt(row.consumed_qty),
+                          "return_qty": flt(row.return_qty), "stock_uom": row.stock_uom}
+                         for row in wip_loads if row.status == "Consumption Pending ERP"
+                     ],
+                     "wip_bin_consumption_draft": open_wip_consumption,
+                     "erp_consumption_submission_ready": operation_readiness["ready"],
+                     "erp_consumption_submission_reason": operation_readiness["reason"]})
 
     route_readiness = erp_consumption_submission_readiness(work_order.name, jobs=jobs)
     incomplete_jobs = route_readiness["incomplete_job_cards"]
@@ -341,10 +360,74 @@ def prepare_material_transfer(cycle_name, lines, job_card=None, event_token=None
 
 
 @frappe.whitelist()
+def record_wip_bin_consumption(cycle_name, job_card, reusable_bin_scan,
+                               actual_qty=None, consumption_reason=None,
+                               confirmation=None, operator_session_token=None,
+                               event_token=None, requesting_cycle=None):
+    """Scan and record one operation-owned Ready bin without creating an ERP draft."""
+    cycle, master, work_order = _production_context(cycle_name)
+    if work_order.docstatus != 1:
+        frappe.throw("Submit the effective Work Order before consuming WIP-bin materials")
+    if (_effective_mode(master, work_order) != "Transfer to WIP by Job Card"
+            or work_order.transfer_material_against != "Job Card"):
+        frappe.throw("Ready WIP Bin consumption requires Transfer to WIP by Job Card")
+    job = frappe.db.get_value(
+        "Job Card", {"name": job_card, "work_order": work_order.name,
+                     "docstatus": ["<", 2]},
+        ["name", "operation", "workstation"], as_dict=True,
+    )
+    if not job:
+        frappe.throw("Job Card does not belong to the effective Work Order")
+    _validated_operation_requesting_cycle(
+        requesting_cycle, cycle, work_order, job_card
+    )
+    execution = frappe.db.get_value(
+        "CFG Kanban Process Execution",
+        {"kanban_cycle": cycle.name, "job_card": job.name}, "name",
+    )
+    profile, session = require_operator(
+        operator_session_token, "material_transfer", execution=execution,
+        operation=job.operation, workstation=job.workstation,
+    )
+    _validated_confirmation(confirmation)
+    from cfg_kanban.services.wip_bin_loads import record_pending_consumption
+    result = record_pending_consumption(
+        kanban_cycle=cycle.name, work_order=work_order.name, job_card=job.name,
+        reusable_bin_scan=reusable_bin_scan, actual_qty=actual_qty,
+        consumption_reason=consumption_reason, operator=profile.employee,
+        operator_session=session.name, event_token=event_token, profile=profile,
+    )
+    result["ready_remaining"] = frappe.db.count(
+        "CFG Kanban WIP Bin Load",
+        {"kanban_cycle": cycle.name, "work_order": work_order.name,
+         "job_card": job.name, "status": "Ready"},
+    )
+    return result
+
+
+@frappe.whitelist()
+def cancel_recorded_wip_bin_consumption(load_name, operator_session_token=None):
+    context = frappe.db.get_value(
+        "CFG Kanban WIP Bin Load", load_name,
+        ["name", "operation", "workstation", "process_execution"], as_dict=True,
+    )
+    if not context:
+        frappe.throw("WIP Bin Load was not found")
+    profile, session = require_operator(
+        operator_session_token, "material_transfer", execution=context.process_execution,
+        operation=context.operation, workstation=context.workstation,
+    )
+    from cfg_kanban.services.wip_bin_loads import cancel_pending_consumption
+    return cancel_pending_consumption(
+        load_name, operator=profile.employee, operator_session=session.name
+    )
+
+
+@frappe.whitelist()
 def prepare_wip_bin_consumption(cycle_name, job_card, confirmation,
                                 operator_session_token=None, event_token=None,
                                 requesting_cycle=None):
-    """Create a Draft native consumption entry from the Job Card's Ready WIP bins."""
+    """Create the native ERP draft from physical WIP-bin use recorded earlier."""
     cycle, master, work_order = _production_context(cycle_name)
     if work_order.docstatus != 1:
         frappe.throw("Submit the effective Work Order before consuming WIP-bin materials")
@@ -370,6 +453,11 @@ def prepare_wip_bin_consumption(cycle_name, job_card, confirmation,
         operation=job.operation, workstation=job.workstation,
     )
     confirmation = _validated_confirmation(confirmation)
+    operation_readiness = operation_consumption_submission_readiness(
+        work_order.name, job.name
+    )
+    if not operation_readiness["ready"]:
+        frappe.throw(operation_readiness["reason"])
     _assert_no_open_production_entry(
         cycle.name, work_order.name, "Material Consumption for Manufacture", job.name
     )
@@ -377,15 +465,25 @@ def prepare_wip_bin_consumption(cycle_name, job_card, confirmation,
         "CFG Kanban WIP Bin Load",
         {"kanban_cycle": cycle.name, "work_order": work_order.name,
          "job_card": job.name, "status": "Ready"},
-        ["name", "item_code", "batch_no", "actual_qty", "stock_uom",
+        ["name"], order_by="creation asc",
+    )
+    if ready:
+        frappe.throw(
+            f"Scan every Ready WIP Bin for Job Card {job.name} before preparing ERP posting"
+        )
+    pending = frappe.get_all(
+        "CFG Kanban WIP Bin Load",
+        {"kanban_cycle": cycle.name, "work_order": work_order.name,
+         "job_card": job.name, "status": "Consumption Pending ERP"},
+        ["name", "item_code", "batch_no", "consumed_qty", "stock_uom",
          "wip_warehouse"], order_by="creation asc",
     )
-    if not ready:
-        frappe.throw(f"Job Card {job.name} has no Ready Standard Quantity WIP Bin")
+    if not pending:
+        frappe.throw(f"Job Card {job.name} has no WIP Bin use awaiting ERP posting")
     grouped = {}
-    for load in ready:
+    for load in pending:
         key = (load.item_code, load.wip_warehouse, load.batch_no or "", load.stock_uom)
-        grouped[key] = grouped.get(key, 0) + flt(load.actual_qty)
+        grouped[key] = grouped.get(key, 0) + flt(load.consumed_qty)
     lines = [{
         "item_code": item_code,
         "source_warehouse": warehouse,
@@ -419,6 +517,8 @@ def prepare_wip_bin_consumption(cycle_name, job_card, confirmation,
         "terminal_user": session.terminal_user,
     }), key, ignore_permissions=True)
     entry = execute_command(command.name)
+    from cfg_kanban.services.wip_bin_loads import bind_pending_consumption_loads
+    bind_pending_consumption_loads(entry.name, [row.name for row in pending])
     record(
         "WIP Bin Material Consumption Prepared", card=cycle.kanban_card,
         cycle=cycle.name, execution=execution,
@@ -426,7 +526,7 @@ def prepare_wip_bin_consumption(cycle_name, job_card, confirmation,
         reference_doctype="Stock Entry", reference_name=entry.name,
         operator=profile.employee, operator_session=session.name,
         terminal_user=session.terminal_user,
-        notes=(f"Job Card {job.name}; {len(ready)} Ready bin(s); "
+        notes=(f"Job Card {job.name}; {len(pending)} recorded bin use(s); "
                f"Operator confirmation: {confirmation}"),
     )
     if operation_cycle:
@@ -445,7 +545,7 @@ def prepare_wip_bin_consumption(cycle_name, job_card, confirmation,
         )
     return {"command": command.name, "stock_entry": entry.name,
             "docstatus": entry.docstatus, "duplicate": not created,
-            "ready_bin_count": len(ready)}
+            "ready_bin_count": 0, "pending_bin_count": len(pending)}
 
 
 @frappe.whitelist()
@@ -818,11 +918,16 @@ def submit_production_stock_entry(stock_entry, event_token=None,
         required_operation_qty = (
             flt(entry.get("fg_completed_qty")) + flt(work_order.produced_qty)
         )
-        route_readiness = erp_consumption_submission_readiness(
-            work_order.name, required_qty=required_operation_qty
+        owning_job_card = entry.get("cfg_kanban_job_card")
+        if not owning_job_card:
+            frappe.throw(
+                "Operation-owned WIP-bin consumption is missing its audited Job Card"
+            )
+        operation_readiness = operation_consumption_submission_readiness(
+            work_order.name, owning_job_card, required_qty=required_operation_qty
         )
-        if not route_readiness["ready"]:
-            frappe.throw(route_readiness["reason"])
+        if not operation_readiness["ready"]:
+            frappe.throw(operation_readiness["reason"])
         from cfg_kanban.services.wip_bin_loads import finalize_wip_bin_consumption_entry
         entry = finalize_wip_bin_consumption_entry(entry.name)
     action = ("material_transfer" if entry.purpose in (
@@ -854,6 +959,51 @@ def submit_production_stock_entry(stock_entry, event_token=None,
            terminal_user=session.terminal_user, notes=entry.purpose)
     return {"command": command.name, "stock_entry": result.name,
             "docstatus": result.docstatus, "duplicate": not created}
+
+
+def operation_consumption_submission_readiness(work_order_name, job_card,
+                                               required_qty=None):
+    """Return whether one operation may post its own controlled material consumption.
+
+    Downstream operations are deliberately outside this decision. The owning Job Card must be
+    submitted and complete for the Stock Entry's production quantity; its WIP-bin consumption
+    can then post before the next operation begins.
+    """
+    work_order = frappe.get_doc("Work Order", work_order_name)
+    job = frappe.db.get_value(
+        "Job Card",
+        {"name": job_card, "work_order": work_order_name, "docstatus": ["<", 2]},
+        ["name", "status", "docstatus", "for_quantity", "total_completed_qty"],
+        as_dict=True,
+    )
+    if not job:
+        return {
+            "ready": False,
+            "reason": f"Job Card {job_card} does not belong to Work Order {work_order_name}",
+            "job_card": job_card,
+            "required_qty": flt(required_qty),
+        }
+    target_qty = flt(required_qty) or flt(job.for_quantity) or flt(work_order.qty)
+    completed_qty = flt(job.total_completed_qty)
+    ready = bool(
+        job.docstatus == 1
+        and job.status == "Completed"
+        and completed_qty + 0.000001 >= target_qty
+    )
+    reason = None
+    if not ready:
+        reason = (
+            f"Complete owning Job Card {job.name} for {target_qty} before posting this "
+            f"operation's WIP-bin consumption. Current ERP status: {job.status}; "
+            f"completed quantity: {completed_qty}. Downstream operations are not required."
+        )
+    return {
+        "ready": ready,
+        "reason": reason,
+        "job_card": job.name,
+        "required_qty": target_qty,
+        "completed_qty": completed_qty,
+    }
 
 
 def erp_consumption_submission_readiness(work_order_name, jobs=None, required_qty=None):

@@ -237,7 +237,7 @@ class CFGKanbanHandlingUnit(Document):
         active_load = capacity_changed and frappe.db.exists("CFG Kanban WIP Bin Load", {
             "reusable_bin": self.name,
             "status": ["in", ["Reserved", "Transfer Draft", "Ready", "In Use",
-                              "Consumption Draft"]],
+                              "Consumption Pending ERP", "Consumption Draft"]],
         })
         open_reconciliation = capacity_changed and frappe.db.exists(
             "CFG Kanban WIP Bin Reconciliation",

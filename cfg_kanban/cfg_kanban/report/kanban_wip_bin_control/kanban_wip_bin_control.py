@@ -4,12 +4,14 @@ from frappe.utils import cint, flt, now_datetime, time_diff_in_hours
 
 
 ACTIVE_LOAD_STATUSES = (
-    "Transfer Draft", "Ready", "In Use", "Consumption Draft", "Return Draft",
+    "Transfer Draft", "Ready", "In Use", "Consumption Pending ERP",
+    "Consumption Draft", "Return Draft",
 )
 EXPECTED_BIN_STATES = {
     "Transfer Draft": "Reserved",
     "Ready": "Ready",
     "In Use": "In Use",
+    "Consumption Pending ERP": "In Use",
     "Consumption Draft": "In Use",
     "Return Draft": "In Use",
 }
@@ -160,7 +162,7 @@ def _state_timestamp(row, load, reconciliation):
         return load.get("reserved_on") or load.modified
     if load.status == "Ready":
         return load.get("ready_on") or load.modified
-    if load.status in ("In Use", "Consumption Draft", "Return Draft"):
+    if load.status in ("In Use", "Consumption Pending ERP", "Consumption Draft", "Return Draft"):
         return load.get("in_use_on") or load.modified
     return load.modified
 
@@ -195,6 +197,8 @@ def _attention(row, load, reconciliation):
             return _("Action: Submit or cancel transfer Draft"), "Warning"
         if load.status == "Ready":
             return _("Action: Awaiting Job Card consumption"), "Warning"
+        if load.status == "Consumption Pending ERP":
+            return _("Action: Physical use recorded; awaiting ERP posting"), "Warning"
         if load.status in ("In Use", "Consumption Draft"):
             return _("Action: Submit or cancel consumption Draft"), "Warning"
         if load.status == "Return Draft":

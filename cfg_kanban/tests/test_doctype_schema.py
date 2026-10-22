@@ -1931,8 +1931,15 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def _validate_transfer_recovery_correction", wip_service)
         self.assertIn("def job_card_wip_bin_close_readiness", wip_service)
         self.assertIn("OPERATION_CLOSE_BLOCK_STATUSES", wip_service)
+        close_block_statuses = wip_service.split(
+            "OPERATION_CLOSE_BLOCK_STATUSES = (", 1
+        )[1].split(")", 1)[0]
+        self.assertNotIn("Consumption Pending ERP", close_block_statuses)
+        self.assertNotIn("Consumption Draft", close_block_statuses)
         self.assertIn('row.status == "Consumption Draft"', wip_service)
+        self.assertIn('row.status == "Consumption Pending ERP"', wip_service)
         self.assertIn('"pending_erp_entries": pending_entries', wip_service)
+        self.assertIn('"pending_wip_loads": pending_use', wip_service)
         self.assertIn("def manufacture_receipt_wip_bin_readiness", wip_service)
         self.assertIn("ACTIVE_LOAD_STATUSES", wip_service)
         self.assertIn("wip-bin-source-cancel-hold", wip_service)
@@ -1944,6 +1951,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("WIP Bin Reconciliation Resolved", wip_service)
         self.assertIn("job_card_wip_bin_close_readiness(job_card.name)", operator)
         self.assertIn("wip_bin_erp_posting_pending", operator)
+        self.assertIn("def operation_consumption_submission_readiness", service)
         self.assertIn("erp_consumption_submission_readiness", service)
         self.assertIn('work_order.get("operations")', service)
         self.assertIn('"operation_gaps": operation_gaps', service)
@@ -1951,6 +1959,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("ERP Posting Pending", panel)
         self.assertIn("ERP Work Order operation update required", panel)
         self.assertIn("Operation use is recorded", panel)
+        self.assertIn("def enable_operation_scoped_consumption_validation", wip_service)
+        self.assertIn("Downstream operations are not required", service)
         self.assertNotIn("if not active:\n        return\n    detail", wip_service.split(
             "def abandon_draft_stock_entry", 1
         )[1].split("@frappe.whitelist()", 1)[0])
@@ -2004,6 +2014,9 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def allocate_transfer_bin", load_service)
         self.assertIn("def cancel_transfer_bin", load_service)
         self.assertIn("def allocate_consumption_bin", load_service)
+        self.assertIn("def record_pending_consumption", load_service)
+        self.assertIn("def cancel_pending_consumption", load_service)
+        self.assertIn("def bind_pending_consumption_loads", load_service)
         self.assertIn("def finalize_wip_bin_consumption_entry", load_service)
         self.assertIn("def _create_wip_bin_return_draft", load_service)
         self.assertIn('event_type="WIP Bin Unused Material Return"', load_service)
@@ -2072,6 +2085,10 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("pending_outputs.length", panel)
         self.assertIn("allocate_operator_wip_bin", panel)
         self.assertIn("Consume Ready WIP Bins", panel)
+        self.assertIn("Record WIP Bin Use", panel)
+        self.assertIn("Prepare ERP Consumption", panel)
+        self.assertIn("record_wip_bin_consumption", panel)
+        self.assertIn("cancel_recorded_wip_bin_consumption", panel)
         self.assertIn("prepare_wip_bin_consumption_dialog", panel)
         self.assertIn("render_wip_bin_reconciliations", panel)
         self.assertIn("wip_bin_reconciliation_dialog", panel)

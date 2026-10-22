@@ -1315,6 +1315,10 @@ def create_production_material_consumption(command, payload):
         entry.cfg_kanban_controlled = 1
         entry.cfg_kanban_cycle = command.kanban_cycle
         entry.cfg_kanban_signal = command.source_signal
+        from cfg_kanban.services.wip_bin_loads import (
+            enable_operation_scoped_consumption_validation,
+        )
+        enable_operation_scoped_consumption_validation(entry)
         entry.insert(ignore_permissions=True)
         return entry
     entry.set("items", [
@@ -1562,8 +1566,12 @@ def submit_production_stock_entry(command, payload):
     if not supported:
         frappe.throw("Stock Entry is not a supported production transaction")
     if entry.purpose == "Material Consumption for Manufacture":
-        from cfg_kanban.services.wip_bin_loads import finalize_wip_bin_consumption_entry
+        from cfg_kanban.services.wip_bin_loads import (
+            enable_operation_scoped_consumption_validation,
+            finalize_wip_bin_consumption_entry,
+        )
         entry = finalize_wip_bin_consumption_entry(entry.name)
+        enable_operation_scoped_consumption_validation(entry)
     elif entry.purpose == "Manufacture":
         _exclude_submitted_wip_bin_returns(
             entry, entry.work_order, command.kanban_cycle

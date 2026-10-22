@@ -1171,15 +1171,15 @@ If a scanner does not transmit its configured Enter/Tab suffix, the completed co
 accepted after a short scanner-input pause. This fallback applies equally to commands, source Stock
 Tags, and reusable WIP-bin codes; the visible code must not remain idle in the Scanner Ready field.
 
-The operation-time WIP-bin consumption gate is now connected. After the submitted transfer makes
-one or more loads `Ready`, the exact Job Card shows **Consume Ready WIP Bins**. That action creates
-a Draft native `Material Consumption for Manufacture` using only the Ready load quantities and
-their WIP Warehouse/Batch snapshots. In **Production Material Trace**, scan each physical Ready
-bin. Consumption is deliberately a **single-scan** action: do not scan the original source Stock
-Tag and do not select an Item row first. The Ready-bin identity resolves the exact Item, Warehouse,
-UOM, Batch, Cycle, Job Card, and ERP consumption row; the confirmation message displays the resolved
-Item and quantity. A scan changes only the audit/load intent to `Consumption Draft`; it does not
-change ERP stock.
+After the submitted transfer makes one or more loads `Ready`, the exact Job Card shows **Record WIP
+Bin Use**. Scan each Ready bin once; do not scan its original source tag. CFG Kanban records the
+physical use as `Consumption Pending ERP` without creating a Stock Entry, allowing that operation
+and its card to close while later Work Order operations continue. **Undo Use** restores a mistaken
+unposted record to Ready. As soon as that same owning Job Card is submitted and complete, use
+**Prepare ERP Consumption**. CFG Kanban creates the native operation-owned Draft, automatically
+binds the already-recorded bins, and exposes **Submit ERP Entry**. It checks only the owning
+operation; a later operation neither enables nor blocks it. Only submitted ERPNext feedback changes
+stock and makes the bin Empty (or starts its controlled unused-material return).
 
 When the actual quantity used is lower than the prepared quantity, use the same visible quantity
 control used for partial loading, or scan `CFG:QTY:MATERIAL:<quantity>` before scanning the Ready
@@ -1293,10 +1293,12 @@ Full consumption needs one successful ERPNext consumption submission to change t
 `Return Draft`; the separate successful unused-material return submission completes the load and
 empties the bin. The Job Card is blocked only by `Transfer Draft` or Open reconciliation;
 `Ready`, `In Use`, and `Consumption Draft` loads permit Job Card completion. An operation Kanban
-Card may close after every Ready bin is scanned and only valid `Consumption Draft` loads remain.
-The Draft, its physical bin, and ERP stock stay visibly pending until downstream operations allow
-ERPNext submission. Manufacture receipt remains blocked while the Work Order has any unconsumed
-load. Cancelling a submitted transfer or consumption puts
+Card may close after every Ready bin is scanned and only valid `Consumption Pending ERP` or
+`Consumption Draft` loads remain.
+The Draft, its physical bin, and ERP stock remain visibly pending until that operation's own Job
+Card is complete and the entry is submitted. The next operation is released by the completed
+progress sequence, not by this material-posting status. Manufacture receipt remains blocked while
+the Work Order has any unconsumed load. Cancelling a submitted transfer or consumption puts
 the bin in `Exception`, creates a Critical Kanban Exception, and creates an Open **CFG Kanban WIP
 Bin Reconciliation** rather than silently claiming that the physical bin is empty. The red recovery
 block appears on the main Production Card and only on the matching Operation Card. A scanned

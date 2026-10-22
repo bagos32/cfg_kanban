@@ -5,6 +5,8 @@ physical bin, but it never makes material Ready or Consumed. Those states are co
 the Stock Entry submit hook.
 """
 
+from types import MethodType
+
 import frappe
 from frappe.utils import cint, flt, get_datetime, now_datetime
 
@@ -17,12 +19,60 @@ TOLERANCE = 0.000001
 TRANSFER_PURPOSE = "Material Transfer for Manufacture"
 CONSUMPTION_PURPOSES = ("Material Consumption for Manufacture", "Manufacture")
 ACTIVE_LOAD_STATUSES = (
-    "Transfer Draft", "Ready", "In Use", "Consumption Draft", "Return Draft",
+    "Transfer Draft", "Ready", "In Use", "Consumption Pending ERP",
+    "Consumption Draft", "Return Draft",
 )
 JOB_CARD_SUBMIT_BLOCK_STATUSES = ("Transfer Draft",)
 OPERATION_CLOSE_BLOCK_STATUSES = (
     "Transfer Draft", "Ready", "In Use", "Return Draft",
 )
+
+
+def enable_operation_scoped_consumption_validation(entry):
+    """Replace ERPNext's route-wide operation check for one controlled WIP-bin entry.
+
+    ERPNext v15 treats ``fg_completed_qty`` on Material Consumption for Manufacture as if every
+    Work Order operation must already have completed that quantity. That rule is correct for a
+    Work Order-wide consumption entry, but it deadlocks an operation-owned WIP-bin entry: Cooking
+    cannot post its own consumption until downstream Moulding is complete.
+
+    CFG Kanban narrows only this one validation for entries carrying its audited Job Card link.
+    The owning Job Card must already be submitted and completed for the required quantity. No
+    downstream Job Card is consulted. All other native Stock Entry validation and submission
+    behaviour remains in force.
+    """
+    if (entry.doctype != "Stock Entry"
+            or _purpose(entry) != "Material Consumption for Manufacture"
+            or not entry.get("cfg_kanban_controlled")
+            or not entry.get("cfg_kanban_job_card")
+            or not entry.get("work_order")):
+        return entry
+
+    def _validate_owning_operation(doc):
+        job = frappe.get_doc("Job Card", doc.cfg_kanban_job_card)
+        if job.work_order != doc.work_order or job.docstatus == 2:
+            frappe.throw(
+                f"Job Card {job.name} does not belong to Work Order {doc.work_order}"
+            )
+        if job.docstatus != 1 or job.status != "Completed":
+            frappe.throw(
+                f"Complete Job Card {job.name} before posting its WIP-bin consumption"
+            )
+        work_order = frappe.get_doc("Work Order", doc.work_order)
+        required_qty = flt(doc.fg_completed_qty) + flt(work_order.produced_qty)
+        completed_qty = flt(job.total_completed_qty)
+        if completed_qty + TOLERANCE < required_qty:
+            frappe.throw(
+                f"Job Card {job.name} has completed {completed_qty} of {required_qty}; "
+                "post the owning operation progress before consuming its WIP Bin"
+            )
+
+    object.__setattr__(
+        entry,
+        "check_if_operations_completed",
+        MethodType(_validate_owning_operation, entry),
+    )
+    return entry
 
 
 def validate_job_card_wip_bin_submission(doc, method=None):
@@ -96,10 +146,10 @@ def job_card_wip_bin_close_readiness(job_card):
 
     Runtime operation Cards may complete in smaller allocations than the ERP Job Card. This gate
     deliberately uses Job Card scope because a WIP Bin Load is not divisible between runtime
-    cards. A fully scanned operation-owned consumption Draft proves that the operator reported the
-    physical use, so it no longer blocks that operation Card. ERPNext may still defer submission
-    until downstream Work Order operations support the consumed finished-good quantity; the bin
-    remains In Use and the final Manufacture receipt remains blocked until that Draft is submitted.
+    cards. Once physical use is recorded or an operation-owned consumption Draft exists, it does
+    not block operation closure or release of the next operation. ERP posting remains the owning
+    operation's separate audited responsibility, and the final Manufacture receipt retains the
+    stricter all-bins-consumed gate.
     """
     if not job_card:
         return {
@@ -121,6 +171,7 @@ def job_card_wip_bin_close_readiness(job_card):
     blocking = [
         row for row in active if row.status in OPERATION_CLOSE_BLOCK_STATUSES
     ]
+    pending_use = [row for row in active if row.status == "Consumption Pending ERP"]
     pending = [row for row in active if row.status == "Consumption Draft"]
     pending_entry_names = list(dict.fromkeys(
         row.consumption_stock_entry for row in pending if row.consumption_stock_entry
@@ -161,7 +212,7 @@ def job_card_wip_bin_close_readiness(job_card):
         return {
             "ready": False,
             "reason": (
-                "Scan every Ready WIP Bin into the operation-owned consumption Draft, or resolve "
+                "Record physical use for every Ready WIP Bin, or resolve "
                 f"the remaining material movement before closing this Kanban Cycle. "
                 f"Blocking bin load(s): {detail}"
             ),
@@ -170,7 +221,13 @@ def job_card_wip_bin_close_readiness(job_card):
             "reconciliations": reconciliations,
         }
     pending_reason = None
-    if pending_entries:
+    if pending_use:
+        pending_reason = (
+            "Operation use is fully scanned. ERP posting remains pending for WIP Bin Load(s) "
+            + ", ".join(row.name for row in pending_use)
+            + "; the WIP bin stays locked until ERPNext accepts the later consumption entry."
+        )
+    elif pending_entries:
         pending_reason = (
             "Operation use is fully scanned. ERP posting remains pending in "
             + ", ".join(row.name for row in pending_entries)
@@ -178,7 +235,8 @@ def job_card_wip_bin_close_readiness(job_card):
         )
     return {
         "ready": True, "reason": pending_reason, "active_loads": active,
-        "pending_erp_entries": pending_entries, "reconciliations": reconciliations,
+        "pending_erp_entries": pending_entries, "pending_wip_loads": pending_use,
+        "reconciliations": reconciliations,
     }
 
 
@@ -505,6 +563,127 @@ def cancel_consumption_bin(load_name, operator_session_token, kanban_card):
     return {"load": load.name, "status": "Ready", "stock_entry": entry_name}
 
 
+def record_pending_consumption(*, kanban_cycle, work_order, job_card,
+                               reusable_bin_scan, actual_qty=None,
+                               consumption_reason=None, operator=None,
+                               operator_session=None, event_token=None,
+                               profile=None):
+    """Record physical WIP-bin use before the owning Job Card is complete.
+
+    The operator may scan actual use while the operation is running. Once that same Job Card is
+    submitted and complete, CFG Kanban creates its operation-owned native consumption entry. A
+    downstream operation is never part of this readiness decision.
+    """
+    identity = resolve_logistics_scan(reusable_bin_scan)
+    if not identity or identity.get("identity_type") != "Handling Unit":
+        frappe.throw("Scan a Ready Standard Quantity WIP Bin")
+    unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
+    if (unit.tag_kind != "Reusable Container"
+            or unit.reusable_container_role != "Standard Quantity WIP Bin"):
+        frappe.throw(f"Tag {unit.handling_unit_id} is not a Standard Quantity WIP Bin")
+    candidates = frappe.get_all(
+        "CFG Kanban WIP Bin Load",
+        {"reusable_bin": unit.name, "kanban_cycle": kanban_cycle,
+         "work_order": work_order, "job_card": job_card,
+         "status": ["in", ["Ready", "Consumption Pending ERP"]]},
+        ["name", "status"], order_by="creation desc", limit_page_length=2,
+    )
+    if not candidates:
+        frappe.throw(
+            f"WIP Bin {unit.handling_unit_id} is not Ready for this Cycle and Job Card"
+        )
+    _lock_load(candidates[0].name)
+    load = frappe.get_doc("CFG Kanban WIP Bin Load", candidates[0].name)
+    if load.status == "Consumption Pending ERP":
+        return _pending_consumption_result(load, duplicate=True)
+    if unit.wip_bin_state != "Ready":
+        frappe.throw(f"WIP Bin {unit.handling_unit_id} is {unit.wip_bin_state}, not Ready")
+    consumed = flt(actual_qty) if actual_qty not in (None, "", 0, "0") else flt(load.actual_qty)
+    if consumed <= 0 or consumed > flt(load.actual_qty) + TOLERANCE:
+        frappe.throw(
+            f"Actual consumption must be above zero and no more than the prepared "
+            f"{load.actual_qty} {load.stock_uom}"
+        )
+    reason = (consumption_reason or "").strip()
+    partial = consumed < flt(load.actual_qty) - TOLERANCE
+    pool = frappe.db.get_value(
+        "CFG Kanban WIP Bin Pool", load.wip_bin_pool,
+        ["require_full_bin_consumption", "allow_supervisor_partial_exception"],
+        as_dict=True,
+    ) or {}
+    if partial and not reason:
+        frappe.throw("Enter why actual consumption is lower than the prepared WIP Bin quantity")
+    if partial and cint(pool.get("require_full_bin_consumption")):
+        if not cint(pool.get("allow_supervisor_partial_exception")):
+            frappe.throw(
+                "This WIP Bin Pool requires full-bin consumption and does not allow a "
+                "supervisor partial-consumption exception"
+            )
+        if not profile or not _actor_can_approve_partial_consumption(profile):
+            frappe.throw(
+                "Switch to a Supervisor QR with Override permission before reporting "
+                "partial consumption for this WIP Bin Pool"
+            )
+    returned = max(flt(load.actual_qty) - consumed, 0)
+    load.db_set({
+        "status": "Consumption Pending ERP",
+        "consumed_qty": consumed,
+        "return_qty": returned,
+        "consumption_reason": reason or None,
+        "consumption_reported_by": operator,
+        "consumption_reported_on": now_datetime(),
+        "in_use_on": now_datetime(),
+        "notes": (
+            f"Physical operation use recorded before ERP posting; prepared {load.actual_qty}; "
+            f"consume {consumed}; return {returned}; token {event_token or '-'}"
+        ),
+    }, update_modified=True)
+    frappe.db.set_value(
+        "CFG Kanban Handling Unit", load.reusable_bin, "wip_bin_state", "In Use",
+        update_modified=False,
+    )
+    card = frappe.db.get_value("CFG Kanban Cycle", load.kanban_cycle, "kanban_card")
+    record(
+        "WIP Bin Physical Use Recorded", card=card, cycle=load.kanban_cycle,
+        execution=load.process_execution, handling_unit=load.reusable_bin,
+        qty=consumed, reference_doctype="CFG Kanban WIP Bin Load",
+        reference_name=load.name, operator=operator, operator_session=operator_session,
+        notes=(f"Job Card {load.job_card}; prepared {load.actual_qty}; consume {consumed}; "
+               f"return {returned}; ERP posting deferred until Work Order route completion"),
+    )
+    return _pending_consumption_result(
+        frappe.get_doc("CFG Kanban WIP Bin Load", load.name), duplicate=False
+    )
+
+
+def cancel_pending_consumption(load_name, *, operator=None, operator_session=None):
+    """Restore an unposted physical-use record to Ready under operator control."""
+    _lock_load(load_name)
+    load = frappe.get_doc("CFG Kanban WIP Bin Load", load_name)
+    if load.status != "Consumption Pending ERP" or load.consumption_stock_entry:
+        frappe.throw("Only WIP Bin use awaiting ERP posting can be cancelled here")
+    load.db_set({
+        "status": "Ready", "consumed_qty": 0, "return_qty": 0,
+        "consumption_reason": None, "consumption_reported_by": None,
+        "consumption_reported_on": None, "in_use_on": None,
+        "notes": "Unposted physical-use record cancelled; WIP Bin restored to Ready",
+    }, update_modified=True)
+    frappe.db.set_value(
+        "CFG Kanban Handling Unit", load.reusable_bin, "wip_bin_state", "Ready",
+        update_modified=False,
+    )
+    record(
+        "WIP Bin Physical Use Cancelled", cycle=load.kanban_cycle,
+        execution=load.process_execution, handling_unit=load.reusable_bin,
+        qty=load.actual_qty, reference_doctype="CFG Kanban WIP Bin Load",
+        reference_name=load.name, operator=operator, operator_session=operator_session,
+        notes=f"Job Card {load.job_card}; restored to Ready before ERP posting",
+    )
+    return _pending_consumption_result(
+        frappe.get_doc("CFG Kanban WIP Bin Load", load.name), duplicate=False
+    )
+
+
 def entry_wip_bin_rule(entry, row):
     """Return the exact Master/Job Card context when an ERP row uses a fixed WIP bin."""
     cycle_name = entry.get("cfg_kanban_cycle")
@@ -697,7 +876,7 @@ def bind_consumption_draft(load_name, stock_entry, stock_entry_detail,
     """Bind a Ready/In-Use load to a Draft ERP consumption row without consuming it."""
     _lock_load(load_name)
     load = frappe.get_doc("CFG Kanban WIP Bin Load", load_name)
-    if load.status not in ("Ready", "In Use"):
+    if load.status not in ("Ready", "In Use", "Consumption Pending ERP"):
         frappe.throw(f"WIP Bin Load {load.name} is {load.status}, not Ready for consumption")
     entry = frappe.get_doc("Stock Entry", stock_entry)
     if entry.docstatus != 0 or _purpose(entry) not in CONSUMPTION_PURPOSES:
@@ -709,7 +888,9 @@ def bind_consumption_draft(load_name, stock_entry, stock_entry_detail,
         frappe.throw("Consumption Stock Entry Job Card does not match the WIP Bin Load")
     row = _entry_row(entry, stock_entry_detail)
     _assert_consumption_row(load, row)
-    consumed = flt(consumed_qty) if consumed_qty not in (None, "") else flt(load.actual_qty)
+    was_pending = load.status == "Consumption Pending ERP"
+    consumed = (flt(load.consumed_qty) if was_pending else
+                flt(consumed_qty) if consumed_qty not in (None, "") else flt(load.actual_qty))
     returned = max(flt(load.actual_qty) - consumed, 0)
     load.db_set({
         "status": "Consumption Draft",
@@ -717,9 +898,12 @@ def bind_consumption_draft(load_name, stock_entry, stock_entry_detail,
         "consumption_stock_entry_detail": row.name,
         "consumed_qty": consumed,
         "return_qty": returned,
-        "consumption_reason": (consumption_reason or None),
-        "consumption_reported_by": reported_by,
-        "consumption_reported_on": now_datetime(),
+        "consumption_reason": (load.consumption_reason if was_pending
+                               else consumption_reason or None),
+        "consumption_reported_by": (load.consumption_reported_by if was_pending
+                                    else reported_by),
+        "consumption_reported_on": (load.consumption_reported_on if was_pending
+                                    else now_datetime()),
         "notes": (
             f"Awaiting ERPNext consumption submission; prepared {load.actual_qty}; "
             f"consume {consumed}; return {returned}"
@@ -730,6 +914,35 @@ def bind_consumption_draft(load_name, stock_entry, stock_entry_detail,
         update_modified=False,
     )
     return frappe.get_doc("CFG Kanban WIP Bin Load", load.name)
+
+
+def bind_pending_consumption_loads(stock_entry, load_names):
+    """Attach previously scanned operation use to the now-valid native ERP draft."""
+    entry = frappe.get_doc("Stock Entry", stock_entry)
+    if entry.docstatus != 0 or _purpose(entry) != "Material Consumption for Manufacture":
+        frappe.throw("Pending WIP Bin use can bind only to a Draft material consumption entry")
+    bound = []
+    for load_name in load_names:
+        load = frappe.get_doc("CFG Kanban WIP Bin Load", load_name)
+        if load.status != "Consumption Pending ERP":
+            frappe.throw(f"WIP Bin Load {load.name} is no longer awaiting ERP posting")
+        matching = [row for row in entry.items if (
+            row.item_code == load.item_code
+            and row.s_warehouse == load.wip_warehouse
+            and row.stock_uom == load.stock_uom
+            and (row.get("batch_no") or "") == (load.batch_no or "")
+        )]
+        if len(matching) != 1:
+            frappe.throw(
+                f"WIP Bin Load {load.name} does not map to one unambiguous ERP consumption row"
+            )
+        bound.append(bind_consumption_draft(
+            load.name, entry.name, matching[0].name,
+            consumed_qty=load.consumed_qty,
+            consumption_reason=load.consumption_reason,
+            reported_by=load.consumption_reported_by,
+        ))
+    return bound
 
 
 def finalize_wip_bin_consumption_entry(stock_entry):
@@ -768,8 +981,11 @@ def finalize_wip_bin_consumption_entry(stock_entry):
         conversion = flt(row.conversion_factor) or 1
         row.transfer_qty = stock_qty
         row.qty = stock_qty / conversion
+    enable_operation_scoped_consumption_validation(entry)
     entry.save(ignore_permissions=True)
-    return frappe.get_doc("Stock Entry", entry.name)
+    entry = frappe.get_doc("Stock Entry", entry.name)
+    enable_operation_scoped_consumption_validation(entry)
+    return entry
 
 
 def validate_wip_bin_stock_entry(doc):
@@ -1651,6 +1867,16 @@ def _loads_for_entry(stock_entry):
     return [], "transfer" if purpose == TRANSFER_PURPOSE else "consumption"
 
 
+def _pending_consumption_result(load, duplicate=False):
+    return {
+        "load": load.name, "status": load.status,
+        "reusable_bin": load.reusable_bin, "item_code": load.item_code,
+        "prepared_qty": flt(load.actual_qty), "consumed_qty": flt(load.consumed_qty),
+        "return_qty": flt(load.return_qty), "stock_uom": load.stock_uom,
+        "job_card": load.job_card, "duplicate": duplicate,
+    }
+
+
 def _wip_rule(master, item_code, operation):
     rule = frappe.db.get_value("CFG Kanban Material Flow Rule", {
         "parent": master,
@@ -1950,7 +2176,7 @@ def _assert_reusable_bin(unit, pool_name, company, wip_warehouse):
         "CFG Kanban WIP Bin Load",
         {"reusable_bin": unit.name,
          "status": ["in", ["Reserved", "Transfer Draft", "Ready", "In Use",
-                            "Consumption Draft"]]},
+                            "Consumption Pending ERP", "Consumption Draft"]]},
         "name",
     )
     if active:

@@ -642,7 +642,7 @@ def _production_stock_entries(cycle, job_card=None):
     )
     trace_by_entry = {row.stock_entry: row for row in traces}
     from cfg_kanban.services.production_material_flow import (
-        erp_consumption_submission_readiness,
+        operation_consumption_submission_readiness,
     )
     produced_qty = flt(frappe.db.get_value("Work Order", cycle.work_order, "produced_qty"))
     for row in rows:
@@ -652,13 +652,19 @@ def _production_stock_entries(cycle, job_card=None):
         row["trace_status"] = trace.status if trace else "Not Started"
         row["is_wip_bin_return"] = bool(row.cfg_wip_bin_return_load)
         row["can_stage_trace"] = row.docstatus == 0 and not row.is_wip_bin_return
+        owning_job_card = row.cfg_kanban_job_card or row.job_card
         route_readiness = (
-            erp_consumption_submission_readiness(
+            operation_consumption_submission_readiness(
                 cycle.work_order,
+                owning_job_card,
                 required_qty=flt(row.fg_completed_qty) + produced_qty,
             )
             if row.purpose == "Material Consumption for Manufacture"
-            else {"ready": True, "reason": None}
+            and owning_job_card
+            else ({"ready": False,
+                   "reason": "Operation consumption is missing its audited Job Card"}
+                  if row.purpose == "Material Consumption for Manufacture"
+                  else {"ready": True, "reason": None})
         )
         row["erp_route_ready"] = route_readiness["ready"]
         row["submit_block_reason"] = (
@@ -737,11 +743,19 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
            operator_session=session.name, terminal_user=session.terminal_user)
     pending_wip_entries = readiness.get("wip_bin_pending_entries", [])
     if pending_wip_entries:
+        pending_stock_entries = readiness.get("wip_bin_pending_stock_entries", [])
+        reference_doctype = (
+            "Stock Entry" if pending_stock_entries else "CFG Kanban WIP Bin Load"
+        )
+        reference_name = (
+            pending_stock_entries[0] if pending_stock_entries
+            else readiness.get("wip_bin_pending_loads", [pending_wip_entries[0]])[0]
+        )
         record(
             "Operation Closed with ERP Consumption Pending",
             card=card.name, cycle=cycle.name, execution=execution.name,
-            qty=execution.good_qty, reference_doctype="Stock Entry",
-            reference_name=pending_wip_entries[0], operator=profile.employee,
+            qty=execution.good_qty, reference_doctype=reference_doctype,
+            reference_name=reference_name, operator=profile.employee,
             operator_session=session.name, terminal_user=session.terminal_user,
             notes=("Physical WIP-bin use was fully scanned; ERP posting remains pending in "
                    + ", ".join(pending_wip_entries)),
@@ -791,9 +805,13 @@ def _runtime_close_readiness(execution, work_order, job_card):
     wip_bin_readiness = job_card_wip_bin_close_readiness(job_card.name)
     if not wip_bin_readiness["ready"]:
         return {"ready": False, "reason": wip_bin_readiness["reason"]}
-    pending_wip_entries = [
+    pending_wip_stock_entries = [
         row.name for row in wip_bin_readiness.get("pending_erp_entries", [])
     ]
+    pending_wip_loads = [
+        row.name for row in wip_bin_readiness.get("pending_wip_loads", [])
+    ]
+    pending_wip_entries = pending_wip_stock_entries + pending_wip_loads
     if (flt(job_card.total_completed_qty) + 0.000001 >= flt(job_card.for_quantity) and
             job_card.docstatus == 0):
         return {"ready": False, "reason": (
@@ -816,6 +834,8 @@ def _runtime_close_readiness(execution, work_order, job_card):
         "reason": wip_bin_readiness.get("reason"),
         "wip_bin_erp_posting_pending": bool(pending_wip_entries),
         "wip_bin_pending_entries": pending_wip_entries,
+        "wip_bin_pending_stock_entries": pending_wip_stock_entries,
+        "wip_bin_pending_loads": pending_wip_loads,
     }
 
 

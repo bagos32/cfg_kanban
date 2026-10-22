@@ -93,6 +93,11 @@ def prepare_stock_entry(doc, method=None):
     if doc.meta.has_field("cfg_kanban_signal"):
         doc.cfg_kanban_signal = cycle.signal or None
     purpose = doc.get("purpose") or doc.get("stock_entry_type")
+    if purpose == "Material Consumption for Manufacture":
+        from cfg_kanban.services.wip_bin_loads import (
+            enable_operation_scoped_consumption_validation,
+        )
+        enable_operation_scoped_consumption_validation(doc)
     if purpose == "Manufacture" and doc.get("work_order"):
         # A separately submitted WIP-bin consumption records actual use. When its
         # unused balance has also been returned to source, ERPNext can still map that

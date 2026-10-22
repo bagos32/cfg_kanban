@@ -22,7 +22,7 @@ frappe.query_reports["Kanban WIP Bin Control"] = {
 		{ fieldname: "wip_bin_state", label: __("WIP Bin State"), fieldtype: "Select",
 			options: "\nEmpty\nReserved\nFilling\nReady\nIn Use\nException" },
 		{ fieldname: "load_status", label: __("Active Load Status"), fieldtype: "Select",
-			options: "\nTransfer Draft\nReady\nIn Use\nConsumption Draft\nReversed" },
+			options: "\nTransfer Draft\nReady\nIn Use\nConsumption Pending ERP\nConsumption Draft\nReversed" },
 		{ fieldname: "item_code", label: __("Loaded Item"), fieldtype: "Link", options: "Item" },
 		{ fieldname: "attention_only", label: __("Attention Only"), fieldtype: "Check", default: 0 },
 		{ fieldname: "include_unavailable", label: __("Include Disabled / Held Bins"),

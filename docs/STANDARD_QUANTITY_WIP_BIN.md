@@ -119,20 +119,22 @@ normal Stock Tag and no detachable printed child label is required. The load epi
 immutable source lineage and ERP Stock Entry reference. Draft allocation reserves 10 kg; only
 submitted ERPNext transfer feedback removes it from the source tag and marks the bin Ready.
 
-After transfer submission, the exact Job Card shows **Consume Ready WIP Bins**. This creates one
-Draft `Material Consumption for Manufacture` from the Ready load snapshots. In Production Material
-Trace the operator scans each physical Ready bin once. The consumption flow does not ask for the
-original source tag or require an ERP row selection: the Ready-bin load snapshot resolves the exact
-Item, WIP Warehouse, UOM, Batch, Cycle, Job Card, and ERP row, and the panel confirms the resolved
-Item/quantity. A mistaken Draft scan can be cancelled back to Ready. Only native ERPNext submission
-changes the linked load to Consumed and the permanent bin to Empty. Report Progress still saves the
-ERPNext Job Card completed quantity while consumption is
-pending. CFG Kanban retains the operation owner in **Kanban Material Job Card** while ERPNext posts
-the consumption against the Work Order. ERPNext requires the operation Job Card to complete before
-it accepts the matching production consumption, so Job Card submission is allowed when loads are `Ready`, `In Use`, or
-`Consumption Draft`. Only a `Transfer Draft` load or Open reconciliation blocks Job Card
-submission. Kanban Cycle closure and Manufacture receipt retain the stricter rule and remain
-blocked until every load is `Consumed`.
+After transfer submission, the exact Job Card shows **Record WIP Bin Use**. The operator scans each
+physical Ready bin once. CFG Kanban records the Item, WIP Warehouse, UOM, Batch, Cycle, Job Card,
+actual consumed quantity, and unused quantity in the WIP Bin Load; its status becomes
+`Consumption Pending ERP` and the physical bin becomes `In Use`. This step deliberately does not
+create a Stock Entry while the owning Job Card is still running. A mistaken pending-use record can
+be restored to Ready with **Undo Use**. Report Progress can then complete that Job Card. The next
+operation is released from the progress sequence; it does not depend on this consumption posting.
+
+As soon as that exact owning Job Card is submitted and complete, **Prepare ERP Consumption** becomes
+available for its recorded bin use. CFG Kanban creates the native Draft from the exact pending-load
+snapshots and automatically binds the already-scanned bins; a second physical scan is not required.
+Its controlled operation-scoped validation checks Cooking only for a Cooking consumption and never
+consults Moulding. Native ERPNext submission changes the linked load to `Consumed` and the permanent
+bin to `Empty`, or creates the controlled unused-material return when the recorded actual use was
+partial. Only a `Transfer Draft` load or Open reconciliation blocks Job Card submission.
+Manufacture receipt remains blocked until every load is fully posted and resolved.
 
 For a component whose production-input trace policy requires a physical tag, the source Stock Tag
 is verified and reserved when the material is loaded into the WIP bin. During consumption, scanning
@@ -141,13 +143,14 @@ second ordinary production-input tag allocation for the same quantity. The WIP-b
 requires complete ERP-row coverage and rejects a missing, mismatched, or partial bin allocation.
 
 The final Manufacture draft must be created only after this consumption is submitted. The
-Operator panel treats any `Ready`, `In Use`, `Consumption Draft`, or unsubmitted `Transfer Draft`
+Operator panel treats any `Ready`, `In Use`, `Consumption Pending ERP`, `Consumption Draft`, or unsubmitted `Transfer Draft`
 load as a receipt prerequisite and keeps **Prepare Manufacture Receipt** unavailable. A sequential
 operation Card may nevertheless close once every Ready bin for its Job Card has been physically
-scanned and only valid `Consumption Draft` loads remain. The panel labels these Drafts **ERP
-Posting Pending**; the bin remains `In Use` and unavailable for another load. This releases the
-operator without falsely posting ERP stock before downstream operations satisfy ERPNext's Work
-Order validation. The strict receipt gate still prevents ERPNext from mapping unconsumed WIP
+scanned and only valid `Consumption Pending ERP` or `Consumption Draft` loads remain. The panel
+labels them **Physical use recorded · ERP posting pending**; the bin remains `In Use` and unavailable
+for another load. Closing the operation Card and releasing the next operation depend on completed
+progress, not on the consumption document. The owning operation's consumption can still be posted
+independently after that close. The strict receipt gate prevents ERPNext from mapping unconsumed WIP
 material into a premature Manufacture draft and making it appear that the bin allocation was lost.
 
 For a draft created by an older release before this gate existed, use **Discard Premature Draft**
