@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.78
+**Guide version:** 1.79
 
 **Updated:** 20 October 2026
 
@@ -3195,6 +3195,14 @@ whose ERPNext **Maintain Stock** setting is disabled. Select **ERP Stock** or cl
 review tagged stock Items. When all displayed rows use one UOM, the report header also shows the
 combined Total, Reserved and Available quantities. It deliberately does not combine unlike UOMs.
 
+The default **Display Mode** is **Summary**. Select **Tag Detail**, or click **View Tags** beside an
+**Active Tags** count, to list the exact active physical identities behind that balance. Drill-down
+retains the current Inventory Control and Quality filters and narrows Company, Warehouse, Item and
+UOM to the selected summary row. Each detail row includes the clickable Handling Unit record,
+printed Physical Tag ID, Batch, current/reserved/available quantities, Quality, Movement State,
+Custodian/Vehicle, immediate source/destination, last reconciliation and last scan time. Use
+**Summary View** to return. Empty, Void and Replaced identities are not counted as Active Tags.
+
 ### Tag finished goods that already exist in ERPNext
 
 Use this procedure only when finished stock is already posted in ERPNext but has no physical CFG
@@ -3516,6 +3524,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.79 | 22 October 2026 | Added scalable Operational Inventory drill-down: Active Tags now count only active identities, the count opens exact Company/Warehouse/Item/UOM tag rows, and Tag Detail shows quantities, batch, quality, movement, custodian/location, reconciliation and scan evidence with a Summary View return action |
 | 1.78 | 20 October 2026 | Corrected WIP-bin consumption to a true single-scan flow: the Draft Stock Entry purpose now controls the UI, source-tag/row-selection controls are excluded, and the scanned Ready bin securely resolves its exact Item, Warehouse, UOM, Batch, Cycle, Job Card and ERP consumption row before Draft binding |
 | 1.77 | 20 October 2026 | Restored reliable Ready WIP-bin recognition in the full Production Material Trace dialog: direct-field Enter/Tab now synchronizes the completed browser scan before allocation, and scans reaching the underlying Production scanner are redirected to the open trace workflow |
 | 1.76 | 20 October 2026 | Reverted the progressive Production Material Trace presentation from 1.74 after floor acceptance found scanner-command and field-visibility regressions; restored the previously proven persistent scanner dialog and full material controls while retaining later production-cycle closure work |

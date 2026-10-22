@@ -5,31 +5,12 @@ from frappe.utils import cint, flt
 
 def execute(filters=None):
     filters = frappe._dict(filters or {})
+    conditions, values = _conditions(filters)
+    if filters.display_mode == "Tag Detail":
+        data = _tag_detail_data(filters, conditions, values)
+        return _tag_detail_columns(), data, None, None, _tag_detail_summary(data)
+
     columns = _columns()
-    conditions = [
-        "hu.tag_kind != 'Reusable Container'",
-        "hu.identity_state not in ('Void', 'Replaced')",
-        "coalesce(hu.item_code, '') != ''",
-        "coalesce(hu.inventory_company, '') != ''",
-        "coalesce(hu.stock_uom, '') != ''",
-    ]
-    values = {}
-
-    for filter_name, column in (
-        ("company", "hu.inventory_company"),
-        ("warehouse", "hu.current_warehouse"),
-        ("item_code", "hu.item_code"),
-        ("stock_uom", "hu.stock_uom"),
-        ("quality_state", "hu.quality_state"),
-    ):
-        if filters.get(filter_name):
-            conditions.append(f"{column} = %({filter_name})s")
-            values[filter_name] = filters.get(filter_name)
-
-    if filters.inventory_control_mode == "Kanban Operational Inventory":
-        conditions.append("coalesce(item.is_stock_item, 0) = 0")
-    elif filters.inventory_control_mode == "ERP Stock":
-        conditions.append("coalesce(item.is_stock_item, 0) = 1")
 
     having = ""
     if not cint(filters.include_zero_balance):
@@ -92,6 +73,75 @@ def execute(filters=None):
     return columns, data, None, None, _summary(data)
 
 
+def _conditions(filters):
+    conditions = [
+        "hu.tag_kind != 'Reusable Container'",
+        "hu.identity_state = 'Active'",
+        "coalesce(hu.item_code, '') != ''",
+        "coalesce(hu.inventory_company, '') != ''",
+        "coalesce(hu.stock_uom, '') != ''",
+    ]
+    values = {}
+
+    for filter_name, column in (
+        ("company", "hu.inventory_company"),
+        ("warehouse", "hu.current_warehouse"),
+        ("item_code", "hu.item_code"),
+        ("stock_uom", "hu.stock_uom"),
+        ("quality_state", "hu.quality_state"),
+    ):
+        if filters.get(filter_name):
+            conditions.append(f"{column} = %({filter_name})s")
+            values[filter_name] = filters.get(filter_name)
+
+    if filters.inventory_control_mode == "Kanban Operational Inventory":
+        conditions.append("coalesce(item.is_stock_item, 0) = 0")
+    elif filters.inventory_control_mode == "ERP Stock":
+        conditions.append("coalesce(item.is_stock_item, 0) = 1")
+    return conditions, values
+
+
+def _tag_detail_data(filters, conditions, values):
+    if not cint(filters.include_zero_balance):
+        conditions.append(
+            "(abs(hu.current_qty) > 0.000001 or abs(hu.reserved_qty) > 0.000001)"
+        )
+    return frappe.db.sql(
+        f"""
+        select
+            hu.name as handling_unit,
+            hu.handling_unit_id,
+            hu.tag_kind,
+            hu.inventory_company as company,
+            hu.current_warehouse as warehouse,
+            hu.item_code,
+            item.item_name,
+            hu.stock_uom,
+            case when coalesce(item.is_stock_item, 0) = 1
+                 then 'ERP Stock' else 'Kanban Operational Inventory' end
+                 as inventory_control_mode,
+            hu.batch_no,
+            hu.quality_state,
+            hu.movement_state,
+            hu.current_qty,
+            hu.reserved_qty,
+            hu.available_qty,
+            hu.physical_custodian,
+            hu.source_location,
+            hu.destination_location,
+            hu.last_reconciled_on,
+            hu.last_scan_time
+        from `tabCFG Kanban Handling Unit` hu
+        left join `tabItem` item on item.name = hu.item_code
+        where {' and '.join(conditions)}
+        order by hu.inventory_company, hu.current_warehouse, hu.item_code,
+                 hu.stock_uom, hu.handling_unit_id
+        """,
+        values,
+        as_dict=True,
+    )
+
+
 def _columns():
     return [
         {"label": _("Company"), "fieldname": "company", "fieldtype": "Link", "options": "Company", "width": 170},
@@ -114,6 +164,30 @@ def _columns():
     ]
 
 
+def _tag_detail_columns():
+    return [
+        {"label": _("Handling Unit"), "fieldname": "handling_unit", "fieldtype": "Link", "options": "CFG Kanban Handling Unit", "width": 145},
+        {"label": _("Physical Tag ID"), "fieldname": "handling_unit_id", "width": 140},
+        {"label": _("Tag Kind"), "fieldname": "tag_kind", "width": 125},
+        {"label": _("Company"), "fieldname": "company", "fieldtype": "Link", "options": "Company", "width": 170},
+        {"label": _("Warehouse / Place"), "fieldname": "warehouse", "fieldtype": "Link", "options": "Warehouse", "width": 190},
+        {"label": _("Item"), "fieldname": "item_code", "fieldtype": "Link", "options": "Item", "width": 145},
+        {"label": _("Item Name"), "fieldname": "item_name", "width": 190},
+        {"label": _("Batch"), "fieldname": "batch_no", "fieldtype": "Link", "options": "Batch", "width": 125},
+        {"label": _("UOM"), "fieldname": "stock_uom", "fieldtype": "Link", "options": "UOM", "width": 80},
+        {"label": _("Current Qty"), "fieldname": "current_qty", "fieldtype": "Float", "width": 105},
+        {"label": _("Reserved Qty"), "fieldname": "reserved_qty", "fieldtype": "Float", "width": 105},
+        {"label": _("Available Qty"), "fieldname": "available_qty", "fieldtype": "Float", "width": 105},
+        {"label": _("Quality"), "fieldname": "quality_state", "width": 100},
+        {"label": _("Movement State"), "fieldname": "movement_state", "width": 125},
+        {"label": _("Custodian / Vehicle"), "fieldname": "physical_custodian", "width": 150},
+        {"label": _("Immediate Source"), "fieldname": "source_location", "width": 145},
+        {"label": _("Immediate Destination"), "fieldname": "destination_location", "width": 155},
+        {"label": _("Last Reconciled"), "fieldname": "last_reconciled_on", "fieldtype": "Datetime", "width": 155},
+        {"label": _("Last Scanned"), "fieldname": "last_scan_time", "fieldtype": "Datetime", "width": 155},
+    ]
+
+
 def _summary(data):
     tag_count = sum(int(row.tag_count or 0) for row in data)
     summary = [{"value": tag_count, "label": _("Tags Included"), "datatype": "Int"}]
@@ -124,6 +198,25 @@ def _summary(data):
             ("total_qty", _("Combined Total"), "Blue"),
             ("reserved_qty", _("Combined Reserved"), "Orange"),
             ("available_qty", _("Combined Available"), "Green"),
+        ):
+            summary.append({
+                "value": sum(flt(row.get(fieldname)) for row in data),
+                "label": f"{label} ({uom})",
+                "datatype": "Float",
+                "indicator": indicator,
+            })
+    return summary
+
+
+def _tag_detail_summary(data):
+    summary = [{"value": len(data), "label": _("Active Tags Listed"), "datatype": "Int"}]
+    uoms = {row.stock_uom for row in data if row.stock_uom}
+    if len(uoms) == 1:
+        uom = next(iter(uoms))
+        for fieldname, label, indicator in (
+            ("current_qty", _("Listed Total"), "Blue"),
+            ("reserved_qty", _("Listed Reserved"), "Orange"),
+            ("available_qty", _("Listed Available"), "Green"),
         ):
             summary.append({
                 "value": sum(flt(row.get(fieldname)) for row in data),

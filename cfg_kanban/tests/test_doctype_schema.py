@@ -1347,7 +1347,13 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("sum(hu.reserved_qty) as reserved_qty", source)
         self.assertIn("sum(hu.available_qty) as available_qty", source)
         self.assertIn("group by hu.inventory_company, hu.current_warehouse", source)
+        self.assertIn("def _tag_detail_data", source)
+        self.assertIn("def _tag_detail_columns", source)
+        self.assertIn("hu.identity_state = 'Active'", source)
         self.assertIn('default: "Kanban Operational Inventory"', client)
+        self.assertIn('options: "Summary\\nTag Detail"', client)
+        self.assertIn("data-cfg-inventory-tag-detail", client)
+        self.assertIn('report.set_filter_value("display_mode", "Tag Detail")', client)
         handling_permissions = {
             row["role"]: row for row in schemas["CFG Kanban Handling Unit"]["permissions"]
         }
