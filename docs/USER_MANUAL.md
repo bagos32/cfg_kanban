@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.95
+**Guide version:** 1.96
 
 **Updated:** 22 October 2026
 
@@ -173,6 +173,23 @@ Employee's role-specific assigned work; the Supervisor must hold that explicit R
 
 ERPNext permissions still apply. A Kanban role does not automatically grant permission to Items,
 BOMs, Work Orders, Job Cards, Stock Entries, Warehouses, or Batches.
+
+### Workforce competency foundation (P01)
+
+**CFG Kanban Skill** defines reusable, skill-specific capability identities and whether certification
+or expiry evidence is required. **CFG Kanban Employee Competency** is a submitted manager approval
+linking one Employee and their Operator Profile to one Skill at level L0–L4. Level alone does not
+grant permission: independent-work and trainee-supervision authorization are explicit controls.
+
+Submitted competency validity is evaluated from approval status, Effective From, Valid Until,
+minimum level, and the explicit authorization flags. An expired authorization is ineffective even if
+its stored approval status remains Active. Suspending, reactivating, revoking, or cancelling requires
+a reason and records the responsible ERP User and timestamp. Revoked records cannot be reactivated.
+
+Open an Operator Profile to see the read-only competency summary or use **Workforce → Employee
+Competencies**. This P01 registry does not yet block production actions; crew requirements and
+runtime enforcement are delivered sequentially in P02–P04. See
+`docs/WORKFORCE_COMPETENCY_CREW_CONTROL.md` for the package boundary and acceptance test.
 
 ## 4. ERPNext prerequisites
 
@@ -2660,6 +2677,23 @@ tables. A profile role alone does not grant an action: the corresponding permiss
 scope must also allow it. The terminal ERPNext user separately needs the `Kanban Terminal` role (or
 manager/system-manager access).
 
+### CFG Kanban Skill and Employee Competency
+
+Create Skills before competency approvals. Exact Skill fields include **Skill Code** (`skill_code`),
+**Skill Name** (`skill_name`), **Skill Category** (`skill_category`), **Active** (`active`),
+**Certification Reference Required** (`requires_certification`), **Expiry Date Required**
+(`requires_expiry_tracking`), **Default Validity (Days)** (`default_validity_days`), and neutral
+**External Standard / SOP Reference** (`external_standard_reference`).
+
+Create one submitted **CFG Kanban Employee Competency** per non-overlapping Employee/Skill approval.
+Exact controls include **Employee** (`employee`), read-only **Operator Profile** (`operator_profile`),
+**Skill** (`skill`), **Competency Level** (`competency_level`: L0–L4), **Authorized to Work
+Independently** (`can_work_independently`), **Authorized to Supervise Trainees**
+(`can_supervise_trainees`), **Effective From** (`effective_from`), **Valid Until** (`valid_until`),
+assessment/certification references, and neutral external evidence/revision snapshots. Submit only
+after manager review. Use the form's **Authorization** actions for controlled suspension,
+reactivation, or revocation.
+
 ### CFG Kanban Material Trace Policy
 
 Create at most one record per **Company** (`company`) and **Item** (`item_code`). Exact controls are
@@ -3662,6 +3696,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.96 | 22 October 2026 | Added Workforce P01: manager-controlled Skill registry, submitted Employee competency approvals with L0–L4, explicit independent/supervision authorization, certification/expiry and overlap validation, controlled status audit, Operator Profile summary, workspace access, acceptance guide, and a neutral no-TrackQMS dependency boundary |
 | 1.95 | 22 October 2026 | Separated operator-facing container identity from immutable production-fill audit identity in Operational Inventory Tag Detail: permanent output containers now show their human-readable reference and physical scan code while retaining the internal `VCONT-...` code and Handling Unit link for audit |
 | 1.92 | 22 October 2026 | Corrected the Production Operator Panel's first live synchronization so supervisor approval or release performed while the operator tab is hidden, inactive, or blocked by a dialog reloads the Card instead of being silently accepted as a stale revision baseline |
 | 1.91 | 22 October 2026 | Corrected ERPNext v15 generated-Batch binding for staged production outputs: submitted Stock Entry Detail, Serial and Batch Bundle, and exact Stock Ledger Entry evidence are resolved before output tags/containers are activated, without guessing from Batch recency |

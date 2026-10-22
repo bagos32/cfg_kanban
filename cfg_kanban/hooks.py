@@ -24,6 +24,7 @@ doctype_js = {
     "CFG Kanban Customer Scan Point": "public/js/cfg_kanban_customer_scan_point.js",
     "CFG Kanban Demand": "public/js/cfg_kanban_demand.js",
     "CFG Kanban Operator Profile": "public/js/cfg_kanban_operator_profile.js",
+    "CFG Kanban Employee Competency": "public/js/cfg_kanban_employee_competency.js",
     "CFG Kanban Task Schedule": "public/js/cfg_kanban_task_schedule.js",
     "CFG Kanban Task": "public/js/cfg_kanban_task.js",
     "CFG Kanban Process Task": "public/js/cfg_kanban_process_task.js",

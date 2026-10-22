@@ -4,6 +4,13 @@ frappe.ui.form.on("CFG Kanban Operator Profile", {
 	},
 	refresh(frm) {
 		if (frm.is_new()) return;
+		render_competency_summary(frm);
+		frm.add_custom_button(__("Employee Competencies"), () => {
+			frappe.set_route("List", "CFG Kanban Employee Competency", { employee: frm.doc.employee });
+		}, __("Workforce"));
+		frm.add_custom_button(__("New Competency"), () => {
+			frappe.new_doc("CFG Kanban Employee Competency", { employee: frm.doc.employee });
+		}, __("Workforce"));
 		frm.add_custom_button(__("Issue New QR Credential"), async () => {
 			frappe.confirm(__("This will invalidate the operator's previous QR. Continue?"), async () => {
 				const response = await frappe.call({
@@ -15,6 +22,37 @@ frappe.ui.form.on("CFG Kanban Operator Profile", {
 		}, __("Credentials"));
 	},
 });
+
+async function render_competency_summary(frm) {
+	const wrapper = frm.fields_dict.competency_summary?.$wrapper;
+	if (!wrapper) return;
+	wrapper.html(`<p class="text-muted">${__("Loading approved competencies...")}</p>`);
+	try {
+		const response = await frappe.call({
+			method: "cfg_kanban.services.competency.get_operator_profile_competency_summary",
+			args: { profile_name: frm.doc.name },
+		});
+		const rows = response.message || [];
+		if (!rows.length) {
+			wrapper.html(`<p class="text-muted">${__("No competency records have been submitted for this employee.")}</p>`);
+			return;
+		}
+		const e = frappe.utils.escape_html;
+		wrapper.html(`<div class="table-responsive"><table class="table table-bordered table-sm">
+			<thead><tr><th>${__("Skill")}</th><th>${__("Level")}</th><th>${__("Effective Status")}</th><th>${__("Independent")}</th><th>${__("Supervise")}</th><th>${__("Valid Until")}</th></tr></thead>
+			<tbody>${rows.map((row) => `<tr>
+				<td><a href="/app/cfg-kanban-employee-competency/${encodeURIComponent(row.name)}">${e(row.skill_name || row.skill)}</a></td>
+				<td>${e(row.level_code || row.competency_level)}</td>
+				<td>${e(row.effective_status)}</td>
+				<td>${row.can_work_independently ? __("Yes") : __("No")}</td>
+				<td>${row.can_supervise_trainees ? __("Yes") : __("No")}</td>
+				<td>${e(row.valid_until || "-")}</td>
+			</tr>`).join("")}</tbody>
+		</table></div>`);
+	} catch (error) {
+		wrapper.html(`<p class="text-danger">${__("Competency summary could not be loaded.")}</p>`);
+	}
+}
 
 function show_credential_card(data) {
 	const e = frappe.utils.escape_html;

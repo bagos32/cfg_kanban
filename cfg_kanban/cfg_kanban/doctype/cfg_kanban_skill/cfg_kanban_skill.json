@@ -1,0 +1,42 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Skill",
+ "module": "CFG Kanban",
+ "autoname": "field:skill_code",
+ "title_field": "skill_name",
+ "search_fields": "skill_code,skill_name,skill_category",
+ "track_changes": 1,
+ "field_order": [
+  "identity_section",
+  "skill_code",
+  "skill_name",
+  "skill_category",
+  "active",
+  "description",
+  "qualification_section",
+  "requires_certification",
+  "requires_expiry_tracking",
+  "default_validity_days",
+  "external_standard_reference",
+  "notes"
+ ],
+ "fields": [
+  {"fieldname":"identity_section","label":"Skill Identity","fieldtype":"Section Break"},
+  {"fieldname":"skill_code","label":"Skill Code","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1,"description":"Stable uppercase business code, for example MIXING or KETTLE-OP."},
+  {"fieldname":"skill_name","label":"Skill Name","fieldtype":"Data","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"skill_category","label":"Skill Category","fieldtype":"Data","reqd":1,"in_list_view":1,"in_standard_filter":1,"description":"Reusable grouping such as Production, Quality, Safety, Maintenance, or Logistics."},
+  {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1,"description":"Inactive skills remain in historical competency records but cannot receive new approvals."},
+  {"fieldname":"description","label":"Skill Description","fieldtype":"Text"},
+  {"fieldname":"qualification_section","label":"Qualification Control","fieldtype":"Section Break"},
+  {"fieldname":"requires_certification","label":"Certification Reference Required","fieldtype":"Check","default":"0","description":"A submitted Employee Competency must identify its supporting certificate or assessment reference."},
+  {"fieldname":"requires_expiry_tracking","label":"Expiry Date Required","fieldtype":"Check","default":"0","description":"A submitted Employee Competency must have a Valid Until date."},
+  {"fieldname":"default_validity_days","label":"Default Validity (Days)","fieldtype":"Int","default":"0","depends_on":"requires_expiry_tracking","description":"Planning aid only. Zero means the approving manager must enter the validity date explicitly."},
+  {"fieldname":"external_standard_reference","label":"External Standard / SOP Reference","fieldtype":"Data","description":"Neutral identifier only. It does not create a dependency on TrackQMS or any other application."},
+  {"fieldname":"notes","label":"Notes","fieldtype":"Text"}
+ ],
+ "permissions": [
+  {"role":"Manufacturing User","read":1},
+  {"role":"Manufacturing Manager","read":1,"write":1,"create":1,"delete":1,"print":1,"report":1},
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1,"print":1,"report":1}
+ ]
+}
