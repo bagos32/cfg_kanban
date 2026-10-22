@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.00
+**Guide version:** 2.01
 
 **Updated:** 22 October 2026
 
@@ -276,6 +276,29 @@ Employee, Work Category, or Status. Participation rows contain no production qua
 still owns the Work Order and Job Card result, and adding three crew members never triples good
 quantity. Direct labour duration and oversight duration remain separate facts. Use
 `docs/TEST_WORKFORCE_P05_PARTICIPATION.md` for the full sample test.
+
+### Scanner-first Workstation Crew control (P06)
+
+Every Job Card Execution Lane in the Production Operator Panel shows a **Workstation Crew** strip.
+It identifies the persistent Crew Session's Main Operator, active/break counts, and current crew
+compliance. Select **Crew Controls**, or scan the printable `CFG:CMD:CREW` command, to manage the
+crew for the panel's current execution.
+
+To work without a mouse, scan a Crew action command first and then scan the affected Employee's
+normal operator QR. Supported actions are Open Crew, Join Direct, Join Oversight, Join Temporary,
+Start Break, Resume, Leave, Change Main Operator, Use Current Operation and Close Crew. Close Crew
+requires a separate Confirm scan. Cancel closes the modal without converting the next scan into a
+Card scan.
+
+The Employee scan inside Crew Controls is identity evidence only. The terminal remains signed in as
+the current operator, every crew mutation carries that authenticated Operator Session and ERP
+terminal User, and helpers receive no terminal permissions. A submitted Crew Template may be chosen
+as an expected-roster snapshot, but its people are not present until each one scans to join.
+
+Crew changes are included in the production Card's live revision. An authorized change from another
+terminal refreshes the lane and resolves or creates its crew hold without a Card rescan. Operations
+with no approved effective Crew Requirement remain backward-compatible, while attendance may still
+be recorded. Use `docs/TEST_WORKFORCE_P06_OPERATOR_UI.md` for the complete test.
 
 ## 4. ERPNext prerequisites
 
@@ -3800,6 +3823,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.01 | 22 October 2026 | Added Workforce P06 scanner-first Workstation Crew controls to each Production execution lane: touch and printable QR commands for persistent crew open/join/break/resume/leave/main/context/close actions, existing Employee QR identity without terminal-login replacement, live crew/compliance status refresh, and controlled two-scan crew closure |
 | 2.00 | 22 October 2026 | Added Workforce P05 Employee Job Participation Ledger: separate immutable participation segments for direct labour and oversight, crew join/break/resume/leave/role-change projection, compliance-hold stop/restart, completion/cancellation closure, explicit no-policy operator fallback, and no duplication of ERPNext Job Card production quantity |
 | 1.99 | 22 October 2026 | Added Workforce P04 server authorization: effective competency/crew/lead/supervision/trainee/concurrency/expiry checks at allocation, start, progress, crew change, completion and WIP release; immutable Compliance Check snapshots; persistent Crew Compliance Holds with automatic resolution; unconfigured operations remain backward-compatible and ERPNext stays quantity-authoritative |
 | 1.98 | 22 October 2026 | Added Workforce P03 persistent Workstation crew registry: approved expected-roster templates, one active Crew Session per Company/Workstation, scanned actual Membership intervals, break/resume/leave/main-operator/context controls, immutable Crew Events, and separate helper identity from terminal authentication |

@@ -132,6 +132,17 @@ def get_scanner_command_sheet(quantity_steps=None):
         ("WIP Bin: Use ERP-only Source", "CFG:CMD:NO_SOURCE", ""),
         ("WIP Bin: Restore Full-bin Mode", "CFG:CMD:FULL_BIN", ""),
         ("Submit Material Entry", "CFG:CMD:SUBMIT_MATERIALS", ""),
+        ("Crew Controls", "CFG:CMD:CREW", ""),
+        ("Crew: Open Session", "CFG:CMD:CREW_OPEN", ""),
+        ("Crew: Join Direct", "CFG:CMD:CREW_JOIN", ""),
+        ("Crew: Join Oversight", "CFG:CMD:CREW_JOIN_OVERSIGHT", ""),
+        ("Crew: Join Temporary Support", "CFG:CMD:CREW_JOIN_TEMP", ""),
+        ("Crew: Start Break", "CFG:CMD:CREW_BREAK", ""),
+        ("Crew: Resume", "CFG:CMD:CREW_RESUME", ""),
+        ("Crew: Leave", "CFG:CMD:CREW_LEAVE", ""),
+        ("Crew: Change Main Operator", "CFG:CMD:CREW_MAIN", ""),
+        ("Crew: Use Current Operation", "CFG:CMD:CREW_CONTEXT", ""),
+        ("Crew: Close Session", "CFG:CMD:CREW_CLOSE", ""),
     ]
     commands.extend([
         (f"Select Option {number}", f"CFG:SELECT:{number}", "")
@@ -153,6 +164,115 @@ def get_scanner_command_sheet(quantity_steps=None):
     ])
     return [{"label": label, "payload": payload, "key": key,
              "qr_svg": get_qr_svg(payload, 180)} for label, payload, key in commands]
+
+
+@frappe.whitelist()
+def get_execution_crew_panel(execution_name, operator_session_token=None):
+    """Return the scanner-facing crew context for one production execution."""
+    execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
+    profile, _session = require_operator(operator_session_token, execution=execution)
+    cycle = frappe.get_doc("CFG Kanban Cycle", execution.kanban_cycle)
+    master = frappe.get_cached_doc("CFG Kanban Master", execution.kanban_master)
+
+    decision = evaluate_execution_crew(
+        execution.name, "Operator Crew Panel", persist=False
+    )
+    active_crew = None
+    from cfg_kanban.services.crew_registry import (
+        get_active_workstation_crew,
+        get_crew_session,
+    )
+
+    registered_crew = get_active_workstation_crew(
+        master.company, execution.workstation
+    )
+    crew_name = (
+        registered_crew["session"].name if registered_crew
+        else decision.get("crew_session")
+    )
+    if crew_name:
+        active_crew = get_crew_session(crew_name, operator_session_token)
+
+    templates = frappe.get_all(
+        "CFG Kanban Crew Template",
+        filters={
+            "company": master.company,
+            "workstation": execution.workstation,
+            "active": 1,
+            "docstatus": 1,
+        },
+        fields=["name", "template_code", "template_name", "operation", "revision"],
+        order_by="template_name asc",
+        limit_page_length=0,
+    )
+    templates = [
+        row for row in templates
+        if not row.operation or row.operation == execution.operation
+    ]
+    actor_membership = None
+    if active_crew:
+        actor_membership = next(
+            (
+                row for row in active_crew.get("members") or []
+                if row.employee == profile.employee and row.status in ("Active", "On Break")
+            ),
+            None,
+        )
+    can_override = bool(
+        cint(profile.get("can_override")) or profile.get("kanban_role") == "Supervisor"
+    )
+    policy = decision.get("policy") or {}
+    return {
+        "execution": {
+            "name": execution.name,
+            "operation": execution.operation,
+            "workstation": execution.workstation,
+            "status": execution.status,
+            "job_card": execution.job_card,
+            "kanban_cycle": cycle.name,
+        },
+        "company": master.company,
+        "configured": bool(decision.get("configured")),
+        "allowed": bool(decision.get("allowed")),
+        "findings": decision.get("findings") or [],
+        "policy": {
+            "crew_mode": policy.get("crew_mode"),
+            "minimum_direct_workers": policy.get("minimum_direct_workers") or 0,
+            "minimum_assistants": policy.get("minimum_assistants") or 0,
+            "supervision_required": bool(policy.get("supervision_required")),
+            "trainee_policy": policy.get("trainee_policy"),
+        },
+        "crew": active_crew,
+        "templates": templates,
+        "actor_membership": actor_membership,
+        "can_manage": bool(
+            (actor_membership and actor_membership.status == "Active") or can_override
+        ),
+        "can_override": can_override,
+    }
+
+
+@frappe.whitelist()
+def open_execution_crew_session(
+    execution_name,
+    operator_session_token,
+    crew_template=None,
+    notes=None,
+):
+    """Open a crew only from server-derived Company/Workstation/Operation context."""
+    execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
+    require_operator(operator_session_token, execution=execution)
+    master = frappe.get_cached_doc("CFG Kanban Master", execution.kanban_master)
+    from cfg_kanban.services.crew_registry import open_workstation_crew_session
+
+    return open_workstation_crew_session(
+        master.company,
+        execution.workstation,
+        operator_session_token,
+        operation=execution.operation,
+        crew_template=crew_template or None,
+        notes=notes,
+    )
 
 
 @frappe.whitelist()
@@ -251,7 +371,8 @@ def get_card_context(token, operator_session_token=None):
             fields=["name", "operation", "sequence", "job_card", "workstation", "status",
                     "lane_sequence", "execution_mode", "runtime_allocation", "allocated_qty",
                     "target_qty", "processed_qty", "good_qty", "reject_qty", "released_qty",
-                    "handoff_mode"],
+                    "handoff_mode", "crew_compliance_status", "last_crew_compliance_check",
+                    "crew_compliance_hold"],
             order_by="sequence asc",
         )
         for execution in executions:
@@ -276,6 +397,7 @@ def get_card_context(token, operator_session_token=None):
             execution["wip_bin_pending_entries"] = readiness.get(
                 "wip_bin_pending_entries", []
             )
+            execution["crew"] = _execution_crew_summary(execution, master.company)
         kanban_processed = sum(flt(row.processed_qty) for row in executions)
         if (effective_work_order and effective_work_order.status == "Not Started" and
                 cycle.status in ("Released", "In Production", "Packing In Progress",
@@ -379,6 +501,32 @@ def _production_progress(summaries):
     }
 
 
+def _execution_crew_summary(execution, company):
+    from cfg_kanban.services.crew_registry import get_active_workstation_crew
+
+    crew = get_active_workstation_crew(company, execution.get("workstation"))
+    members = list((crew or {}).get("members") or [])
+    active = [row for row in members if row.status == "Active"]
+    on_break = [row for row in members if row.status == "On Break"]
+    return {
+        "session": crew["session"].name if crew else None,
+        "main_employee": crew["session"].main_employee if crew else None,
+        "main_employee_name": crew["session"].main_employee_name if crew else None,
+        "operation_context": crew["session"].operation_context if crew else None,
+        "active_count": len(active),
+        "break_count": len(on_break),
+        "direct_count": sum(
+            row.work_category == "Direct Participation" for row in active
+        ),
+        "oversight_count": sum(
+            row.work_category == "Oversight Only" for row in active
+        ),
+        "compliance_status": execution.get("crew_compliance_status") or "Not Checked",
+        "compliance_check": execution.get("last_crew_compliance_check"),
+        "compliance_hold": execution.get("crew_compliance_hold"),
+    }
+
+
 @frappe.whitelist()
 def get_card_live_revision(token, operator_session_token=None):
     """Return a cheap change token without rebuilding the operator card context."""
@@ -428,6 +576,17 @@ def get_card_live_revision(token, operator_session_token=None):
                 modified = frappe.db.get_value(doctype, filters, "max(modified)")
                 if modified:
                     markers.append(f"{doctype}:{modified}")
+        workstations = frappe.get_all(
+            "CFG Kanban Process Execution",
+            filters={"kanban_cycle": cycle.name},
+            pluck="workstation",
+        )
+        for workstation in sorted(set(filter(None, workstations))):
+            crew_event_modified = frappe.db.get_value(
+                "CFG Kanban Crew Event", {"workstation": workstation}, "max(modified)"
+            )
+            if crew_event_modified:
+                markers.append(f"crew:{workstation}:{crew_event_modified}")
     elif card.card_type == "Workstation Queue Card" and card.current_station:
         modified = frappe.db.get_value(
             "CFG Kanban Dispatch Queue",

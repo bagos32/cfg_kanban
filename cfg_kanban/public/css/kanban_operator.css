@@ -2,6 +2,72 @@
 	position: relative;
 }
 
+.cfg-execution-crew-strip {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: 12px;
+	padding: 10px 12px;
+	border-left: 5px solid var(--gray-500);
+	border-radius: 7px;
+	background: var(--subtle-fg);
+}
+
+.cfg-execution-crew-strip.green { border-left-color: var(--green-500); }
+.cfg-execution-crew-strip.red { border-left-color: var(--red-500); background: rgba(239, 68, 68, 0.08); }
+.cfg-execution-crew-strip.blue { border-left-color: var(--blue-500); background: rgba(59, 130, 246, 0.07); }
+.cfg-execution-crew-strip > div { display: flex; align-items: center; gap: 8px; }
+.cfg-execution-crew-strip > div:first-child { flex-direction: column; align-items: flex-start; gap: 2px; }
+.cfg-execution-crew-strip span { display: block; }
+
+.cfg-crew-dialog-status {
+	padding: 12px;
+	border-left: 6px solid var(--green-500);
+	border-radius: 8px;
+	background: rgba(34, 197, 94, 0.07);
+}
+
+.cfg-crew-dialog-status.is-hold {
+	border-left-color: var(--red-500);
+	background: rgba(239, 68, 68, 0.08);
+}
+
+.cfg-crew-dialog-status > div:first-child {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.cfg-crew-dialog-status strong,
+.cfg-crew-dialog-status span { display: block; }
+.cfg-crew-dialog-status p { margin: 10px 0; }
+.cfg-crew-dialog-status .table { margin-bottom: 0; background: var(--card-bg); }
+
+.cfg-crew-scan-instruction {
+	margin-bottom: 10px;
+	padding: 12px;
+	border-left: 5px solid var(--blue-500);
+	border-radius: 7px;
+	background: rgba(59, 130, 246, 0.08);
+	font-weight: 700;
+}
+
+.cfg-crew-actions {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 8px;
+}
+
+.cfg-crew-actions .btn { min-height: 44px; white-space: normal; font-weight: 700; }
+
+@media (max-width: 768px) {
+	.cfg-execution-crew-strip { align-items: stretch; flex-direction: column; }
+	.cfg-execution-crew-strip > div:last-child { justify-content: space-between; }
+	.cfg-crew-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 .cfg-container-summary {
 	display: flex;
 	justify-content: space-between;

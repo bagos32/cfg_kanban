@@ -11,7 +11,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	const state = { context: null, operator: null, access: null,
 		session_token: localStorage.getItem(session_key), awaiting_operator_scan: false,
 		active_progress_dialog: null, active_material_trace_dialog: null,
-		active_command_dialog: null,
+		active_command_dialog: null, active_crew_dialog: null,
 		pending_process_task: null, scanner_message: __("Scanner ready"),
 		modal_scan_buffer: "", modal_scan_at: 0, live_revision: null,
 		live_request: false, live_timer: null, live_checked_at: null,
@@ -303,6 +303,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (trace_dialog?.$wrapper?.is(":visible")) {
 			return run_material_trace_scan(trace_dialog, value);
 		}
+		const crew_dialog = state.active_crew_dialog?.dialog;
+		if (crew_dialog?.$wrapper?.is(":visible")) {
+			return handle_crew_dialog_scan(crew_dialog, value);
+		}
 		if (await dispatch_scanner_command(value)) return;
 		if (!state.operator || state.awaiting_operator_scan) {
 			state.awaiting_operator_scan = false;
@@ -359,6 +363,17 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			PREPARE_RECEIPT: open_scanner_manufacture_receipt,
 			SCAN_MATERIALS: open_scanner_material_trace,
 			SUBMIT_MATERIALS: submit_scanner_material_entry,
+			CREW: () => open_context_crew_control(),
+			CREW_OPEN: () => open_context_crew_control("CFG:CMD:CREW_OPEN"),
+			CREW_JOIN: () => open_context_crew_control("CFG:CMD:CREW_JOIN"),
+			CREW_JOIN_OVERSIGHT: () => open_context_crew_control("CFG:CMD:CREW_JOIN_OVERSIGHT"),
+			CREW_JOIN_TEMP: () => open_context_crew_control("CFG:CMD:CREW_JOIN_TEMP"),
+			CREW_BREAK: () => open_context_crew_control("CFG:CMD:CREW_BREAK"),
+			CREW_RESUME: () => open_context_crew_control("CFG:CMD:CREW_RESUME"),
+			CREW_LEAVE: () => open_context_crew_control("CFG:CMD:CREW_LEAVE"),
+			CREW_MAIN: () => open_context_crew_control("CFG:CMD:CREW_MAIN"),
+			CREW_CONTEXT: () => open_context_crew_control("CFG:CMD:CREW_CONTEXT"),
+			CREW_CLOSE: () => open_context_crew_control("CFG:CMD:CREW_CLOSE"),
 			CONFIRM: submit_active_progress,
 			CANCEL: cancel_active_dialog,
 			DISMISS: dismiss_visible_message,
@@ -658,6 +673,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const entries = context.production_stock_entries || [];
 		const executions = context.executions || [];
 		const process_tasks = context.process_tasks || [];
+		const crew_hold = executions.find((row) => row.crew?.compliance_status === "Hold");
+		if (crew_hold) return { key: `execution:${crew_hold.name}`, title: __("Crew authorization hold"),
+			detail: __("Open Crew Controls for {0} and restore the required active crew", [crew_hold.operation]),
+			status: __("Blocked"), colour: "red" };
 		if ((flow?.wip_bin_reconciliations || []).length) {
 			return { key: "wip-bin-reconciliation", title: __("WIP Bin reconciliation"),
 				detail: __("A supervisor must resolve the physical and ERP stock difference"),
@@ -3149,6 +3168,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const e = frappe.utils.escape_html;
 		const $section = $("<div><h4>" + __("Job Card Execution Lanes") + "</h4></div>").appendTo($root);
 		executions.forEach((row) => {
+			const crew = row.crew || {};
+			const crew_colour = crew.compliance_status === "Compliant" ? "green" :
+				crew.compliance_status === "Hold" ? "red" : crew.session ? "blue" : "grey";
+			const crew_text = crew.session
+				? `${crew.main_employee_name || crew.main_employee || __("Crew active")} · ${__("Active")}: ${crew.active_count || 0} · ${__("Break")}: ${crew.break_count || 0}`
+				: __("No active workstation crew");
 			const $row = $(`<div class="frappe-card p-3 mb-2" data-live-focus="execution:${e(row.name)}">
 				<div class="row align-items-center">
 				<div class="col-md-3"><strong>${e(row.sequence)}.${e(row.lane_sequence || 1)} ${e(row.operation)}</strong><div class="text-muted">${e(row.workstation || "")}</div>
@@ -3160,6 +3185,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				<div class="col-md-3">${__("Allocated")}: ${e(row.allocated_qty || row.target_qty || 0)}<br>${__("Good")}: ${e(row.good_qty || 0)}<br>${__("Released")}: ${e(row.released_qty || 0)}</div>
 				<div class="col-md-4 text-right cfg-execution-actions"></div>
 				</div></div>`).appendTo($section);
+			$(`<div class="cfg-execution-crew-strip ${crew_colour}">
+				<div><strong>${__("Workstation Crew")}</strong><span>${e(crew_text)}</span></div>
+				<div><span class="indicator-pill ${crew_colour}">${e(crew.compliance_status || __("Not Checked"))}</span>
+				<button class="btn btn-sm btn-default cfg-open-crew">${__("Crew Controls")}</button></div>
+			</div>`).appendTo($row).find(".cfg-open-crew").on("click", () => open_crew_control(row));
 			const $buttons = $row.find(".cfg-execution-actions");
 			if (row.status === "Ready" && state.operator.permissions.start) add_action($buttons, __("Start"), "btn-primary", () => job_action(row, "start"));
 			if (["Ready", "In Progress", "Paused"].includes(row.status) && state.operator.permissions.report_progress) add_action($buttons, __("Report Progress"), "btn-default", () => progress_dialog(row));
@@ -3179,6 +3209,256 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					message: e(row.close_block_reason || __("ERP Work Order and Job Card are not ready.")), indicator: "orange" }));
 			}
 		});
+	}
+
+	function crew_execution_context() {
+		const executions = state.context?.executions || [];
+		if (!executions.length) return null;
+		const focus = String(state.current_live_focus?.key || "");
+		if (focus.startsWith("execution:")) {
+			const name = focus.slice(10);
+			const focused = executions.find((row) => row.name === name);
+			if (focused) return focused;
+		}
+		return executions.find((row) => ["In Progress", "Blocked", "Paused"].includes(row.status)) ||
+			executions.find((row) => row.status === "Ready") || executions[0];
+	}
+
+	function open_context_crew_control(initial_command) {
+		const row = crew_execution_context();
+		if (!row) return scanner_command_message(__("Scan a production or operation Card with an execution lane first."));
+		return open_crew_control(row, initial_command);
+	}
+
+	async function open_crew_control(row, initial_command) {
+		const response = await frappe.call({
+			method: "cfg_kanban.api.operator.get_execution_crew_panel",
+			args: { execution_name: row.name, operator_session_token: state.session_token },
+		});
+		const panel = response.message;
+		const templates = panel.templates || [];
+		const template_options = [{ label: __("No template"), value: "" }].concat(
+			templates.map((template) => ({
+				label: `${template.template_name || template.template_code} · R${template.revision || 1}`,
+				value: template.name,
+			}))
+		);
+		let dialog;
+		dialog = new frappe.ui.Dialog({
+			title: __("Workstation Crew: {0}", [panel.execution.workstation]),
+			fields: [
+				{ fieldname: "crew_status", fieldtype: "HTML" },
+				{ fieldname: "crew_template", label: __("Expected Crew Template"), fieldtype: "Select",
+					options: template_options, default: template_options.length === 2 ? template_options[1].value : "",
+					description: __("Optional expected roster snapshot. Every person must still scan to join.") },
+				{ fieldname: "reason", label: __("Reason / Crew Note"), fieldtype: "Small Text",
+					default: __("Crew action from Production Operator Panel") },
+				{ fieldname: "crew_actions", fieldtype: "HTML" },
+				{ fieldname: "scanner_command", label: __("Crew Scanner Input"), fieldtype: "Data",
+					description: __("Scan a Crew command, then scan the employee's normal operator QR when requested.") },
+			],
+			primary_action_label: __("Refresh Crew"),
+			primary_action: async () => {
+				const active = state.active_crew_dialog;
+				if (active?.pending_close) return close_crew_from_dialog(dialog);
+				if (!active?.panel?.crew) return open_crew_from_dialog(dialog);
+				await refresh_crew_dialog(dialog);
+			},
+		});
+		state.active_crew_dialog = { dialog, row, panel, pending_action: null,
+			pending_open: false, pending_close: false };
+		dialog.onhide = async () => {
+			if (state.active_crew_dialog?.dialog === dialog) state.active_crew_dialog = null;
+			if (state.context?.card?.qr_code) await load_card(state.context.card.qr_code);
+			else focus_scanner();
+		};
+		dialog.show();
+		render_crew_dialog(dialog);
+		dialog.cfg_raw_scanner_handler = (value) => handle_crew_dialog_scan(dialog, value);
+		bind_confirmation_scanner(
+			dialog, true, template_options.map((option) => option.value), "crew_template"
+		);
+		if (initial_command) await handle_crew_dialog_scan(dialog, initial_command);
+	}
+
+	function render_crew_dialog(dialog) {
+		const active = state.active_crew_dialog;
+		if (!active || active.dialog !== dialog) return;
+		const panel = active.panel;
+		const crew = panel.crew;
+		const members = crew?.members || [];
+		const e = frappe.utils.escape_html;
+		const findings = (panel.findings || []).map((row) => `<li>${e(row.message || row.code)}</li>`).join("");
+		const member_rows = members.length ? members.map((row) => `<tr>
+			<td>${e(row.employee_name || row.employee)}</td><td>${e(row.crew_role)}</td>
+			<td>${e(row.work_category)}</td><td><span class="indicator-pill ${row.status === "Active" ? "green" : "orange"}">${e(row.status)}</span></td>
+		</tr>`).join("") : `<tr><td colspan="4" class="text-muted">${__("No scanned crew members")}</td></tr>`;
+		const policy = panel.configured
+			? `${e(panel.policy.crew_mode || __("Configured"))} · ${__("Minimum direct")}: ${e(panel.policy.minimum_direct_workers || 0)}`
+			: __("No crew requirement configured; attendance can still be recorded.");
+		const status_html = `<div class="cfg-crew-dialog-status ${panel.allowed ? "is-compliant" : "is-hold"}">
+			<div><strong>${e(panel.execution.operation)}</strong><span>${e(panel.execution.workstation)} · ${e(panel.execution.job_card || "-")}</span></div>
+			<div><span class="indicator-pill ${panel.allowed ? "green" : "red"}">${panel.allowed ? __("Compliant") : __("Crew Hold")}</span></div>
+			<p>${policy}</p>${findings ? `<ul>${findings}</ul>` : ""}
+			<table class="table table-bordered table-sm"><thead><tr><th>${__("Employee")}</th><th>${__("Role")}</th><th>${__("Work")}</th><th>${__("Presence")}</th></tr></thead><tbody>${member_rows}</tbody></table>
+		</div>`;
+		dialog.get_field("crew_status").df.options = status_html;
+		dialog.get_field("crew_status").refresh();
+
+		const instruction = active.pending_action
+			? __("Now scan the employee operator QR for: {0}", [crew_action_label(active.pending_action)])
+			: active.pending_open
+				? __("Scan Confirm / Submit to open this Workstation Crew, or scan Cancel.")
+			: active.pending_close
+				? __("Scan Confirm / Submit to close the whole Crew Session, or scan Cancel.")
+				: __("Choose an action below or scan a Crew command label.");
+		const disabled = crew && !panel.can_manage ? " disabled" : "";
+		const actions = crew ? `<div class="cfg-crew-scan-instruction">${instruction}</div>
+			<div class="cfg-crew-actions">
+				<button class="btn btn-primary" data-crew-action="join_direct"${disabled}>${__("Join Direct")}</button>
+				<button class="btn btn-info" data-crew-action="join_oversight"${disabled}>${__("Join Oversight")}</button>
+				<button class="btn btn-default" data-crew-action="join_temp"${disabled}>${__("Join Temporary")}</button>
+				<button class="btn btn-warning" data-crew-action="break"${disabled}>${__("Start Break")}</button>
+				<button class="btn btn-success" data-crew-action="resume"${disabled}>${__("Resume")}</button>
+				<button class="btn btn-default" data-crew-action="leave"${disabled}>${__("Leave")}</button>
+				<button class="btn btn-default" data-crew-action="main"${disabled}>${__("Make Main")}</button>
+				<button class="btn btn-default" data-crew-action="context"${disabled}>${__("Use This Operation")}</button>
+				<button class="btn btn-danger" data-crew-action="close"${disabled}>${__("Close Crew")}</button>
+			</div>` : `<div class="cfg-crew-scan-instruction">${instruction}</div>
+			<button class="btn btn-primary btn-lg btn-block" data-crew-action="open">${__("Open Crew Session")}</button>`;
+		dialog.get_field("crew_actions").df.options = actions;
+		dialog.get_field("crew_actions").refresh();
+		dialog.get_field("crew_actions").$wrapper.find("[data-crew-action]").on("click", function () {
+			select_crew_action(dialog, $(this).data("crew-action"));
+		});
+		dialog.get_primary_btn().text(
+			active.pending_close ? __("Confirm Close Crew") : active.pending_open ? __("Confirm Open Crew") :
+				crew ? __("Refresh Crew") : __("Open Crew Session")
+		);
+		window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 80);
+	}
+
+	function crew_action_label(action) {
+		return ({ join_direct: __("Join Direct"), join_oversight: __("Join Oversight"),
+			join_temp: __("Join Temporary"), break: __("Start Break"), resume: __("Resume"),
+			leave: __("Leave"), main: __("Change Main Operator") })[action] || action;
+	}
+
+	async function select_crew_action(dialog, action) {
+		const active = state.active_crew_dialog;
+		if (!active || active.dialog !== dialog) return;
+		active.pending_action = null;
+		active.pending_open = false;
+		active.pending_close = false;
+		if (action === "open") return open_crew_from_dialog(dialog);
+		if (action === "context") return set_crew_context_from_dialog(dialog);
+		if (action === "close") {
+			active.pending_close = true;
+			render_crew_dialog(dialog);
+			return;
+		}
+		active.pending_action = action;
+		render_crew_dialog(dialog);
+	}
+
+	async function handle_crew_dialog_scan(dialog, raw_value) {
+		const active = state.active_crew_dialog;
+		if (!active || active.dialog !== dialog) return;
+		const value = String(raw_value || "").trim();
+		const command = value.toUpperCase();
+		await dialog.set_value("scanner_command", "");
+		const command_actions = {
+			"CFG:CMD:CREW_JOIN": "join_direct", "CFG:CMD:CREW_JOIN_OVERSIGHT": "join_oversight",
+			"CFG:CMD:CREW_JOIN_TEMP": "join_temp", "CFG:CMD:CREW_BREAK": "break",
+			"CFG:CMD:CREW_RESUME": "resume", "CFG:CMD:CREW_LEAVE": "leave",
+			"CFG:CMD:CREW_MAIN": "main", "CFG:CMD:CREW_CONTEXT": "context",
+			"CFG:CMD:CREW_CLOSE": "close",
+		};
+		if (command === "CFG:CMD:CREW") return render_crew_dialog(dialog);
+		if (command === "CFG:CMD:CREW_OPEN") {
+			active.pending_action = null;
+			active.pending_open = true;
+			active.pending_close = false;
+			return render_crew_dialog(dialog);
+		}
+		if (command_actions[command]) return select_crew_action(dialog, command_actions[command]);
+		if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(command)) return dialog.hide();
+		if (command === "CFG:CMD:CONFIRM") {
+			if (active.pending_close) return close_crew_from_dialog(dialog);
+			if (active.pending_open) return open_crew_from_dialog(dialog);
+			if (!active.panel.crew) return open_crew_from_dialog(dialog);
+			return refresh_crew_dialog(dialog);
+		}
+		if (!active.pending_action) {
+			frappe.show_alert({ message: __("Scan a Crew action command before scanning an employee QR."), indicator: "orange" });
+			return render_crew_dialog(dialog);
+		}
+		return run_scanned_crew_member_action(dialog, operator_token_from_scan(value));
+	}
+
+	async function open_crew_from_dialog(dialog) {
+		const active = state.active_crew_dialog;
+		const values = dialog.get_values(true) || {};
+		await frappe.call({ method: "cfg_kanban.api.operator.open_execution_crew_session", args: {
+			execution_name: active.row.name, crew_template: values.crew_template || null,
+			notes: values.reason, operator_session_token: state.session_token,
+		}, freeze: true, freeze_message: __("Opening workstation crew...") });
+		await refresh_crew_dialog(dialog);
+	}
+
+	async function set_crew_context_from_dialog(dialog) {
+		const active = state.active_crew_dialog;
+		await frappe.call({ method: "cfg_kanban.services.crew_registry.set_crew_operation_context", args: {
+			crew_session: active.panel.crew.name, operation: active.panel.execution.operation,
+			reason: dialog.get_value("reason"), operator_session_token: state.session_token,
+		}, freeze: true });
+		await refresh_crew_dialog(dialog);
+	}
+
+	async function close_crew_from_dialog(dialog) {
+		const active = state.active_crew_dialog;
+		await frappe.call({ method: "cfg_kanban.services.crew_registry.close_workstation_crew_session", args: {
+			crew_session: active.panel.crew.name,
+			reason: dialog.get_value("reason") || __("Closed from Production Operator Panel"),
+			operator_session_token: state.session_token,
+		}, freeze: true, freeze_message: __("Closing workstation crew...") });
+		active.pending_close = false;
+		await refresh_crew_dialog(dialog);
+	}
+
+	async function run_scanned_crew_member_action(dialog, member_token) {
+		const active = state.active_crew_dialog;
+		const action = active.pending_action;
+		const args = { crew_session: active.panel.crew.name, member_qr_token: member_token,
+			operator_session_token: state.session_token, reason: dialog.get_value("reason") };
+		let method;
+		if (["join_direct", "join_oversight", "join_temp"].includes(action)) {
+			method = "cfg_kanban.services.crew_registry.join_crew_member";
+			args.crew_role = action === "join_temp" ? "Temporary Support" :
+				action === "join_oversight" ? "Senior / Overseer" : "Supporting Operator";
+			args.work_category = action === "join_oversight" ? "Oversight Only" : "Direct Participation";
+		} else {
+			method = ({ break: "break_crew_member", resume: "resume_crew_member",
+				leave: "leave_crew_member", main: "change_main_operator" })[action];
+			method = `cfg_kanban.services.crew_registry.${method}`;
+		}
+		await frappe.call({ method, args, freeze: true, freeze_message: __("Updating workstation crew...") });
+		active.pending_action = null;
+		frappe.show_alert({ message: __("Crew updated"), indicator: "green" });
+		await refresh_crew_dialog(dialog);
+	}
+
+	async function refresh_crew_dialog(dialog) {
+		const active = state.active_crew_dialog;
+		if (!active || active.dialog !== dialog) return;
+		const response = await frappe.call({ method: "cfg_kanban.api.operator.get_execution_crew_panel", args: {
+			execution_name: active.row.name, operator_session_token: state.session_token,
+		} });
+		active.panel = response.message;
+		active.pending_action = null;
+		active.pending_open = false;
+		active.pending_close = false;
+		render_crew_dialog(dialog);
 	}
 
 	function close_runtime_cycle(row) {

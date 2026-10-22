@@ -335,12 +335,23 @@ Execution, Job Card, Employee, Work Category, or Status.
 
 Use `docs/TEST_WORKFORCE_P05_PARTICIPATION.md` for the complete acceptance procedure.
 
-## Remaining approved packages
+### P06 — Operator Interface & QR Integration (implemented)
 
-### P06 — Operator Interface & QR Integration
+Every Job Card Execution Lane now shows its persistent Workstation crew, main Employee, active and
+break counts, compliance state, and a **Crew Controls** action. The same control opens from the
+printable `CFG:CMD:CREW` scanner label and follows the panel's current execution priority.
 
-Add scanner-first crew actions to the existing Production Operator Panel without replacing the
-existing Employee login QR, card commands, terminal User, or operator session security.
+The scanner-first modal supports opening the Crew Session, joining direct/oversight/temporary
+members, break, resume, leave, main-operator change, Operation-context change and controlled Crew
+Session closure. A crew action command selects the transition; the next scan uses the Employee's
+existing operator credential only as crew identity. It never opens a terminal Operator Session or
+changes the authenticated operator. Closing the whole crew requires a separate Confirm scan.
+
+Crew Events participate in the Card's lightweight live revision, so a change made from another
+authorized terminal refreshes the crew strip and crew-specific holds without rescanning the Card.
+Use `docs/TEST_WORKFORCE_P06_OPERATOR_UI.md` for the complete scanner and touch acceptance test.
+
+## Remaining approved package
 
 ### P07 — Supervisor Control, Reports & Audit
 
