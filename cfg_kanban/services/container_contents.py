@@ -99,6 +99,10 @@ def unload_content_tag(container_scan, content_scan, reason, event_token,
     if not event_token:
         frappe.throw(_("A stable unload event token is required"))
     container = _resolve_container(container_scan)
+    if container.reusable_container_role == "Production Output Container":
+        frappe.throw(
+            _("Production Output Container contents are released only by submitted production consumption or controlled ERP reversal")
+        )
     content = _resolve_content(content_scan, require_active=False)
     _lock_units(container.name, content.name)
     assert_container_not_in_open_manifest(container.name, "changing its physical contents")
@@ -190,6 +194,189 @@ def active_container_contents(container_handling_unit):
         order_by="loaded_on asc, name asc",
         limit_page_length=500,
     )
+
+
+def production_output_content(container_handling_unit, *, require_content=True):
+    """Resolve the one live fill carried by a permanent production container."""
+    container = frappe.get_doc("CFG Kanban Handling Unit", container_handling_unit)
+    if (container.tag_kind != "Reusable Container"
+            or container.reusable_container_role != "Production Output Container"):
+        frappe.throw(
+            _("Container {0} is not a Production Output Container").format(
+                container.handling_unit_id
+            )
+        )
+    rows = active_container_contents(container.name)
+    if len(rows) > 1:
+        frappe.throw(
+            _("Production Output Container {0} has multiple active fills; supervisor reconciliation is required").format(
+                container.handling_unit_id
+            )
+        )
+    if not rows:
+        if require_content:
+            frappe.throw(
+                _("Production Output Container {0} is empty").format(
+                    container.handling_unit_id
+                )
+            )
+        return container, None, None
+    membership = frappe.get_doc("CFG Kanban Container Content", rows[0].name)
+    content = frappe.get_doc("CFG Kanban Handling Unit", membership.content_handling_unit)
+    if not cint(content.get("virtual_content")) or content.physical_container != container.name:
+        frappe.throw(
+            _("Production Output Container {0} contains an invalid production fill identity").format(
+                container.handling_unit_id
+            )
+        )
+    return container, content, membership
+
+
+def load_production_output_content(container, content, *, reference_name, reason):
+    """Load one system-created fill identity into its permanent scanned container."""
+    if isinstance(container, str):
+        container = frappe.get_doc("CFG Kanban Handling Unit", container)
+    if isinstance(content, str):
+        content = frappe.get_doc("CFG Kanban Handling Unit", content)
+    if (container.tag_kind != "Reusable Container"
+            or container.reusable_container_role != "Production Output Container"):
+        frappe.throw("A production fill requires a Production Output Container")
+    if not cint(content.get("virtual_content")) or content.physical_container != container.name:
+        frappe.throw("The production fill identity does not belong to this permanent container")
+    _lock_units(container.name, content.name)
+    container.reload()
+    content.reload()
+    assert_container_not_in_open_manifest(container.name, "receiving a production output")
+    assert_container_not_in_open_delivery(container.name, "receiving a production output")
+    _validate_production_container_location(container, content)
+    _container, existing_content, membership = production_output_content(
+        container.name, require_content=False
+    )
+    if membership:
+        if existing_content.name == content.name:
+            return membership
+        frappe.throw(
+            f"Production Output Container {container.handling_unit_id} still holds "
+            f"{existing_content.item_code} / {existing_content.batch_no or 'no Batch'} / "
+            f"{existing_content.current_qty} {existing_content.stock_uom}"
+        )
+    now = now_datetime()
+    load_key = canonical_key(
+        "production-output-container-load", container.name, content.name, reference_name
+    )
+    existing = frappe.db.get_value(
+        "CFG Kanban Container Content", {"load_event_key": load_key}, "name"
+    )
+    if existing:
+        return frappe.get_doc("CFG Kanban Container Content", existing)
+    episode = frappe.get_doc({
+        "doctype": "CFG Kanban Container Content",
+        "state": "Loaded",
+        "container_handling_unit": container.name,
+        "container_visible_code": container.handling_unit_id,
+        "content_handling_unit": content.name,
+        "content_visible_code": content.handling_unit_id,
+        "item_code": content.item_code,
+        "batch_no": content.batch_no,
+        "qty": content.current_qty,
+        "stock_uom": content.stock_uom,
+        "company": content.inventory_company,
+        "warehouse": content.current_warehouse,
+        "loaded_on": now,
+        "load_event_key": load_key,
+    }).insert(ignore_permissions=True)
+    container.db_set({"movement_state": "Packed", "last_scan_time": now},
+                     update_modified=False)
+    record(
+        "Production Fill Loaded into Permanent Container",
+        cycle=content.kanban_cycle,
+        handling_unit=container.name,
+        qty=content.current_qty,
+        reference_doctype="CFG Kanban Container Content",
+        reference_name=episode.name,
+        notes=(f"{reason}: {content.item_code} / {content.batch_no or 'no Batch'} / "
+               f"{content.current_qty} {content.stock_uom}"),
+    )
+    return episode
+
+
+def unload_production_output_content(content_handling_unit, *, reference_name, reason):
+    """Close one permanent-container fill episode after full use or controlled reversal."""
+    membership = active_container_membership(content_handling_unit)
+    if not membership:
+        return None
+    container = frappe.get_doc("CFG Kanban Handling Unit", membership.container_handling_unit)
+    if container.reusable_container_role != "Production Output Container":
+        return None
+    now = now_datetime()
+    unload_key = canonical_key(
+        "production-output-container-unload", membership.name, reference_name, reason
+    )
+    frappe.db.set_value(
+        "CFG Kanban Container Content",
+        membership.name,
+        {
+            "state": "Unloaded",
+            "unloaded_on": now,
+            "unload_event_key": unload_key,
+            "unload_reason": reason,
+        },
+        update_modified=True,
+    )
+    container.db_set({"movement_state": "Empty", "last_scan_time": now},
+                     update_modified=False)
+    record(
+        "Production Fill Removed from Permanent Container",
+        handling_unit=container.name,
+        reference_doctype="CFG Kanban Container Content",
+        reference_name=membership.name,
+        notes=reason,
+    )
+    return membership
+
+
+def restore_production_output_content(container_handling_unit, content_handling_unit,
+                                      *, reference_name, reason):
+    """Restore a consumed fill when ERPNext cancels the consuming Stock Entry."""
+    container = frappe.get_doc("CFG Kanban Handling Unit", container_handling_unit)
+    content = frappe.get_doc("CFG Kanban Handling Unit", content_handling_unit)
+    return load_production_output_content(
+        container, content, reference_name=reference_name, reason=reason
+    )
+
+
+def sync_production_container_location(container_handling_unit, company, warehouse,
+                                       movement_state="Received"):
+    if not container_handling_unit:
+        return
+    container = frappe.get_doc("CFG Kanban Handling Unit", container_handling_unit)
+    if container.reusable_container_role != "Production Output Container":
+        return
+    frappe.db.set_value(
+        "CFG Kanban Handling Unit",
+        container.name,
+        {
+            "inventory_company": company,
+            "current_warehouse": warehouse,
+            "movement_state": movement_state,
+        },
+        update_modified=False,
+    )
+
+
+def _validate_production_container_location(container, content):
+    if container.identity_state != "Active" or container.quality_state != "Released":
+        frappe.throw(
+            f"Production Output Container {container.handling_unit_id} is "
+            f"{container.identity_state} / {container.quality_state}"
+        )
+    if container.inventory_company != content.inventory_company:
+        frappe.throw("Production Output Container and manufactured Item belong to different Companies")
+    if container.current_warehouse != content.current_warehouse:
+        frappe.throw(
+            f"Production Output Container is in {container.current_warehouse}, not "
+            f"output Warehouse {content.current_warehouse}"
+        )
 
 
 def assert_not_loaded_in_container(content_handling_unit, action):
@@ -362,6 +549,10 @@ def _resolve_content(scan_value, require_active=True):
 
 
 def _validate_load(container, content):
+    if container.reusable_container_role == "Production Output Container":
+        frappe.throw(
+            _("Production Output Containers are loaded only by a submitted ERP Manufacture entry")
+        )
     if flt(content.current_qty) <= 0 or not content.item_code or not content.stock_uom:
         frappe.throw(_("The Stock Tag has no active physical quantity to load"))
     if not content.inventory_company or not content.current_warehouse:
@@ -444,6 +635,7 @@ def _container_result(container, include_history):
             "visible_code": container.handling_unit_id,
             "container_reference": container.container_reference,
             "handling_unit_type": container.handling_unit_type,
+            "reusable_container_role": container.reusable_container_role,
             "allow_mixed_content": bool(cint(container.allow_mixed_content)),
             "inventory_company": container.inventory_company,
             "current_warehouse": container.current_warehouse,

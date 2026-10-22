@@ -53,6 +53,14 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 				message: __("Assign this fixed bin to a WIP Bin Pool. Saving the identity does not move ERPNext stock."),
 				indicator: "blue",
 			}, 10);
+		} else if (frm.doc.reusable_container_role === "Production Output Container") {
+			await frm.set_value({ allow_mixed_content: 0, wip_bin_state: null });
+			frm.clear_table("wip_bin_capacities");
+			frm.refresh_field("wip_bin_capacities");
+			frappe.show_alert({
+				message: __("This permanent QR receives one manufactured fill at a time. The submitted Manufacture entry creates its audited Item/Batch content identity."),
+				indicator: "blue",
+			}, 10);
 		} else if (frm.is_new()) {
 			await frm.set_value("wip_bin_state", null);
 			frm.clear_table("wip_bin_capacities");
@@ -158,9 +166,11 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 			frappe.set_route("material-genealogy", frm.doc.handling_unit_id);
 		}, __("Kanban Actions"));
 		if (frm.doc.tag_kind === "Reusable Container") {
-			frm.add_custom_button(__("Manage Container Contents"), () => {
-				frappe.set_route("kanban-logistics", frm.doc.handling_unit_id);
-			}, __("Kanban Actions"));
+			if (frm.doc.reusable_container_role !== "Production Output Container") {
+				frm.add_custom_button(__("Manage Container Contents"), () => {
+					frappe.set_route("kanban-logistics", frm.doc.handling_unit_id);
+				}, __("Kanban Actions"));
+			}
 			frm.add_custom_button(__("Container Content History"), () => {
 				frappe.set_route("List", "CFG Kanban Container Content", {
 					container_handling_unit: frm.doc.name,

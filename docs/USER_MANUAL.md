@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.87
+**Guide version:** 1.89
 
 **Updated:** 22 October 2026
 
@@ -1778,8 +1778,9 @@ For a Draft Stock Entry:
    panel the scan automatically selects the remaining ERP input row whose Item, Company, source
    Warehouse, Stock UOM and Batch match the physical tag. Desk users may still select a row
    explicitly. The quantity is reserved against the Draft entry but ERP stock does not move.
-3. Under **Stage Preprinted Production Output Tag**, select a tag-enabled finished/repacked target
-   row, scan an unused main tag, enter its Stock UOM quantity and Handling Unit Type. The identity
+3. Under **Stage Production Output Identity**, select a tag-enabled finished/repacked target
+   row, scan either an unused main tag or an empty permanent **Production Output Container**, then
+   enter its Stock UOM quantity and Handling Unit Type. The identity
    remains pending; no output stock tag is created while the entry is Draft. When the output is
    divided between several containers, enable **Allow ERP Quantity Across Multiple Tags** in the
    Item/Company Material Trace Policy, then repeat this step with a different unused main tag and
@@ -1795,10 +1796,43 @@ For a Draft Stock Entry:
    then does the trace become Confirmed. For a Batch-controlled finished Item, the tags may be
    staged while the Draft output Batch is blank. ERPNext creates or assigns the Batch during the
    single Manufacture submission, and CFG Kanban copies that exact submitted Batch to every staged
-   output tag before activating them. **Exact Output Serial Numbers** is only for ERP Serial Nos;
+   output identities before activating them. **Exact Output Serial Numbers** is only for ERP Serial Nos;
    never enter a Batch number in that field. Consumption
    reduces input-tag balance; Material Transfer for Manufacture updates the tag's Warehouse; and
-   Manufacture/Repack activates output tags from the ERP-confirmed output.
+   Manufacture/Repack activates output tags from the ERP-confirmed output. For a permanent output
+   container, CFG Kanban creates a separate internal content identity for that exact Item, Batch,
+   quantity, Work Order, and Stock Entry, and loads it behind the container's permanent QR.
+
+#### Permanent Production Output Container
+
+Use this when the same physical container or tray is reused from one production run to the next and
+must also carry the semi-finished Item into the next production process:
+
+1. Create **CFG Kanban Handling Unit** with **Tag Kind = Reusable Container** and **Reusable
+   Container Role = Production Output Container**. Enter its permanent scan code, physical
+   reference, Inventory Company, and current output Warehouse. Do not assign an Item or opening
+   quantity to the container itself.
+2. Print one of the Handling Unit / bin-slot formats and attach that permanent QR or barcode to the
+   container. The printed identity is reused; it is not replaced for each Batch.
+3. In the Draft Manufacture entry, scan a quantity command such as `CFG:QTY:GOOD:+50`, then scan the
+   empty permanent container. Repeat with another empty production container when the ERP output is
+   divided across several containers. Submit the Manufacture entry once.
+4. ERPNext remains the stock and Batch authority. On submission, CFG Kanban creates a hidden,
+   immutable fill identity for each scanned container and copies the submitted Item, Batch,
+   quantity, Work Order, Warehouse, and Stock Entry origin into that fill. Container Content History
+   records when that fill entered and left the permanent container.
+5. At the next production process, scan the same permanent container as the material input. CFG
+   Kanban resolves its one current fill and reserves/consumes that exact Item and Batch. A full
+   consumption closes the fill episode and makes the permanent container empty and reusable. A
+   partial consumption leaves the balance in the same container.
+
+The system rejects a Production Output Container that is already filled, belongs to a different
+Company or Warehouse, is on an open Manifest/delivery, is on Hold, or contains inconsistent content.
+A normal Logistics Container and a Standard Quantity WIP Bin cannot substitute for this role. Never
+reuse a Main Stock Tag for a new Batch: only the permanent container QR is reused; every fill remains
+a separate auditable identity. Cancelling an untouched Manufacture entry voids its fill and empties
+the container. Cancelling downstream consumption restores the fill only when the permanent container
+has not been reused for later output.
 
 For WIP-transfer-enabled manufacturing, scan the input tag on the Material Transfer for Manufacture
 entry, then scan the same tag again from its WIP source Warehouse on the later Manufacture or
@@ -1835,9 +1869,15 @@ Stock Entry access:
    **Stock Quantity (0 = automatic)** at zero to allocate the available tag quantity up to the ERP
    row balance, or enter a smaller explicit quantity for a permitted direct-consumption allocation.
    Material Transfer for Manufacture still requires the complete physical Handling Unit.
-5. For an output row, scan an unused preprinted main tag, confirm quantity and Handling Unit Type,
+5. For an output row, scan an unused preprinted main tag or an empty permanent Production Output
+   Container, confirm quantity and Handling Unit Type,
    and select **Stage Output Tag**. Output quantity cannot be inferred when several physical
-   containers may divide one ERP row.
+   containers may divide one ERP row. For scanner-only staging, first scan a routine Good command
+   such as `CFG:QTY:GOOD:+50`; inside Production Material Trace this sets the quantity for one
+   output identity rather than reporting Job Card progress. Then scan the unused output tag or
+   empty permanent output container to stage it.
+   The same armed quantity remains available for the next container, while the remaining ERP row
+   balance continues to prevent over-staging.
 6. Scan `CFG:CMD:SUBMIT_MATERIALS` to submit the single eligible entry. When several entries are
    eligible, scan its numbered Select label and then Confirm. Submission remains governed by the
    operator's Material Transfer or Production Receipt permission and ERPNext validations.
@@ -3575,6 +3615,8 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.89 | 22 October 2026 | Added permanent Production Output Containers: one reusable QR can receive a new immutable manufactured fill on each ERP submission, then the same container scan resolves that exact Item/Batch as input to the next production process; full consumption empties the container for reuse, with guarded reversal and Container Content audit |
+| 1.88 | 22 October 2026 | Reused printed Good quantity commands inside Production Material Trace as hands-free per-container output quantities: scan `CFG:QTY:GOOD:+50`, then scan an unused output tag to stage 50 units; added 50 to the default printable quantity set |
 | 1.87 | 22 October 2026 | Allowed one or several production-output tags to be staged before ERPNext generates the finished Batch; on the single Manufacture submission, the authoritative ERP Batch is bound to every staged tag before activation, with clearer multi-container and Serial Number guidance |
 | 1.86 | 22 October 2026 | Corrected Manufacture output scanning when optional input and output rows coexist: an active Handling Unit now routes to input allocation, an unused preprinted main tag routes to output staging, and the sole remaining ERP output row resolves safely even when the browser selection is stale; clarified that the Serial Number field is not a Batch field |
 | 1.85 | 22 October 2026 | Exposed each Draft or submitted WIP-bin unused-material return on its related Operation Card using the existing Job Card linkage and submit action, while retaining the complete view on the main Production Card |

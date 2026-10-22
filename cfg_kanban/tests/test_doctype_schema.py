@@ -683,7 +683,7 @@ class TestDocTypeSchema(TestCase):
         controller = (doctype_root / "cfg_kanban_handling_unit.py").read_text()
         form_script = (APP_ROOT / "public" / "js" /
                        "cfg_kanban_handling_unit.js").read_text()
-        self.assertIn('if self.tag_kind != "Reusable Container":\n            self._bind_tag_identity()',
+        self.assertIn('if self.tag_kind != "Reusable Container" and not self.get("virtual_content"):\n            self._bind_tag_identity()',
                       controller)
         self.assertIn('if (frm.doc.tag_kind === "Reusable Container") return;',
                       form_script)
@@ -1796,6 +1796,15 @@ class TestDocTypeSchema(TestCase):
                 schemas["CFG Kanban WIP Bin Load"]["fields"]}
         self.assertIn("Standard Quantity WIP Bin",
                       handling_unit["reusable_container_role"]["options"])
+        self.assertIn("Production Output Container",
+                      handling_unit["reusable_container_role"]["options"])
+        self.assertTrue(handling_unit["virtual_content"].get("hidden"))
+        self.assertEqual(handling_unit["physical_container"]["options"],
+                         "CFG Kanban Handling Unit")
+        trace_line = {row["fieldname"]: row for row in
+                      schemas["CFG Kanban Material Trace Line"]["fields"]}
+        self.assertEqual(trace_line["physical_container"]["options"],
+                         "CFG Kanban Handling Unit")
         self.assertEqual(
             handling_unit["wip_bin_capacities"]["options"],
             "CFG Kanban WIP Bin Capacity",
@@ -1941,6 +1950,16 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def _bind_submitted_output_batch", trace_service)
         self.assertIn("ERPNext did not assign the required Batch", trace_service)
         self.assertIn("Repeat Stage Output Tag", panel)
+        self.assertIn("Output quantity {0} {1} armed", panel)
+        self.assertIn("CFG:QTY:GOOD:", panel)
+        self.assertIn("Empty Production Output Container", panel)
+        self.assertIn("def _activate_output_container_fill", trace_service)
+        self.assertIn("def _production_input_unit", trace_service)
+        self.assertIn("production_output_content", trace_service)
+        container_service = (APP_ROOT / "services" / "container_contents.py").read_text()
+        self.assertIn("def load_production_output_content", container_service)
+        self.assertIn("def unload_production_output_content", container_service)
+        self.assertIn("def restore_production_output_content", container_service)
         self.assertIn("Actual Quantity Consumed", panel)
         self.assertIn('__("Actual Used")', panel)
         self.assertIn('__("Unused Return")', panel)

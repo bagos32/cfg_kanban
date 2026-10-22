@@ -27,6 +27,16 @@ class CFGKanbanHandlingUnit(Document):
             self._clear_reusable_stock_context()
             if self.reusable_container_role == "Standard Quantity WIP Bin":
                 self.wip_bin_state = self.wip_bin_state or "Empty"
+        elif self.get("virtual_content"):
+            self.reusable_container_role = None
+            self.wip_bin_state = None
+            self.tag_range_registry = None
+            self.tag_family = None
+            self.parent_handling_unit = None
+            self.root_handling_unit = None
+            self.child_index = 0
+            if not self.physical_container:
+                frappe.throw("Internal container content requires its permanent physical container")
         else:
             self.reusable_container_role = None
             self.wip_bin_state = None
@@ -39,7 +49,7 @@ class CFGKanbanHandlingUnit(Document):
         validate_physical_code_namespace(
             self.handling_unit_id, "Handling Unit", tag_family=self.tag_family
         )
-        if self.tag_kind != "Reusable Container":
+        if self.tag_kind != "Reusable Container" and not self.get("virtual_content"):
             self._bind_tag_identity()
         self.opaque_token = self.opaque_token or str(uuid.uuid4())
         if not self.handling_unit_id:
@@ -110,6 +120,7 @@ class CFGKanbanHandlingUnit(Document):
             self.root_handling_unit = self.name
         self._validate_immutable_identity()
         self._validate_reusable_policy_change()
+        self._validate_virtual_content()
         if self.tag_kind != "Reusable Container" and (not self.item_code or not self.stock_uom):
             frappe.throw("Item and Stock UOM are required for a Stock Tag")
         if self.tag_kind != "Reusable Container" and (
@@ -182,7 +193,8 @@ class CFGKanbanHandlingUnit(Document):
             return
         immutable = (
             "handling_unit_id", "opaque_token", "tag_kind", "tag_range_registry", "tag_family",
-            "parent_handling_unit", "root_handling_unit", "child_index", "item_code",
+            "parent_handling_unit", "root_handling_unit", "child_index", "virtual_content",
+            "physical_container", "item_code",
             "batch_no", "stock_uom", "packed_on", "expiry_date", "original_qty", "qty",
             "inventory_company", "current_warehouse", "origin_reference_doctype",
             "origin_reference_name", "origin_reference_row", "activation_key",
@@ -239,8 +251,22 @@ class CFGKanbanHandlingUnit(Document):
 
     def _validate_reusable_container_role(self):
         role = self.reusable_container_role or "Logistics Container"
-        if role != "Standard Quantity WIP Bin":
+        if role not in ("Standard Quantity WIP Bin", "Production Output Container"):
             self.wip_bin_state = None
+            return
+        if role == "Production Output Container":
+            self.wip_bin_state = None
+            if self.allow_mixed_content:
+                frappe.throw("A Production Output Container cannot allow mixed Item or Batch content")
+            if not self.inventory_company or not self.current_warehouse:
+                frappe.throw(
+                    "Inventory Company and Current Warehouse are required for a Production Output Container"
+                )
+            if frappe.db.count(
+                "CFG Kanban Container Content",
+                {"container_handling_unit": self.name, "state": "Loaded"},
+            ) > 1:
+                frappe.throw("A Production Output Container can hold only one active production fill")
             return
         if self.allow_mixed_content:
             frappe.throw("A Standard Quantity WIP Bin cannot allow mixed Item or Batch content")
@@ -256,6 +282,32 @@ class CFGKanbanHandlingUnit(Document):
                 "A logistics container with loaded Stock Tags cannot become a Standard Quantity WIP Bin"
             )
         self.wip_bin_state = self.wip_bin_state or "Empty"
+
+    def _validate_virtual_content(self):
+        if not cint(self.get("virtual_content")):
+            if self.get("physical_container"):
+                frappe.throw(
+                    "Permanent Physical Container is reserved for system-created production fills"
+                )
+            return
+        if self.tag_kind != "Main Stock Tag" or not self.physical_container:
+            frappe.throw(
+                "An internal production fill must be a Main Stock Tag linked to its permanent container"
+            )
+        container = frappe.db.get_value(
+            "CFG Kanban Handling Unit",
+            self.physical_container,
+            ["tag_kind", "reusable_container_role"],
+            as_dict=True,
+        )
+        if not container or container.tag_kind != "Reusable Container" or (
+            container.reusable_container_role != "Production Output Container"
+        ):
+            frappe.throw(
+                "Internal production content must belong to a Production Output Container"
+            )
+        if self.tag_family or self.tag_range_registry or self.parent_handling_unit:
+            frappe.throw("Internal production content cannot claim a physical preprinted tag identity")
 
     def _validate_wip_bin_capacities(self):
         rows = self.get("wip_bin_capacities") or []

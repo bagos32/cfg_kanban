@@ -103,7 +103,7 @@ def get_scanner_command_sheet(quantity_steps=None):
             quantity_steps = quantity_steps.split(",")
     if quantity_steps and not isinstance(quantity_steps, (list, tuple)):
         quantity_steps = [quantity_steps]
-    quantity_steps = quantity_steps or (1, 5, 10, 100)
+    quantity_steps = quantity_steps or (1, 5, 10, 50, 100)
     normalized_steps = []
     for value in quantity_steps[:12]:
         number = flt(value)

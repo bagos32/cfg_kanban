@@ -884,7 +884,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	function configure_scanner_command_sheet() {
 		frappe.prompt([
 			{ fieldname: "quantity_steps", label: __("Routine Good / Material Quantity Values"),
-				fieldtype: "Data", reqd: 1, default: "1, 5, 10, 100",
+				fieldtype: "Data", reqd: 1, default: "1, 5, 10, 50, 100",
 				description: __("Prints Good +quantity and absolute Material Quantity labels. Example: 1, 10, 50, 100") },
 		], (values) => {
 			const steps = String(values.quantity_steps || "").split(",").map((value) => value.trim()).filter(Boolean);
@@ -1980,10 +1980,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 						await dialog.set_value("input_scan", "");
 						await reload();
 					} },
-				{ fieldname: "output_section", label: __("Stage Preprinted Output Tag"), fieldtype: "Section Break" },
+				{ fieldname: "output_section", label: __("Stage Production Output Identity"), fieldtype: "Section Break" },
 				{ fieldname: "output_row", label: __("ERP Output Row"), fieldtype: "Select" },
-				{ fieldname: "output_scan", label: __("Unused Preprinted Main Tag"), fieldtype: "Data",
-					description: __("The tag remains pending until ERPNext submits this Stock Entry. Stage another unused tag when the output is divided across several containers.") },
+				{ fieldname: "output_scan", label: __("Unused Main Tag or Empty Production Output Container"), fieldtype: "Data",
+					description: __("Scan either an unused preprinted Main Stock Tag or an empty permanent Production Output Container. The identity remains pending until ERPNext submits this Stock Entry.") },
 				{ fieldname: "output_camera", label: __("Camera Scan Output Tag"), fieldtype: "Button",
 					click: () => open_camera_scanner((value) => dialog.set_value("output_scan", value)) },
 				{ fieldname: "output_qty", label: __("Stock Quantity"), fieldtype: "Float",
@@ -2372,6 +2372,25 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(command)) {
 			return close_operator_material_trace_dialog(dialog);
 		}
+		const output_qty_command = command.match(/^CFG:QTY:GOOD:\+?(\d+(?:\.\d+)?)$/);
+		if (output_qty_command) {
+			const outputs = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
+				row.direction === "Output" && row.tagging_available && row.remaining_qty > 0.000001);
+			const selected = operator_trace_row(outputs, dialog.get_value("output_row")) || outputs[0];
+			if (!selected) frappe.throw(__("No remaining production output is available for this quantity command."));
+			const qty = Number(output_qty_command[1]);
+			if (!(qty > 0) || qty > Number(selected.remaining_qty) + 0.000001) {
+				frappe.throw(__("Output-tag quantity must be above zero and no more than the remaining {0} {1}.",
+					[selected.remaining_qty, selected.stock_uom]));
+			}
+			await dialog.set_value("output_row", operator_trace_row_option(selected));
+			await dialog.set_value("output_qty", qty);
+			frappe.show_alert({
+				message: __("Output quantity {0} {1} armed. Scan the unused output tag or empty permanent output container next.",
+					[qty, selected.stock_uom]), indicator: "green",
+			});
+			return window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
+		}
 		const pending_wip = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
 			row.direction === "Input" && row.wip_bin_required && row.wip_bin_remaining_qty > 0.000001);
 		if (pending_wip.length) {
@@ -2591,7 +2610,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			serial_numbers: dialog.get_value("output_serial_numbers"),
 			operator_session_token: state.session_token, kanban_card: state.context.card.name,
 		}, freeze: true, freeze_message: __("Staging production output tag...") });
-		frappe.show_alert({ message: __("Output tag staged pending ERP submission"), indicator: "green" });
+		frappe.show_alert({ message: __("Output identity staged pending ERP submission"), indicator: "green" });
 		await dialog.set_value("output_scan", "");
 		await reload();
 	}
@@ -2615,7 +2634,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (!(plan.lines || []).length && !wip_loads.length) return `<p class="text-muted">${__("No production tags or WIP Bins staged.")}</p>`;
 		const e = frappe.utils.escape_html;
 		const trace_rows = (plan.lines || []).map((line) => `<tr><td>${e(line.direction)}</td><td>${e(line.item_code)}</td>
-			<td>${e(line.handling_unit || line.pending_tag_code || "-")}</td><td>${e(line.qty)} ${e(line.stock_uom)}${line.serial_count ? `<br><small>${e(line.serial_count)} ${__("serials")}</small>` : ""}</td>
+			<td>${e(line.physical_container || line.handling_unit || line.pending_tag_code || "-")}</td><td>${e(line.qty)} ${e(line.stock_uom)}${line.serial_count ? `<br><small>${e(line.serial_count)} ${__("serials")}</small>` : ""}</td>
 			<td>${e(line.status)}</td><td>${line.can_cancel ? `<button type="button" class="btn btn-xs btn-danger" data-cancel-operator-trace-line="${e(line.name)}">${__("Release Loaded Material")}</button>` : ""}</td></tr>`).join("");
 		const consumption_plan = plan.purpose === "Material Consumption for Manufacture";
 		const wip_rows = wip_loads.map((load) => {

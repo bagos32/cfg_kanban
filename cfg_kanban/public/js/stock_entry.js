@@ -72,10 +72,10 @@ async function production_trace_dialog(frm) {
 					await dialog.set_value("input_scan", "");
 					dialog.get_field("input_scan").$input.trigger("focus");
 				} },
-			{ fieldname: "output_section", label: __("Stage Preprinted Production Output Tag"), fieldtype: "Section Break" },
+			{ fieldname: "output_section", label: __("Stage Production Output Identity"), fieldtype: "Section Break" },
 			{ fieldname: "output_row", label: __("Output Row"), fieldtype: "Select" },
-			{ fieldname: "output_scan", label: __("Unused Preprinted Main Tag"), fieldtype: "Data",
-				description: __("The tag remains pending until ERPNext submits the Stock Entry.") },
+			{ fieldname: "output_scan", label: __("Unused Main Tag or Empty Production Output Container"), fieldtype: "Data",
+				description: __("Scan an unused preprinted Main Stock Tag or an empty permanent Production Output Container. It remains pending until ERPNext submits the Stock Entry.") },
 			{ fieldname: "output_qty", label: __("Stock Quantity"), fieldtype: "Float" },
 			{ fieldname: "output_serial_numbers", label: __("Exact Output Serial Numbers"), fieldtype: "Small Text",
 				description: __("Serial-controlled output only. One ERPNext Serial No per line; automatically filled when one tag takes every remaining serial.") },
@@ -234,7 +234,7 @@ function production_trace_lines(plan) {
 	const e = frappe.utils.escape_html;
 	const rows = plan.lines.map((line) => `<tr>
 		<td>${e(line.direction)}</td><td>${e(line.item_code)}</td>
-		<td>${e(line.handling_unit || line.pending_tag_code || "-")}</td>
+		<td>${e(line.physical_container || line.handling_unit || line.pending_tag_code || "-")}</td>
 		<td>${e(line.qty)} ${e(line.stock_uom)}${line.serial_count ? `<br><small>${e(line.serial_count)} ${__("serials")}</small>` : ""}</td><td>${e(line.status)}</td>
 		<td>${line.can_cancel ? `<button class="btn btn-xs btn-danger" data-cancel-trace-line="${e(line.name)}">${__("Cancel")}</button>` : ""}</td>
 	</tr>`).join("");
