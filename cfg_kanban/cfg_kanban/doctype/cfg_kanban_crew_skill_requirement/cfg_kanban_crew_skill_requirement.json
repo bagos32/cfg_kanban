@@ -1,0 +1,68 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Crew Skill Requirement",
+ "module": "CFG Kanban",
+ "istable": 1,
+ "field_order": [
+  "participation_role",
+  "skill",
+  "minimum_level",
+  "minimum_people",
+  "require_independent_authorization",
+  "require_supervisor_authorization"
+ ],
+ "fields": [
+  {
+   "fieldname": "participation_role",
+   "label": "Crew Role",
+   "fieldtype": "Select",
+   "options": "Direct Worker\nQualified Lead\nActive Supervisor",
+   "default": "Direct Worker",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "skill",
+   "label": "Required Skill",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Skill",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "minimum_level",
+   "label": "Minimum Competency",
+   "fieldtype": "Select",
+   "options": "L0 - Untrained / Awareness Only\nL1 - Trainee\nL2 - Qualified Operator\nL3 - Senior / Lead\nL4 - Trainer / Supervisor",
+   "default": "L2 - Qualified Operator",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "minimum_people",
+   "label": "Minimum People",
+   "fieldtype": "Int",
+   "default": "1",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "require_independent_authorization",
+   "label": "Require Independent Authorization",
+   "fieldtype": "Check",
+   "default": "1",
+   "description": "The Employee Competency must explicitly authorize independent work for this skill."
+  },
+  {
+   "fieldname": "require_supervisor_authorization",
+   "label": "Require Trainee-Supervision Authorization",
+   "fieldtype": "Check",
+   "depends_on": "eval:doc.participation_role=='Active Supervisor'",
+   "description": "The Employee Competency must explicitly authorize supervision of trainees for this skill."
+  }
+ ]
+}

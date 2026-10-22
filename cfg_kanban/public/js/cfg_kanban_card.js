@@ -7,6 +7,9 @@ frappe.ui.form.on("CFG Kanban Card", {
 		frm.set_query("doctype_action_profile", () => ({
 			filters: { enabled: 1, validation_status: "Valid" },
 		}));
+		frm.set_query("crew_requirement_profile", () => ({
+			filters: { active: 1, docstatus: 1 },
+		}));
 	},
 	kanban_master(frm) {
 		frm.set_value("operation", null);
@@ -53,6 +56,10 @@ frappe.ui.form.on("CFG Kanban Card", {
 		frm.set_df_property("operation", "reqd", required);
 		if (frm.doc.card_type !== "Station Kanban" && frm.doc.workstation) {
 			frm.set_value("workstation", null);
+		}
+		if (!["Process Kanban", "Station Kanban"].includes(frm.doc.card_type) &&
+			frm.doc.crew_requirement_profile) {
+			frm.set_value("crew_requirement_profile", null);
 		}
 		if (frm.doc.card_type !== "Task Card" && frm.doc.task_schedule) {
 			frm.set_value("task_schedule", null);

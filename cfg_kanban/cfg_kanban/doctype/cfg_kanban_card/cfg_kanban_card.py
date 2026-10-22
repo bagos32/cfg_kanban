@@ -37,6 +37,7 @@ class CFGKanbanCard(Document):
         if self.card_type in production_types and not self.kanban_master:
             frappe.throw("Kanban Master is required for a production card")
         self._copy_master_context()
+        self._validate_crew_requirement()
         self._validate_doctype_action_card()
         if self.kanban_master:
             master = frappe.get_cached_doc("CFG Kanban Master", self.kanban_master)
@@ -75,6 +76,16 @@ class CFGKanbanCard(Document):
             frappe.throw("Task Schedule is required for a Task Card")
         if self.card_type != "Task Card":
             self.task_schedule = None
+
+    def _validate_crew_requirement(self):
+        if self.card_type not in ("Process Kanban", "Station Kanban"):
+            self.crew_requirement_profile = None
+            return
+        if not self.crew_requirement_profile:
+            return
+        from cfg_kanban.services.crew_policy import assert_approved_crew_profile
+
+        assert_approved_crew_profile(self.crew_requirement_profile, self.company)
 
     def _validate_doctype_action_card(self):
         before = None if self.is_new() else self.get_doc_before_save()
@@ -145,6 +156,7 @@ class CFGKanbanCard(Document):
             self.operation = None
             self.workstation = None
             self.handoff_mode = None
+            self.crew_requirement_profile = None
             return
         master = frappe.get_cached_doc("CFG Kanban Master", self.kanban_master)
         before = None if self.is_new() else self.get_doc_before_save()

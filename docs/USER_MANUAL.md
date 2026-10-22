@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.96
+**Guide version:** 1.97
 
 **Updated:** 22 October 2026
 
@@ -190,6 +190,26 @@ Open an Operator Profile to see the read-only competency summary or use **Workfo
 Competencies**. This P01 registry does not yet block production actions; crew requirements and
 runtime enforcement are delivered sequentially in P02–P04. See
 `docs/WORKFORCE_COMPETENCY_CREW_CONTROL.md` for the package boundary and acceptance test.
+
+### Crew requirement policy foundation (P02)
+
+Create and submit **CFG Kanban Crew Requirement Profile** records for approved staffing and
+skill-specific safety rules. Available **Crew Mode** (`crew_mode`) values are Single Operator,
+Multiple Operators, Supervised Operation, and Qualified Lead + Assistants. Configure **Minimum
+Direct Workers** (`minimum_direct_workers`), optional **Minimum Assistants**
+(`minimum_assistants`), **Trainee Policy** (`trainee_policy`), **Active Supervisor Presence**
+(`supervision_presence`), **Maximum Trainees per Supervisor**
+(`max_trainees_per_supervisor`), and the **Required Skills** (`skill_requirements`) table.
+
+Apply the approved Profile at one or more levels: **Normal Crew Requirement**
+(`crew_requirement_profile`) inside the Kanban Master's Operation Profile, submitted **CFG Kanban
+Workstation Crew Requirement** records for equipment restrictions, and optional **Additional Crew
+Requirement** (`crew_requirement_profile`) on Process or Station Cards. The resolver combines every
+applicable rule conservatively; a Card cannot lower an Operation or Workstation safety minimum.
+
+P02 is configuration and policy resolution only. It deliberately does not block an operator yet.
+P03 supplies the persistent actual Workstation crew and P04 compares that crew with this effective
+policy at every controlled runtime checkpoint.
 
 ## 4. ERPNext prerequisites
 
@@ -2694,6 +2714,24 @@ assessment/certification references, and neutral external evidence/revision snap
 after manager review. Use the form's **Authorization** actions for controlled suspension,
 reactivation, or revocation.
 
+### CFG Kanban Crew Requirement Profile and Workstation Crew Requirement
+
+Submit the reusable Profile before selecting it elsewhere. Exact Profile controls are **Requirement
+Code** (`requirement_code`), **Requirement Name** (`requirement_name`), optional **Company**
+(`company`), **Active** (`active`), **Revision** (`revision`), **Crew Mode** (`crew_mode`), **Minimum
+Direct Workers** (`minimum_direct_workers`), **Minimum Assistants** (`minimum_assistants`),
+**Trainee Policy** (`trainee_policy`), **Active Supervisor Presence** (`supervision_presence`), and
+**Maximum Trainees per Supervisor** (`max_trainees_per_supervisor`).
+
+Each **Required Skills** row records **Crew Role** (`participation_role`: Direct Worker, Qualified
+Lead, or Active Supervisor), **Required Skill** (`skill`), **Minimum Competency**
+(`minimum_level`), **Minimum People** (`minimum_people`), and the explicit P01 authorization flags.
+
+A submitted **CFG Kanban Workstation Crew Requirement** contains **Company** (`company`),
+**Workstation** (`workstation`), optional **Operation** (`operation`), approved **Crew Requirement**
+(`crew_requirement_profile`), activity/effective dates, and approval audit. A blank Operation applies
+the rule to every operation performed at that Workstation.
+
 ### CFG Kanban Material Trace Policy
 
 Create at most one record per **Company** (`company`) and **Item** (`item_code`). Exact controls are
@@ -3696,6 +3734,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.97 | 22 October 2026 | Added Workforce P02: submitted reusable Crew Requirement Profiles, four crew modes, skill/level/role requirements, trainee and active-supervision controls, Operation/Profile assignment, Workstation safety restrictions, optional stricter Process/Station Card selection, and a conservative effective-policy resolver that never weakens a higher safety rule; runtime blocking remains P04 |
 | 1.96 | 22 October 2026 | Added Workforce P01: manager-controlled Skill registry, submitted Employee competency approvals with L0–L4, explicit independent/supervision authorization, certification/expiry and overlap validation, controlled status audit, Operator Profile summary, workspace access, acceptance guide, and a neutral no-TrackQMS dependency boundary |
 | 1.95 | 22 October 2026 | Separated operator-facing container identity from immutable production-fill audit identity in Operational Inventory Tag Detail: permanent output containers now show their human-readable reference and physical scan code while retaining the internal `VCONT-...` code and Handling Unit link for audit |
 | 1.92 | 22 October 2026 | Corrected the Production Operator Panel's first live synchronization so supervisor approval or release performed while the operator tab is hidden, inactive, or blocked by a dialog reloads the Card instead of being silently accepted as a stale revision baseline |

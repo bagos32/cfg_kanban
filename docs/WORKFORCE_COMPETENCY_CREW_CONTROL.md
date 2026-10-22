@@ -132,13 +132,65 @@ It is never returned as effectively Active by the competency service.
 P01 acceptance proves registry correctness only. Do not expect it to block a Kanban operation until
 P04 is implemented and accepted.
 
+## P02 — Crew Requirement Policy
+
+P02 adds approved configuration and a conservative policy resolver. It still does not block operation
+start, progress, or completion; the runtime checkpoints remain P04.
+
+### CFG Kanban Crew Requirement Profile
+
+Create a reusable Profile, add every required skill row, then Submit it. The four crew modes are:
+
+| Mode | Configuration rule |
+|---|---|
+| Single Operator | Exactly one direct worker; separate supervision may still be required |
+| Multiple Operators | At least two direct workers |
+| Supervised Operation | Active supervisor presence is mandatory |
+| Qualified Lead + Assistants | At least one lead plus the configured number of assistants |
+
+**Minimum Direct Workers** counts employees directly participating in the operation. An
+oversight-only supervisor is not silently counted as direct labour. **Trainee Policy** may prohibit
+trainees, allow them only with active supervision, or permit them. A supervised policy also records
+the maximum trainee-to-supervisor ratio.
+
+Each Required Skill row identifies a Direct Worker, Qualified Lead, or Active Supervisor role; the
+Skill; minimum L0–L4 level; minimum people; and whether independent-work or trainee-supervision
+authorization is required. Lead rows always require independent authorization. Active Supervisor
+rows always require the explicit trainee-supervision authorization from P01.
+
+Profiles are submitted manager approvals. Use a new Profile/revision when the approved safety rule
+changes. External policy fields are neutral identifiers and immutable revision snapshots; they do
+not create a TrackQMS dependency.
+
+### Three policy layers
+
+1. In **CFG Kanban Master → Operation Profiles**, select the normal submitted Crew Requirement.
+2. Create a submitted **CFG Kanban Workstation Crew Requirement** for equipment-specific minimums.
+   Operation is optional: blank applies the restriction to every operation at that Workstation.
+3. A Process or Station Kanban Card may select an additional submitted Profile for a special stricter
+   requirement.
+
+The effective policy combines every applicable submitted, active layer. It uses the highest direct
+worker/assistant minimum, the most restrictive trainee and supervision rule, the lowest positive
+trainee-to-supervisor ratio, and the highest skill level/people/authorization requirement for each
+skill-role pair. Therefore a Single Operator Card cannot bypass a two-person Workstation rule.
+
+### P02 acceptance test
+
+1. Submit Profile `PACKING-SINGLE` with Single Operator and one direct-worker Packaging skill.
+2. Submit Profile `MIXING-TWO-PERSON` with Multiple Operators, two direct workers, trainees
+   prohibited, and the required Mixing skill.
+3. Submit Profile `MIXING-SUPERVISED` with Supervised Operation, trainees supervised only, and an
+   Active Supervisor skill requiring L3 or L4 supervision authorization.
+4. Assign `PACKING-SINGLE` to an Operation Profile.
+5. Create and submit a Workstation rule applying `MIXING-TWO-PERSON` to that Workstation.
+6. Optionally select `MIXING-SUPERVISED` on its Station Card.
+7. Preview the resolver on the server or inspect its returned policy and confirm the result still
+   needs at least two direct workers and includes the stricter supervision/skill rules.
+8. Confirm normal production behavior is unchanged. P02 stores and resolves policy only; P04 will
+   enforce it against the P03 active crew.
+
 ## Remaining approved packages
-
-### P02 — Crew Requirement Policy
-
-Define single operator, multiple operator, supervised operation, and qualified-lead-plus-assistants
-requirements. Effective requirements combine Operation Profile, Workstation restriction, and Card
-selection without allowing a lower layer to weaken a safety rule.
 
 ### P03 — Workstation Crew Registry
 

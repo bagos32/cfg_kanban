@@ -1,0 +1,213 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Crew Requirement Profile",
+ "module": "CFG Kanban",
+ "autoname": "field:requirement_code",
+ "title_field": "requirement_name",
+ "search_fields": "requirement_code,requirement_name,crew_mode",
+ "track_changes": 1,
+ "is_submittable": 1,
+ "field_order": [
+  "identity_section",
+  "requirement_code",
+  "requirement_name",
+  "company",
+  "active",
+  "revision",
+  "crew_section",
+  "crew_mode",
+  "minimum_direct_workers",
+  "minimum_assistants",
+  "trainee_policy",
+  "supervision_presence",
+  "max_trainees_per_supervisor",
+  "skill_section",
+  "skill_requirements",
+  "control_section",
+  "approved_by",
+  "approved_on",
+  "external_policy_identifier",
+  "external_policy_revision_snapshot",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "label": "Approved Crew Policy",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "requirement_code",
+   "label": "Requirement Code",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Stable uppercase identifier, for example MIXING-CREW-01."
+  },
+  {
+   "fieldname": "requirement_name",
+   "label": "Requirement Name",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "in_list_view": 1,
+   "description": "Optional. Leave blank only for a policy intentionally shared across companies."
+  },
+  {
+   "fieldname": "active",
+   "label": "Active",
+   "fieldtype": "Check",
+   "default": "1",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "revision",
+   "label": "Revision",
+   "fieldtype": "Int",
+   "default": "1",
+   "reqd": 1
+  },
+  {
+   "fieldname": "crew_section",
+   "label": "Crew Shape and Supervision",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "crew_mode",
+   "label": "Crew Mode",
+   "fieldtype": "Select",
+   "options": "Single Operator\nMultiple Operators\nSupervised Operation\nQualified Lead + Assistants",
+   "default": "Single Operator",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "minimum_direct_workers",
+   "label": "Minimum Direct Workers",
+   "fieldtype": "Int",
+   "default": "1",
+   "reqd": 1,
+   "description": "Employees directly participating in the operation. Oversight-only supervisors are counted separately."
+  },
+  {
+   "fieldname": "minimum_assistants",
+   "label": "Minimum Assistants",
+   "fieldtype": "Int",
+   "default": "0",
+   "depends_on": "eval:doc.crew_mode=='Qualified Lead + Assistants'",
+   "mandatory_depends_on": "eval:doc.crew_mode=='Qualified Lead + Assistants'"
+  },
+  {
+   "fieldname": "trainee_policy",
+   "label": "Trainee Policy",
+   "fieldtype": "Select",
+   "options": "Prohibited\nSupervised Only\nPermitted",
+   "default": "Prohibited",
+   "reqd": 1
+  },
+  {
+   "fieldname": "supervision_presence",
+   "label": "Active Supervisor Presence",
+   "fieldtype": "Select",
+   "options": "Not Required\nRequired When Trainees Present\nAlways Required",
+   "default": "Not Required",
+   "reqd": 1,
+   "description": "Active means the supervisor is registered in the workstation crew, not merely assigned elsewhere."
+  },
+  {
+   "fieldname": "max_trainees_per_supervisor",
+   "label": "Maximum Trainees per Supervisor",
+   "fieldtype": "Int",
+   "default": "1",
+   "depends_on": "eval:doc.trainee_policy=='Supervised Only' || doc.supervision_presence!='Not Required'",
+   "mandatory_depends_on": "eval:doc.trainee_policy=='Supervised Only' || doc.supervision_presence!='Not Required'"
+  },
+  {
+   "fieldname": "skill_section",
+   "label": "Skill-Specific Requirements",
+   "fieldtype": "Section Break",
+   "description": "Define every direct-worker, qualified-lead, and active-supervisor competency needed by this policy."
+  },
+  {
+   "fieldname": "skill_requirements",
+   "label": "Required Skills",
+   "fieldtype": "Table",
+   "options": "CFG Kanban Crew Skill Requirement",
+   "reqd": 1
+  },
+  {
+   "fieldname": "control_section",
+   "label": "Approval and External Reference",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "approved_by",
+   "label": "Approved By",
+   "fieldtype": "Link",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_on",
+   "label": "Approved On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "external_policy_identifier",
+   "label": "External Policy Identifier",
+   "fieldtype": "Data",
+   "description": "Optional neutral reference to an approved safety or SOP policy. This is not a mandatory TrackQMS link."
+  },
+  {
+   "fieldname": "external_policy_revision_snapshot",
+   "label": "External Policy Revision Snapshot",
+   "fieldtype": "Data",
+   "description": "Immutable revision identifier copied from the external source when this profile is approved."
+  },
+  {
+   "fieldname": "notes",
+   "label": "Notes",
+   "fieldtype": "Text"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Manufacturing User",
+   "read": 1
+  },
+  {
+   "role": "Manufacturing Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1,
+   "print": 1,
+   "report": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1,
+   "print": 1,
+   "report": 1
+  }
+ ]
+}

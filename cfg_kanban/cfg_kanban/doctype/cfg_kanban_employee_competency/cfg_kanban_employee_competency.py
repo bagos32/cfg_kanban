@@ -13,6 +13,7 @@ class CFGKanbanEmployeeCompetency(Document):
         self._validate_skill_requirements()
 
     def before_submit(self):
+        self._validate_skill_requirements(force=True)
         self._validate_employee_and_skill_active()
         self._validate_no_overlapping_approval()
         self.status = "Active"
@@ -82,8 +83,8 @@ class CFGKanbanEmployeeCompetency(Document):
         if cint(self.can_supervise_trainees) and level < 3:
             frappe.throw("Trainee supervision authorization requires competency level L3 or higher")
 
-    def _validate_skill_requirements(self):
-        if self.docstatus != 1:
+    def _validate_skill_requirements(self, force=False):
+        if self.docstatus != 1 and not force:
             return
         if self._skill.requires_certification and not self.certification_reference:
             frappe.throw(f"Skill {self.skill} requires a Certification Reference")

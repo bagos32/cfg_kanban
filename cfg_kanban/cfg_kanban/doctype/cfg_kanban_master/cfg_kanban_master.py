@@ -6,6 +6,7 @@ from cfg_kanban.services.dynamic_forms import validate_condition_definitions
 from cfg_kanban.services.hidden_items import get_hidden_item_policy
 from cfg_kanban.services.purchase_uom import calculate_purchase_quantities
 from cfg_kanban.services.uom_conversion import get_item_purchase_uom
+from cfg_kanban.services.crew_policy import assert_approved_crew_profile
 
 
 class CFGKanbanMaster(Document):
@@ -70,6 +71,10 @@ class CFGKanbanMaster(Document):
         operations = {row.operation for row in self.operation_profiles}
         for row in self.operation_profiles:
             row.allow_parallel = row.execution_mode == "Parallel Workstations"
+            if row.get("crew_requirement_profile"):
+                assert_approved_crew_profile(
+                    row.crew_requirement_profile, self.company
+                )
             if row.dependency_operation and row.dependency_operation not in operations:
                 frappe.throw(f"Dependency operation {row.dependency_operation} is not in this route")
             if row.destination_operation and row.destination_operation not in operations:

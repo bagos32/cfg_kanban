@@ -50,11 +50,11 @@ def employee_has_competency(employee, skill, minimum_level="L0", *,
 
 @frappe.whitelist()
 def get_operator_profile_competency_summary(profile_name):
-    if not frappe.has_permission("CFG Kanban Operator Profile", "read", profile_name):
-        frappe.throw(_("Not permitted to read this Operator Profile"), frappe.PermissionError)
+    profile = frappe.get_doc("CFG Kanban Operator Profile", profile_name)
+    profile.check_permission("read")
     if not frappe.has_permission("CFG Kanban Employee Competency", "read"):
         frappe.throw(_("Not permitted to read Employee Competency"), frappe.PermissionError)
-    employee = frappe.db.get_value("CFG Kanban Operator Profile", profile_name, "employee")
+    employee = profile.employee
     if not employee:
         return []
     result = []

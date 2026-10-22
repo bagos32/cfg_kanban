@@ -1,0 +1,137 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Workstation Crew Requirement",
+ "module": "CFG Kanban",
+ "autoname": "WCR-.YYYY.-.#####",
+ "title_field": "workstation",
+ "search_fields": "workstation,operation,crew_requirement_profile",
+ "track_changes": 1,
+ "is_submittable": 1,
+ "field_order": [
+  "scope_section",
+  "company",
+  "workstation",
+  "operation",
+  "crew_requirement_profile",
+  "active",
+  "effective_from",
+  "effective_to",
+  "approval_section",
+  "approved_by",
+  "approved_on",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "scope_section",
+   "label": "Workstation Safety Restriction",
+   "fieldtype": "Section Break",
+   "description": "This rule is merged with the Operation Profile and Card policy. It can strengthen but never weaken either requirement."
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "workstation",
+   "label": "Workstation",
+   "fieldtype": "Link",
+   "options": "Workstation",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "operation",
+   "label": "Operation",
+   "fieldtype": "Link",
+   "options": "Operation",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Optional. Leave blank to apply the restriction to every operation performed at this workstation."
+  },
+  {
+   "fieldname": "crew_requirement_profile",
+   "label": "Approved Crew Requirement",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Crew Requirement Profile",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "active",
+   "label": "Active",
+   "fieldtype": "Check",
+   "default": "1",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "effective_from",
+   "label": "Effective From",
+   "fieldtype": "Date"
+  },
+  {
+   "fieldname": "effective_to",
+   "label": "Effective To",
+   "fieldtype": "Date"
+  },
+  {
+   "fieldname": "approval_section",
+   "label": "Approval",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "approved_by",
+   "label": "Approved By",
+   "fieldtype": "Link",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_on",
+   "label": "Approved On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes",
+   "label": "Notes",
+   "fieldtype": "Text"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Manufacturing User",
+   "read": 1
+  },
+  {
+   "role": "Manufacturing Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1,
+   "print": 1,
+   "report": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1,
+   "print": 1,
+   "report": 1
+  }
+ ]
+}

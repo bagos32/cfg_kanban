@@ -31,6 +31,9 @@ frappe.ui.form.on("CFG Kanban Master", {
 				wip_warehouse: frm.doc.wip_warehouse || "",
 			} };
 		});
+		frm.set_query("crew_requirement_profile", "operation_profiles", () => ({
+			filters: { active: 1, docstatus: 1 },
+		}));
 	},
 	item_code(frm) {
 		if (!frm.doc.item_code) return;
