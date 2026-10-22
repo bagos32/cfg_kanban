@@ -1852,6 +1852,7 @@ class TestDocTypeSchema(TestCase):
             "cfg_kanban_master.py"
         ).read_text()
         service = (APP_ROOT / "services" / "production_material_flow.py").read_text()
+        trace_service = (APP_ROOT / "services" / "production_trace.py").read_text()
         runtime_selector = (APP_ROOT / "services" / "runtime_selector.py").read_text()
         gateway = (APP_ROOT / "integrations" / "erp_gateway.py").read_text()
         install = (APP_ROOT / "install.py").read_text()
@@ -1933,6 +1934,10 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Consume Operation Materials", panel)
         self.assertIn("Select Job Card for Material Consumption", panel)
         self.assertIn("CFG:QTY:MATERIAL:", panel)
+        self.assertIn("classify_trace_scan", panel)
+        self.assertIn("stage_operator_output_tag", panel)
+        self.assertIn("def classify_trace_scan", trace_service)
+        self.assertIn("def _resolve_output_row", trace_service)
         self.assertIn("Actual Quantity Consumed", panel)
         self.assertIn('__("Actual Used")', panel)
         self.assertIn('__("Unused Return")', panel)

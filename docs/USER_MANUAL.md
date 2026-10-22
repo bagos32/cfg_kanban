@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.85
+**Guide version:** 1.86
 
 **Updated:** 22 October 2026
 
@@ -3567,6 +3567,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.86 | 22 October 2026 | Corrected Manufacture output scanning when optional input and output rows coexist: an active Handling Unit now routes to input allocation, an unused preprinted main tag routes to output staging, and the sole remaining ERP output row resolves safely even when the browser selection is stale; clarified that the Serial Number field is not a Batch field |
 | 1.85 | 22 October 2026 | Exposed each Draft or submitted WIP-bin unused-material return on its related Operation Card using the existing Job Card linkage and submit action, while retaining the complete view on the main Production Card |
 | 1.84 | 22 October 2026 | Added the missing handling-unit quantity-ledger event for submitted WIP-bin unused-material returns, restoring only the confirmed unused quantity to the original source tag |
 | 1.83 | 22 October 2026 | Corrected WIP-bin Current Trace Lines to distinguish Prepared, Actual Used, and Unused Return quantities and to keep a linked Return Draft visible instead of displaying the original full prepared load as consumed |

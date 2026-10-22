@@ -1988,22 +1988,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					click: () => open_camera_scanner((value) => dialog.set_value("output_scan", value)) },
 				{ fieldname: "output_qty", label: __("Stock Quantity"), fieldtype: "Float" },
 				{ fieldname: "output_serial_numbers", label: __("Exact Output Serial Numbers"), fieldtype: "Small Text",
-					description: __("Serial-controlled output only. One ERPNext Serial No per line.") },
+					description: __("Serial-controlled output only. One ERPNext Serial No per line. Do not enter a Batch here; the Batch comes from the ERP output row / Finished Batch selection.") },
 				{ fieldname: "handling_unit_type", label: __("Handling Unit Type"), fieldtype: "Select",
 					options: "Pallet\nMesh\nTote\nContainer\nReusable Box\nOther", default: "Container" },
 				{ fieldname: "stage_output", label: __("Stage Output Tag"), fieldtype: "Button",
-					click: async () => {
-						await frappe.call({ method: "cfg_kanban.services.production_trace.stage_output_tag", args: {
-							stock_entry, item_row: operator_trace_row_name(dialog.get_value("output_row")),
-							scan_value: dialog.get_value("output_scan"), qty: dialog.get_value("output_qty"),
-							handling_unit_type: dialog.get_value("handling_unit_type"),
-							serial_numbers: dialog.get_value("output_serial_numbers"),
-							operator_session_token: state.session_token, kanban_card: state.context.card.name,
-						}, freeze: true, freeze_message: __("Staging production output tag...") });
-						frappe.show_alert({ message: __("Output tag staged pending ERP submission"), indicator: "green" });
-						await dialog.set_value("output_scan", "");
-						await reload();
-					} },
+					click: async () => stage_operator_output_tag(dialog, stock_entry, reload) },
 				{ fieldname: "line_section", label: __("Current Trace Lines"), fieldtype: "Section Break" },
 				{ fieldname: "lines", fieldtype: "HTML" },
 			],
@@ -2472,13 +2461,26 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			row.direction === "Input" && row.tagging_available && row.remaining_qty > 0.000001);
 		const pending_outputs = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
 			row.direction === "Output" && row.tagging_available && row.remaining_qty > 0.000001);
-		if (pending_inputs.length) {
+		let scan_direction = pending_inputs.length ? "Input" : "Output";
+		if (pending_inputs.length && pending_outputs.length) {
+			const response = await frappe.call({
+				method: "cfg_kanban.services.production_trace.classify_trace_scan",
+				args: { stock_entry: dialog.cfg_trace_plan.stock_entry, scan_value: value,
+					operator_session_token: state.session_token,
+					kanban_card: state.context.card.name },
+			});
+			scan_direction = response.message?.direction;
+		}
+		if (scan_direction === "Input" && pending_inputs.length) {
 			await dialog.set_value("input_scan", value);
 			return dialog.get_field("allocate_input").$input.trigger("click");
 		}
-		if (pending_outputs.length) {
+		if (scan_direction === "Output" && pending_outputs.length) {
 			await dialog.set_value("output_scan", value);
-			return dialog.get_field("stage_output").$input.trigger("click");
+			return stage_operator_output_tag(
+				dialog, dialog.cfg_trace_plan.stock_entry, dialog.cfg_trace_reload,
+				pending_outputs
+			);
 		}
 		frappe.show_alert({ message: __("No physical tag is required at the current material stage."), indicator: "orange" });
 		window.setTimeout(() => dialog.get_field("trace_scan").set_focus(), 80);
@@ -2566,12 +2568,31 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	}
 
 	function operator_trace_row_name(value) {
-		return String(value || "").split(" :: ")[0];
+		return String(value || "").replace(/^\d+\.\s*/, "").split(" :: ")[0].trim();
 	}
 
 	function operator_trace_row(rows, value) {
 		const name = operator_trace_row_name(value);
 		return rows.find((row) => row.row_name === name);
+	}
+
+	async function stage_operator_output_tag(dialog, stock_entry, reload, candidates = null) {
+		const outputs = candidates || (dialog.cfg_trace_plan?.rows || []).filter((row) =>
+			row.direction === "Output" && row.tagging_available && row.remaining_qty > 0.000001);
+		const row = operator_trace_row(outputs, dialog.get_value("output_row")) || outputs[0];
+		if (!row) frappe.throw(__("No remaining ERP output row is available for this tag."));
+		const option = operator_trace_row_option(row);
+		if (dialog.get_value("output_row") !== option) await dialog.set_value("output_row", option);
+		await frappe.call({ method: "cfg_kanban.services.production_trace.stage_output_tag", args: {
+			stock_entry, item_row: row.row_name,
+			scan_value: dialog.get_value("output_scan"), qty: dialog.get_value("output_qty"),
+			handling_unit_type: dialog.get_value("handling_unit_type"),
+			serial_numbers: dialog.get_value("output_serial_numbers"),
+			operator_session_token: state.session_token, kanban_card: state.context.card.name,
+		}, freeze: true, freeze_message: __("Staging production output tag...") });
+		frappe.show_alert({ message: __("Output tag staged pending ERP submission"), indicator: "green" });
+		await dialog.set_value("output_scan", "");
+		await reload();
 	}
 
 	function operator_trace_summary(plan) {

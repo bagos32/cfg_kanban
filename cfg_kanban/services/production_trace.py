@@ -36,6 +36,36 @@ def get_stock_entry_trace_plan(stock_entry, operator_session_token=None, kanban_
 
 
 @frappe.whitelist()
+def classify_trace_scan(stock_entry, scan_value, operator_session_token=None,
+                        kanban_card=None):
+    """Classify one scanner value without mutating the Draft Stock Entry trace.
+
+    Manufacture and Repack entries can expose optional physical inputs and a new output
+    tag at the same time. The visible code itself is authoritative: an active Handling
+    Unit is an input, while an unused preprinted main identity is an output.
+    """
+    doc = frappe.get_doc("Stock Entry", stock_entry)
+    _authorize_trace_access(
+        doc, "write", operator_session_token=operator_session_token,
+        kanban_card=kanban_card,
+    )
+    _assert_editable(doc)
+    identity = resolve_logistics_scan(scan_value)
+    if identity and identity.get("identity_type") == "Handling Unit":
+        return {
+            "direction": "Input",
+            "identity_type": identity.get("identity_type"),
+            "name": identity.get("name"),
+        }
+    identity = _validate_unused_main_tag(normalize_physical_code(scan_value))
+    return {
+        "direction": "Output",
+        "identity_type": identity.get("identity_type"),
+        "name": identity.get("name"),
+    }
+
+
+@frappe.whitelist()
 def allocate_input_tag(stock_entry, item_row=None, scan_value=None, qty=0,
                        operator_session_token=None, kanban_card=None):
     qty = flt(qty)
@@ -151,9 +181,8 @@ def stage_output_tag(stock_entry, item_row, scan_value, qty,
         doc, "write", operator_session_token=operator_session_token, kanban_card=kanban_card
     )
     _assert_editable(doc)
-    row = _find_row(doc, item_row)
-    if not _is_output_row(doc, row):
-        frappe.throw("The selected Stock Entry row is not a manufactured/repacked output")
+    trace = _get_trace(doc.name)
+    row = _resolve_output_row(doc, trace, item_row)
     policy = effective_trace_policy(row.item_code, doc.company)
     if policy.production_output_tag_policy == NO_TAG:
         frappe.throw(
@@ -792,6 +821,30 @@ def _find_row(doc, row_name):
     if not row:
         frappe.throw("The selected item row does not belong to this Stock Entry")
     return row
+
+
+def _resolve_output_row(doc, trace, row_reference=None):
+    """Resolve an output selection, accepting a row name, UI option, or one-row default."""
+    reference = str(row_reference or "").split(" :: ", 1)[0].strip()
+    selected = next((row for row in doc.items if row.name == reference), None)
+    if selected:
+        if not _is_output_row(doc, selected):
+            frappe.throw("The selected Stock Entry row is not a manufactured/repacked output")
+        if _remaining_row_qty(doc, trace, selected, "Output") <= TOLERANCE:
+            frappe.throw(f"Output Item {selected.item_code} is already fully staged")
+        return selected
+
+    candidates = [
+        row for row in doc.items
+        if _is_output_row(doc, row)
+        and _remaining_row_qty(doc, trace, row, "Output") > TOLERANCE
+    ]
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates:
+        frappe.throw("This Stock Entry has no remaining manufactured/repacked output to tag")
+    items = ", ".join(dict.fromkeys(row.item_code for row in candidates))
+    frappe.throw(f"Select the exact ERP output row before staging a tag: {items}")
 
 
 def _resolve_input_row(doc, trace, unit, row_name=None):
