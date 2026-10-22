@@ -179,6 +179,14 @@ class TestHandlingUnitQuantityMath(TestCase):
         )
         self.assertEqual((float(current), float(reserved), float(available)), (25, 0, 25))
 
+    def test_wip_bin_unused_material_return_restores_only_unused_source_quantity(self):
+        deltas = event_deltas("WIP Bin Unused Material Return", 4)
+        current, reserved, available = apply_balance_delta(
+            15, 0, qty_delta=deltas["destination_qty_delta"]
+        )
+        self.assertEqual(float(deltas["source_qty_delta"]), 0)
+        self.assertEqual((float(current), float(reserved), float(available)), (19, 0, 19))
+
     def test_production_reversals_restore_input_and_remove_output(self):
         restored = event_deltas("Production Consume Reversal", 4)
         input_balance = apply_balance_delta(

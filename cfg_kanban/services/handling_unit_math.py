@@ -39,7 +39,7 @@ def event_deltas(event_type, stock_qty, *, release_reserved=False):
         "destination_reserved_delta": ZERO,
     }
     if event_type in {"Opening Balance", "Pack / Activate", "Refill", "Reconcile Increase",
-                      "Customer Return"}:
+                      "Customer Return", "WIP Bin Unused Material Return"}:
         deltas["destination_qty_delta"] = qty
     elif event_type in {"Split", "Merge", "Replace", "Load into Container", "Unload from Container"}:
         deltas["source_qty_delta"] = -qty

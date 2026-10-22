@@ -1959,6 +1959,11 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def finalize_wip_bin_consumption_entry", load_service)
         self.assertIn("def _create_wip_bin_return_draft", load_service)
         self.assertIn('event_type="WIP Bin Unused Material Return"', load_service)
+        ledger_schema = schemas["CFG Kanban Handling Unit Quantity Ledger"]
+        ledger_event = next(
+            row for row in ledger_schema["fields"] if row["fieldname"] == "event_type"
+        )
+        self.assertIn("WIP Bin Unused Material Return", ledger_event["options"].splitlines())
         self.assertIn("Actual consumption cannot exceed", load_controller)
         self.assertIn("def wip_bin_full_qty", load_service)
         self.assertIn("bin_unit.name, row.item_code, row.stock_uom", load_service)
