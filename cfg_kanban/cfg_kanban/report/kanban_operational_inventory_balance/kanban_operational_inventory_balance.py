@@ -111,6 +111,21 @@ def _tag_detail_data(filters, conditions, values):
         select
             hu.name as handling_unit,
             hu.handling_unit_id,
+            case
+                when coalesce(hu.virtual_content, 0) = 1 and hu.physical_container is not null
+                    then coalesce(
+                        nullif(pc.container_reference, ''),
+                        nullif(pc.short_description, ''),
+                        pc.handling_unit_id
+                    )
+                else coalesce(nullif(hu.container_reference, ''), hu.handling_unit_id)
+            end as container_tag_label,
+            hu.physical_container,
+            case
+                when coalesce(hu.virtual_content, 0) = 1 and hu.physical_container is not null
+                    then pc.handling_unit_id
+                else hu.handling_unit_id
+            end as physical_scan_code,
             hu.tag_kind,
             hu.inventory_company as company,
             hu.current_warehouse as warehouse,
@@ -133,6 +148,7 @@ def _tag_detail_data(filters, conditions, values):
             hu.last_scan_time
         from `tabCFG Kanban Handling Unit` hu
         left join `tabItem` item on item.name = hu.item_code
+        left join `tabCFG Kanban Handling Unit` pc on pc.name = hu.physical_container
         where {' and '.join(conditions)}
         order by hu.inventory_company, hu.current_warehouse, hu.item_code,
                  hu.stock_uom, hu.handling_unit_id
@@ -166,8 +182,11 @@ def _columns():
 
 def _tag_detail_columns():
     return [
+        {"label": _("Container / Tag Label"), "fieldname": "container_tag_label", "width": 180},
+        {"label": _("Physical Scan Code"), "fieldname": "physical_scan_code", "width": 155},
+        {"label": _("Physical Container"), "fieldname": "physical_container", "fieldtype": "Link", "options": "CFG Kanban Handling Unit", "width": 145},
         {"label": _("Handling Unit"), "fieldname": "handling_unit", "fieldtype": "Link", "options": "CFG Kanban Handling Unit", "width": 145},
-        {"label": _("Physical Tag ID"), "fieldname": "handling_unit_id", "width": 140},
+        {"label": _("Audit Identity Code"), "fieldname": "handling_unit_id", "width": 155},
         {"label": _("Tag Kind"), "fieldname": "tag_kind", "width": 125},
         {"label": _("Company"), "fieldname": "company", "fieldtype": "Link", "options": "Company", "width": 170},
         {"label": _("Warehouse / Place"), "fieldname": "warehouse", "fieldtype": "Link", "options": "Warehouse", "width": 190},

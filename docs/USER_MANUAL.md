@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.94
+**Guide version:** 1.95
 
 **Updated:** 22 October 2026
 
@@ -3329,10 +3329,17 @@ combined Total, Reserved and Available quantities. It deliberately does not comb
 The default **Display Mode** is **Summary**. Select **Tag Detail**, or click **View Tags** beside an
 **Active Tags** count, to list the exact active physical identities behind that balance. Drill-down
 retains the current Inventory Control and Quality filters and narrows Company, Warehouse, Item and
-UOM to the selected summary row. Each detail row includes the clickable Handling Unit record,
-printed Physical Tag ID, Batch, current/reserved/available quantities, Quality, Movement State,
-Custodian/Vehicle, immediate source/destination, last reconciliation and last scan time. Use
-**Summary View** to return. Empty, Void and Replaced identities are not counted as Active Tags.
+UOM to the selected summary row. Each detail row begins with the human-readable **Container / Tag
+Label** and the **Physical Scan Code**. For a manufactured fill inside a permanent Production
+Output Container, the label comes from that container's **Permanent Container / Compartment
+Reference** (falling back to its description or scan code), while **Physical Container** links to
+the permanent container record. **Audit Identity Code** deliberately retains the immutable internal
+fill identity such as `VCONT-...`; it is audit evidence and is not the operator-facing container
+name. The remaining columns include Batch, current/reserved/available quantities, Quality,
+Movement State, Custodian/Vehicle, immediate source/destination, last reconciliation and last scan
+time. Use **Summary View** to return. Empty, Void and Replaced identities are not counted as Active
+Tags. Give permanent output containers clear references such as `Container 1` and `Container 2` so
+the report remains readable without weakening the unique audit identity.
 
 ### Tag finished goods that already exist in ERPNext
 
@@ -3655,6 +3662,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.95 | 22 October 2026 | Separated operator-facing container identity from immutable production-fill audit identity in Operational Inventory Tag Detail: permanent output containers now show their human-readable reference and physical scan code while retaining the internal `VCONT-...` code and Handling Unit link for audit |
 | 1.92 | 22 October 2026 | Corrected the Production Operator Panel's first live synchronization so supervisor approval or release performed while the operator tab is hidden, inactive, or blocked by a dialog reloads the Card instead of being silently accepted as a stale revision baseline |
 | 1.91 | 22 October 2026 | Corrected ERPNext v15 generated-Batch binding for staged production outputs: submitted Stock Entry Detail, Serial and Batch Bundle, and exact Stock Ledger Entry evidence are resolved before output tags/containers are activated, without guessing from Batch recency |
 | 1.90 | 22 October 2026 | Reconciled partial WIP-bin actual use with the final Manufacture receipt: a submitted unused-material return now resolves that exact input variance, removes only its supported balance from ERPNext's later Manufacture mapping, prevents a duplicate production-tag demand/double consumption, and repairs an existing Draft during controlled submission |
