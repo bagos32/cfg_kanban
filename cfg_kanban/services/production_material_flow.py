@@ -78,8 +78,16 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
     hidden_policy = get_hidden_item_policy()
     restricted_items = (hidden_policy["items"]
                         if not hidden_policy["can_view"] else set())
-    all_rows = [_work_order_material_row(row, work_order.wip_warehouse, mode)
-                for row in work_order.required_items]
+    returned_wip_qty = _resolved_wip_bin_return_quantities(cycle.name, work_order.name)
+    all_rows = [
+        _work_order_material_row(
+            row, work_order.wip_warehouse, mode,
+            returned_wip_qty.get(
+                (row.item_code, row.operation or "", row.source_warehouse or ""), 0
+            ),
+        )
+        for row in work_order.required_items
+    ]
     restricted_rows = [row for row in all_rows if row["item_code"] in restricted_items]
     rows = [row for row in all_rows if row["item_code"] not in restricted_items]
     material_rules = {
@@ -903,14 +911,15 @@ def job_card_material_readiness(job_card_name):
     return {"ready": pending <= 0.000001, "reason": reason, "pending_qty": pending}
 
 
-def _work_order_material_row(row, wip_warehouse, mode):
+def _work_order_material_row(row, wip_warehouse, mode, resolved_return_qty=0):
     consumed = flt(row.consumed_qty)
     accounted = consumed if mode == "Skip WIP Transfer" else flt(row.transferred_qty)
     pending = max(0, flt(row.required_qty) - accounted)
     source = row.source_warehouse
     available = _balance(row.item_code, source)
     wip_available = _balance(row.item_code, wip_warehouse)
-    manufacture_pending = max(0, flt(row.required_qty) - consumed)
+    resolved_return = flt(resolved_return_qty)
+    manufacture_pending = max(0, flt(row.required_qty) - consumed - resolved_return)
     if mode == "Skip WIP Transfer" or pending > 0.000001:
         shortage = max(0, pending - available)
     else:
@@ -925,12 +934,43 @@ def _work_order_material_row(row, wip_warehouse, mode):
         "required_qty": flt(row.required_qty),
         "transferred_qty": flt(row.transferred_qty),
         "consumed_qty": consumed,
+        "resolved_wip_return_qty": resolved_return,
         "pending_qty": pending,
         "available_qty": available,
         "wip_available_qty": wip_available,
         "manufacture_pending_qty": manufacture_pending,
         "shortage_qty": shortage,
     }
+
+
+def _resolved_wip_bin_return_quantities(cycle_name, work_order):
+    """Return submitted unused WIP quantities accepted as production variance.
+
+    A positive unused balance becomes authoritative only after its native Material
+    Transfer back to the source Warehouse is submitted and the load reaches Consumed.
+    """
+    totals = {}
+    loads = frappe.get_all(
+        "CFG Kanban WIP Bin Load",
+        filters={
+            "kanban_cycle": cycle_name,
+            "work_order": work_order,
+            "status": "Consumed",
+            "return_qty": [">", 0],
+        },
+        fields=[
+            "item_code", "operation", "source_warehouse", "return_qty",
+            "return_stock_entry",
+        ],
+    )
+    for load in loads:
+        if not load.return_stock_entry:
+            continue
+        if cint(frappe.db.get_value("Stock Entry", load.return_stock_entry, "docstatus")) != 1:
+            continue
+        key = (load.item_code, load.operation or "", load.source_warehouse or "")
+        totals[key] = totals.get(key, 0) + flt(load.return_qty)
+    return totals
 
 
 def _job_material_row(row, wip_warehouse, mode=None, consumed_qty=0):

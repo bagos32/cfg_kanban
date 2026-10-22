@@ -1593,8 +1593,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			item_code: row.item_code, operation: row.operation,
 			source_warehouse: direct ? row.source_warehouse : flow.wip_warehouse,
 			available_qty: direct ? row.available_qty : row.wip_available_qty,
-			qty: Math.max(0, (row.required_qty || 0) - (row.consumed_qty || 0)),
-		}));
+			qty: Math.max(0, row.manufacture_pending_qty ??
+				((row.required_qty || 0) - (row.consumed_qty || 0))),
+		})).filter((row) => row.qty > 0.000001);
 		const dialog = new frappe.ui.Dialog({
 			title: __("Confirm Manufacture Receipt"), size: "extra-large",
 			fields: [

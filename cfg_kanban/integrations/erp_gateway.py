@@ -1409,6 +1409,9 @@ def create_production_manufacture_receipt(command, payload):
     entry = frappe.get_doc(make_stock_entry(
         work_order.name, "Manufacture", qty=flt(payload["output_qty"])
     ))
+    _exclude_submitted_wip_bin_returns(
+        entry, work_order.name, command.kanban_cycle
+    )
     confirmed = payload.get("lines") or []
     if confirmed or payload.get("server_manage_restricted_items"):
         _apply_confirmed_production_lines(
@@ -1434,6 +1437,81 @@ def create_production_manufacture_receipt(command, payload):
     if payload.get("submit"):
         entry.submit()
     return entry
+
+
+def _exclude_submitted_wip_bin_returns(entry, work_order, kanban_cycle):
+    """Remove returned WIP-bin variance from the later Manufacture input rows.
+
+    ERPNext subtracts a separately submitted Material Consumption entry from the Work
+    Order requirement when it maps the final Manufacture entry.  For a partial WIP-bin
+    consumption, the remaining mapped quantity is the unused balance that CFG Kanban has
+    already returned from WIP to the raw-material Warehouse.  It must not be consumed a
+    second time or require a second physical input-tag scan.
+
+    Only immutable, submitted return evidence is accepted here: the load must be Consumed,
+    its unused return must be positive, and its linked Material Transfer must be submitted.
+    Any unrelated residual input remains on the native Manufacture entry and retains the
+    normal ERPNext and production-tag validations.
+    """
+    returned_loads = frappe.get_all(
+        "CFG Kanban WIP Bin Load",
+        filters={
+            "work_order": work_order,
+            "kanban_cycle": kanban_cycle,
+            "status": "Consumed",
+            "return_qty": [">", 0],
+        },
+        fields=[
+            "name", "item_code", "batch_no", "return_qty", "wip_warehouse",
+            "return_stock_entry",
+        ],
+        order_by="creation asc",
+    )
+    adjustments = []
+    for load in returned_loads:
+        if not load.return_stock_entry:
+            continue
+        if cint(frappe.db.get_value("Stock Entry", load.return_stock_entry, "docstatus")) != 1:
+            continue
+        remaining = flt(load.return_qty)
+        for row in entry.items:
+            if remaining <= 0.000001:
+                break
+            if not row.s_warehouse or row.item_code != load.item_code:
+                continue
+            if row.s_warehouse != load.wip_warehouse:
+                continue
+            row_batch = cstr(row.get("batch_no")).strip()
+            load_batch = cstr(load.batch_no).strip()
+            if row_batch and load_batch and row_batch != load_batch:
+                continue
+            conversion = flt(row.conversion_factor) or 1
+            row_stock_qty = flt(
+                row.get("transfer_qty") or (flt(row.qty) * conversion)
+            )
+            deduction = min(row_stock_qty, remaining)
+            if deduction <= 0:
+                continue
+            new_stock_qty = max(row_stock_qty - deduction, 0)
+            row.transfer_qty = new_stock_qty
+            row.qty = new_stock_qty / conversion
+            remaining -= deduction
+            adjustments.append({
+                "wip_bin_load": load.name,
+                "return_stock_entry": load.return_stock_entry,
+                "item_code": load.item_code,
+                "warehouse": load.wip_warehouse,
+                "qty": deduction,
+            })
+    if adjustments:
+        for row in list(entry.items):
+            row_stock_qty = flt(
+                row.get("transfer_qty")
+                or (flt(row.qty) * flt(row.conversion_factor or 1))
+            )
+            if row.s_warehouse and row_stock_qty <= 0.000001:
+                entry.remove(row)
+        entry._cfg_wip_return_adjustments = adjustments
 
 
 def _resolve_manufacture_batch(item_code, requested_batch):
@@ -1486,6 +1564,13 @@ def submit_production_stock_entry(command, payload):
     if entry.purpose == "Material Consumption for Manufacture":
         from cfg_kanban.services.wip_bin_loads import finalize_wip_bin_consumption_entry
         entry = finalize_wip_bin_consumption_entry(entry.name)
+    elif entry.purpose == "Manufacture":
+        _exclude_submitted_wip_bin_returns(
+            entry, entry.work_order, command.kanban_cycle
+        )
+        if getattr(entry, "_cfg_wip_return_adjustments", None):
+            entry.save(ignore_permissions=True)
+            entry.reload()
     entry.submit()
     return entry
 

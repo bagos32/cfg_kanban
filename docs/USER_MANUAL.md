@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.89
+**Guide version:** 1.90
 
 **Updated:** 22 October 2026
 
@@ -1197,6 +1197,15 @@ submit the visible **Confirm Unused Material Return** entry. Only that submitted
 the bin `Consumed` / `Empty`; when the original load came from a Stock Tag, its returned quantity is
 restored to that source tag from ERP feedback. This preserves the physical and accounting sequence:
 prepared to WIP, actual use consumed, unused balance returned.
+
+After that unused-material return is submitted, the accepted return quantity is also treated as a
+resolved actual-use variance when CFG Kanban prepares or submits the final native `Manufacture`
+entry. ERPNext may otherwise map the returned balance again as an outstanding input because it was
+not consumed. CFG Kanban removes only the quantity supported by the same Cycle's `Consumed` WIP Bin
+Load and submitted return Stock Entry. The returned material is therefore not requested for a
+second production-input scan and is not consumed twice. Any other outstanding input row retains its
+normal ERPNext stock and physical-tag requirements. An existing Draft Manufacture entry is repaired
+by this same check when it is submitted after the upgrade.
 
 While the consumption is still Draft, **Current Trace Lines** deliberately displays all three
 quantities instead of calling the complete prepared bin quantity consumed: **Prepared**, **Actual
@@ -3615,6 +3624,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.90 | 22 October 2026 | Reconciled partial WIP-bin actual use with the final Manufacture receipt: a submitted unused-material return now resolves that exact input variance, removes only its supported balance from ERPNext's later Manufacture mapping, prevents a duplicate production-tag demand/double consumption, and repairs an existing Draft during controlled submission |
 | 1.89 | 22 October 2026 | Added permanent Production Output Containers: one reusable QR can receive a new immutable manufactured fill on each ERP submission, then the same container scan resolves that exact Item/Batch as input to the next production process; full consumption empties the container for reuse, with guarded reversal and Container Content audit |
 | 1.88 | 22 October 2026 | Reused printed Good quantity commands inside Production Material Trace as hands-free per-container output quantities: scan `CFG:QTY:GOOD:+50`, then scan an unused output tag to stage 50 units; added 50 to the default printable quantity set |
 | 1.87 | 22 October 2026 | Allowed one or several production-output tags to be staged before ERPNext generates the finished Batch; on the single Manufacture submission, the authoritative ERP Batch is bound to every staged tag before activation, with clearer multi-container and Serial Number guidance |

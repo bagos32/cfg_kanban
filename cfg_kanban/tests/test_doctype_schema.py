@@ -1987,6 +1987,10 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def finalize_wip_bin_consumption_entry", load_service)
         self.assertIn("def _create_wip_bin_return_draft", load_service)
         self.assertIn('event_type="WIP Bin Unused Material Return"', load_service)
+        self.assertIn("def _exclude_submitted_wip_bin_returns", gateway)
+        self.assertIn("_exclude_submitted_wip_bin_returns(doc", feedback)
+        self.assertIn("_resolved_wip_bin_return_quantities", service)
+        self.assertIn("row.manufacture_pending_qty", panel)
         ledger_schema = schemas["CFG Kanban Handling Unit Quantity Ledger"]
         ledger_event = next(
             row for row in ledger_schema["fields"] if row["fieldname"] == "event_type"

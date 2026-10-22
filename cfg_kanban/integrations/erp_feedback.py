@@ -92,6 +92,14 @@ def prepare_stock_entry(doc, method=None):
     doc.cfg_kanban_controlled = 1
     if doc.meta.has_field("cfg_kanban_signal"):
         doc.cfg_kanban_signal = cycle.signal or None
+    purpose = doc.get("purpose") or doc.get("stock_entry_type")
+    if purpose == "Manufacture" and doc.get("work_order"):
+        # A separately submitted WIP-bin consumption records actual use. When its
+        # unused balance has also been returned to source, ERPNext can still map that
+        # balance as an outstanding Manufacture input. Reconcile it before native/manual
+        # validation as well as through the Kanban command path.
+        from cfg_kanban.integrations.erp_gateway import _exclude_submitted_wip_bin_returns
+        _exclude_submitted_wip_bin_returns(doc, doc.work_order, cycle.name)
 
 
 @frappe.whitelist()
