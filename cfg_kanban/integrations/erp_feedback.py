@@ -337,6 +337,11 @@ def _sync_job_card_execution(doc, cycle_name, emit_event=False):
     became_completed = status == "Completed" and execution_doc.status != "Completed"
     if values:
         frappe.db.set_value("CFG Kanban Process Execution", execution, values)
+        from cfg_kanban.services.job_participation import sync_execution_participation
+        sync_execution_participation(
+            execution,
+            source_event=f"ERP Job Card {status}",
+        )
     released = False
     if not execution_doc.runtime_allocation:
         released = _release_mirrored_job_card_progress(
@@ -365,6 +370,11 @@ def _release_mirrored_job_card_progress(execution, total_good):
     release = releasable_increment(total_good, execution.released_qty,
                                    execution.transfer_multiple)
     if not release:
+        return False
+    from cfg_kanban.services.crew_authorization import (
+        release_execution_wip_if_authorized,
+    )
+    if not release_execution_wip_if_authorized(execution.name):
         return False
     append_entry(
         execution.kanban_cycle, "Released", release,
@@ -569,6 +579,12 @@ def _complete_related_operation_cycles(owner_cycle):
         if execution.status != "Completed":
             execution.db_set({"status": "Completed", "completed_on": completed_on},
                              update_modified=True)
+        from cfg_kanban.services.job_participation import close_execution_participation
+        close_execution_participation(
+            execution.name,
+            source_event="Related Operation Auto-Completed",
+            reason=f"Main production Cycle {owner_cycle.name} completed",
+        )
         if allocation.status != "Completed":
             notes = (allocation.notes or "").strip()
             closure_note = f"Auto-closed with main production Cycle {owner_cycle.name}"
@@ -831,6 +847,18 @@ def _block(doc, reason):
     if cycle.kanban_card:
         card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card)
         card.db_set({"blocked": 1, "blocked_reason": reason})
+    from cfg_kanban.services.job_participation import close_execution_participation
+    executions = frappe.get_all(
+        "CFG Kanban Process Execution",
+        filters={"kanban_cycle": cycle.name, "status": "In Progress"},
+        pluck="name",
+    )
+    for execution in executions:
+        close_execution_participation(
+            execution,
+            source_event=reason,
+            reason=f"Kanban Cycle blocked: {reason}",
+        )
     record("Exception Raised", cycle=cycle.name, card=cycle.kanban_card, notes=reason,
            reference_doctype=doc.doctype, reference_name=doc.name)
 
@@ -1018,6 +1046,12 @@ def release_legacy_runtime_card(cycle_name, reason):
     for row in executions:
         frappe.db.set_value("CFG Kanban Process Execution", row.name,
                             {"status": "Cancelled", "blocked": 0})
+        from cfg_kanban.services.job_participation import close_execution_participation
+        close_execution_participation(
+            row.name,
+            source_event="Legacy Runtime Cycle Cancelled",
+            reason=reason,
+        )
     summaries = frappe.get_all("CFG Kanban Operation Summary",
                                filters={"kanban_cycle": cycle.name}, pluck="name")
     for summary in summaries:

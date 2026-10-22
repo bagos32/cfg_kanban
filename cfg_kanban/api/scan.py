@@ -10,6 +10,7 @@ from cfg_kanban.services.idempotency import canonical_key
 from cfg_kanban.services.logistics_foundation import post_quantity_event, resolve_logistics_scan
 from cfg_kanban.services.operator_auth import require_operator
 from cfg_kanban.services.wip import append_entry
+from cfg_kanban.services.crew_authorization import enforce_execution_crew
 
 
 @frappe.whitelist()
@@ -47,6 +48,15 @@ def scan(token, action="consume", device_id=None, event_token=None, payload=None
         execution = frappe.get_doc("CFG Kanban Process Execution", data.get("execution"))
         profile, operator_session = require_operator(
             operator_session_token, action, execution=execution
+        )
+        enforce_execution_crew(
+            execution.name,
+            "Before WIP Release",
+            actor={
+                "employee": profile.employee,
+                "operator_session": operator_session.name,
+                "terminal_user": operator_session.terminal_user,
+            },
         )
         if execution.handoff_mode != "Physical Card Handoff":
             frappe.throw("Execution is not configured for physical-card handoff")
@@ -92,11 +102,31 @@ def report_progress(execution, good_qty, reject_qty=0, processed_qty=None, value
     values = frappe.parse_json(values) if isinstance(values, str) else values
     execution_doc = frappe.get_doc("CFG Kanban Process Execution", execution)
     profile, session = require_operator(operator_session_token, "report_progress", execution=execution_doc)
+    enforce_execution_crew(
+        execution_doc.name,
+        "Progress",
+        actor={
+            "employee": profile.employee,
+            "operator_session": session.name,
+            "terminal_user": session.terminal_user,
+        },
+    )
     if flt(reject_qty) > 0:
         require_operator(operator_session_token, "report_reject", execution=execution_doc)
-    return report(execution, good_qty, reject_qty, processed_qty, values=values, notes=notes,
-                  operator=profile.employee, operator_session=session.name,
-                  terminal_user=session.terminal_user).as_dict()
+    result = report(execution, good_qty, reject_qty, processed_qty, values=values, notes=notes,
+                    operator=profile.employee, operator_session=session.name,
+                    terminal_user=session.terminal_user)
+    from cfg_kanban.services.job_participation import sync_execution_participation
+    sync_execution_participation(
+        execution_doc.name,
+        actor={
+            "employee": profile.employee,
+            "operator_session": session.name,
+            "terminal_user": session.terminal_user,
+        },
+        source_event="Scanner Progress",
+    )
+    return result.as_dict()
 
 
 @frappe.whitelist()

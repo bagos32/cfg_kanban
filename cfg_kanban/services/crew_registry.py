@@ -66,6 +66,7 @@ def open_workstation_crew_session(
         expected,
     )
     session.db_set("main_membership", membership.name, update_modified=False)
+    _reconcile_compliance(session, actor)
     return get_crew_session(session.name, operator_session_token)
 
 
@@ -114,6 +115,7 @@ def join_crew_member(
         expected,
         reason,
     )
+    _reconcile_compliance(session, actor)
     return _public_membership(membership)
 
 
@@ -192,6 +194,7 @@ def change_main_operator(crew_session, member_qr_token, operator_session_token, 
             "replacement_previous_role": replacement_role,
         },
     )
+    _reconcile_compliance(session, actor)
     return get_crew_session(session.name, operator_session_token)
 
 
@@ -213,6 +216,7 @@ def set_crew_operation_context(crew_session, operation, operator_session_token, 
         new_state=operation,
         reason=reason,
     )
+    _reconcile_compliance(session, actor)
     return get_crew_session(session.name, operator_session_token)
 
 
@@ -257,6 +261,7 @@ def close_workstation_crew_session(crew_session, operator_session_token, reason)
         "close_reason": reason.strip(),
     }, update_modified=False)
     _record_event(session, "Close Session", actor, previous_state="Active", new_state="Closed", reason=reason)
+    _reconcile_compliance(session, actor)
     return {"crew_session": session.name, "status": "Closed", "ended_on": current}
 
 
@@ -352,7 +357,19 @@ def _transition_membership(session, membership, event_type, actor, reason):
         new_state=new_state,
         reason=reason,
     )
+    _reconcile_compliance(session, actor)
     return _public_membership(membership)
+
+
+def _reconcile_compliance(session, actor):
+    # Keep the P03 registry importable without P04; runtime reconciliation is local.
+    from cfg_kanban.services.crew_authorization import (
+        reconcile_workstation_crew_compliance,
+    )
+
+    return reconcile_workstation_crew_compliance(
+        session.company, session.workstation, actor=actor
+    )
 
 
 def _insert_membership(

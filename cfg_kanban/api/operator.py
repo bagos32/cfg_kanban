@@ -25,6 +25,11 @@ from cfg_kanban.services.process_tasks import (assert_gate_open, ensure_tasks,
                                                refresh_task_readiness)
 from cfg_kanban.services.dynamic_forms import definitions, validate_values
 from cfg_kanban.services.production_trace import SUPPORTED_PURPOSES
+from cfg_kanban.services.crew_authorization import (
+    enforce_execution_crew,
+    enforce_operation_crew,
+    evaluate_execution_crew,
+)
 
 
 @frappe.whitelist()
@@ -695,15 +700,40 @@ def confirm_runtime_selection(card_name, job_card, confirmation, override_reason
     scope = frappe.db.get_value("Job Card", job_card, ["operation", "workstation"], as_dict=True)
     if not scope:
         frappe.throw("Job Card was not found")
-    require_operator(operator_session_token, action, operation=scope.operation,
-                     workstation=scope.workstation)
-    return allocate_runtime_card(card_name, job_card, confirmation, override_reason)
+    preview_runtime_card(card_name, job_card)
+    profile, session = require_operator(
+        operator_session_token, action, operation=scope.operation,
+        workstation=scope.workstation,
+    )
+    card = frappe.get_doc("CFG Kanban Card", card_name)
+    enforce_operation_crew(
+        card.kanban_master,
+        scope.operation,
+        scope.workstation,
+        "Before Runtime Allocation",
+        card_name=card.name,
+        actor=_crew_actor(profile, session),
+    )
+    result = allocate_runtime_card(card_name, job_card, confirmation, override_reason)
+    actor = _crew_actor(profile, session)
+    compliance = evaluate_execution_crew(
+        result["execution"], "Runtime Allocation", actor=actor, persist=True
+    )
+    if not compliance.get("configured"):
+        from cfg_kanban.services.job_participation import sync_execution_participation
+        sync_execution_participation(
+            result["execution"], actor=actor, source_event="Runtime Allocation"
+        )
+    return result
 
 
 @frappe.whitelist()
 def complete_runtime_cycle(execution_name, notes=None, operator_session_token=None):
     execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
     profile, session = require_operator(operator_session_token, "complete", execution=execution)
+    enforce_execution_crew(
+        execution.name, "Before Completion", actor=_crew_actor(profile, session)
+    )
     assert_gate_open(execution.kanban_cycle, "Before Cycle Close")
     if not execution.runtime_allocation:
         frappe.throw("This is not a runtime-selected execution")
@@ -721,6 +751,13 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
     if not readiness["ready"]:
         frappe.throw(readiness["reason"])
     execution.db_set({"status": "Completed", "completed_on": now_datetime()})
+    from cfg_kanban.services.job_participation import close_execution_participation
+    close_execution_participation(
+        execution.name,
+        actor=_crew_actor(profile, session),
+        source_event="Runtime Cycle Completed",
+        reason="Runtime-selected Kanban Cycle completed",
+    )
     allocation.db_set({"status": "Completed", "completed_on": now_datetime(),
                        "good_qty": execution.good_qty, "reject_qty": execution.reject_qty,
                        "notes": notes}, update_modified=True)
@@ -913,6 +950,9 @@ def submit_progress(execution_name, good_qty, reject_qty=0, processed_qty=None,
                     values=None, notes=None, event_token=None, operator_session_token=None):
     execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
     profile, session = require_operator(operator_session_token, "report_progress", execution=execution)
+    enforce_execution_crew(
+        execution.name, "Progress", actor=_crew_actor(profile, session)
+    )
     if flt(reject_qty) > 0:
         require_operator(operator_session_token, "report_reject", execution=execution)
     values = frappe.parse_json(values) if isinstance(values, str) else (values or [])
@@ -926,6 +966,12 @@ def submit_progress(execution_name, good_qty, reject_qty=0, processed_qty=None,
     progress = report(execution_name, good_qty, reject_qty, processed_qty,
                       values=values, notes=notes, operator=profile.employee,
                       operator_session=session.name, terminal_user=session.terminal_user)
+    from cfg_kanban.services.job_participation import sync_execution_participation
+    sync_execution_participation(
+        execution.name,
+        actor=_crew_actor(profile, session),
+        source_event="Operation Progress",
+    )
     erp_command = None
     erp_result = None
     if execution.job_card and flt(good_qty):
@@ -982,6 +1028,11 @@ def run_job_card_action(execution_name, action, event_token=None, operator_sessi
     profile, session = require_operator(operator_session_token, action, execution=execution)
     if not execution.job_card:
         frappe.throw("This execution is not linked to an ERPNext Job Card")
+    enforce_execution_crew(
+        execution.name,
+        "Before Operation Start" if action == "start" else "Before Completion",
+        actor=_crew_actor(profile, session),
+    )
     if action == "start":
         _assert_materials_ready_for_job_card(execution.job_card)
         assert_gate_open(execution.kanban_cycle, "Before Operation Start", execution.operation)
@@ -1018,11 +1069,25 @@ def run_job_card_action(execution_name, action, event_token=None, operator_sessi
         if execution.runtime_allocation:
             frappe.db.set_value("CFG Kanban Runtime Allocation", execution.runtime_allocation,
                                 "status", "In Progress")
+        from cfg_kanban.services.job_participation import sync_execution_participation
+        sync_execution_participation(
+            execution.name,
+            actor=_crew_actor(profile, session),
+            source_event="Job Card Started",
+        )
     record(f"Operator Job Card {action.title()}", cycle=execution.kanban_cycle,
            execution=execution.name, reference_doctype="Job Card", reference_name=result.name,
            operator=profile.employee, operator_session=session.name,
            terminal_user=session.terminal_user)
     return {"command": command.name, "job_card": result.name, "duplicate": not created}
+
+
+def _crew_actor(profile, session):
+    return {
+        "employee": profile.employee,
+        "operator_session": session.name,
+        "terminal_user": session.terminal_user,
+    }
 
 
 def _assert_materials_ready_for_job_card(job_card_name):

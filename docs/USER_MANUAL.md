@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.98
+**Guide version:** 2.00
 
 **Updated:** 22 October 2026
 
@@ -230,10 +230,52 @@ Membership** with explicit Active, On Break, and Left intervals. **CFG Kanban Cr
 Open Session, Join, Break, Resume, Leave, Change Main Operator, operation-context change, and Close
 Session evidence with the acting Employee, terminal User, and Operator Session.
 
-P03 exposes the authoritative actual crew to P04 but still does not authorize or block production.
-Competency, minimum staffing, trainee supervision, concurrent-work validation, and compliance holds
-begin in P04. Scanner buttons and command labels for crew changes are delivered in P06; until then,
-the registry endpoints and audit records form the controlled server backbone.
+P03 exposes the authoritative actual crew to the P04 server authorization engine. Scanner buttons
+and command labels for crew changes are delivered in P06; until then, the registry endpoints and
+audit records form the controlled server backbone.
+
+### Crew authorization and compliance holds (P04)
+
+When an approved effective Crew Requirement exists, CFG Kanban checks the active Workstation crew
+before runtime allocation, operation start, progress, completion, and WIP release, and after every
+crew change. Only Active Memberships count; an Employee on break does not. The check covers minimum
+direct workers and assistants, required skills and competency levels, explicit independent or
+supervisor authorization, qualified lead, trainee policy and ratio, competency expiry, and one-
+Workstation-at-a-time direct participation.
+
+A failed check creates a persistent **Crew Compliance Hold** on the Process Execution and rejects the
+requested floor action. Open **Execution Records → Crew Compliance Checks** to see the immutable
+effective-policy snapshot, actual-crew snapshot, findings, checkpoint, acting Employee, terminal
+User, and production references. Correct the actual crew or competency record; the next crew change
+or controlled action rechecks coverage, resolves the crew-specific hold, and restores the prior
+execution state when compliant.
+
+An Operation with no effective submitted Crew Requirement remains backward-compatible and does not
+require a Crew Session. ERPNext remains the Work Order/Job Card quantity system of record. If ERP
+feedback arrives while the crew is non-compliant, CFG Kanban records the hold and withholds the
+downstream WIP release; it does not alter or duplicate ERP quantity evidence.
+
+Use `docs/TEST_WORKFORCE_P04_AUTHORIZATION.md` for the complete sample data, temporary pre-P06 crew
+control calls, expected results, evidence checklist, and cleanup procedure.
+
+### Employee Job Participation Ledger (P05)
+
+When a Process Execution is In Progress, **CFG Kanban Job Participation** records a separate timed
+interval for every eligible active person at that Workstation. Direct Participation becomes
+**Production Labour**; Oversight Only becomes **Oversight**. A crew join or resume opens an interval.
+A break, departure, role/category change, compliance hold, execution completion, or cancellation
+closes it and stores the duration. Restoring compliant coverage opens new intervals for the active
+crew instead of rewriting the earlier evidence.
+
+For backward-compatible Operations with no effective Crew Requirement and no active Crew Session,
+the authenticated operator who starts or reports the execution is recorded as an explicitly marked
+Authenticated Operator Fallback. If a Crew Session exists, actual active Memberships are used.
+
+Open **Execution Records → Employee Job Participation** and filter by Process Execution, Job Card,
+Employee, Work Category, or Status. Participation rows contain no production quantity: ERPNext
+still owns the Work Order and Job Card result, and adding three crew members never triples good
+quantity. Direct labour duration and oversight duration remain separate facts. Use
+`docs/TEST_WORKFORCE_P05_PARTICIPATION.md` for the full sample test.
 
 ## 4. ERPNext prerequisites
 
@@ -3758,6 +3800,9 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.00 | 22 October 2026 | Added Workforce P05 Employee Job Participation Ledger: separate immutable participation segments for direct labour and oversight, crew join/break/resume/leave/role-change projection, compliance-hold stop/restart, completion/cancellation closure, explicit no-policy operator fallback, and no duplication of ERPNext Job Card production quantity |
+| 1.99 | 22 October 2026 | Added Workforce P04 server authorization: effective competency/crew/lead/supervision/trainee/concurrency/expiry checks at allocation, start, progress, crew change, completion and WIP release; immutable Compliance Check snapshots; persistent Crew Compliance Holds with automatic resolution; unconfigured operations remain backward-compatible and ERPNext stays quantity-authoritative |
+| 1.98 | 22 October 2026 | Added Workforce P03 persistent Workstation crew registry: approved expected-roster templates, one active Crew Session per Company/Workstation, scanned actual Membership intervals, break/resume/leave/main-operator/context controls, immutable Crew Events, and separate helper identity from terminal authentication |
 | 1.97 | 22 October 2026 | Added Workforce P02: submitted reusable Crew Requirement Profiles, four crew modes, skill/level/role requirements, trainee and active-supervision controls, Operation/Profile assignment, Workstation safety restrictions, optional stricter Process/Station Card selection, and a conservative effective-policy resolver that never weakens a higher safety rule; runtime blocking remains P04 |
 | 1.96 | 22 October 2026 | Added Workforce P01: manager-controlled Skill registry, submitted Employee competency approvals with L0–L4, explicit independent/supervision authorization, certification/expiry and overlap validation, controlled status audit, Operator Profile summary, workspace access, acceptance guide, and a neutral no-TrackQMS dependency boundary |
 | 1.95 | 22 October 2026 | Separated operator-facing container identity from immutable production-fill audit identity in Operational Inventory Tag Detail: permanent output containers now show their human-readable reference and physical scan code while retaining the internal `VCONT-...` code and Handling Unit link for audit |

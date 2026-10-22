@@ -5,6 +5,7 @@ from cfg_kanban.services.events import record
 from cfg_kanban.services.operation_summary import recalculate, refresh_destination
 from cfg_kanban.services.wip import append_entry, releasable_increment
 from cfg_kanban.services.process_tasks import assert_gate_open
+from cfg_kanban.services.crew_authorization import release_execution_wip_if_authorized
 
 
 def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_qty=None,
@@ -37,6 +38,9 @@ def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_
         release = flt(released_qty) if released_qty is not None else releasable_increment(
             total_good, execution.released_qty, execution.transfer_multiple)
         if release:
+            if not release_execution_wip_if_authorized(execution.name):
+                recalculate(execution.kanban_cycle, execution.operation)
+                return progress
             assert_gate_open(execution.kanban_cycle, "Before WIP Release", execution.operation)
             append_entry(execution.kanban_cycle, "Released", release, source_execution=execution.name,
                          source_operation=execution.operation,
@@ -60,6 +64,9 @@ def complete_execution_handoff(execution_name):
     if execution.handoff_mode in ("Full Batch Handoff", "Automatic Handoff"):
         release = max(0, flt(execution.good_qty) - flt(execution.released_qty))
         if release:
+            if not release_execution_wip_if_authorized(execution.name):
+                recalculate(execution.kanban_cycle, execution.operation)
+                return
             assert_gate_open(execution.kanban_cycle, "Before WIP Release", execution.operation)
             append_entry(execution.kanban_cycle, "Released", release,
                 source_execution=execution.name,

@@ -107,7 +107,7 @@ class TestCrewRegistryContract(TestCase):
         self.assertEqual(links["Crew Membership Intervals"], "CFG Kanban Crew Membership")
         self.assertEqual(links["Crew Presence Events"], "CFG Kanban Crew Event")
 
-    def test_p03_does_not_claim_authorization_enforcement(self):
+    def test_p03_boundary_hands_actual_crew_to_p04(self):
         guide = (ROOT.parent / "docs" / "WORKFORCE_COMPETENCY_CREW_CONTROL.md").read_text()
         self.assertIn("P04 consumes this registry", guide)
-        self.assertIn("P04 is still required", guide)
+        self.assertIn("server-side authorization boundary", guide)

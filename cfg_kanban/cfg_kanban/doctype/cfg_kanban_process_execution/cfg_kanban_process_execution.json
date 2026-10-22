@@ -1,6 +1,6 @@
 {
  "doctype":"DocType","name":"CFG Kanban Process Execution","module":"CFG Kanban","autoname":"KPE-.#####","track_changes":1,
- "field_order":["kanban_cycle","kanban_master","runtime_allocation","operation_summary","operation","sequence","lane_sequence","job_card","workstation","status","execution_mode","allocated_qty","target_qty","input_available_qty","processed_qty","good_qty","reject_qty","released_qty","operator","started_on","completed_on","allow_parallel","handoff_mode","transfer_multiple","destination_operation","destination_execution","operation_profile_revision","execution_values","blocked","exception"],
+ "field_order":["kanban_cycle","kanban_master","runtime_allocation","operation_summary","operation","sequence","lane_sequence","job_card","workstation","status","execution_mode","allocated_qty","target_qty","input_available_qty","processed_qty","good_qty","reject_qty","released_qty","operator","started_on","completed_on","allow_parallel","handoff_mode","transfer_multiple","destination_operation","destination_execution","operation_profile_revision","execution_values","crew_compliance_section","crew_compliance_status","last_crew_compliance_check","crew_compliance_hold","crew_hold_previous_status","crew_compliance_checked_on","blocked","exception"],
  "fields":[
   {"fieldname":"kanban_cycle","label":"Kanban Cycle","fieldtype":"Link","options":"CFG Kanban Cycle","reqd":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"kanban_master","label":"Kanban Master","fieldtype":"Link","options":"CFG Kanban Master","reqd":1},
@@ -30,6 +30,12 @@
   {"fieldname":"destination_execution","label":"Legacy Destination Execution","fieldtype":"Link","options":"CFG Kanban Process Execution","read_only":1,"hidden":1},
   {"fieldname":"operation_profile_revision","label":"Operation Profile Revision","fieldtype":"Data","read_only":1},
   {"fieldname":"execution_values","label":"Execution Values","fieldtype":"Table","options":"CFG Kanban Execution Value"},
+  {"fieldname":"crew_compliance_section","label":"Crew Authorization","fieldtype":"Section Break","collapsible":1},
+  {"fieldname":"crew_compliance_status","label":"Crew Compliance","fieldtype":"Select","options":"Not Evaluated\nCompliant\nHold","default":"Not Evaluated","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"last_crew_compliance_check","label":"Last Crew Compliance Check","fieldtype":"Link","options":"CFG Kanban Crew Compliance Check","read_only":1},
+  {"fieldname":"crew_compliance_hold","label":"Crew Compliance Hold","fieldtype":"Link","options":"CFG Kanban Exception","read_only":1,"in_standard_filter":1},
+  {"fieldname":"crew_hold_previous_status","label":"Status Before Crew Hold","fieldtype":"Data","read_only":1,"hidden":1},
+  {"fieldname":"crew_compliance_checked_on","label":"Crew Checked On","fieldtype":"Datetime","read_only":1},
   {"fieldname":"blocked","label":"Blocked","fieldtype":"Check","read_only":1},
   {"fieldname":"exception","label":"Exception","fieldtype":"Link","options":"CFG Kanban Exception","read_only":1}
  ],

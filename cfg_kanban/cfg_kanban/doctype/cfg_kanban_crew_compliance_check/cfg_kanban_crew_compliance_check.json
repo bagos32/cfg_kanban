@@ -1,0 +1,49 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Crew Compliance Check",
+ "module": "CFG Kanban",
+ "autoname": "KCC-.YYYY.-.#####",
+ "title_field": "checkpoint",
+ "search_fields": "company,workstation,operation,checkpoint,result",
+ "track_changes": 1,
+ "field_order": [
+  "context_section", "company", "workstation", "operation", "checkpoint", "result",
+  "production_section", "kanban_cycle", "kanban_card", "process_execution", "job_card",
+  "crew_section", "crew_session", "active_direct_workers", "active_assistants",
+  "active_supervisors", "policy_snapshot", "crew_snapshot", "findings",
+  "audit_section", "checked_on", "actor_employee", "operator_session", "terminal_user",
+  "exception"
+ ],
+ "fields": [
+  {"fieldname":"context_section","label":"Authorization Decision","fieldtype":"Section Break","description":"Immutable evidence of the effective approved crew policy and actual active crew at one production checkpoint."},
+  {"fieldname":"company","label":"Company","fieldtype":"Link","options":"Company","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"workstation","label":"Workstation","fieldtype":"Link","options":"Workstation","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"operation","label":"Operation","fieldtype":"Link","options":"Operation","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"checkpoint","label":"Checkpoint","fieldtype":"Select","options":"Before Runtime Allocation\nBefore Operation Start\nProgress\nCrew Change\nBefore Completion\nBefore WIP Release","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"result","label":"Result","fieldtype":"Select","options":"Pass\nHold","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"production_section","label":"Production Context","fieldtype":"Section Break"},
+  {"fieldname":"kanban_cycle","label":"Kanban Cycle","fieldtype":"Link","options":"CFG Kanban Cycle","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"kanban_card","label":"Kanban Card","fieldtype":"Link","options":"CFG Kanban Card","read_only":1,"in_standard_filter":1},
+  {"fieldname":"process_execution","label":"Process Execution","fieldtype":"Link","options":"CFG Kanban Process Execution","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"job_card","label":"ERPNext Job Card","fieldtype":"Link","options":"Job Card","read_only":1,"in_standard_filter":1},
+  {"fieldname":"crew_section","label":"Policy and Actual Crew Snapshot","fieldtype":"Section Break"},
+  {"fieldname":"crew_session","label":"Crew Session","fieldtype":"Link","options":"CFG Kanban Crew Session","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"active_direct_workers","label":"Active Direct Workers","fieldtype":"Int","read_only":1},
+  {"fieldname":"active_assistants","label":"Active Assistants","fieldtype":"Int","read_only":1},
+  {"fieldname":"active_supervisors","label":"Active Qualified Supervisors","fieldtype":"Int","read_only":1},
+  {"fieldname":"policy_snapshot","label":"Effective Policy Snapshot","fieldtype":"JSON","reqd":1,"read_only":1},
+  {"fieldname":"crew_snapshot","label":"Actual Crew Snapshot","fieldtype":"JSON","reqd":1,"read_only":1},
+  {"fieldname":"findings","label":"Compliance Findings","fieldtype":"JSON","read_only":1},
+  {"fieldname":"audit_section","label":"Audit Identity","fieldtype":"Section Break"},
+  {"fieldname":"checked_on","label":"Checked On","fieldtype":"Datetime","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"actor_employee","label":"Acting Employee","fieldtype":"Link","options":"Employee","read_only":1,"in_standard_filter":1},
+  {"fieldname":"operator_session","label":"Operator Session","fieldtype":"Link","options":"CFG Kanban Operator Session","read_only":1},
+  {"fieldname":"terminal_user","label":"Terminal User","fieldtype":"Link","options":"User","read_only":1},
+  {"fieldname":"exception","label":"Crew Compliance Hold","fieldtype":"Link","options":"CFG Kanban Exception","read_only":1,"in_standard_filter":1}
+ ],
+ "permissions": [
+  {"role":"Manufacturing User","read":1,"report":1},
+  {"role":"Manufacturing Manager","read":1,"print":1,"report":1},
+  {"role":"System Manager","read":1,"print":1,"report":1}
+ ]
+}

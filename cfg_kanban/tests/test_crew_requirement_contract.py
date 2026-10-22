@@ -145,7 +145,7 @@ class TestCrewRequirementContract(TestCase):
             "CFG Kanban Workstation Crew Requirement",
         )
 
-    def test_p02_does_not_claim_runtime_enforcement(self):
+    def test_p02_boundary_assigns_runtime_enforcement_to_p04(self):
         guide = (ROOT.parent / "docs" / "WORKFORCE_COMPETENCY_CREW_CONTROL.md").read_text()
-        self.assertIn("It still does not block operation", guide)
-        self.assertIn("the runtime checkpoints remain P04", guide)
+        self.assertIn("P02 alone does not block", guide)
+        self.assertIn("P04 engine applies its result", guide)

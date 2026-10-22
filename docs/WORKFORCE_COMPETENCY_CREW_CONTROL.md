@@ -129,13 +129,13 @@ It is never returned as effectively Active by the competency service.
 7. Reactivate it with a reason, then revoke it. Confirm a revoked record cannot be reactivated.
 8. Create a record whose Valid Until is in the past and confirm the summary reports Expired.
 
-P01 acceptance proves registry correctness only. Do not expect it to block a Kanban operation until
-P04 is implemented and accepted.
+P01 acceptance proves registry correctness only. Runtime blocking is provided by the later P04
+authorization engine when an effective Crew Requirement uses these competencies.
 
 ## P02 — Crew Requirement Policy
 
-P02 adds approved configuration and a conservative policy resolver. It still does not block operation
-start, progress, or completion; the runtime checkpoints remain P04.
+P02 adds approved configuration and a conservative policy resolver. P02 alone does not block an
+operation; the P04 engine applies its result at the controlled runtime checkpoints.
 
 ### CFG Kanban Crew Requirement Profile
 
@@ -255,22 +255,87 @@ events before the final Close Session event.
    Left and the session is Closed.
 10. Confirm opening another crew for the same Workstation was rejected while the first was active,
     but succeeds after closure.
-11. Confirm normal production behavior is unchanged. P04 is still required before crew composition
-    or competency can block start, progress, completion, or WIP release.
+11. Confirm operations without an effective Crew Requirement remain backward-compatible. Operations
+    with an effective requirement are now enforced by P04 below.
 
-## Remaining approved packages
-
-### P04 — Authorization Engine
+## P04 — Authorization Engine
 
 Validate competency, crew size, qualified lead, supervision, concurrency, and expiry before start,
 during progress, on crew change, and before completion/WIP release. Loss of required coverage creates
 a controlled Crew Compliance Hold.
 
-### P05 — Employee Job Participation Ledger
+P04 is implemented as a server-side authorization boundary. It resolves the same conservative P02
+effective policy and compares it with only P03 Memberships whose presence is **Active**; an Employee
+on break never counts. A requirement is checked at Before Runtime Allocation, Before Operation
+Start, Progress, Crew Change, Before Completion, and Before WIP Release. ERPNext Job Card quantities
+remain authoritative and no supporting crew member creates an extra Job Card or quantity posting.
 
-Automatically project eligible active crew into Employee participation intervals for each Job Card
-execution. Production quantity remains counted once by ERPNext; labour and oversight time remain
-separate CFG Kanban facts.
+The engine verifies minimum direct workers, assistants, skill/level/explicit authorization,
+qualified lead and active supervisor requirements, trainee rules and ratios, effective dates and
+expiry, and concurrent direct participation in more than one active Workstation Crew Session.
+Operations with no effective approved Crew Requirement are allowed without a Crew Session for
+backward compatibility.
+
+Every configured decision creates a read-only **CFG Kanban Crew Compliance Check** containing the
+exact policy snapshot, actual crew snapshot, findings, checkpoint, acting Employee, Operator Session,
+terminal User, and production references. A failed decision creates or updates a **Crew Compliance
+Hold**, blocks the Process Execution, and prevents the requested action. The hold is committed before
+the rejection is returned so the safety evidence is not erased by request rollback.
+
+Crew joins, breaks, resumes, leaves, main-operator changes, context changes, and session closure
+immediately re-evaluate live executions at that Workstation. A compliant crew automatically resolves
+the crew-specific hold and restores the execution's previous state. ERP feedback remains accepted as
+the manufacturing system of record; when feedback arrives while crew coverage is invalid, CFG
+Kanban withholds its downstream WIP release and records the hold instead of falsifying ERP status.
+
+### P04 acceptance test
+
+1. Leave one Operation without any Crew Requirement and confirm its normal start/progress behavior
+   remains unchanged.
+2. Apply a submitted requirement needing two direct workers, one assistant, one L2 direct-worker
+   skill and one L3 active supervisor authorized to supervise trainees.
+3. Try to start without an active Crew Session. Confirm the action is rejected, the Process
+   Execution shows Crew Compliance Hold, and one Compliance Check preserves the failed evidence.
+4. Open the Crew Session with only the Main Operator. Confirm the hold remains because staffing and
+   skill requirements are incomplete.
+5. Join a qualified assistant and qualified supervisor. Confirm the hold resolves automatically and
+   the execution returns to its prior Ready/In Progress state.
+6. Start and report progress. Confirm Pass checks exist for Before Operation Start and Progress.
+7. Put the assistant on break. Confirm the execution immediately enters Hold; resume the assistant
+   and confirm automatic resolution.
+8. Make a direct participant Active in a second Workstation Crew Session. Confirm concurrent direct
+   work is rejected.
+9. Suspend or expire a required competency and recheck progress. Confirm the authorization no longer
+   counts and a new failed Check explains the missing skill coverage.
+10. Complete the Job Card and perform its configured handoff. Confirm completion and WIP release are
+    separately checked and no downstream WIP is released while a crew hold is active.
+
+### P05 — Employee Job Participation Ledger (implemented)
+
+**CFG Kanban Job Participation** projects each eligible active crew member into a separate interval
+for a running Process Execution. A direct participant is recorded as **Production Labour** and a
+Senior / Overseer classified as Oversight Only is recorded as **Oversight**. These categories are
+never combined into one labour figure.
+
+An interval opens only while the execution is In Progress and the effective crew policy is
+compliant. Join, resume, role/category change and compliance restoration open new segments. Break,
+leave, crew closure, a crew hold, execution completion or cancellation closes the current segment
+and calculates its duration. Historical segments are not rewritten when the workstation crew later
+changes.
+
+For an Operation with no effective crew policy and no Crew Session, the authenticated operator who
+starts or reports the execution is recorded as an explicit **Authenticated Operator Fallback**.
+This preserves existing single-operator operation without inventing a crew roster. Once an active
+Crew Session exists, its active Memberships are the participation source.
+
+The ledger contains no produced, good, reject, transfer or WIP quantity. ERPNext continues counting
+Job Card output exactly once. The ledger answers only who participated, in which role/category, and
+for how long. Use **Execution Records → Employee Job Participation** and filter by Process
+Execution, Job Card, Employee, Work Category, or Status.
+
+Use `docs/TEST_WORKFORCE_P05_PARTICIPATION.md` for the complete acceptance procedure.
+
+## Remaining approved packages
 
 ### P06 — Operator Interface & QR Integration
 
