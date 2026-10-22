@@ -265,6 +265,12 @@ def get_card_context(token, operator_session_token=None):
             readiness = _runtime_close_readiness(execution, effective_work_order, job)
             execution["can_close_runtime_cycle"] = readiness["ready"]
             execution["close_block_reason"] = readiness["reason"]
+            execution["wip_bin_erp_posting_pending"] = readiness.get(
+                "wip_bin_erp_posting_pending", False
+            )
+            execution["wip_bin_pending_entries"] = readiness.get(
+                "wip_bin_pending_entries", []
+            )
         kanban_processed = sum(flt(row.processed_qty) for row in executions)
         if (effective_work_order and effective_work_order.status == "Not Started" and
                 cycle.status in ("Released", "In Production", "Packing In Progress",
@@ -635,6 +641,10 @@ def _production_stock_entries(cycle, job_card=None):
         fields=["name", "stock_entry", "status"],
     )
     trace_by_entry = {row.stock_entry: row for row in traces}
+    from cfg_kanban.services.production_material_flow import (
+        erp_consumption_submission_readiness,
+    )
+    route_readiness = erp_consumption_submission_readiness(cycle.work_order)
     for row in rows:
         trace = trace_by_entry.get(row.name)
         row["erp_status"] = "Draft" if row.docstatus == 0 else "Submitted"
@@ -642,7 +652,14 @@ def _production_stock_entries(cycle, job_card=None):
         row["trace_status"] = trace.status if trace else "Not Started"
         row["is_wip_bin_return"] = bool(row.cfg_wip_bin_return_load)
         row["can_stage_trace"] = row.docstatus == 0 and not row.is_wip_bin_return
-        row["can_submit"] = row.docstatus == 0
+        row["erp_route_ready"] = (
+            row.purpose != "Material Consumption for Manufacture"
+            or route_readiness["ready"]
+        )
+        row["submit_block_reason"] = (
+            route_readiness["reason"] if not row["erp_route_ready"] else None
+        )
+        row["can_submit"] = row.docstatus == 0 and row["erp_route_ready"]
         row["submit_permission"] = (
             "material_transfer" if row.purpose in (
                 "Material Transfer",
@@ -713,6 +730,17 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
            execution=execution.name, qty=execution.good_qty, reference_doctype="Job Card",
            reference_name=execution.job_card, notes=notes, operator=profile.employee,
            operator_session=session.name, terminal_user=session.terminal_user)
+    pending_wip_entries = readiness.get("wip_bin_pending_entries", [])
+    if pending_wip_entries:
+        record(
+            "Operation Closed with ERP Consumption Pending",
+            card=card.name, cycle=cycle.name, execution=execution.name,
+            qty=execution.good_qty, reference_doctype="Stock Entry",
+            reference_name=pending_wip_entries[0], operator=profile.employee,
+            operator_session=session.name, terminal_user=session.terminal_user,
+            notes=("Physical WIP-bin use was fully scanned; ERP posting remains pending in "
+                   + ", ".join(pending_wip_entries)),
+        )
     target_qty = flt(frappe.db.get_value("Job Card", execution.job_card, "for_quantity"))
     erp_completed = flt(frappe.db.get_value("Job Card", execution.job_card,
                                             "total_completed_qty"))
@@ -733,7 +761,9 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
             "cumulative_completed_qty": cumulative_completed,
             "job_card_target_qty": target_qty, "job_card_target_reached": target_reached,
             "job_card_submitted": bool(job_card and job_card.docstatus == 1),
-            "job_card_kept_open": not target_reached}
+            "job_card_kept_open": not target_reached,
+            "wip_bin_erp_posting_pending": bool(pending_wip_entries),
+            "wip_bin_pending_entries": pending_wip_entries}
 
 
 def _runtime_close_readiness(execution, work_order, job_card):
@@ -756,6 +786,9 @@ def _runtime_close_readiness(execution, work_order, job_card):
     wip_bin_readiness = job_card_wip_bin_close_readiness(job_card.name)
     if not wip_bin_readiness["ready"]:
         return {"ready": False, "reason": wip_bin_readiness["reason"]}
+    pending_wip_entries = [
+        row.name for row in wip_bin_readiness.get("pending_erp_entries", [])
+    ]
     if (flt(job_card.total_completed_qty) + 0.000001 >= flt(job_card.for_quantity) and
             job_card.docstatus == 0):
         return {"ready": False, "reason": (
@@ -773,7 +806,12 @@ def _runtime_close_readiness(execution, work_order, job_card):
         return {"ready": False, "reason": (f"Cannot close the Kanban Cycle: cumulative Kanban good "
                 f"quantity is {required_erp_qty}, but ERPNext Job Card completed quantity is only {erp_qty}. "
                 "Update the Job Card time log, save it, and reload the Operator panel.")}
-    return {"ready": True, "reason": None}
+    return {
+        "ready": True,
+        "reason": wip_bin_readiness.get("reason"),
+        "wip_bin_erp_posting_pending": bool(pending_wip_entries),
+        "wip_bin_pending_entries": pending_wip_entries,
+    }
 
 
 @frappe.whitelist()

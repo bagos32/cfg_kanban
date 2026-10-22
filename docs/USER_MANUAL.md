@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.91
+**Guide version:** 1.93
 
 **Updated:** 22 October 2026
 
@@ -267,6 +267,9 @@ Order link. When an external update changes actionable work, the panel flashes, 
 alert, and normally scrolls to the new current action.
 It preserves the operator's position instead when they recently touched or manually scrolled the
 screen. Automatic checking also pauses while a dialog is open and resumes when the page is visible.
+The first check always re-synchronizes the displayed Card context before accepting its revision
+baseline. Therefore an approval completed while the operator tab was hidden or blocked by a dialog
+cannot be silently absorbed as the baseline while leaving the old waiting-for-approval screen.
 Use **Refresh** on the Current action strip for an immediate check; scanning remains available at all
 times. Scanner focus is restored invisibly after live navigation without moving the page back to the
 scanner field, so the operator remains at the selected current-work block.
@@ -1232,14 +1235,29 @@ Material Job Card** (`cfg_kanban_job_card`) field and uses it for operation-card
 duplicate-draft protection, WIP-bin matching, and consumed-quantity calculation. This is an audit
 bridge, not a replacement for ERPNext stock authority.
 
-Report the operation's completed quantity before submitting the consumption. ERPNext requires the
+Report the operation's completed quantity before preparing the consumption. ERPNext requires the
 operation Job Card to complete before it accepts the matching production consumption. Therefore,
 when **Auto-submit Job Card at Target** is enabled, reaching the target submits the Job Card while
 its WIP-bin loads are `Ready`, `In Use`, or `Consumption Draft`. Only a `Transfer Draft` load or an
-Open WIP-bin reconciliation defers Job Card submission. This is intentionally different from the
-stricter Kanban closure rule: the operation may complete first, but its Kanban Card/Cycle cannot be
-released and Manufacture receipt cannot submit until the WIP-bin consumption is authoritative and
-every related load is `Consumed`.
+Open WIP-bin reconciliation defers Job Card submission.
+
+For a sequential Work Order, ERPNext also validates a native `Material Consumption for
+Manufacture` submission against every operation supporting the reported finished-good quantity.
+The first operation therefore follows a two-stage close without waiting at the workstation:
+
+1. Complete the Job Card and create its operation-owned consumption Draft.
+2. Scan every Ready WIP bin. Each load becomes `Consumption Draft`; this is the immutable physical
+   use record for that Job Card.
+3. Close the operation Kanban Card/Cycle. The panel shows **ERP Posting Pending**, but the first
+   operator is released for the next job.
+4. The physical bin remains `In Use` and cannot be loaded again while ERP stock is unposted.
+5. After every Work Order Job Card is Completed, submit each visible operation-owned consumption
+   Draft. A successful ERP submission changes the load to `Consumed` (or `Return Draft` for unused
+   balance) and releases the bin only after the required return is also submitted.
+
+This separation never represents the Draft as posted ERP stock. The final Manufacture receipt
+remains unavailable until every related load is fully resolved, so operation closure cannot bypass
+stock, costing, trace, or unused-material return controls.
 
 Do not prepare the final Manufacture receipt while any WIP-bin load remains `Transfer Draft`,
 `Ready`, `In Use`, `Consumption Draft`, or `Return Draft`. The Operator panel displays the blocking bin and keeps
@@ -1266,11 +1284,12 @@ verification and supervisor exception procedure are approved.
 Full consumption needs one successful ERPNext consumption submission to change the load to
 `Consumed` and return its physical bin to `Empty`. Partial consumption first changes it to
 `Return Draft`; the separate successful unused-material return submission completes the load and
-empties the bin. The Job Card is blocked only by `Transfer Draft` or Open
-reconciliation; `Ready`, `In Use`, and `Consumption Draft` loads permit Job Card completion so
-ERPNext can subsequently accept their consumption. Kanban Card/Cycle release and Manufacture
-receipt remain blocked while the Work Order has any unconsumed load. Cancelling a submitted
-transfer or consumption puts
+empties the bin. The Job Card is blocked only by `Transfer Draft` or Open reconciliation;
+`Ready`, `In Use`, and `Consumption Draft` loads permit Job Card completion. An operation Kanban
+Card may close after every Ready bin is scanned and only valid `Consumption Draft` loads remain.
+The Draft, its physical bin, and ERP stock stay visibly pending until downstream operations allow
+ERPNext submission. Manufacture receipt remains blocked while the Work Order has any unconsumed
+load. Cancelling a submitted transfer or consumption puts
 the bin in `Exception`, creates a Critical Kanban Exception, and creates an Open **CFG Kanban WIP
 Bin Reconciliation** rather than silently claiming that the physical bin is empty. The red recovery
 block appears on the main Production Card and only on the matching Operation Card. A scanned
@@ -3627,6 +3646,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.92 | 22 October 2026 | Corrected the Production Operator Panel's first live synchronization so supervisor approval or release performed while the operator tab is hidden, inactive, or blocked by a dialog reloads the Card instead of being silently accepted as a stale revision baseline |
 | 1.91 | 22 October 2026 | Corrected ERPNext v15 generated-Batch binding for staged production outputs: submitted Stock Entry Detail, Serial and Batch Bundle, and exact Stock Ledger Entry evidence are resolved before output tags/containers are activated, without guessing from Batch recency |
 | 1.90 | 22 October 2026 | Reconciled partial WIP-bin actual use with the final Manufacture receipt: a submitted unused-material return now resolves that exact input variance, removes only its supported balance from ERPNext's later Manufacture mapping, prevents a duplicate production-tag demand/double consumption, and repairs an existing Draft during controlled submission |
 | 1.89 | 22 October 2026 | Added permanent Production Output Containers: one reusable QR can receive a new immutable manufactured fill on each ERP submission, then the same container scan resolves that exact Item/Batch as input to the next production process; full consumption empties the container for reuse, with guarded reversal and Container Content audit |

@@ -406,8 +406,13 @@ completed quantity and submits the Job Card even while the bin is `Ready`, `In U
 consumption. It must not display a cycle-closing error, and the progress transaction must not roll
 back. A `Transfer Draft` load or Open WIP-bin reconciliation must still block Job Card submission.
 
-3. Reopen Production Material Trace.
-4. Scan `CFG:CMD:SUBMIT_MATERIALS` or select **Submit ERP Entry**.
+3. Reopen Production Material Trace and scan every Ready bin into the exact operation-owned Draft.
+4. If a downstream Job Card is still incomplete, confirm that **Submit ERP Entry** is replaced by
+   **ERP Posting Pending**. Close the operation Kanban Cycle; its operator must not wait for the
+   entire route.
+5. Complete the remaining Work Order Job Cards.
+6. Return to the main Production Card and scan `CFG:CMD:SUBMIT_MATERIALS`, or select **Submit ERP
+   Entry**, for each operation-owned consumption Draft.
 
 Expected result after successful native ERPNext submission:
 
@@ -426,9 +431,12 @@ Repeat the flow with one Ready bin and try each action before submitting consump
 2. prepare or submit Manufacture receipt.
 
 Expected result: Job Card completion is allowed for `Ready`, `In Use`, and `Consumption Draft`
-loads because ERPNext requires operation completion before production consumption. Kanban Cycle
-closure and Manufacture submission remain blocked until consumption is submitted and every load
-becomes `Consumed`. A `Transfer Draft` load or Open reconciliation still blocks Job Card completion.
+loads because ERPNext requires operation completion before production consumption. Operation
+Kanban Cycle closure remains blocked for `Transfer Draft`, `Ready`, `In Use`, `Return Draft`, or
+Open reconciliation. It becomes available when every Ready bin has been scanned and only valid
+`Consumption Draft` loads remain. The operation Card is released, but the bin stays `In Use`, ERP
+submission stays pending, and Manufacture remains blocked until every route operation is complete
+and every load becomes `Consumed`.
 
 ### 10.12 Submitted consumption cancellation
 
@@ -617,18 +625,27 @@ Run this test with a reusable Process/Station operation Card allocated to the sa
 
 1. Report enough operation progress for **Close Kanban Cycle** to become relevant.
 2. Leave one WIP Bin Load in each of these conditions in separate repetitions:
-   `Transfer Draft`, `Ready`, `In Use`, or `Consumption Draft`.
+   `Transfer Draft`, `Ready`, `In Use`, `Return Draft`, or `Consumption Draft`.
 3. Try the visible **Close Kanban Cycle** action and scan `CFG:CMD:CLOSE_CYCLE`.
 
-Expected result:
+Expected result for `Transfer Draft`, `Ready`, `In Use`, `Return Draft`, and Open reconciliation:
 
 - both closure paths are rejected by the server;
 - the message identifies the affected physical bin and its state;
 - the operation Card remains attached to its active Cycle and is not returned to `Available`; and
 - no completed Runtime Allocation is written.
 
-4. Cancel the Draft movement correctly or submit the WIP-bin consumption so no active physical
-   load remains.
+Expected result for a valid `Consumption Draft` after every Ready bin was scanned:
+
+- **Close Kanban Cycle** remains available;
+- the operation Cycle and Runtime Allocation complete and the operation Card returns to
+  `Available`;
+- the page and event timeline identify the exact Draft as **ERP Posting Pending**;
+- the physical bin remains `In Use` and cannot be loaded again; and
+- final Manufacture receipt remains blocked until that Draft is submitted successfully.
+
+4. For a blocking state, cancel or complete its required movement. For `Consumption Draft`, leave
+   the Draft pending and complete downstream Job Cards before submitting it from the main Card.
 5. Repeat closure after ERPNext Job Card progress satisfies the existing runtime quantity checks.
 
 Expected result: the operation Card can close normally.

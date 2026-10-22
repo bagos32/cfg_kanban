@@ -1,7 +1,7 @@
 # CFG Kanban — Standard Quantity Reusable WIP Bin
 
-**Status:** Full lifecycle, closure guard, supervisor control report, partial-bin exception, and transfer/consumption cancellation reconciliation implemented; server acceptance required
-**Date:** 18 October 2026
+**Status:** Full lifecycle, operation-close/deferred-ERP-posting gate, supervisor control report, partial-bin exception, and transfer/consumption cancellation reconciliation implemented; server acceptance required
+**Date:** 22 October 2026
 **ERP stock authority:** ERPNext Work Order, Job Card, and submitted Stock Entry
 
 ## 1. Purpose
@@ -142,9 +142,13 @@ requires complete ERP-row coverage and rejects a missing, mismatched, or partial
 
 The final Manufacture draft must be created only after this consumption is submitted. The
 Operator panel treats any `Ready`, `In Use`, `Consumption Draft`, or unsubmitted `Transfer Draft`
-load as a receipt prerequisite and keeps **Prepare Manufacture Receipt** unavailable. This prevents
-ERPNext from mapping still-unconsumed WIP material into a premature Manufacture draft and making
-it appear that the bin allocation was lost.
+load as a receipt prerequisite and keeps **Prepare Manufacture Receipt** unavailable. A sequential
+operation Card may nevertheless close once every Ready bin for its Job Card has been physically
+scanned and only valid `Consumption Draft` loads remain. The panel labels these Drafts **ERP
+Posting Pending**; the bin remains `In Use` and unavailable for another load. This releases the
+operator without falsely posting ERP stock before downstream operations satisfy ERPNext's Work
+Order validation. The strict receipt gate still prevents ERPNext from mapping unconsumed WIP
+material into a premature Manufacture draft and making it appear that the bin allocation was lost.
 
 For a draft created by an older release before this gate existed, use **Discard Premature Draft**
 on that Draft Manufacture row. This controlled action is allowed only while an active WIP-bin load

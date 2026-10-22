@@ -20,6 +20,9 @@ ACTIVE_LOAD_STATUSES = (
     "Transfer Draft", "Ready", "In Use", "Consumption Draft", "Return Draft",
 )
 JOB_CARD_SUBMIT_BLOCK_STATUSES = ("Transfer Draft",)
+OPERATION_CLOSE_BLOCK_STATUSES = (
+    "Transfer Draft", "Ready", "In Use", "Return Draft",
+)
 
 
 def validate_job_card_wip_bin_submission(doc, method=None):
@@ -89,15 +92,20 @@ def job_card_wip_bin_submit_readiness(job_card):
 
 
 def job_card_wip_bin_close_readiness(job_card):
-    """Return whether a Job Card has no unresolved physical WIP-bin responsibility.
+    """Return whether an operation Card may close its WIP-bin responsibility.
 
     Runtime operation Cards may complete in smaller allocations than the ERP Job Card. This gate
     deliberately uses Job Card scope because a WIP Bin Load is not divisible between runtime
-    cards: the physical bin must be consumed or reconciled before any controlling operation Card
-    is released for reuse.
+    cards. A fully scanned operation-owned consumption Draft proves that the operator reported the
+    physical use, so it no longer blocks that operation Card. ERPNext may still defer submission
+    until downstream Work Order operations support the consumed finished-good quantity; the bin
+    remains In Use and the final Manufacture receipt remains blocked until that Draft is submitted.
     """
     if not job_card:
-        return {"ready": True, "reason": None, "active_loads": [], "reconciliations": []}
+        return {
+            "ready": True, "reason": None, "active_loads": [],
+            "pending_erp_entries": [], "reconciliations": [],
+        }
     reconciliations = frappe.get_all(
         "CFG Kanban WIP Bin Reconciliation",
         {"job_card": job_card, "status": "Open"},
@@ -107,9 +115,30 @@ def job_card_wip_bin_close_readiness(job_card):
     active = frappe.get_all(
         "CFG Kanban WIP Bin Load",
         {"job_card": job_card, "status": ["in", list(ACTIVE_LOAD_STATUSES)]},
-        ["name", "reusable_bin", "status"],
-        order_by="creation asc", limit_page_length=6,
+        ["name", "reusable_bin", "status", "consumption_stock_entry"],
+        order_by="creation asc", limit_page_length=0,
     )
+    blocking = [
+        row for row in active if row.status in OPERATION_CLOSE_BLOCK_STATUSES
+    ]
+    pending = [row for row in active if row.status == "Consumption Draft"]
+    pending_entry_names = list(dict.fromkeys(
+        row.consumption_stock_entry for row in pending if row.consumption_stock_entry
+    ))
+    pending_entries = frappe.get_all(
+        "Stock Entry",
+        {"name": ["in", pending_entry_names or ["__none__"]], "docstatus": 0,
+         "purpose": "Material Consumption for Manufacture"},
+        ["name", "purpose", "docstatus"], limit_page_length=0,
+    )
+    valid_pending_names = {row.name for row in pending_entries}
+    broken_pending = [
+        row for row in pending
+        if not row.consumption_stock_entry
+        or row.consumption_stock_entry not in valid_pending_names
+    ]
+    if broken_pending:
+        blocking.extend(broken_pending)
     if reconciliations:
         detail = ", ".join(
             f"{row.reusable_bin} ({row.reversal_context or 'Cancellation'})"
@@ -122,22 +151,35 @@ def job_card_wip_bin_close_readiness(job_card):
                 f"supervisor reconciliation: {detail}"
             ),
             "active_loads": active,
+            "pending_erp_entries": pending_entries,
             "reconciliations": reconciliations,
         }
-    if active:
+    if blocking:
         detail = ", ".join(
-            f"{row.reusable_bin} ({row.status})" for row in active[:5]
+            f"{row.reusable_bin} ({row.status})" for row in blocking[:5]
         )
         return {
             "ready": False,
             "reason": (
-                "Submit or cancel the Job Card WIP-bin material movement before closing this "
-                f"Kanban Cycle. Active bin load(s): {detail}"
+                "Scan every Ready WIP Bin into the operation-owned consumption Draft, or resolve "
+                f"the remaining material movement before closing this Kanban Cycle. "
+                f"Blocking bin load(s): {detail}"
             ),
             "active_loads": active,
+            "pending_erp_entries": pending_entries,
             "reconciliations": reconciliations,
         }
-    return {"ready": True, "reason": None, "active_loads": [], "reconciliations": []}
+    pending_reason = None
+    if pending_entries:
+        pending_reason = (
+            "Operation use is fully scanned. ERP posting remains pending in "
+            + ", ".join(row.name for row in pending_entries)
+            + "; the WIP bin stays locked until ERPNext accepts the entry."
+        )
+    return {
+        "ready": True, "reason": pending_reason, "active_loads": active,
+        "pending_erp_entries": pending_entries, "reconciliations": reconciliations,
+    }
 
 
 def abandon_draft_stock_entry(doc, method=None):

@@ -164,7 +164,8 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
                      ),
                      "wip_bin_consumption_draft": open_wip_consumption})
 
-    incomplete_jobs = [row["name"] for row in jobs if row["status"] != "Completed"]
+    route_readiness = erp_consumption_submission_readiness(work_order.name, jobs=jobs)
+    incomplete_jobs = route_readiness["incomplete_job_cards"]
     remaining_output = max(0, flt(work_order.qty) - flt(work_order.produced_qty))
     wip_bin_reconciliations = frappe.get_all(
         "CFG Kanban WIP Bin Reconciliation",
@@ -212,7 +213,9 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
             row["shortage_qty"] > 0.000001 for row in restricted_rows
         ),
         "has_shortage": any(row["shortage_qty"] > 0 for row in all_rows),
-        "all_job_cards_completed": not incomplete_jobs and bool(jobs),
+        "all_job_cards_completed": route_readiness["ready"],
+        "erp_consumption_submission_ready": route_readiness["ready"],
+        "erp_consumption_submission_reason": route_readiness["reason"],
         "incomplete_job_cards": incomplete_jobs,
         "wip_bin_receipt_ready": receipt_wip_readiness["ready"],
         "wip_bin_receipt_block_reason": receipt_wip_readiness["reason"],
@@ -810,6 +813,9 @@ def submit_production_stock_entry(stock_entry, event_token=None,
                 or return_context.status != "Return Draft"):
             frappe.throw("Unused-material return does not match the active WIP Bin load")
     elif entry.purpose == "Material Consumption for Manufacture":
+        route_readiness = erp_consumption_submission_readiness(work_order.name)
+        if not route_readiness["ready"]:
+            frappe.throw(route_readiness["reason"])
         from cfg_kanban.services.wip_bin_loads import finalize_wip_bin_consumption_entry
         entry = finalize_wip_bin_consumption_entry(entry.name)
     action = ("material_transfer" if entry.purpose in (
@@ -841,6 +847,37 @@ def submit_production_stock_entry(stock_entry, event_token=None,
            terminal_user=session.terminal_user, notes=entry.purpose)
     return {"command": command.name, "stock_entry": result.name,
             "docstatus": result.docstatus, "duplicate": not created}
+
+
+def erp_consumption_submission_readiness(work_order_name, jobs=None):
+    """Return when ERPNext can accept Work Order material consumption.
+
+    ERPNext validates a Material Consumption for Manufacture entry against every operation in the
+    Work Order. CFG Kanban may record one operation's physical WIP-bin use earlier, but it must not
+    offer or attempt ERP submission until all active Job Cards are completed.
+    """
+    if jobs is None:
+        jobs = frappe.get_all(
+            "Job Card",
+            filters={"work_order": work_order_name, "docstatus": ["<", 2]},
+            fields=["name", "status"], order_by="creation asc",
+            limit_page_length=0,
+        )
+    incomplete = [row["name"] for row in jobs if row["status"] != "Completed"]
+    ready = bool(jobs) and not incomplete
+    reason = None
+    if not jobs:
+        reason = (
+            f"ERP consumption for Work Order {work_order_name} is waiting for its Job Cards."
+        )
+    elif incomplete:
+        reason = (
+            "Operation use is recorded, but ERPNext cannot submit Material Consumption for "
+            f"Manufacture until every Work Order operation is complete. Waiting for: "
+            + ", ".join(incomplete)
+        )
+    return {"ready": ready, "reason": reason,
+            "incomplete_job_cards": incomplete}
 
 
 def _production_context(cycle_name):
