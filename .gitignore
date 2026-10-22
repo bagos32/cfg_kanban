@@ -8,3 +8,6 @@ node_modules/
 /sources/
 /tmp/
 /output/
+
+# Local historical manual snapshot; canonical documentation is docs/USER_MANUAL.md.
+/docs/USER_MANUAL_v1.89.md

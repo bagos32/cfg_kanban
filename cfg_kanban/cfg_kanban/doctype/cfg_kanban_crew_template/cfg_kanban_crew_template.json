@@ -1,0 +1,163 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Crew Template",
+ "module": "CFG Kanban",
+ "autoname": "field:template_code",
+ "title_field": "template_name",
+ "search_fields": "template_code,template_name,company,workstation,operation",
+ "track_changes": 1,
+ "is_submittable": 1,
+ "field_order": [
+  "identity_section",
+  "template_code",
+  "template_name",
+  "company",
+  "active",
+  "revision",
+  "scope_section",
+  "workstation",
+  "operation",
+  "members_section",
+  "members",
+  "control_section",
+  "approved_by",
+  "approved_on",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "label": "Reusable Expected Roster",
+   "fieldtype": "Section Break",
+   "description": "A template is a scan aid only. It never marks any employee present."
+  },
+  {
+   "fieldname": "template_code",
+   "label": "Template Code",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "template_name",
+   "label": "Template Name",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "active",
+   "label": "Active",
+   "fieldtype": "Check",
+   "default": "1",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "revision",
+   "label": "Revision",
+   "fieldtype": "Int",
+   "default": "1",
+   "reqd": 1
+  },
+  {
+   "fieldname": "scope_section",
+   "label": "Default Work Context",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "workstation",
+   "label": "Workstation",
+   "fieldtype": "Link",
+   "options": "Workstation",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "operation",
+   "label": "Operation",
+   "fieldtype": "Link",
+   "options": "Operation",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Optional default operation. The Crew Session remains attached to the Workstation across successive jobs."
+  },
+  {
+   "fieldname": "members_section",
+   "label": "Expected Members",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "members",
+   "label": "Expected Crew Members",
+   "fieldtype": "Table",
+   "options": "CFG Kanban Crew Template Member",
+   "reqd": 1,
+   "description": "These names help scanning and comparison only; every person must still join the live Crew Session."
+  },
+  {
+   "fieldname": "control_section",
+   "label": "Approval",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "approved_by",
+   "label": "Approved By",
+   "fieldtype": "Link",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_on",
+   "label": "Approved On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes",
+   "label": "Notes",
+   "fieldtype": "Text"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Manufacturing User",
+   "read": 1
+  },
+  {
+   "role": "Manufacturing Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1,
+   "print": 1,
+   "report": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1,
+   "print": 1,
+   "report": 1
+  }
+ ]
+}

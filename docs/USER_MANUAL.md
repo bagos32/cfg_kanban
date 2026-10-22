@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.97
+**Guide version:** 1.98
 
 **Updated:** 22 October 2026
 
@@ -210,6 +210,30 @@ applicable rule conservatively; a Card cannot lower an Operation or Workstation 
 P02 is configuration and policy resolution only. It deliberately does not block an operator yet.
 P03 supplies the persistent actual Workstation crew and P04 compares that crew with this effective
 policy at every controlled runtime checkpoint.
+
+### Persistent workstation crew registry (P03)
+
+Create and submit **CFG Kanban Crew Template** only when a Workstation commonly uses the same named
+team. Select Company, Workstation, optional Operation, and the expected Employees with their normal
+roles: Main Operator, Supporting Operator, Senior / Overseer, or Temporary Support. Classify each as
+Direct Participation or Oversight Only. A template must have exactly one direct Main Operator.
+
+A template is not attendance. Opening a **CFG Kanban Crew Session** stores an immutable snapshot of
+the expected roster but initially registers only the authenticated operator who opened it. Every
+helper must still scan their own existing Employee/Operator Profile QR to join. The helper scan only
+identifies that Employee; it does not log the helper in as the terminal operator and does not grant
+the helper or main operator any additional action permission.
+
+One active Crew Session persists for a Company and Workstation across successive production jobs.
+Do not close and recreate it for every Card. Live membership is stored in **CFG Kanban Crew
+Membership** with explicit Active, On Break, and Left intervals. **CFG Kanban Crew Event** preserves
+Open Session, Join, Break, Resume, Leave, Change Main Operator, operation-context change, and Close
+Session evidence with the acting Employee, terminal User, and Operator Session.
+
+P03 exposes the authoritative actual crew to P04 but still does not authorize or block production.
+Competency, minimum staffing, trainee supervision, concurrent-work validation, and compliance holds
+begin in P04. Scanner buttons and command labels for crew changes are delivered in P06; until then,
+the registry endpoints and audit records form the controlled server backbone.
 
 ## 4. ERPNext prerequisites
 

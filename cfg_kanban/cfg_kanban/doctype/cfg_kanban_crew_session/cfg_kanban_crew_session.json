@@ -1,0 +1,213 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Crew Session",
+ "module": "CFG Kanban",
+ "autoname": "KCS-.YYYY.-.#####",
+ "title_field": "workstation",
+ "search_fields": "workstation,company,main_employee,main_employee_name,status",
+ "track_changes": 1,
+ "field_order": [
+  "context_section",
+  "company",
+  "workstation",
+  "operation_context",
+  "status",
+  "main_section",
+  "main_employee",
+  "main_employee_name",
+  "main_operator_profile",
+  "main_membership",
+  "template_section",
+  "crew_template",
+  "template_revision_snapshot",
+  "expected_roster_snapshot",
+  "time_section",
+  "started_on",
+  "last_activity_on",
+  "ended_on",
+  "opened_by",
+  "closed_by",
+  "close_reason",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "context_section",
+   "label": "Persistent Workstation Crew",
+   "fieldtype": "Section Break",
+   "description": "This Crew Session remains active across successive jobs until explicitly closed."
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "workstation",
+   "label": "Workstation",
+   "fieldtype": "Link",
+   "options": "Workstation",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "operation_context",
+   "label": "Current Operation Context",
+   "fieldtype": "Link",
+   "options": "Operation",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "status",
+   "label": "Status",
+   "fieldtype": "Select",
+   "options": "Active\nClosed",
+   "default": "Active",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "main_section",
+   "label": "Current Main Operator",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "main_employee",
+   "label": "Main Employee",
+   "fieldtype": "Link",
+   "options": "Employee",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "main_employee_name",
+   "label": "Main Employee Name",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "main_operator_profile",
+   "label": "Main Operator Profile",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Operator Profile",
+   "read_only": 1
+  },
+  {
+   "fieldname": "main_membership",
+   "label": "Main Membership",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Crew Membership",
+   "read_only": 1
+  },
+  {
+   "fieldname": "template_section",
+   "label": "Expected Roster Snapshot",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "crew_template",
+   "label": "Crew Template",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Crew Template",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "template_revision_snapshot",
+   "label": "Template Revision Snapshot",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "expected_roster_snapshot",
+   "label": "Expected Roster Snapshot",
+   "fieldtype": "JSON",
+   "read_only": 1,
+   "description": "Audit snapshot only. Employees listed here are not present until they join the Crew Session."
+  },
+  {
+   "fieldname": "time_section",
+   "label": "Session Audit",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "started_on",
+   "label": "Started On",
+   "fieldtype": "Datetime",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "last_activity_on",
+   "label": "Last Activity On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ended_on",
+   "label": "Ended On",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "opened_by",
+   "label": "Opened By",
+   "fieldtype": "Link",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closed_by",
+   "label": "Closed By",
+   "fieldtype": "Link",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "close_reason",
+   "label": "Close Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes",
+   "label": "Notes",
+   "fieldtype": "Text",
+   "read_only": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Manufacturing User",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "Manufacturing Manager",
+   "read": 1,
+   "print": 1,
+   "report": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1,
+   "report": 1
+  }
+ ]
+}

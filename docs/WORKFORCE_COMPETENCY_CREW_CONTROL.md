@@ -190,13 +190,75 @@ skill-role pair. Therefore a Single Operator Card cannot bypass a two-person Wor
 8. Confirm normal production behavior is unchanged. P02 stores and resolves policy only; P04 will
    enforce it against the P03 active crew.
 
+## P03 — Workstation Crew Registry
+
+P03 records who is physically present at a Workstation. It does not yet decide whether that crew is
+qualified; P04 consumes this registry and applies the P01/P02 authorization rules.
+
+### Crew Templates are expected rosters, not attendance
+
+A submitted **CFG Kanban Crew Template** identifies one Company's normal Workstation team and an
+optional default Operation. It supports these roles:
+
+- Main Operator;
+- Supporting Operator;
+- Senior / Overseer; and
+- Temporary Support.
+
+Every member is separately classified as Direct Participation or Oversight Only. The template must
+contain exactly one Main Operator and that person must be a direct participant. Employee names and
+active Operator Profiles are validated when the template is saved and submitted.
+
+When a Crew Session opens with a template, CFG Kanban copies an immutable JSON snapshot of the
+expected roster and revision into the session. It does **not** create attendance for those people.
+This prevents yesterday's saved team from being silently treated as present today.
+
+### Persistent Workstation Crew Session
+
+Only one active **CFG Kanban Crew Session** may be opened for the same Company and Workstation. It
+remains open across successive Cards, Cycles, Work Orders, and Job Cards until explicitly closed.
+Changing the current Operation context does not close or recreate the crew.
+
+The authenticated terminal operator opens the session and becomes its first Main Operator. A helper
+then scans their existing Employee/Operator Profile QR to join. That scan resolves identity only: it
+does not replace the authenticated terminal operator, create a second Operator Session, or transfer
+the helper's permissions to anyone else.
+
+### Membership intervals and immutable events
+
+**CFG Kanban Crew Membership** holds each actual presence interval with Employee, role, work
+category, Active/On Break/Left state, join time, break start, and leave time. The controlled service
+supports join, break, resume, leave, main-operator change, operation-context change, and session
+closure. The current Main Operator cannot leave until another actively present person becomes Main
+Operator or the entire Crew Session is closed.
+
+Every transition also inserts a read-only **CFG Kanban Crew Event** with the subject Employee, acting
+Employee, terminal ERP User, Operator Session, timestamp, previous/new state, reason, and structured
+details. Closing a session closes every still-present membership and preserves individual Leave
+events before the final Close Session event.
+
+### P03 acceptance test
+
+1. Submit a Crew Template for one Company and Workstation with Employee A as Main Operator,
+   Employee B as Supporting Operator, and Employee C as oversight-only Senior / Overseer.
+2. Open a Crew Session using Employee A's authenticated Operator Session and the template.
+3. Confirm only Employee A has an actual Membership. B and C appear only in Expected Roster Snapshot.
+4. Scan Employee B's QR to join. Confirm B gets an Active direct Membership without becoming the
+   authenticated terminal operator.
+5. Break and resume Employee B. Confirm the Membership state changes and separate Break/Resume
+   Crew Events remain in the audit list.
+6. Scan Employee C to join as Senior / Overseer with Oversight Only.
+7. Change Main Operator from A to B. Confirm A becomes Supporting Operator, B becomes Main Operator,
+   and one Change Main Operator event records both membership references.
+8. Change the Operation context and confirm the same Crew Session remains active.
+9. Make C leave, then close the Crew Session with a reason. Confirm all remaining Memberships are
+   Left and the session is Closed.
+10. Confirm opening another crew for the same Workstation was rejected while the first was active,
+    but succeeds after closure.
+11. Confirm normal production behavior is unchanged. P04 is still required before crew composition
+    or competency can block start, progress, completion, or WIP release.
+
 ## Remaining approved packages
-
-### P03 — Workstation Crew Registry
-
-Keep one persistent crew session across successive jobs. Record main, supporting, senior/overseer,
-temporary, direct, and oversight membership intervals with explicit join, break, resume, leave, and
-main-operator change events.
 
 ### P04 — Authorization Engine
 

@@ -1,0 +1,56 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Crew Template Member",
+ "module": "CFG Kanban",
+ "istable": 1,
+ "editable_grid": 1,
+ "field_order": [
+  "employee",
+  "employee_name",
+  "operator_profile",
+  "crew_role",
+  "work_category"
+ ],
+ "fields": [
+  {
+   "fieldname": "employee",
+   "label": "Employee",
+   "fieldtype": "Link",
+   "options": "Employee",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "employee_name",
+   "label": "Employee Name",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "operator_profile",
+   "label": "Operator Profile",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Operator Profile",
+   "read_only": 1
+  },
+  {
+   "fieldname": "crew_role",
+   "label": "Crew Role",
+   "fieldtype": "Select",
+   "options": "Main Operator\nSupporting Operator\nSenior / Overseer\nTemporary Support",
+   "default": "Supporting Operator",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "work_category",
+   "label": "Work Category",
+   "fieldtype": "Select",
+   "options": "Direct Participation\nOversight Only",
+   "default": "Direct Participation",
+   "reqd": 1,
+   "in_list_view": 1
+  }
+ ]
+}

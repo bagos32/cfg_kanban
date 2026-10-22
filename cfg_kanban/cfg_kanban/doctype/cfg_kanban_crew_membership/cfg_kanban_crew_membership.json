@@ -1,0 +1,238 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Crew Membership",
+ "module": "CFG Kanban",
+ "autoname": "KCM-.YYYY.-.#####",
+ "title_field": "employee_name",
+ "search_fields": "employee,employee_name,workstation,crew_role,status",
+ "track_changes": 1,
+ "field_order": [
+  "session_section",
+  "crew_session",
+  "company",
+  "workstation",
+  "operation_context",
+  "member_section",
+  "employee",
+  "employee_name",
+  "operator_profile",
+  "crew_role",
+  "work_category",
+  "status",
+  "source_section",
+  "join_source",
+  "expected_from_template",
+  "template_member_reference",
+  "time_section",
+  "joined_on",
+  "break_started_on",
+  "left_on",
+  "joined_by_employee",
+  "left_by_employee",
+  "last_event",
+  "last_event_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "session_section",
+   "label": "Crew Session Context",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "crew_session",
+   "label": "Crew Session",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Crew Session",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "reqd": 1,
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "workstation",
+   "label": "Workstation",
+   "fieldtype": "Link",
+   "options": "Workstation",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "operation_context",
+   "label": "Operation Context",
+   "fieldtype": "Link",
+   "options": "Operation",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "member_section",
+   "label": "Actual Crew Member",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "employee",
+   "label": "Employee",
+   "fieldtype": "Link",
+   "options": "Employee",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "employee_name",
+   "label": "Employee Name",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "operator_profile",
+   "label": "Operator Profile",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Operator Profile",
+   "read_only": 1
+  },
+  {
+   "fieldname": "crew_role",
+   "label": "Crew Role",
+   "fieldtype": "Select",
+   "options": "Main Operator\nSupporting Operator\nSenior / Overseer\nTemporary Support",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "work_category",
+   "label": "Work Category",
+   "fieldtype": "Select",
+   "options": "Direct Participation\nOversight Only",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "status",
+   "label": "Presence Status",
+   "fieldtype": "Select",
+   "options": "Active\nOn Break\nLeft",
+   "default": "Active",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "source_section",
+   "label": "Join Source",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "join_source",
+   "label": "Join Source",
+   "fieldtype": "Select",
+   "options": "Session Owner Scan\nEmployee QR Scan",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "expected_from_template",
+   "label": "Expected from Template",
+   "fieldtype": "Check",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "template_member_reference",
+   "label": "Template Member Reference",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "time_section",
+   "label": "Presence Interval",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "joined_on",
+   "label": "Joined On",
+   "fieldtype": "Datetime",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "break_started_on",
+   "label": "Break Started On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "left_on",
+   "label": "Left On",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "joined_by_employee",
+   "label": "Joined By Employee",
+   "fieldtype": "Link",
+   "options": "Employee",
+   "read_only": 1
+  },
+  {
+   "fieldname": "left_by_employee",
+   "label": "Left By Employee",
+   "fieldtype": "Link",
+   "options": "Employee",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_event",
+   "label": "Last Event",
+   "fieldtype": "Select",
+   "options": "Join\nBreak\nResume\nLeave\nChange Main Operator\nClose Session",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_event_on",
+   "label": "Last Event On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Manufacturing User",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "Manufacturing Manager",
+   "read": 1,
+   "print": 1,
+   "report": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1,
+   "report": 1
+  }
+ ]
+}

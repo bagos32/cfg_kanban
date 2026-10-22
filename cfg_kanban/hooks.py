@@ -27,6 +27,7 @@ doctype_js = {
     "CFG Kanban Employee Competency": "public/js/cfg_kanban_employee_competency.js",
     "CFG Kanban Crew Requirement Profile": "public/js/cfg_kanban_crew_requirement_profile.js",
     "CFG Kanban Workstation Crew Requirement": "public/js/cfg_kanban_workstation_crew_requirement.js",
+    "CFG Kanban Crew Template": "public/js/cfg_kanban_crew_template.js",
     "CFG Kanban Task Schedule": "public/js/cfg_kanban_task_schedule.js",
     "CFG Kanban Task": "public/js/cfg_kanban_task.js",
     "CFG Kanban Process Task": "public/js/cfg_kanban_process_task.js",
