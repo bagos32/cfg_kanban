@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.86
+**Guide version:** 1.87
 
 **Updated:** 22 October 2026
 
@@ -1780,7 +1780,11 @@ For a Draft Stock Entry:
    explicitly. The quantity is reserved against the Draft entry but ERP stock does not move.
 3. Under **Stage Preprinted Production Output Tag**, select a tag-enabled finished/repacked target
    row, scan an unused main tag, enter its Stock UOM quantity and Handling Unit Type. The identity
-   remains pending; no output stock tag is created while the entry is Draft.
+   remains pending; no output stock tag is created while the entry is Draft. When the output is
+   divided between several containers, enable **Allow ERP Quantity Across Multiple Tags** in the
+   Item/Company Material Trace Policy, then repeat this step with a different unused main tag and
+   the quantity physically placed in each container. The combined staged quantity cannot exceed
+   the ERP output row quantity.
 4. Use **Cancel** beside a staged line to release its reservation or discard the pending output tag
    before submission.
 5. If the complete ERP draft will be discarded, select **Discard Entire Draft Trace**, enter the
@@ -1788,7 +1792,11 @@ For a Draft Stock Entry:
    the Material Trace as Abandoned audit history without retaining a link that blocks ERP deletion.
 6. Submit the Stock Entry through ERPNext or use **Submit ERP Entry** in the scanned Card's
    Production Material Trace section when the operator has the required action permission. Only
-   then does the trace become Confirmed. Consumption
+   then does the trace become Confirmed. For a Batch-controlled finished Item, the tags may be
+   staged while the Draft output Batch is blank. ERPNext creates or assigns the Batch during the
+   single Manufacture submission, and CFG Kanban copies that exact submitted Batch to every staged
+   output tag before activating them. **Exact Output Serial Numbers** is only for ERP Serial Nos;
+   never enter a Batch number in that field. Consumption
    reduces input-tag balance; Material Transfer for Manufacture updates the tag's Warehouse; and
    Manufacture/Repack activates output tags from the ERP-confirmed output.
 
@@ -3567,6 +3575,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.87 | 22 October 2026 | Allowed one or several production-output tags to be staged before ERPNext generates the finished Batch; on the single Manufacture submission, the authoritative ERP Batch is bound to every staged tag before activation, with clearer multi-container and Serial Number guidance |
 | 1.86 | 22 October 2026 | Corrected Manufacture output scanning when optional input and output rows coexist: an active Handling Unit now routes to input allocation, an unused preprinted main tag routes to output staging, and the sole remaining ERP output row resolves safely even when the browser selection is stale; clarified that the Serial Number field is not a Batch field |
 | 1.85 | 22 October 2026 | Exposed each Draft or submitted WIP-bin unused-material return on its related Operation Card using the existing Job Card linkage and submit action, while retaining the complete view on the main Production Card |
 | 1.84 | 22 October 2026 | Added the missing handling-unit quantity-ledger event for submitted WIP-bin unused-material returns, restoring only the confirmed unused quantity to the original source tag |
