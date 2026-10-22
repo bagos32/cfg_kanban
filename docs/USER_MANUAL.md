@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.84
+**Guide version:** 1.85
 
 **Updated:** 22 October 2026
 
@@ -3567,6 +3567,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.85 | 22 October 2026 | Exposed each Draft or submitted WIP-bin unused-material return on its related Operation Card using the existing Job Card linkage and submit action, while retaining the complete view on the main Production Card |
 | 1.84 | 22 October 2026 | Added the missing handling-unit quantity-ledger event for submitted WIP-bin unused-material returns, restoring only the confirmed unused quantity to the original source tag |
 | 1.83 | 22 October 2026 | Corrected WIP-bin Current Trace Lines to distinguish Prepared, Actual Used, and Unused Return quantities and to keep a linked Return Draft visible instead of displaying the original full prepared load as consumed |
 | 1.82 | 22 October 2026 | Added context-sensitive actual WIP-bin consumption: the existing quantity command/control now records actual use separately from prepared quantity, applies Pool-based routine/supervisor rules, reduces the native consumption Draft before submission, automatically creates a WIP-to-source Draft for unused balance, keeps the bin In Use until that ERP return submits, and restores returned source-tag quantity from ERP feedback |

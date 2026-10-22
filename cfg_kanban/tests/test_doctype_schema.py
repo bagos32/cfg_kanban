@@ -1902,6 +1902,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("job_card_material_readiness", runtime_selector)
         self.assertIn("def _material_control_scope", operator)
         self.assertIn("def _operation_material_flow_scope", operator)
+        self.assertIn("or bool(row.cfg_wip_bin_return_load)", operator)
         self.assertIn("Production Material Control", panel)
         self.assertIn("Prepare Operation Materials", panel)
         self.assertIn("Approve and Allocate Partial WIP Bin", panel)

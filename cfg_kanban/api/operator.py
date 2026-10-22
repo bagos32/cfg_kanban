@@ -619,11 +619,14 @@ def _production_stock_entries(cycle, job_card=None):
         rows.sort(key=lambda row: row.modified, reverse=True)
     if job_card:
         rows = [row for row in rows
-                if row.purpose in (
-                    "Material Transfer for Manufacture",
-                    "Material Consumption for Manufacture",
-                )
-                and (row.cfg_kanban_job_card or row.job_card) == job_card]
+                if (row.cfg_kanban_job_card or row.job_card) == job_card
+                and (
+                    row.purpose in (
+                        "Material Transfer for Manufacture",
+                        "Material Consumption for Manufacture",
+                    )
+                    or bool(row.cfg_wip_bin_return_load)
+                )]
     if not rows:
         return []
     traces = frappe.get_all(
