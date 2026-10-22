@@ -593,7 +593,7 @@ def _production_stock_entries(cycle, job_card=None):
     if not cycle.work_order:
         return []
     fields = ["name", "purpose", "stock_entry_type", "docstatus", "posting_date",
-              "posting_time", "cfg_kanban_cycle", "job_card",
+              "posting_time", "fg_completed_qty", "cfg_kanban_cycle", "job_card",
               "cfg_kanban_job_card", "cfg_wip_bin_return_load", "modified"]
     rows = frappe.get_all(
         "Stock Entry",
@@ -644,7 +644,7 @@ def _production_stock_entries(cycle, job_card=None):
     from cfg_kanban.services.production_material_flow import (
         erp_consumption_submission_readiness,
     )
-    route_readiness = erp_consumption_submission_readiness(cycle.work_order)
+    produced_qty = flt(frappe.db.get_value("Work Order", cycle.work_order, "produced_qty"))
     for row in rows:
         trace = trace_by_entry.get(row.name)
         row["erp_status"] = "Draft" if row.docstatus == 0 else "Submitted"
@@ -652,10 +652,15 @@ def _production_stock_entries(cycle, job_card=None):
         row["trace_status"] = trace.status if trace else "Not Started"
         row["is_wip_bin_return"] = bool(row.cfg_wip_bin_return_load)
         row["can_stage_trace"] = row.docstatus == 0 and not row.is_wip_bin_return
-        row["erp_route_ready"] = (
-            row.purpose != "Material Consumption for Manufacture"
-            or route_readiness["ready"]
+        route_readiness = (
+            erp_consumption_submission_readiness(
+                cycle.work_order,
+                required_qty=flt(row.fg_completed_qty) + produced_qty,
+            )
+            if row.purpose == "Material Consumption for Manufacture"
+            else {"ready": True, "reason": None}
         )
+        row["erp_route_ready"] = route_readiness["ready"]
         row["submit_block_reason"] = (
             route_readiness["reason"] if not row["erp_route_ready"] else None
         )

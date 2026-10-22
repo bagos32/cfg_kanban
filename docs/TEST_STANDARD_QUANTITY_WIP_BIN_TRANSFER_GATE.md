@@ -411,7 +411,10 @@ back. A `Transfer Draft` load or Open WIP-bin reconciliation must still block Jo
    **ERP Posting Pending**. Close the operation Kanban Cycle; its operator must not wait for the
    entire route.
 5. Complete the remaining Work Order Job Cards.
-6. Return to the main Production Card and scan `CFG:CMD:SUBMIT_MATERIALS`, or select **Submit ERP
+6. Verify every Work Order Operation row has updated to the Stock Entry's required finished-goods
+   quantity. If a Job Card says Completed but its Work Order row is still lower, refresh/reconcile
+   that ERPNext operation first; CFG Kanban must show the exact row and keep submission disabled.
+7. Return to the main Production Card and scan `CFG:CMD:SUBMIT_MATERIALS`, or select **Submit ERP
    Entry**, for each operation-owned consumption Draft.
 
 Expected result after successful native ERPNext submission:
@@ -422,6 +425,10 @@ Expected result after successful native ERPNext submission:
 - the already-completed Job Card remains linked to the consumed bins and operation;
 - each Load keeps both its transfer and consumption Stock Entry links; and
 - the submitted document, load history and Kanban event timeline agree.
+
+Negative check: before the last Work Order Operation reaches `100`, try the scanner submit command.
+The panel must report **ERP Work Order operation update required**, identify `Kanban Moulding` and
+its completed/required quantity, and must not create or execute a Submit ERP Command.
 
 ### 10.11 Completion guards
 

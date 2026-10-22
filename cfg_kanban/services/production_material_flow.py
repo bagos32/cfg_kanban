@@ -166,6 +166,7 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
 
     route_readiness = erp_consumption_submission_readiness(work_order.name, jobs=jobs)
     incomplete_jobs = route_readiness["incomplete_job_cards"]
+    all_job_cards_completed = not incomplete_jobs and bool(jobs)
     remaining_output = max(0, flt(work_order.qty) - flt(work_order.produced_qty))
     wip_bin_reconciliations = frappe.get_all(
         "CFG Kanban WIP Bin Reconciliation",
@@ -213,9 +214,10 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
             row["shortage_qty"] > 0.000001 for row in restricted_rows
         ),
         "has_shortage": any(row["shortage_qty"] > 0 for row in all_rows),
-        "all_job_cards_completed": route_readiness["ready"],
+        "all_job_cards_completed": all_job_cards_completed,
         "erp_consumption_submission_ready": route_readiness["ready"],
         "erp_consumption_submission_reason": route_readiness["reason"],
+        "erp_consumption_operation_gaps": route_readiness["operation_gaps"],
         "incomplete_job_cards": incomplete_jobs,
         "wip_bin_receipt_ready": receipt_wip_readiness["ready"],
         "wip_bin_receipt_block_reason": receipt_wip_readiness["reason"],
@@ -813,7 +815,12 @@ def submit_production_stock_entry(stock_entry, event_token=None,
                 or return_context.status != "Return Draft"):
             frappe.throw("Unused-material return does not match the active WIP Bin load")
     elif entry.purpose == "Material Consumption for Manufacture":
-        route_readiness = erp_consumption_submission_readiness(work_order.name)
+        required_operation_qty = (
+            flt(entry.get("fg_completed_qty")) + flt(work_order.produced_qty)
+        )
+        route_readiness = erp_consumption_submission_readiness(
+            work_order.name, required_qty=required_operation_qty
+        )
         if not route_readiness["ready"]:
             frappe.throw(route_readiness["reason"])
         from cfg_kanban.services.wip_bin_loads import finalize_wip_bin_consumption_entry
@@ -849,22 +856,40 @@ def submit_production_stock_entry(stock_entry, event_token=None,
             "docstatus": result.docstatus, "duplicate": not created}
 
 
-def erp_consumption_submission_readiness(work_order_name, jobs=None):
+def erp_consumption_submission_readiness(work_order_name, jobs=None, required_qty=None):
     """Return when ERPNext can accept Work Order material consumption.
 
     ERPNext validates a Material Consumption for Manufacture entry against every operation in the
     Work Order. CFG Kanban may record one operation's physical WIP-bin use earlier, but it must not
     offer or attempt ERP submission until all active Job Cards are completed.
     """
+    work_order = frappe.get_doc("Work Order", work_order_name)
     if jobs is None:
         jobs = frappe.get_all(
             "Job Card",
             filters={"work_order": work_order_name, "docstatus": ["<", 2]},
-            fields=["name", "status"], order_by="creation asc",
+            fields=["name", "operation", "status", "docstatus", "total_completed_qty"],
+            order_by="creation asc",
             limit_page_length=0,
         )
     incomplete = [row["name"] for row in jobs if row["status"] != "Completed"]
-    ready = bool(jobs) and not incomplete
+    target_qty = flt(required_qty) or flt(work_order.qty)
+    jobs_by_operation = {}
+    for job in jobs:
+        jobs_by_operation.setdefault(job.get("operation") or "", []).append(job["name"])
+    operation_gaps = []
+    for row in work_order.get("operations") or []:
+        completed_qty = flt(row.get("completed_qty"))
+        if completed_qty + 0.000001 >= target_qty:
+            continue
+        operation_gaps.append({
+            "row": row.idx,
+            "operation": row.operation,
+            "completed_qty": completed_qty,
+            "required_qty": target_qty,
+            "job_cards": jobs_by_operation.get(row.operation or "", []),
+        })
+    ready = bool(jobs) and not incomplete and not operation_gaps
     reason = None
     if not jobs:
         reason = (
@@ -876,8 +901,26 @@ def erp_consumption_submission_readiness(work_order_name, jobs=None):
             f"Manufacture until every Work Order operation is complete. Waiting for: "
             + ", ".join(incomplete)
         )
-    return {"ready": ready, "reason": reason,
-            "incomplete_job_cards": incomplete}
+    elif operation_gaps:
+        details = []
+        for gap in operation_gaps:
+            job_note = (
+                " via " + ", ".join(gap["job_cards"])
+                if gap["job_cards"] else ""
+            )
+            details.append(
+                f"row {gap['row']} {gap['operation']} "
+                f"{gap['completed_qty']}/{gap['required_qty']}{job_note}"
+            )
+        reason = (
+            "Operation use is recorded, but ERPNext Work Order operation quantities are not "
+            "ready for Material Consumption for Manufacture: " + "; ".join(details)
+        )
+    return {
+        "ready": ready, "reason": reason,
+        "incomplete_job_cards": incomplete, "operation_gaps": operation_gaps,
+        "required_qty": target_qty,
+    }
 
 
 def _production_context(cycle_name):

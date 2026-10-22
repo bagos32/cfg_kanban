@@ -1945,7 +1945,11 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("job_card_wip_bin_close_readiness(job_card.name)", operator)
         self.assertIn("wip_bin_erp_posting_pending", operator)
         self.assertIn("erp_consumption_submission_readiness", service)
+        self.assertIn('work_order.get("operations")', service)
+        self.assertIn('"operation_gaps": operation_gaps', service)
+        self.assertIn("required_operation_qty", service)
         self.assertIn("ERP Posting Pending", panel)
+        self.assertIn("ERP Work Order operation update required", panel)
         self.assertIn("Operation use is recorded", panel)
         self.assertNotIn("if not active:\n        return\n    detail", wip_service.split(
             "def abandon_draft_stock_entry", 1

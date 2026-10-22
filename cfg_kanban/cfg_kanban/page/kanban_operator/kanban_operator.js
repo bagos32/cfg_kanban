@@ -757,6 +757,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				detail: __("Prepare and confirm the finished-goods Manufacture receipt"),
 				status: __("Next Step"), colour: "green" };
 		}
+		if (flow?.all_job_cards_completed && !flow?.erp_consumption_submission_ready) {
+			return { key: "production-material", title: __("ERP operation update pending"),
+				detail: flow.erp_consumption_submission_reason,
+				status: __("ERP Update Required"), colour: "orange" };
+		}
 		if (flow?.wip_bin_receipt_ready === false) {
 			return { key: "production-material", title: __("Complete WIP-bin consumption"),
 				detail: flow.wip_bin_receipt_block_reason,
@@ -1285,7 +1290,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				if (job.wip_bin_consumption_draft) {
 					const message = flow.erp_consumption_submission_ready
 						? __("WIP-bin consumption Draft {0} is fully scanned and ready for ERP submission.", [document_link("stock-entry", job.wip_bin_consumption_draft)])
-						: __("WIP-bin consumption Draft {0} is the operation-use record. Scan every Ready bin, then close this operation Card. ERP posting and physical-bin release remain pending until the Work Order route is complete.", [document_link("stock-entry", job.wip_bin_consumption_draft)]);
+						: __("WIP-bin consumption Draft {0} is the operation-use record. Scan every Ready bin, then close this operation Card. ERP posting and physical-bin release remain pending: {1}", [document_link("stock-entry", job.wip_bin_consumption_draft), e(flow.erp_consumption_submission_reason || __("Work Order route is incomplete"))]);
 					$job.append(`<div class="mt-2 alert alert-warning py-2"><small>${message}</small></div>`);
 				}
 				if (job.restricted_materials_present) {
@@ -1319,6 +1324,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			flow.wip_bin_receipt_ready !== false) {
 			add_action($actions, __("Prepare Manufacture Receipt"), "btn-success", () =>
 				manufacture_receipt_dialog(flow));
+		} else if (flow.all_job_cards_completed && !flow.erp_consumption_submission_ready) {
+			$section.append(`<div class="alert alert-warning" data-live-focus="production-material">
+				<strong>${__("ERP Work Order operation update required")}</strong><br>
+				${e(flow.erp_consumption_submission_reason || "")}</div>`);
 		} else if (flow.wip_bin_receipt_ready === false) {
 			$section.append(`<div class="alert alert-warning" data-live-focus="production-material">
 				<strong>${__("Manufacture receipt is waiting for WIP-bin consumption")}</strong><br>

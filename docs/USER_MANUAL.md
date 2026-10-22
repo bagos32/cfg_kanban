@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.93
+**Guide version:** 1.94
 
 **Updated:** 22 October 2026
 
@@ -1254,6 +1254,13 @@ The first operation therefore follows a two-stage close without waiting at the w
 5. After every Work Order Job Card is Completed, submit each visible operation-owned consumption
    Draft. A successful ERP submission changes the load to `Consumed` (or `Return Draft` for unused
    balance) and releases the bin only after the required return is also submitted.
+
+CFG Kanban checks both levels before enabling that submission: every Job Card header must be
+`Completed`, and every native Work Order Operation row must show at least the quantity required by
+the consumption Stock Entry. A Completed Job Card whose Work Order Operation quantity has not yet
+updated is not treated as ERP-ready. The panel shows **ERP Work Order operation update required**
+with the exact row, operation, completed/required quantity, and related Job Card instead of sending
+an entry that ERPNext will reject.
 
 This separation never represents the Draft as posted ERP stock. The final Manufacture receipt
 remains unavailable until every related load is fully resolved, so operation closure cannot bypass
