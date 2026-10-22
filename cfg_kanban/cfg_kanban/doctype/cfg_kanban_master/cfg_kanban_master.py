@@ -260,10 +260,9 @@ class CFGKanbanMaster(Document):
                 f"Material Flow row {row.idx}: serial-controlled Item {row.item_code} must "
                 "use Standard ERP / Tag Flow so exact serial membership is preserved"
             )
-        if not row.wip_bin_pool or flt(row.standard_bin_qty) <= 0:
+        if not row.wip_bin_pool:
             frappe.throw(
-                f"Material Flow row {row.idx}: WIP Bin Pool and a positive Qty per Full Bin "
-                "are required"
+                f"Material Flow row {row.idx}: WIP Bin Pool is required"
             )
         pool = frappe.db.get_value(
             "CFG Kanban WIP Bin Pool",
@@ -295,13 +294,32 @@ class CFGKanbanMaster(Document):
                 f"Material Flow row {row.idx}: WIP Bin Pool Warehouse {pool.wip_warehouse} "
                 f"does not match Master WIP Warehouse {self.wip_warehouse}"
             )
-        if not frappe.db.exists(
+        active_bins = frappe.get_all(
             "CFG Kanban WIP Bin Pool Entry",
             {"parent": row.wip_bin_pool, "parenttype": "CFG Kanban WIP Bin Pool", "active": 1},
-        ):
+            ["reusable_bin"],
+        )
+        if not active_bins:
             frappe.throw(
                 f"Material Flow row {row.idx}: WIP Bin Pool has no active physical bins"
             )
+        if flt(row.standard_bin_qty) <= 0:
+            missing_capacity = [
+                value.reusable_bin for value in active_bins
+                if not frappe.db.exists("CFG Kanban WIP Bin Capacity", {
+                    "parent": value.reusable_bin,
+                    "parenttype": "CFG Kanban Handling Unit",
+                    "parentfield": "wip_bin_capacities",
+                    "item_code": row.item_code,
+                    "active": 1,
+                })
+            ]
+            if missing_capacity:
+                frappe.throw(
+                    f"Material Flow row {row.idx}: configure an Item-specific Full-bin "
+                    f"Capacity for {row.item_code} on every active bin, or enter a positive "
+                    "Fallback Qty per Full Bin. Missing: " + ", ".join(missing_capacity)
+                )
 
     def _set_item_and_purchase_uom(self):
         if not self.item_code:

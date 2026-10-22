@@ -1776,10 +1776,19 @@ class TestDocTypeSchema(TestCase):
                 schemas["CFG Kanban WIP Bin Pool"]["fields"]}
         pool_entry = {row["fieldname"]: row for row in
                       schemas["CFG Kanban WIP Bin Pool Entry"]["fields"]}
+        bin_capacity = {row["fieldname"]: row for row in
+                        schemas["CFG Kanban WIP Bin Capacity"]["fields"]}
         load = {row["fieldname"]: row for row in
                 schemas["CFG Kanban WIP Bin Load"]["fields"]}
         self.assertIn("Standard Quantity WIP Bin",
                       handling_unit["reusable_container_role"]["options"])
+        self.assertEqual(
+            handling_unit["wip_bin_capacities"]["options"],
+            "CFG Kanban WIP Bin Capacity",
+        )
+        self.assertTrue({"item_code", "full_bin_qty", "stock_uom", "active"}.issubset(
+            bin_capacity
+        ))
         self.assertTrue({
             "pool_name", "active", "company", "operation",
             "wip_warehouse", "require_bin_scan", "require_full_bin_consumption",
@@ -1789,6 +1798,7 @@ class TestDocTypeSchema(TestCase):
         self.assertTrue({"reusable_bin", "workstation", "priority", "active"}.issubset(pool_entry))
         self.assertIn("Standard Quantity Reusable WIP Bin",
                       rule["wip_presentation_method"]["options"])
+        self.assertFalse(rule["standard_bin_qty"].get("mandatory_depends_on"))
         self.assertTrue({
             "status", "reusable_bin", "wip_bin_pool", "company", "item_code",
             "batch_no", "standard_qty", "actual_qty", "stock_uom", "kanban_master",
@@ -1920,6 +1930,9 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("def allocate_transfer_bin", load_service)
         self.assertIn("def cancel_transfer_bin", load_service)
         self.assertIn("def allocate_consumption_bin", load_service)
+        self.assertIn("def wip_bin_full_qty", load_service)
+        self.assertIn("bin_unit.name, row.item_code, row.stock_uom", load_service)
+        self.assertIn('"standard_qty": standard_qty', load_service)
         self.assertIn("def _consumption_row_for_ready_bin", load_service)
         self.assertIn('return doc.get("purpose") or doc.get("stock_entry_type")', load_service)
         self.assertIn("def cancel_consumption_bin", load_service)

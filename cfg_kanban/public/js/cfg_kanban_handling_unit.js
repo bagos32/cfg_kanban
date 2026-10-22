@@ -55,6 +55,8 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 			}, 10);
 		} else if (frm.is_new()) {
 			await frm.set_value("wip_bin_state", null);
+			frm.clear_table("wip_bin_capacities");
+			frm.refresh_field("wip_bin_capacities");
 		}
 	},
 	async kanban_cycle(frm) {
@@ -204,6 +206,18 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 		if (!["Received", "Void", "Replaced"].includes(frm.doc.state)) {
 			frm.add_custom_button(__("Replace Tag"), () => replace_tag(frm), __("Kanban Actions"));
 		}
+	},
+});
+
+frappe.ui.form.on("CFG Kanban WIP Bin Capacity", {
+	async item_code(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row.item_code) {
+			await frappe.model.set_value(cdt, cdn, "stock_uom", null);
+			return;
+		}
+		const response = await frappe.db.get_value("Item", row.item_code, "stock_uom");
+		await frappe.model.set_value(cdt, cdn, "stock_uom", response.message?.stock_uom || null);
 	},
 });
 

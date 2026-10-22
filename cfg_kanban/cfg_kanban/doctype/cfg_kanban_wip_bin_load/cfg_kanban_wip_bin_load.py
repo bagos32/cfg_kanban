@@ -118,9 +118,16 @@ class CFGKanbanWIPBinLoad(Document):
         }, ["standard_bin_qty", "stock_uom"], as_dict=True)
         if not rule:
             frappe.throw("Item is not configured for this WIP Bin Pool on the Kanban Master")
-        if (abs(flt(rule.standard_bin_qty) - flt(self.standard_qty)) > TOLERANCE
+        from cfg_kanban.services.wip_bin_loads import wip_bin_full_qty
+        expected_qty = wip_bin_full_qty(
+            self.reusable_bin, self.item_code, self.stock_uom, rule.standard_bin_qty
+        )
+        if (abs(expected_qty - flt(self.standard_qty)) > TOLERANCE
                 or rule.stock_uom != self.stock_uom):
-            frappe.throw("WIP Bin standard quantity/UOM does not match the Kanban Master")
+            frappe.throw(
+                "WIP Bin standard quantity/UOM does not match its Item-specific physical "
+                "capacity or Kanban Master fallback"
+            )
 
     def _validate_recovery_context(self, unit):
         if unit.wip_bin_state != "Exception":

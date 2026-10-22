@@ -2,7 +2,7 @@ import uuid
 
 import frappe
 from frappe.model.document import Document
-from frappe.utils import flt, now_datetime
+from frappe.utils import cint, flt, now_datetime
 
 from cfg_kanban.services.logistics_foundation import (
     post_quantity_event,
@@ -97,6 +97,7 @@ class CFGKanbanHandlingUnit(Document):
             if self.is_new():
                 self._clear_reusable_stock_context()
             self._validate_reusable_container_role()
+            self._validate_wip_bin_capacities()
         else:
             self.reusable_container_role = None
             self.wip_bin_state = None
@@ -220,6 +221,21 @@ class CFGKanbanHandlingUnit(Document):
                 f"Company and Warehouse cannot change while this bin belongs to WIP Bin Pool "
                 f"{assigned_pool}"
             )
+        capacity_changed = _wip_capacity_signature(before) != _wip_capacity_signature(self)
+        active_load = capacity_changed and frappe.db.exists("CFG Kanban WIP Bin Load", {
+            "reusable_bin": self.name,
+            "status": ["in", ["Reserved", "Transfer Draft", "Ready", "In Use",
+                              "Consumption Draft"]],
+        })
+        open_reconciliation = capacity_changed and frappe.db.exists(
+            "CFG Kanban WIP Bin Reconciliation",
+            {"reusable_bin": self.name, "status": "Open"},
+        )
+        if active_load or open_reconciliation:
+            frappe.throw(
+                "Item-specific Full-bin Capacity cannot change while this WIP Bin has an "
+                "active material load or Open reconciliation"
+            )
 
     def _validate_reusable_container_role(self):
         role = self.reusable_container_role or "Logistics Container"
@@ -240,6 +256,34 @@ class CFGKanbanHandlingUnit(Document):
                 "A logistics container with loaded Stock Tags cannot become a Standard Quantity WIP Bin"
             )
         self.wip_bin_state = self.wip_bin_state or "Empty"
+
+    def _validate_wip_bin_capacities(self):
+        rows = self.get("wip_bin_capacities") or []
+        if self.reusable_container_role != "Standard Quantity WIP Bin":
+            if rows:
+                frappe.throw(
+                    "Item-specific Full-bin Capacity is only valid for a Standard Quantity WIP Bin"
+                )
+            return
+        seen = set()
+        for row in rows:
+            if not row.item_code:
+                frappe.throw(f"WIP Bin Capacity row {row.idx}: Item is required")
+            if row.item_code in seen:
+                frappe.throw(
+                    f"WIP Bin Capacity row {row.idx}: Item {row.item_code} is repeated"
+                )
+            seen.add(row.item_code)
+            if flt(row.full_bin_qty) <= 0:
+                frappe.throw(
+                    f"WIP Bin Capacity row {row.idx}: Full-bin Qty must be positive"
+                )
+            stock_uom = frappe.db.get_value("Item", row.item_code, "stock_uom")
+            if not stock_uom:
+                frappe.throw(
+                    f"WIP Bin Capacity row {row.idx}: Item {row.item_code} was not found"
+                )
+            row.stock_uom = stock_uom
 
     def _bind_tag_identity(self):
         if not self.tag_family or not self.handling_unit_id:
@@ -373,3 +417,15 @@ class CFGKanbanHandlingUnit(Document):
                     "operation": profile.destination_operation,
                 }, "workstation")
             self.destination_location = self.destination_location or destination or cycle.destination_warehouse
+
+
+def _wip_capacity_signature(doc):
+    return tuple(sorted(
+        (
+            row.item_code or "",
+            flt(row.full_bin_qty),
+            row.stock_uom or "",
+            cint(row.active),
+        )
+        for row in (doc.get("wip_bin_capacities") or [])
+    ))

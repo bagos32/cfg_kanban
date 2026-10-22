@@ -1,0 +1,14 @@
+{
+  "doctype": "DocType",
+  "name": "CFG Kanban WIP Bin Capacity",
+  "module": "CFG Kanban",
+  "istable": 1,
+  "editable_grid": 1,
+  "field_order": ["item_code", "full_bin_qty", "stock_uom", "active"],
+  "fields": [
+    {"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item","reqd":1,"in_list_view":1,"columns":5,"description":"Item whose visually verified full quantity is defined for this physical bin."},
+    {"fieldname":"full_bin_qty","label":"Full-bin Qty","fieldtype":"Float","reqd":1,"in_list_view":1,"columns":3,"description":"Exact quantity represented when this physical bin is full, in the Item Stock UOM."},
+    {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM","read_only":1,"in_list_view":1,"columns":3},
+    {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"columns":1}
+  ]
+}

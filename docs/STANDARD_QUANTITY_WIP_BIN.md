@@ -54,11 +54,19 @@ The pool records these locked safety choices:
 
 Use **Production Material Mode = Transfer to WIP by Job Card**. On the correct BOM component row,
 select **WIP Presentation = Standard Quantity Reusable WIP Bin**, choose the matching pool, and set
-**Qty per Full Bin** in the component Stock UOM.
+**Fallback Qty per Full Bin** in the component Stock UOM only when legacy or unconfigured bins must
+still use one common capacity. Leave the fallback at zero only when every active bin in the Pool has
+an Item-specific capacity. It is not the total BOM or ERP transfer requirement.
 
-The standard quantity belongs to the Item/Operation material mapping, not to the permanent bin.
-This allows the same cleaned, empty physical bin type to be used for another approved Item later
-without rewriting its identity.
+For differently sized physical bins, open each **CFG Kanban Handling Unit** and add the Item under
+**Full-bin Capacities by Item** with that bin's visually verified full quantity. One bin may retain
+separate capacity rows for different approved Items, but one active load remains single-Item and
+single-Batch. The scanned bin's active Item capacity overrides the Master fallback and is snapshotted
+as **Standard Full-bin Qty** on the immutable load episode.
+
+Example: the ERP material row requires 3 Units. Bin A is configured for 1 Unit and Bin B for 2
+Units. Scanning A allocates 1; scanning B allocates 2; together they complete the row. Neither is a
+partial-bin exception because each physical bin is full to its own configured capacity.
 
 ### WIP Bin Load episode
 

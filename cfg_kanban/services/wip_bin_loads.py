@@ -213,7 +213,11 @@ def allocate_transfer_bin(stock_entry, item_row, reusable_bin_scan,
             "scanner in this release; use Standard ERP / Tag Flow"
         )
     remaining = _remaining_transfer_qty(entry.name, row.name, _row_stock_qty(row))
-    standard_qty = flt(context["standard_bin_qty"])
+    bin_unit = _resolve_reusable_bin(reusable_bin_scan, context, entry, row)
+    _lock_reusable_bin(bin_unit.name)
+    standard_qty = wip_bin_full_qty(
+        bin_unit.name, row.item_code, row.stock_uom, context["standard_bin_qty"]
+    )
     explicit_qty = actual_qty not in (None, "")
     requested_qty = flt(actual_qty)
     if explicit_qty and requested_qty <= TOLERANCE:
@@ -236,7 +240,6 @@ def allocate_transfer_bin(stock_entry, item_row, reusable_bin_scan,
             f"{qty} {row.stock_uom} WIP Bin cannot be allocated"
         )
 
-    bin_unit = _resolve_reusable_bin(reusable_bin_scan, context, entry, row)
     policy = effective_trace_policy(row.item_code, entry.company)
     batch_no = _tag_batch_no(row)
     source_unit = _resolve_source_unit(source_scan, entry, row, policy, qty, batch_no)
@@ -287,7 +290,7 @@ def allocate_transfer_bin(stock_entry, item_row, reusable_bin_scan,
             reference_doctype="CFG Kanban WIP Bin Load", reference_name=load.name,
             operator=profile.employee, operator_session=session.name,
             terminal_user=session.terminal_user,
-            notes=(f"Standard {standard_qty} {row.stock_uom}; actual {qty} "
+            notes=(f"Physical-bin capacity {standard_qty} {row.stock_uom}; actual {qty} "
                    f"{row.stock_uom}; reason: {exception_reason}"),
         )
     return _allocation_result(entry, row, load)
@@ -539,7 +542,6 @@ def create_transfer_load(*, stock_entry, stock_entry_detail, reusable_bin,
     qty = flt(actual_qty)
     if qty <= 0 or qty > _row_stock_qty(row) + TOLERANCE:
         frappe.throw("WIP Bin load quantity must be positive and within the Stock Entry row")
-
     key = idempotency_key or (
         f"wip-bin-load:{entry.name}:{row.name}:{reusable_bin}:{qty}"
     )
@@ -550,6 +552,15 @@ def create_transfer_load(*, stock_entry, stock_entry_detail, reusable_bin,
     _lock_reusable_bin(reusable_bin)
     bin_unit = frappe.get_doc("CFG Kanban Handling Unit", reusable_bin)
     _assert_reusable_bin(bin_unit, rule.wip_bin_pool, entry.company, row.t_warehouse)
+    standard_qty = wip_bin_full_qty(
+        bin_unit.name, item_code, row.stock_uom, rule.standard_bin_qty
+    )
+    if qty > standard_qty + TOLERANCE:
+        frappe.throw(
+            f"WIP Bin {bin_unit.handling_unit_id} cannot exceed its Item-specific Full-bin "
+            f"Capacity of {standard_qty} {row.stock_uom}"
+        )
+
     load = frappe.get_doc({
         "doctype": "CFG Kanban WIP Bin Load",
         "status": "Transfer Draft",
@@ -558,7 +569,7 @@ def create_transfer_load(*, stock_entry, stock_entry_detail, reusable_bin,
         "company": entry.company,
         "item_code": item_code,
         "batch_no": batch_no or row.get("batch_no"),
-        "standard_qty": rule.standard_bin_qty,
+        "standard_qty": standard_qty,
         "actual_qty": qty,
         "stock_uom": row.stock_uom,
         "partial_exception": 1 if partial_exception else 0,
@@ -1396,6 +1407,41 @@ def _wip_rule(master, item_code, operation):
     return rule
 
 
+def wip_bin_full_qty(reusable_bin, item_code, stock_uom, default_qty):
+    """Return the scanned physical bin's Item capacity, with Kanban Master fallback."""
+    capacity = frappe.db.get_value(
+        "CFG Kanban WIP Bin Capacity",
+        {
+            "parent": reusable_bin,
+            "parenttype": "CFG Kanban Handling Unit",
+            "parentfield": "wip_bin_capacities",
+            "item_code": item_code,
+            "active": 1,
+        },
+        ["full_bin_qty", "stock_uom"],
+        as_dict=True,
+    )
+    if capacity:
+        if capacity.stock_uom != stock_uom:
+            frappe.throw(
+                f"WIP Bin {reusable_bin} capacity UOM {capacity.stock_uom} does not match "
+                f"ERP row UOM {stock_uom} for Item {item_code}"
+            )
+        qty = flt(capacity.full_bin_qty)
+        if qty <= TOLERANCE:
+            frappe.throw(
+                f"WIP Bin {reusable_bin} has an invalid Full-bin Capacity for Item {item_code}"
+            )
+        return qty
+    qty = flt(default_qty)
+    if qty <= TOLERANCE:
+        frappe.throw(
+            f"WIP Bin {reusable_bin} has no active Item-specific capacity and the Kanban "
+            "Master Fallback Qty per Full Bin is not positive"
+        )
+    return qty
+
+
 def _entry_row(doc, row_name):
     row = next((candidate for candidate in doc.items if candidate.name == row_name), None)
     if not row:
@@ -1687,6 +1733,7 @@ def _allocation_result(entry, row, load):
         "stock_entry": entry.name, "row_name": row.name, "load": load.name,
         "status": load.status, "reusable_bin": load.reusable_bin,
         "source_handling_unit": load.source_handling_unit,
+        "standard_qty": flt(load.standard_qty),
         "actual_qty": flt(load.actual_qty), "stock_uom": load.stock_uom,
         "partial_exception": bool(load.partial_exception),
         "exception_reason": load.exception_reason,

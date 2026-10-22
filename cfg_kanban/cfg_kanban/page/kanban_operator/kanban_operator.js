@@ -2240,28 +2240,16 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const notice = dialog.get_field("wip_partial_notice");
 		notice.wrapper.toggle(transfer);
 		if (!transfer) return;
-		const remaining = Number(row.wip_bin_remaining_qty || 0);
-		const standard = Number(row.standard_bin_qty || 0);
-		const final_remainder = remaining > 0.000001 && remaining < standard - 0.000001;
 		let message;
 		let indicator = "info";
-		if (!configured && final_remainder) {
-			indicator = "warning";
-			message = __("The remaining ERP quantity is below one full bin, but this Pool does not allow a partial-bin exception. Correct the production quantity or update the controlled Pool policy before continuing.");
-		} else if (configured && !authorized) {
-			indicator = final_remainder ? "warning" : "info";
+		if (configured && !authorized) {
 			message = __("Partial bins require an active Supervisor QR session with Override permission. Full-bin scanning remains available.");
 		} else if (authorized) {
-			message = __("Supervisor partial-bin control is available. Scan Material Quantity, enter the reason, then scan the source tag and Empty WIP Bin; or use the fields below.");
+			message = __("Supervisor partial-bin control is available. Each scanned bin supplies its own Item-specific full capacity. Use a Material Quantity command and reason only when that physical bin is deliberately under-filled.");
 		} else {
-			message = __("This Pool accepts full-bin allocation only.");
+			message = __("This Pool accepts full-bin allocation only. The scanned bin's Item-specific capacity determines the allocated quantity.");
 		}
 		notice.$wrapper.html(`<div class="alert alert-${indicator} py-2">${frappe.utils.escape_html(message)}</div>`);
-		if (authorized && final_remainder && !Number(dialog.get_value("wip_partial_qty") || 0)) {
-			await dialog.set_value("wip_partial_qty", remaining);
-			await dialog.set_value("wip_partial_reason",
-				__("Final ERP material row remainder does not fill the standard WIP bin"));
-		}
 	}
 
 	async function update_operator_output_serial_field(dialog, row) {
@@ -2398,9 +2386,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					frappe.throw(__("Switch to a Supervisor QR with Override permission before setting a partial-bin quantity."));
 				}
 				const qty = Number(partial_qty[1]);
-				if (!(qty > 0) || qty >= Number(row.standard_bin_qty) || qty > Number(row.wip_bin_remaining_qty)) {
-					frappe.throw(__("Partial quantity must be above zero, below {0}, and no more than the remaining {1} {2}.",
-						[row.standard_bin_qty, row.wip_bin_remaining_qty, row.stock_uom]));
+				if (!(qty > 0) || qty > Number(row.wip_bin_remaining_qty)) {
+					frappe.throw(__("Partial quantity must be above zero and no more than the remaining {0} {1}. The scanned bin's Item-specific capacity is validated after its tag is read.",
+						[row.wip_bin_remaining_qty, row.stock_uom]));
 				}
 				dialog.cfg_wip_partial_qty = qty;
 				await dialog.set_value("wip_partial_qty", qty);
@@ -2466,7 +2454,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	function operator_wip_row_option(row, index) {
 		const prefix = index === undefined ? "" : `${index + 1}. `;
-		return `${prefix}${row.row_name} :: ${row.item_code} :: ${row.standard_bin_qty} ${row.stock_uom}`;
+		return `${prefix}${row.row_name} :: ${row.item_code} :: ${row.wip_bin_remaining_qty} ${row.stock_uom} remaining`;
 	}
 
 	function operator_wip_row(rows, value) {
@@ -2526,7 +2514,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					result.stock_uom || row.stock_uom])
 			: partial
 				? __("Supervisor partial-bin exception recorded; ERP stock moves only after Stock Entry submission.")
-				: __("WIP Bin allocated; ERP stock moves only after Stock Entry submission."), indicator: "green" });
+				: __("WIP Bin allocated {0} / {1} {2}; ERP stock moves only after Stock Entry submission.",
+					[result.actual_qty || 0, result.standard_qty || 0,
+						result.stock_uom || row.stock_uom]), indicator: "green" });
 		dialog.cfg_wip_erp_only = false;
 		dialog.cfg_wip_partial_qty = 0;
 		await dialog.set_value("wip_source_scan", "");

@@ -1,9 +1,9 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 1.79
+**Guide version:** 1.80
 
-**Updated:** 20 October 2026
+**Updated:** 22 October 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
@@ -1100,6 +1100,12 @@ Create each permanent physical identity as **CFG Kanban Handling Unit** with:
 - the exact owning **Inventory Company** (`inventory_company`); and
 - the actual ERPNext **Current Warehouse** (`current_warehouse`) used as WIP.
 
+When physical bins in the same pool have different capacities, add the applicable Item under
+**Full-bin Capacities by Item** (`wip_bin_capacities`) on each Handling Unit. Enter the exact
+**Full-bin Qty** (`full_bin_qty`); Stock UOM is copied from the Item. For example, configure Bin A
+as RW-MATERIAL = 1 Unit and Bin B as RW-MATERIAL = 2 Units. Capacity is configuration, not live
+stock, and cannot be changed while that bin has an active load or an Open reconciliation.
+
 Then create **CFG Kanban WIP Bin Pool** for one Company, Operation, and WIP Warehouse, and add the
 approved physical bins with each bin's Workstation. This supports one Operation running at two or
 more parallel workstations without allowing a scanned bin to drift between them. One physical bin
@@ -1112,13 +1118,19 @@ On the Kanban Master's **BOM Component Material Flow**, the optional fields are:
 |---|---|
 | WIP Presentation (`wip_presentation_method`) | Keeps the existing ERP/tag workflow or selects the visually controlled reusable-bin model |
 | WIP Bin Pool (`wip_bin_pool`) | Approved physical bins for the component's exact BOM Item Operation |
-| Qty per Full Bin (`standard_bin_qty`) | Quantity physically represented by one full bin, in the component Stock UOM |
+| Fallback Qty per Full Bin (`standard_bin_qty`) | Optional backward-compatible capacity used only when the scanned bin has no active Item-specific capacity; leave it at zero only when every active bin in the Pool has an Item-specific capacity. This is not the total BOM/ERP row requirement |
 
 The bin selection is valid only with `Transfer to WIP by Job Card`, and its Company, Operation, and
 WIP Warehouse must match the Master. Different BOM component rows may use different presentation
 methods in the same Work Order. For example, Flour can use a standard-quantity WIP bin while Water
 and Oil remain on `Standard ERP / Tag Flow`. Only the explicitly selected Item/Operation component
 uses the bin model.
+
+At runtime, the ERP transfer row remains the total requirement. If that row requires 3 Units and
+the operator scans Bin A (capacity 1) followed by Bin B (capacity 2), CFG Kanban allocates 1 then 2
+and completes the row at 3. A full bin using its configured capacity is not a partial-bin exception.
+The Master fallback applies only to legacy or unconfigured bins. A deliberate under-fill still
+requires the existing Supervisor partial-bin authorization and reason.
 
 This release also installs the system-created **CFG Kanban WIP Bin Load** audit record. Each record
 is one immutable load episode and snapshots the physical bin, Item, Batch, standard/actual quantity,
@@ -3524,6 +3536,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.80 | 22 October 2026 | Added Item-specific physical capacity per reusable WIP-bin Handling Unit, allowing heterogeneous bins in one pool (for example 1 + 2 against an ERP requirement of 3); scanner allocation now uses the scanned bin capacity, permits a zero Master fallback when every active Pool bin is configured, and reserves partial-bin exceptions only for actual under-filling |
 | 1.79 | 22 October 2026 | Added scalable Operational Inventory drill-down: Active Tags now count only active identities, the count opens exact Company/Warehouse/Item/UOM tag rows, and Tag Detail shows quantities, batch, quality, movement, custodian/location, reconciliation and scan evidence with a Summary View return action |
 | 1.78 | 20 October 2026 | Corrected WIP-bin consumption to a true single-scan flow: the Draft Stock Entry purpose now controls the UI, source-tag/row-selection controls are excluded, and the scanned Ready bin securely resolves its exact Item, Warehouse, UOM, Batch, Cycle, Job Card and ERP consumption row before Draft binding |
 | 1.77 | 20 October 2026 | Restored reliable Ready WIP-bin recognition in the full Production Material Trace dialog: direct-field Enter/Tab now synchronizes the completed browser scan before allocation, and scans reaching the underlying Production scanner are redirected to the open trace workflow |
