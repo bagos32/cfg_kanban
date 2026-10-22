@@ -571,7 +571,7 @@ def confirm_stock_entry_trace(doc):
 
 def _bind_submitted_output_batch(doc, row, line):
     """Bind ERPNext's authoritative submitted Batch to one staged output tag."""
-    row_batch = _tag_batch_no(row)
+    row_batch = _submitted_output_batch_no(doc, row)
     if line.batch_no and line.batch_no != row_batch:
         frappe.throw(
             f"Staged output tag {line.pending_tag_code} Batch {line.batch_no} no longer "
@@ -583,6 +583,92 @@ def _bind_submitted_output_batch(doc, row, line):
             f"ERPNext did not assign the required Batch for output Item {row.item_code}"
         )
     line.batch_no = row_batch
+
+
+def _submitted_output_batch_no(doc, row):
+    """Resolve a submitted output Batch from ERPNext's persisted stock evidence.
+
+    ERPNext v15 can create the Batch and Serial and Batch Bundle while submitting the
+    Stock Entry. The hook-supplied child row can therefore still contain the pre-submit
+    blank values even though the saved Stock Entry Detail or Stock Ledger Entry already
+    carries the authoritative bundle. Never infer a Batch from recency: only evidence
+    tied to this exact Stock Entry Detail is accepted.
+    """
+    batches = []
+    if row.get("name"):
+        persisted = frappe.db.get_value(
+            "Stock Entry Detail",
+            row.name,
+            ["batch_no", "serial_and_batch_bundle"],
+            as_dict=True,
+        )
+        batches.extend(_row_batch_numbers(persisted))
+        if not batches:
+            batches.extend(_stock_ledger_batch_numbers(doc.name, row.name))
+        if not batches:
+            batches.extend(_submitted_bundle_batch_numbers(doc.name, row.name))
+    if not batches:
+        batches.extend(_row_batch_numbers(row))
+    batches = list(dict.fromkeys(batch for batch in batches if batch))
+    if len(batches) > 1:
+        frappe.throw(
+            f"Stock Entry row {row.idx} contains multiple Batches. Split it into one row or "
+            "Serial and Batch Bundle per Batch before assigning physical Handling Unit tags."
+        )
+    return batches[0] if batches else None
+
+
+def _stock_ledger_batch_numbers(stock_entry, stock_entry_detail):
+    """Return Batches posted by one exact Stock Entry Detail, across ERPNext v15 schemas."""
+    meta = frappe.get_meta("Stock Ledger Entry")
+    fields = ["name"]
+    for fieldname in ("batch_no", "serial_and_batch_bundle"):
+        if meta.has_field(fieldname):
+            fields.append(fieldname)
+    if len(fields) == 1:
+        return []
+    filters = {
+        "voucher_type": "Stock Entry",
+        "voucher_no": stock_entry,
+        "voucher_detail_no": stock_entry_detail,
+    }
+    if meta.has_field("is_cancelled"):
+        filters["is_cancelled"] = 0
+    rows = frappe.get_all(
+        "Stock Ledger Entry",
+        filters=filters,
+        fields=fields,
+        order_by="creation asc",
+    )
+    batches = []
+    for ledger_row in rows:
+        batches.extend(_row_batch_numbers(ledger_row))
+    return list(dict.fromkeys(batch for batch in batches if batch))
+
+
+def _submitted_bundle_batch_numbers(stock_entry, stock_entry_detail):
+    """Resolve an ERPNext-created bundle linked directly to the submitted output row."""
+    meta = frappe.get_meta("Serial and Batch Bundle")
+    required = ("voucher_type", "voucher_no", "voucher_detail_no")
+    if any(not meta.has_field(fieldname) for fieldname in required):
+        return []
+    filters = {
+        "voucher_type": "Stock Entry",
+        "voucher_no": stock_entry,
+        "voucher_detail_no": stock_entry_detail,
+    }
+    if meta.is_submittable:
+        filters["docstatus"] = 1
+    bundles = frappe.get_all(
+        "Serial and Batch Bundle",
+        filters=filters,
+        pluck="name",
+        order_by="creation asc",
+    )
+    batches = []
+    for bundle in bundles:
+        batches.extend(_bundle_batch_numbers(bundle))
+    return list(dict.fromkeys(batch for batch in batches if batch))
 
 
 def reverse_stock_entry_trace(doc):
@@ -1463,19 +1549,25 @@ def _validate_trace_reversal(doc, trace, rows):
 
 
 def _row_batch_numbers(row):
-    if row.get("batch_no"):
-        return [row.batch_no]
-    bundle = row.get("serial_and_batch_bundle")
-    if not bundle:
+    if not row:
         return []
-    values = frappe.get_all(
+    batches = []
+    if row.get("batch_no"):
+        batches.append(row.get("batch_no"))
+    bundle = row.get("serial_and_batch_bundle")
+    if bundle:
+        batches.extend(_bundle_batch_numbers(bundle))
+    return list(dict.fromkeys(value for value in batches if value))
+
+
+def _bundle_batch_numbers(bundle):
+    return frappe.get_all(
         "Serial and Batch Entry",
         filters={"parent": bundle, "parenttype": "Serial and Batch Bundle",
                  "batch_no": ["is", "set"]},
         pluck="batch_no",
         order_by="idx asc",
     )
-    return list(dict.fromkeys(value for value in values if value))
 
 
 def _tag_batch_no(row):
