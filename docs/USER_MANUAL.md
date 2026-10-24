@@ -3599,6 +3599,12 @@ mid-request prevents that response from changing the visible Manifest or scanner
 is deliberately left pending for the next safe polling interval, and live refresh never claims the
 scanner focus.
 
+Selecting an entry under **Open Movement Manifests** or **Recently Completed** loads the Manifest
+into the active-work card and automatically scrolls that card below the sticky scanner header. The
+card receives a short blue highlight and the scanner status confirms **Manifest loaded**. This jump
+occurs only for the operator's deliberate list selection; background live refresh continues to
+preserve the operator's current scroll position.
+
 Prerequisites:
 
 1. Create and activate the directional **CFG Kanban Logistics Route** with both Companies,
@@ -3863,7 +3869,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
-| 2.02 | 24 October 2026 | Added lightweight 15-second live revision checks for Service and Logistics panels with in-place status refresh, persistent operator alerts, filter/scroll preservation and selected Manifest/ERP feedback monitoring; hardened the checks against dialogs or scanner/actions starting while a request is in flight by revalidating popup, input, frozen-action and operator-session state before every render; also documented selective/full scanner-command printing with safe custom or translated display labels |
+| 2.02 | 24 October 2026 | Added lightweight 15-second live revision checks for Service and Logistics panels with in-place status refresh, persistent operator alerts, filter/scroll preservation and selected Manifest/ERP feedback monitoring; hardened the checks against dialogs or scanner/actions starting while a request is in flight by revalidating popup, input, frozen-action and operator-session state before every render; added deliberate Manifest-list selection scrolling with visible loaded-card feedback; also documented selective/full scanner-command printing with safe custom or translated display labels |
 | 2.01 | 22 October 2026 | Added Workforce P06 scanner-first Workstation Crew controls to each Production execution lane: touch and printable QR commands for persistent crew open/join/break/resume/leave/main/context/close actions, existing Employee QR identity without terminal-login replacement, live crew/compliance status refresh, and controlled two-scan crew closure |
 | 2.00 | 22 October 2026 | Added Workforce P05 Employee Job Participation Ledger: separate immutable participation segments for direct labour and oversight, crew join/break/resume/leave/role-change projection, compliance-hold stop/restart, completion/cancellation closure, explicit no-policy operator fallback, and no duplication of ERPNext Job Card production quantity |
 | 1.99 | 22 October 2026 | Added Workforce P04 server authorization: effective competency/crew/lead/supervision/trainee/concurrency/expiry checks at allocation, start, progress, crew change, completion and WIP release; immutable Compliance Check snapshots; persistent Crew Compliance Holds with automatic resolution; unconfigured operations remain backward-compatible and ERPNext stays quantity-authoritative |

@@ -653,7 +653,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<p class="text-muted">${__("For same-Company movements not started by a Transfer Kanban Card: an authorized ERP user prepares the Draft Material Transfer, then physical tags can be traced here. Card-triggered replenishment appears in Open Movement Manifests above.")}</p>${transfer_rows}</section>
 			<section class="cfg-logistics-open-list"><h3>${__("Open Movement Manifests")}</h3>${open_rows}</section>
 			<details class="cfg-logistics-recent mt-4"><summary><strong>${__("Recently Completed")}</strong> <span class="text-muted">${__("Latest 10")}</span></summary><div class="mt-3">${recent_rows}</div></details>`);
-		$list.find(".cfg-logistics-list-row").on("click", function () { open_manifest($(this).data("name")); });
+		$list.find(".cfg-logistics-list-row").on("click", function () {
+			open_manifest($(this).data("name"), { scroll_to_active: true });
+		});
 		$list.find(".internal-transfer-row").off("click").on("click", function () {
 			internal_transfer_dialog($(this).data("name"));
 		});
@@ -2311,13 +2313,29 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				render_active(); await prime_live_revision(); focus_scanner(); return false;
 			}
 			localStorage.setItem(last_manifest_key, state.manifest.name);
-			render_active(); await prime_live_revision(); focus_scanner(); return true;
+			render_active();
+			await prime_live_revision();
+			if (options?.scroll_to_active) scroll_manifest_into_view(state.manifest.name);
+			else focus_scanner();
+			return true;
 		} catch (error) {
 			localStorage.removeItem(last_manifest_key); state.manifest = null; render_active();
 			await prime_live_revision();
 			if (!options?.quiet) scanner_error(__("Manifest could not be opened for this operator."));
 			return false;
 		}
+	}
+
+	function scroll_manifest_into_view(manifest_name) {
+		const card = $active.find(".cfg-logistics-manifest").get(0);
+		if (!card) return;
+		card.style.scrollMarginTop = `${Math.ceil($sticky.outerHeight() || 0) + 12}px`;
+		$(card).addClass("cfg-manifest-just-loaded");
+		$scanner.find(".scanner-message").html(
+			`<small class="text-success">${__("Manifest loaded: {0}", [frappe.utils.escape_html(manifest_name)])}</small>`
+		);
+		window.requestAnimationFrame(() => card.scrollIntoView({ behavior: "smooth", block: "start" }));
+		window.setTimeout(() => $(card).removeClass("cfg-manifest-just-loaded"), 1800);
 	}
 
 	function new_manifest_dialog() {

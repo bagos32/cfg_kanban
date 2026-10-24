@@ -180,6 +180,12 @@
 }
 .cfg-logistics-scanner .scanner-message { min-width: 0; min-height: 18px; }
 .cfg-logistics-active { border-left: 5px solid var(--blue-500); }
+.cfg-logistics-manifest {
+	transition: box-shadow 400ms ease;
+}
+.cfg-logistics-manifest.cfg-manifest-just-loaded {
+	box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.38), var(--shadow-sm);
+}
 .cfg-logistics-route { justify-content: space-around; text-align: center; padding: 14px; background: var(--subtle-fg); border-radius: 8px; }
 .cfg-logistics-route > div:not(.cfg-logistics-arrow) { display: flex; flex-direction: column; }
 .cfg-logistics-arrow { font-size: 24px; }

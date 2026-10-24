@@ -45,3 +45,13 @@ class TestPanelLiveRefreshContract(TestCase):
         self.assertIn("Live update received", panel)
         self.assertIn("touch_activity=False", api)
         self.assertIn("operator_session_expired", panel)
+
+    def test_clicked_manifest_scrolls_to_loaded_active_card(self):
+        panel = (ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
+                 "kanban_logistics.js").read_text()
+        css = (ROOT / "public" / "css" / "kanban_operator.css").read_text()
+        self.assertIn("{ scroll_to_active: true }", panel)
+        self.assertIn("scroll_manifest_into_view", panel)
+        self.assertIn('scrollIntoView({ behavior: "smooth", block: "start" })', panel)
+        self.assertIn("Manifest loaded: {0}", panel)
+        self.assertIn("cfg-manifest-just-loaded", css)
