@@ -39,6 +39,29 @@ For Goods in Transit, additionally verify dispatch moves the tag to the Transit 
 the Manifest Awaiting Receipt. The receiving operator must scan the listed tag and confirm receipt;
 only then does it move to the destination and complete.
 
+## Direct-created Manifest test
+
+This test verifies the Logistics Panel path that does not begin with a Transfer Kanban Card.
+
+1. In **Logistics Operator Panel**, create a Manifest using an active **Internal Warehouse
+   Transfer** route. Do not use an Intercompany Handover route.
+2. Before scanning, verify the panel shows **Inventory mode awaiting first tag** and the route's
+   confirmation policy: **Direct transfer** or **Dispatch and receipt required**.
+3. Arm dispatch scanning and scan an active non-stock Handling Unit in the route's source Warehouse.
+4. Verify **Inventory Control Mode Snapshot = Kanban Operational Inventory** and the panel states
+   that no Stock Entry will be created.
+5. Attempt to scan a tagged ERP-stock Item into the same Manifest. Verify it is rejected because one
+   Manifest cannot mix ERP stock with Kanban operational inventory.
+6. Prepare and confirm the Manifest.
+
+Expected for **Direct Transfer**: the Handling Unit moves directly to the destination Warehouse and
+the Manifest becomes Received without a Stock Entry, ERP Command, Kanban Cycle, or Signal.
+
+Expected for **Goods in Transit**: dispatch moves the Handling Unit to the Transit Warehouse and the
+Manifest becomes Awaiting Receipt without requiring a Kanban Cycle. At destination, arm receipt
+scanning, scan every listed tag, and confirm receipt. The Handling Unit then moves to the destination
+Warehouse and the Manifest becomes Received.
+
 ## Withdrawal test
 
 1. Trigger and release the Withdrawal Card after the tag reaches the destination Warehouse.

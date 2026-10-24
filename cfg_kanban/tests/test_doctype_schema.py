@@ -1333,8 +1333,12 @@ class TestDocTypeSchema(TestCase):
         panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
                  "kanban_logistics.js").read_text()
         self.assertIn("def _is_non_stock_operational_manifest", logistics)
+        self.assertIn("def _lock_manifest_inventory_control_mode", logistics)
         self.assertIn("def _confirm_non_stock_dispatch", logistics)
         self.assertIn("def _confirm_non_stock_receipt", logistics)
+        self.assertIn('result["inventory_control_pending"]', logistics)
+        self.assertIn("cannot mix ERP stock Items", logistics)
+        self.assertIn("if manifest.kanban_cycle:", logistics)
         self.assertIn('return "Required Physical Tag"', logistics)
         self.assertEqual(
             manifest_fields["inventory_control_mode"]["options"],
@@ -1347,6 +1351,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("NON_STOCK_TAG_POLICY", withdrawal)
         self.assertNotIn("Withdrawal control requires a stock Item", master)
         self.assertIn("Kanban operational inventory", panel)
+        self.assertIn("Inventory mode awaiting first tag", panel)
+        self.assertIn("Dispatch and receipt required", panel)
         self.assertIn("Confirm Tagged Withdrawal", panel)
 
     def test_operational_inventory_report_aggregates_tag_balances(self):

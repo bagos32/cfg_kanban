@@ -3669,6 +3669,11 @@ ERPNext stock mode changes the posting boundary:
   supported, including destination receipt scans for the latter. The Manifest stores this inventory
   control mode as an immutable release-time snapshot, so a later Item setting change cannot switch
   an active or historical movement between ERP and Kanban inventory logic.
+- A Manifest created directly from the Logistics Operator Panel has no Item at creation time. Its
+  first accepted tag locks the Manifest to either **ERP Stock** or **Kanban Operational Inventory**.
+  The panel rejects mixing those inventory authorities in one Manifest. Direct-created non-stock
+  movement is supported only on an **Internal Warehouse Transfer** route; intercompany movement
+  continues to require ERPNext stock documents.
 
 Operation:
 
