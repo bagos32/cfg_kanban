@@ -365,6 +365,8 @@ def create_manifest(logistics_route, event_token, operator_session_token):
         "doctype": "CFG Kanban Movement Manifest",
         "logistics_route": route.name,
         "state": "Draft",
+        # A route-only Manifest has no Item yet. The first accepted tag establishes this snapshot.
+        "inventory_control_mode": "",
         "preparation_key": key,
         "created_by_operator": profile.employee,
         "created_operator_session": session.name,
@@ -388,9 +390,7 @@ def get_manifest(manifest_name, operator_session_token):
         frappe.throw("Operator is not assigned to this Logistics Route")
     result = manifest.as_dict()
     internal = manifest.manifest_type == "Internal Warehouse Transfer"
-    result["inventory_control_pending"] = bool(
-        internal and not manifest.inventory_control_mode and not manifest.kanban_cycle
-    )
+    result["inventory_control_pending"] = _direct_manifest_inventory_mode_pending(manifest)
     non_stock_operational = _is_non_stock_operational_manifest(manifest)
     result["non_stock_operational_tracking"] = non_stock_operational
     result["dispatch_document_type"] = (
@@ -1556,6 +1556,29 @@ def _is_non_stock_operational_manifest(manifest):
     return bool(item_code and not frappe.db.get_value("Item", item_code, "is_stock_item"))
 
 
+def _direct_manifest_inventory_mode_pending(manifest):
+    """Recognize new and legacy-empty route Manifests whose first scan must choose the ledger.
+
+    Older schema metadata could populate the first Select option (ERP Stock) before a tag was
+    accepted. An empty Draft without the mode-lock Event is therefore still pending, even when that
+    legacy implicit value is present.
+    """
+    if (
+        manifest.manifest_type != "Internal Warehouse Transfer"
+        or manifest.kanban_cycle
+        or manifest.state != "Draft"
+        or manifest.lines
+    ):
+        return False
+    return not frappe.db.exists(
+        "CFG Kanban Event",
+        {
+            "movement_manifest": manifest.name,
+            "event_type": "Manifest Inventory Control Mode Locked",
+        },
+    )
+
+
 def _lock_manifest_inventory_control_mode(manifest, units):
     """Lock a scan-first Manifest to one stock authority on its first accepted tag.
 
@@ -1587,7 +1610,8 @@ def _lock_manifest_inventory_control_mode(manifest, units):
             "Kanban operational inventory can move only on an Internal Warehouse Transfer "
             "route. Intercompany movement requires ERPNext stock documents."
         )
-    current_mode = manifest.get("inventory_control_mode")
+    pending_direct_mode = _direct_manifest_inventory_mode_pending(manifest)
+    current_mode = None if pending_direct_mode else manifest.get("inventory_control_mode")
     if current_mode and current_mode != mode:
         frappe.throw(
             f"This Manifest is locked to {current_mode}. Create a separate Manifest for "

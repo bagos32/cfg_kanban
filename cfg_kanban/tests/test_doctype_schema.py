@@ -1333,6 +1333,7 @@ class TestDocTypeSchema(TestCase):
         panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
                  "kanban_logistics.js").read_text()
         self.assertIn("def _is_non_stock_operational_manifest", logistics)
+        self.assertIn("def _direct_manifest_inventory_mode_pending", logistics)
         self.assertIn("def _lock_manifest_inventory_control_mode", logistics)
         self.assertIn("def _confirm_non_stock_dispatch", logistics)
         self.assertIn("def _confirm_non_stock_receipt", logistics)
@@ -1342,7 +1343,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('return "Required Physical Tag"', logistics)
         self.assertEqual(
             manifest_fields["inventory_control_mode"]["options"],
-            "ERP Stock\nKanban Operational Inventory",
+            "\nERP Stock\nKanban Operational Inventory",
         )
         self.assertIn('"inventory_control_mode"', transfer)
         self.assertIn("ERPNext deliberately has no Bin/Stock Ledger balance", foundation)
