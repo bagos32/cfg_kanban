@@ -1,3 +1,5 @@
+import hashlib
+
 import frappe
 from frappe.utils import cint, flt, now_datetime
 
@@ -134,6 +136,62 @@ def get_logistics_console(operator_session_token):
             "open_reconciliations": reconciliation["open_reconciliations"],
             "recent_reconciliations": reconciliation["recent_reconciliations"],
             "can_reconcile": reconciliation["can_reconcile"]}
+
+
+@frappe.whitelist()
+def get_logistics_live_revision(operator_session_token, selected_manifest=None):
+    """Return a lightweight opaque revision for Logistics panel background checks."""
+    profile, _session = require_operator(operator_session_token, touch_activity=False)
+    route_names = _authorized_route_names(profile)
+    markers = []
+    if route_names:
+        manifest_filters = {"logistics_route": ["in", list(route_names)]}
+        markers.append(
+            "manifest:" + str(frappe.db.get_value(
+                "CFG Kanban Movement Manifest", manifest_filters, "max(modified)"
+            ) or "")
+        )
+    for doctype, filters in (
+        ("CFG Kanban Logistics Route", {"active": 1}),
+        ("CFG Kanban Delivery Session", {}),
+        ("CFG Kanban Return Case", {}),
+        ("CFG Kanban Route Reconciliation", {}),
+        ("Stock Entry", {"purpose": "Material Transfer"}),
+    ):
+        modified = frappe.db.get_value(doctype, filters, "max(modified)")
+        markers.append(f"{doctype}:{modified or ''}")
+
+    if selected_manifest and route_names:
+        manifest = frappe.db.get_value(
+            "CFG Kanban Movement Manifest",
+            {"name": selected_manifest, "logistics_route": ["in", list(route_names)]},
+            ["name", "modified", "dispatch_delivery_note", "dispatch_stock_entry",
+             "receipt_purchase_receipt", "receipt_stock_entry", "dispatch_command",
+             "receipt_command"],
+            as_dict=True,
+        )
+        if manifest:
+            markers.append(f"selected:{manifest.name}:{manifest.modified}")
+            for doctype, name in (
+                ("Delivery Note", manifest.dispatch_delivery_note),
+                ("Stock Entry", manifest.dispatch_stock_entry),
+                ("Purchase Receipt", manifest.receipt_purchase_receipt),
+                ("Stock Entry", manifest.receipt_stock_entry),
+                ("CFG ERP Command", manifest.dispatch_command),
+                ("CFG ERP Command", manifest.receipt_command),
+            ):
+                if not name:
+                    continue
+                document = frappe.db.get_value(
+                    doctype, name, ["modified", "docstatus"], as_dict=True
+                )
+                if document:
+                    markers.append(
+                        f"{doctype}:{name}:{document.modified}:{document.docstatus}"
+                    )
+
+    revision = hashlib.sha256("|".join(markers).encode("utf-8")).hexdigest()
+    return {"revision": revision, "checked_at": now_datetime()}
 
 
 @frappe.whitelist()

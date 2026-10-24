@@ -1,5 +1,7 @@
+import hashlib
+
 import frappe
-from frappe.utils import cint
+from frappe.utils import cint, now_datetime
 
 from cfg_kanban.services.operator_auth import require_operator
 from cfg_kanban.services.media import list_reference_media
@@ -86,6 +88,20 @@ def get_open_tasks(operator_session_token=None):
                 )):
             visible.append(row)
     return visible[:200]
+
+
+@frappe.whitelist()
+def get_service_tasks_live_revision(operator_session_token=None):
+    """Return a cheap opaque change token without rebuilding the Service panel."""
+    require_operator(operator_session_token, touch_activity=False)
+    open_filters = {"status": ["not in", ("Completed", "Cancelled", "Bypassed")]}
+    markers = [
+        f"task:{frappe.db.get_value('CFG Kanban Task', {}, 'max(modified)') or ''}",
+        f"open:{frappe.db.count('CFG Kanban Task', open_filters)}",
+        f"action:{frappe.db.get_value('CFG Kanban DocType Action Run', {}, 'max(modified)') or ''}",
+    ]
+    revision = hashlib.sha256("|".join(markers).encode("utf-8")).hexdigest()
+    return {"revision": revision, "checked_at": now_datetime()}
 
 
 @frappe.whitelist()

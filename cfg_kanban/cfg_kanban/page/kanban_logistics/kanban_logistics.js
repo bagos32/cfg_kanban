@@ -4,11 +4,13 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	const session_key = "cfg_kanban_operator_session";
 	const last_manifest_key = "cfg_kanban_last_manifest";
 	const last_reconciliation_key = "cfg_kanban_last_reconciliation";
+	const live_poll_ms = 15000;
 	const state = { token: localStorage.getItem(session_key), operator: null, routes: [],
 		manifests: [], recent_manifests: [], internal_transfers: [], manifest: null,
 		delivery_sessions: [], return_cases: [], vehicle_warehouses: [], open_reconciliations: [],
 		recent_reconciliations: [], can_reconcile: false, reconciliation: null,
-		lookup: null, scan_mode: "lookup" };
+		lookup: null, scan_mode: "lookup", live_timer: null, live_revision: null,
+		live_request: false, interaction_epoch: 0 };
 	const $sticky = $("<div class='cfg-logistics-sticky'></div>").appendTo(page.main);
 	const $scanner = $(`<div class="frappe-card cfg-logistics-scanner">
 		<div class="cfg-logistics-scanner-head"><div><strong>${__("Logistics Scanner")}</strong>
@@ -55,10 +57,19 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	page.add_inner_button(__("Identify Operator"), identify_operator);
 
 	async function load() {
+		state.interaction_epoch += 1;
 		sync_session_from_storage();
 		if (!state.token) return show_login();
 		const requested_token = state.token;
 		try {
+			let live_revision = null;
+			try {
+				const live = await frappe.call({ method: "cfg_kanban.api.logistics.get_logistics_live_revision",
+					args: { operator_session_token: state.token,
+						selected_manifest: state.manifest?.name || localStorage.getItem(last_manifest_key) },
+					error: () => {} });
+				live_revision = live.message?.revision || null;
+			} catch (_live_error) { /* The console remains usable while the next live check retries. */ }
 			const response = await frappe.call({ method: "cfg_kanban.api.logistics.get_logistics_console",
 				args: { operator_session_token: state.token } });
 			state.operator = response.message.operator;
@@ -72,6 +83,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			state.open_reconciliations = response.message.open_reconciliations || [];
 			state.recent_reconciliations = response.message.recent_reconciliations || [];
 			state.can_reconcile = Boolean(response.message.can_reconcile);
+			state.live_revision = live_revision;
 			state.scan_mode = "lookup";
 			render_identity();
 			const last_manifest = state.manifest?.name || state.manifest || localStorage.getItem(last_manifest_key);
@@ -110,7 +122,136 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.manifest = null;
 		state.lookup = null;
 		state.scan_mode = "lookup";
+		state.live_revision = null;
 		return true;
+	}
+
+	function install_live_updates() {
+		if (state.live_timer) window.clearInterval(state.live_timer);
+		state.live_timer = window.setInterval(check_live_updates, live_poll_ms);
+		$(page.main).off(".cfg_logistics_live_guard")
+			.on("pointerdown.cfg_logistics_live_guard keydown.cfg_logistics_live_guard paste.cfg_logistics_live_guard",
+				() => { state.interaction_epoch += 1; });
+		$(document).off("visibilitychange.cfg_logistics_live").on("visibilitychange.cfg_logistics_live", () => {
+			if (!document.hidden) window.setTimeout(check_live_updates, 400);
+		});
+	}
+
+	async function check_live_updates() {
+		if (state.live_request) return;
+		if (sync_session_from_storage()) return load();
+		if (!state.token || !state.operator) return;
+		const requested_token = state.token;
+		const requested_epoch = state.interaction_epoch;
+		if (!live_refresh_safe(requested_token, requested_epoch)) return;
+		state.live_request = true;
+		try {
+			const response = await frappe.call({
+				method: "cfg_kanban.api.logistics.get_logistics_live_revision",
+				args: { operator_session_token: requested_token,
+					selected_manifest: state.manifest?.name || null },
+				error: () => {},
+			});
+			if (!live_refresh_safe(requested_token, requested_epoch)) return;
+			const revision = response.message?.revision;
+			if (!revision || revision === state.live_revision) return;
+			const scroll_host = $(page.main).closest(".layout-main-section-wrapper").get(0);
+			const previous_scroll = scroll_host ? scroll_host.scrollTop : 0;
+			const apply_guard = () => live_refresh_safe(requested_token, requested_epoch);
+			if (!(await refresh_list(false, apply_guard))) return;
+			if (!(await refresh_live_work_context(apply_guard))) return;
+			if (!apply_guard()) return;
+			if (scroll_host) scroll_host.scrollTop = previous_scroll;
+			state.live_revision = revision;
+			$scanner.find(".scanner-message").html(
+				`<small class="text-primary">${__("Live update received — logistics status refreshed.")}</small>`
+			);
+			frappe.show_alert({ message: __("Logistics work updated by a supervisor or another operator"),
+				indicator: "blue" }, 7);
+		} catch (error) {
+			if (operator_session_expired(error)) {
+				clear_session(state.token);
+				show_login(__("Operator session expired. Scan the operator credential again."));
+				return;
+			}
+			$scanner.find(".scanner-message").html(
+				`<small class="text-warning">${__("Live check interrupted — retrying automatically.")}</small>`
+			);
+		} finally {
+			state.live_request = false;
+		}
+	}
+
+	function live_refresh_safe(requested_token, requested_epoch) {
+		const stored_token = localStorage.getItem(session_key);
+		const frozen = Number(frappe.dom?.freeze_count || 0) > 0 ||
+			$("#freeze:visible, .freeze-message:visible").length > 0;
+		return !document.hidden && $(wrapper).is(":visible") && !$(".modal:visible").length &&
+			!frozen && state.token === requested_token && stored_token === requested_token &&
+			state.interaction_epoch === requested_epoch;
+	}
+
+	async function refresh_live_work_context(apply_guard = () => true) {
+		if (state.manifest?.name) {
+			try {
+				const manifest = await frappe.call({ method: "cfg_kanban.api.logistics.get_manifest",
+					args: { manifest_name: state.manifest.name,
+						operator_session_token: state.token }, error: () => {} });
+				if (!apply_guard()) return false;
+				state.manifest = manifest.message;
+				if (TERMINAL_STATES.has(state.manifest.state)) localStorage.removeItem(last_manifest_key);
+				else localStorage.setItem(last_manifest_key, state.manifest.name);
+				if ((state.scan_mode === "dispatch" &&
+					!(state.manifest.can_dispatch && state.manifest.state === "Draft")) ||
+					(state.scan_mode === "receipt" && !state.manifest.can_receive)) {
+					state.scan_mode = "lookup";
+				}
+				render_active();
+			} catch (_manifest_error) { /* Keep the selected work visible until a manual action resolves access. */ }
+		}
+		if (state.reconciliation?.name) {
+			try {
+				const reconciliation = await frappe.call({
+					method: "cfg_kanban.services.route_reconciliation.get_route_reconciliation",
+					args: { reconciliation_name: state.reconciliation.name,
+						operator_session_token: state.token }, error: () => {},
+				});
+				if (!apply_guard()) return false;
+				state.reconciliation = reconciliation.message;
+				render_reconciliation();
+			} catch (_reconciliation_error) { /* Keep the last safe view. */ }
+		}
+		if (state.lookup?.delivery_session?.name) {
+			try {
+				const delivery = await frappe.call({
+					method: "cfg_kanban.services.customer_delivery.get_delivery_session",
+					args: { delivery_session: state.lookup.delivery_session.name,
+						operator_session_token: state.token }, error: () => {},
+				});
+				if (!apply_guard()) return false;
+				state.lookup = { delivery_session: delivery.message };
+				render_lookup();
+			} catch (_delivery_error) { /* Keep the last safe view. */ }
+		} else if (state.lookup?.return_case?.name) {
+			try {
+				const return_case = await frappe.call({
+					method: "cfg_kanban.services.customer_returns.get_return_case",
+					args: { return_case: state.lookup.return_case.name,
+						operator_session_token: state.token }, error: () => {},
+				});
+				if (!apply_guard()) return false;
+				state.lookup = { return_case: return_case.message };
+				render_lookup();
+			} catch (_return_error) { /* Keep the last safe view. */ }
+		}
+		return apply_guard();
+	}
+
+	function operator_session_expired(error) {
+		const response = error?.responseJSON || {};
+		const detail = [error?.message, response.exception, response.exc, response._server_messages]
+			.filter(Boolean).join(" ");
+		return /operator session (?:expired|is not active)/i.test(detail);
 	}
 
 	function show_login(message) {
@@ -2167,12 +2308,13 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			if (options?.restore && TERMINAL_STATES.has(state.manifest.state)) {
 				localStorage.removeItem(last_manifest_key);
 				state.manifest = null;
-				render_active(); focus_scanner(); return false;
+				render_active(); await prime_live_revision(); focus_scanner(); return false;
 			}
 			localStorage.setItem(last_manifest_key, state.manifest.name);
-			render_active(); focus_scanner(); return true;
+			render_active(); await prime_live_revision(); focus_scanner(); return true;
 		} catch (error) {
 			localStorage.removeItem(last_manifest_key); state.manifest = null; render_active();
+			await prime_live_revision();
 			if (!options?.quiet) scanner_error(__("Manifest could not be opened for this operator."));
 			return false;
 		}
@@ -2215,7 +2357,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.scan_mode = "lookup"; state.manifest = null;
 		localStorage.removeItem(last_manifest_key);
 		if (!options?.keep_lookup) { state.lookup = null; render_lookup(); }
-		render_active(); focus_scanner();
+		render_active(); prime_live_revision(); focus_scanner();
 	}
 
 	async function remove_line(line_name, unit) {
@@ -2354,9 +2496,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		render_active(); await refresh_list(); focus_scanner();
 	}
 
-	async function refresh_list() {
+	async function refresh_list(prime_revision = true, apply_guard = () => true) {
 		const response = await frappe.call({ method: "cfg_kanban.api.logistics.get_logistics_console",
 			args: { operator_session_token: state.token } });
+		if (!apply_guard()) return false;
 		state.routes = response.message.routes || []; state.manifests = response.message.manifests || [];
 		state.recent_manifests = response.message.recent_manifests || [];
 		state.internal_transfers = response.message.internal_transfers || [];
@@ -2367,6 +2510,17 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.recent_reconciliations = response.message.recent_reconciliations || [];
 		state.can_reconcile = Boolean(response.message.can_reconcile);
 		render_list();
+		if (prime_revision) await prime_live_revision();
+		return true;
+	}
+
+	async function prime_live_revision() {
+		try {
+			const response = await frappe.call({ method: "cfg_kanban.api.logistics.get_logistics_live_revision",
+				args: { operator_session_token: state.token,
+					selected_manifest: state.manifest?.name || null }, error: () => {} });
+			state.live_revision = response.message?.revision || state.live_revision;
+		} catch (_live_error) { /* A later background check will establish the revision. */ }
 	}
 
 	function identify_operator() {
@@ -2417,6 +2571,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.vehicle_warehouses = []; state.open_reconciliations = []; state.recent_reconciliations = [];
 		state.can_reconcile = false; state.manifest = null; state.reconciliation = null;
 		state.lookup = null; state.scan_mode = "lookup";
+		state.live_revision = null;
 	}
 
 	function camera_scan() {
@@ -2503,5 +2658,6 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	}
 
 	const initial_scan = route_scan_value();
+	install_live_updates();
 	load().then(() => { if (initial_scan && state.token) lookup_tag(initial_scan); });
 };

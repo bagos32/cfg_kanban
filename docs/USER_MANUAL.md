@@ -1,9 +1,9 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.01
+**Guide version:** 2.02
 
-**Updated:** 22 October 2026
+**Updated:** 24 October 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
@@ -972,6 +972,19 @@ On phone-sized screens the sticky scanner/operator header is deliberately compre
 quarter of the usable viewport. Repeated scanner guidance is reduced to a single status line, while
 **Scan Task QR with Camera**, the active Employee name, and **Switch Operator** remain prominent.
 Find, Show All, and End Session remain available as smaller secondary controls.
+
+The Service Task Panel performs a lightweight live revision check every 15 seconds while it is
+visible. It does not reload the page or repeatedly rebuild the task list when nothing changed. If a
+Supervisor approves, rejects, requests correction, or another operator updates an occurrence, the
+panel refreshes the affected task view in place, preserves the current task filter and scroll
+position, and shows a blue live-update alert. Checks pause while an operator dialog is open and
+resume when the tab becomes visible again, so checklist or measurement entry is never interrupted.
+The panel rechecks those protections after every background response. If a popup opens, the
+operator scans/types, a frozen transaction starts, or the active credential changes while a check
+is already in flight, that response is discarded without rendering or advancing the revision
+marker; the next safe check retries it. Live refresh never moves focus back to the main scanner.
+Background checks do not extend the operator inactivity timeout; an expired session still requires
+the operator credential.
 
 Large touch controls for **Refresh**, **Scan / Switch Operator**, **Create Task**, and panel switching
 appear after Active Work and before the ready queue. Each task is displayed as a separate touch card
@@ -3572,6 +3585,20 @@ selects **Start Dispatch Scanning** or **Start Receipt Scanning** for the displa
 another Manifest, switching operator, refreshing, or selecting **Stop ... Scanning** returns to safe
 lookup mode.
 
+The Logistics Operator Panel uses the same lightweight 15-second live revision check. An unchanged
+check returns only an opaque revision marker; it does not reload Manifest lists or the page. When a
+Manifest, linked ERP document, Delivery Session, Return Case, internal transfer, or route count
+changes, the panel refreshes the relevant list and currently open work in place. A persistent
+scanner message and blue alert tell the operator that a Supervisor or parallel operator changed the
+work. Transaction scan mode is preserved, and polling pauses while a confirmation or data-entry
+dialog is open. Background checks do not extend the operator inactivity timeout. If another update
+makes the currently armed dispatch/receipt mode invalid, the panel safely returns to lookup mode.
+The safety check is repeated after every background request, not only when polling begins. A popup,
+tag scan, button/keyboard interaction, frozen ERP action, or operator-session change that occurs
+mid-request prevents that response from changing the visible Manifest or scanner state. Its revision
+is deliberately left pending for the next safe polling interval, and live refresh never claims the
+scanner focus.
+
 Prerequisites:
 
 1. Create and activate the directional **CFG Kanban Logistics Route** with both Companies,
@@ -3836,6 +3863,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.02 | 24 October 2026 | Added lightweight 15-second live revision checks for Service and Logistics panels with in-place status refresh, persistent operator alerts, filter/scroll preservation and selected Manifest/ERP feedback monitoring; hardened the checks against dialogs or scanner/actions starting while a request is in flight by revalidating popup, input, frozen-action and operator-session state before every render; also documented selective/full scanner-command printing with safe custom or translated display labels |
 | 2.01 | 22 October 2026 | Added Workforce P06 scanner-first Workstation Crew controls to each Production execution lane: touch and printable QR commands for persistent crew open/join/break/resume/leave/main/context/close actions, existing Employee QR identity without terminal-login replacement, live crew/compliance status refresh, and controlled two-scan crew closure |
 | 2.00 | 22 October 2026 | Added Workforce P05 Employee Job Participation Ledger: separate immutable participation segments for direct labour and oversight, crew join/break/resume/leave/role-change projection, compliance-hold stop/restart, completion/cancellation closure, explicit no-policy operator fallback, and no duplication of ERPNext Job Card production quantity |
 | 1.99 | 22 October 2026 | Added Workforce P04 server authorization: effective competency/crew/lead/supervision/trainee/concurrency/expiry checks at allocation, start, progress, crew change, completion and WIP release; immutable Compliance Check snapshots; persistent Crew Compliance Holds with automatic resolution; unconfigured operations remain backward-compatible and ERPNext stays quantity-authoritative |

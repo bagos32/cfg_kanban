@@ -104,7 +104,8 @@ def open_development_proxy_session(employee, station=None):
     return {"session_token": raw_token, "operator": public_operator(profile, session)}
 
 
-def require_operator(session_token, action=None, execution=None, operation=None, workstation=None):
+def require_operator(session_token, action=None, execution=None, operation=None, workstation=None,
+                     touch_activity=True):
     _require_terminal_user()
     if not session_token:
         frappe.throw("Scan your operator QR before using Kanban")
@@ -149,9 +150,10 @@ def require_operator(session_token, action=None, execution=None, operation=None,
     allowed_workstations = {row.workstation for row in profile.allowed_workstations if row.workstation}
     if allowed_workstations and workstation and workstation not in allowed_workstations:
         frappe.throw(f"Operator is not authorized for workstation {workstation}")
-    session.db_set({"last_activity_on": current,
-                    "expires_on": add_to_date(current, minutes=_timeout_minutes())},
-                   update_modified=False)
+    if touch_activity:
+        session.db_set({"last_activity_on": current,
+                        "expires_on": add_to_date(current, minutes=_timeout_minutes())},
+                       update_modified=False)
     return profile, session
 
 

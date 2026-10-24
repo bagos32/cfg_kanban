@@ -1,7 +1,10 @@
 frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({ parent: wrapper, title: __("Kanban Service Tasks"), single_column: true });
 	const session_key = "cfg_kanban_operator_session";
-	const state = { token: localStorage.getItem(session_key), operator: null, tasks: [] };
+	const live_poll_ms = 15000;
+	const state = { token: localStorage.getItem(session_key), operator: null, tasks: [],
+		live_timer: null, live_revision: null, live_request: false, task_filter: null,
+		interaction_epoch: 0 };
 	const $sticky_header = $("<div class='cfg-service-sticky-shell'></div>").appendTo(page.main);
 	const $scanner = $(`<div class="frappe-card cfg-service-scanner mb-3">
 		<div class="cfg-service-scanner-heading"><div><strong>${__("Service Task / Action Card Scanner")}</strong>
@@ -43,6 +46,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	});
 
 	async function load() {
+		state.interaction_epoch += 1;
 		sync_session_from_storage();
 		if (!state.token) return show_login_required();
 		const requested_token = state.token;
@@ -53,10 +57,20 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				args: { operator_session_token: state.token } });
 			state.operator = session.message;
 			render_identity();
+			let live_revision = null;
+			try {
+				const live = await frappe.call({ method: "cfg_kanban.api.task.get_service_tasks_live_revision",
+					args: { operator_session_token: state.token }, error: () => {} });
+				live_revision = live.message?.revision || null;
+			} catch (_live_error) { /* The task list remains usable while the next live check retries. */ }
 			const response = await frappe.call({ method: "cfg_kanban.api.task.get_open_tasks",
 				args: { operator_session_token: state.token } });
 			state.tasks = response.message || [];
-			render(state.tasks);
+			state.live_revision = live_revision;
+			if (state.task_filter && !state.tasks.some((task) => task.name === state.task_filter)) {
+				state.task_filter = null;
+			}
+			render_task_view();
 			update_scanner_mode();
 			focus_scanner();
 		} catch (error) {
@@ -73,7 +87,89 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		state.token = stored_token;
 		state.operator = null;
 		state.tasks = [];
+		state.live_revision = null;
+		state.task_filter = null;
 		return true;
+	}
+
+	function install_live_updates() {
+		if (state.live_timer) window.clearInterval(state.live_timer);
+		state.live_timer = window.setInterval(check_live_updates, live_poll_ms);
+		$(page.main).off(".cfg_service_live_guard")
+			.on("pointerdown.cfg_service_live_guard keydown.cfg_service_live_guard paste.cfg_service_live_guard",
+				() => { state.interaction_epoch += 1; });
+		$(document).off("visibilitychange.cfg_service_live").on("visibilitychange.cfg_service_live", () => {
+			if (!document.hidden) window.setTimeout(check_live_updates, 400);
+		});
+	}
+
+	async function check_live_updates() {
+		if (state.live_request) return;
+		if (sync_session_from_storage()) return load();
+		if (!state.token || !state.operator) return;
+		const requested_token = state.token;
+		const requested_epoch = state.interaction_epoch;
+		if (!live_refresh_safe(requested_token, requested_epoch)) return;
+		state.live_request = true;
+		try {
+			const response = await frappe.call({
+				method: "cfg_kanban.api.task.get_service_tasks_live_revision",
+				args: { operator_session_token: requested_token }, error: () => {},
+			});
+			if (!live_refresh_safe(requested_token, requested_epoch)) return;
+			const revision = response.message?.revision;
+			if (!revision || revision === state.live_revision) return;
+			const tasks = await frappe.call({ method: "cfg_kanban.api.task.get_open_tasks",
+				args: { operator_session_token: requested_token }, error: () => {} });
+			if (!live_refresh_safe(requested_token, requested_epoch)) return;
+			state.tasks = tasks.message || [];
+			state.live_revision = revision;
+			if (state.task_filter && !state.tasks.some((task) => task.name === state.task_filter)) {
+				state.task_filter = null;
+			}
+			const scroll_host = $(page.main).closest(".layout-main-section-wrapper").get(0);
+			const previous_scroll = scroll_host ? scroll_host.scrollTop : 0;
+			render_task_view();
+			if (scroll_host) scroll_host.scrollTop = previous_scroll;
+			$scanner.find(".scanner-message").html(
+				`<small class="text-primary">${__("Live update received — task status refreshed.")}</small>`
+			);
+			frappe.show_alert({ message: __("Service Tasks updated by a supervisor or another operator"),
+				indicator: "blue" }, 7);
+		} catch (error) {
+			if (operator_session_expired(error)) {
+				clear_session(state.token);
+				show_login_required(__("The operator session expired. Identify the operator again on this page."));
+				return;
+			}
+			$scanner.find(".scanner-message").html(
+				`<small class="text-warning">${__("Live check interrupted — retrying automatically.")}</small>`
+			);
+		} finally {
+			state.live_request = false;
+		}
+	}
+
+	function live_refresh_safe(requested_token, requested_epoch) {
+		const stored_token = localStorage.getItem(session_key);
+		const frozen = Number(frappe.dom?.freeze_count || 0) > 0 ||
+			$("#freeze:visible, .freeze-message:visible").length > 0;
+		return !document.hidden && $(wrapper).is(":visible") && !$(".modal:visible").length &&
+			!frozen && state.token === requested_token && stored_token === requested_token &&
+			state.interaction_epoch === requested_epoch;
+	}
+
+	function render_task_view() {
+		if (!state.task_filter) return render(state.tasks);
+		const selected_task = state.tasks.find((task) => task.name === state.task_filter);
+		render(selected_task ? [selected_task] : state.tasks);
+	}
+
+	function operator_session_expired(error) {
+		const response = error?.responseJSON || {};
+		const detail = [error?.message, response.exception, response.exc, response._server_messages]
+			.filter(Boolean).join(" ");
+		return /operator session (?:expired|is not active)/i.test(detail);
 	}
 
 	function render_identity() {
@@ -257,6 +353,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				__("No open Service Task matches {0}.", [frappe.utils.escape_html(value)]));
 			return;
 		}
+		state.task_filter = matches[0].name;
 		render(matches);
 		$scanner.find(".scanner-message").html(`<small class="text-success">${__("Task found: {0}", [frappe.utils.escape_html(matches[0].name)])}</small>`);
 		setTimeout(() => document.querySelector(".cfg-service-active-work .cfg-service-task-card, .cfg-service-ready-work .cfg-service-task-card")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
@@ -264,6 +361,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	}
 
 	function clear_task_filter() {
+		state.task_filter = null;
 		if (state.token) render(state.tasks);
 		$scanner.find(".service-scan-input").val("");
 		$scanner.find(".scanner-message").html(`<small>${__("Ready for the next operator or Service Task scan.")}</small>`);
@@ -369,6 +467,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		const stored_token = localStorage.getItem(session_key);
 		if (!expected_token || stored_token === expected_token) localStorage.removeItem(session_key);
 		state.token = null; state.operator = null; state.tasks = [];
+		state.live_revision = null; state.task_filter = null;
 		update_scanner_mode();
 	}
 
@@ -1469,5 +1568,6 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		if (status === "In Progress") return "blue";
 		return "orange";
 	}
+	install_live_updates();
 	load();
 };
