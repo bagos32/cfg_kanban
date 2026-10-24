@@ -95,12 +95,13 @@ def get_console_access():
     }
 
 
-@frappe.whitelist()
-def get_scanner_command_sheet(quantity_steps=None):
-    """Return fixed, non-secret command labels for the floor scanner station."""
+def _require_scanner_command_print_permission():
     allowed_roles = {"Kanban Terminal", "Manufacturing User", "Manufacturing Manager", "System Manager"}
     if not allowed_roles.intersection(frappe.get_roles(frappe.session.user)):
         frappe.throw("You are not permitted to print Kanban scanner controls", frappe.PermissionError)
+
+
+def _normalise_scanner_quantity_steps(quantity_steps=None):
     if isinstance(quantity_steps, str):
         try:
             quantity_steps = frappe.parse_json(quantity_steps)
@@ -116,54 +117,127 @@ def get_scanner_command_sheet(quantity_steps=None):
             frappe.throw("Quantity label values must be greater than zero and not exceed 1,000,000")
         if number not in normalized_steps:
             normalized_steps.append(number)
-    commands = [
-        ("Switch Operator", "CFG:CMD:SWITCH_OPERATOR", "F2"),
-        ("Next Card / Clear", "CFG:CMD:NEXT_CARD", "F3"),
-        ("Camera Scan", "CFG:CMD:CAMERA_CARD", "F4"),
-        ("End Operator Session", "CFG:CMD:END_SESSION", "F8"),
-        ("Activate / Consume Card", "CFG:CMD:ACTIVATE", ""),
-        ("Start Operation", "CFG:CMD:START", ""),
-        ("Report Progress", "CFG:CMD:REPORT_PROGRESS", ""),
-        ("Go to Current Work", "CFG:CMD:GO_TO_CURRENT_WORK", ""),
-        ("Close Kanban Cycle", "CFG:CMD:CLOSE_CYCLE", ""),
-        ("Prepare Transfer / Consumption", "CFG:CMD:PREPARE_MATERIALS", ""),
-        ("Prepare Manufacture Receipt", "CFG:CMD:PREPARE_RECEIPT", ""),
-        ("Scan Material Tags", "CFG:CMD:SCAN_MATERIALS", ""),
-        ("WIP Bin: Use ERP-only Source", "CFG:CMD:NO_SOURCE", ""),
-        ("WIP Bin: Restore Full-bin Mode", "CFG:CMD:FULL_BIN", ""),
-        ("Submit Material Entry", "CFG:CMD:SUBMIT_MATERIALS", ""),
-        ("Crew Controls", "CFG:CMD:CREW", ""),
-        ("Crew: Open Session", "CFG:CMD:CREW_OPEN", ""),
-        ("Crew: Join Direct", "CFG:CMD:CREW_JOIN", ""),
-        ("Crew: Join Oversight", "CFG:CMD:CREW_JOIN_OVERSIGHT", ""),
-        ("Crew: Join Temporary Support", "CFG:CMD:CREW_JOIN_TEMP", ""),
-        ("Crew: Start Break", "CFG:CMD:CREW_BREAK", ""),
-        ("Crew: Resume", "CFG:CMD:CREW_RESUME", ""),
-        ("Crew: Leave", "CFG:CMD:CREW_LEAVE", ""),
-        ("Crew: Change Main Operator", "CFG:CMD:CREW_MAIN", ""),
-        ("Crew: Use Current Operation", "CFG:CMD:CREW_CONTEXT", ""),
-        ("Crew: Close Session", "CFG:CMD:CREW_CLOSE", ""),
+    return normalized_steps
+
+
+def _scanner_command_catalog(quantity_steps=None):
+    normalized_steps = _normalise_scanner_quantity_steps(quantity_steps)
+    command_groups = [
+        ("Session Controls", [
+            ("Scanner Help", "CFG:CMD:HELP", "F1"),
+            ("Switch Operator", "CFG:CMD:SWITCH_OPERATOR", "F2"),
+            ("Next Card / Clear", "CFG:CMD:NEXT_CARD", "F3"),
+            ("Camera Scan", "CFG:CMD:CAMERA_CARD", "F4"),
+            ("End Operator Session", "CFG:CMD:END_SESSION", "F8"),
+        ]),
+        ("Card and Operation", [
+            ("Activate / Consume Card", "CFG:CMD:ACTIVATE", ""),
+            ("Start Operation", "CFG:CMD:START", ""),
+            ("Report Progress", "CFG:CMD:REPORT_PROGRESS", ""),
+            ("Go to Current Work", "CFG:CMD:GO_TO_CURRENT_WORK", ""),
+            ("Close Kanban Cycle", "CFG:CMD:CLOSE_CYCLE", ""),
+        ]),
+        ("Production Material and WIP", [
+            ("Prepare Transfer / Consumption", "CFG:CMD:PREPARE_MATERIALS", ""),
+            ("Prepare Manufacture Receipt", "CFG:CMD:PREPARE_RECEIPT", ""),
+            ("Scan Material Tags", "CFG:CMD:SCAN_MATERIALS", ""),
+            ("WIP Bin: Use ERP-only Source", "CFG:CMD:NO_SOURCE", ""),
+            ("WIP Bin: Restore Full-bin Mode", "CFG:CMD:FULL_BIN", ""),
+            ("Submit Material Entry", "CFG:CMD:SUBMIT_MATERIALS", ""),
+        ]),
+        ("Crew Controls", [
+            ("Crew Controls", "CFG:CMD:CREW", ""),
+            ("Crew: Open Session", "CFG:CMD:CREW_OPEN", ""),
+            ("Crew: Join Direct", "CFG:CMD:CREW_JOIN", ""),
+            ("Crew: Join Oversight", "CFG:CMD:CREW_JOIN_OVERSIGHT", ""),
+            ("Crew: Join Temporary Support", "CFG:CMD:CREW_JOIN_TEMP", ""),
+            ("Crew: Start Break", "CFG:CMD:CREW_BREAK", ""),
+            ("Crew: Resume", "CFG:CMD:CREW_RESUME", ""),
+            ("Crew: Leave", "CFG:CMD:CREW_LEAVE", ""),
+            ("Crew: Change Main Operator", "CFG:CMD:CREW_MAIN", ""),
+            ("Crew: Use Current Operation", "CFG:CMD:CREW_CONTEXT", ""),
+            ("Crew: Close Session", "CFG:CMD:CREW_CLOSE", ""),
+        ]),
     ]
-    commands.extend([
-        (f"Select Option {number}", f"CFG:SELECT:{number}", "")
-        for number in range(1, 11)
+    command_groups.extend([
+        ("Numbered Selection", [
+            (f"Select Option {number}", f"CFG:SELECT:{number}", "")
+            for number in range(1, 11)
+        ]),
+        ("Good Quantity", [
+            (f"Good +{number:g}", f"CFG:QTY:GOOD:+{number:g}", "")
+            for number in normalized_steps
+        ]),
+        ("Material Quantity", [
+            (f"Material Qty {number:g}", f"CFG:QTY:MATERIAL:{number:g}", "")
+            for number in normalized_steps
+        ]),
+        ("Confirmation", [
+            ("Reject +1", "CFG:QTY:REJECT:+1", ""),
+            ("Confirm / Submit", "CFG:CMD:CONFIRM", ""),
+            ("Cancel", "CFG:CMD:CANCEL", ""),
+            ("Dismiss Message", "CFG:CMD:DISMISS", ""),
+        ]),
     ])
-    commands.extend([
-        (f"Good +{number:g}", f"CFG:QTY:GOOD:+{number:g}", "")
-        for number in normalized_steps
-    ])
-    commands.extend([
-        (f"Material Qty {number:g}", f"CFG:QTY:MATERIAL:{number:g}", "")
-        for number in normalized_steps
-    ])
-    commands.extend([
-        ("Reject +1", "CFG:QTY:REJECT:+1", ""),
-        ("Confirm / Submit", "CFG:CMD:CONFIRM", ""),
-        ("Cancel", "CFG:CMD:CANCEL", ""),
-        ("Dismiss Message", "CFG:CMD:DISMISS", ""),
-    ])
-    return [{"label": label, "payload": payload, "key": key,
-             "qr_svg": get_qr_svg(payload, 180)} for label, payload, key in commands]
+    return [
+        {"category": category, "label": label, "payload": payload, "key": key}
+        for category, commands in command_groups
+        for label, payload, key in commands
+    ]
+
+
+@frappe.whitelist()
+def get_scanner_command_catalog(quantity_steps=None):
+    """Return printable command metadata without generating every QR image."""
+    _require_scanner_command_print_permission()
+    return _scanner_command_catalog(quantity_steps)
+
+
+@frappe.whitelist()
+def get_scanner_command_sheet(
+    quantity_steps=None, selected_payloads=None, custom_labels=None, print_all=0
+):
+    """Return validated, selected non-secret command labels with their printable QR images."""
+    _require_scanner_command_print_permission()
+    catalog = _scanner_command_catalog(quantity_steps)
+    by_payload = {row["payload"]: row for row in catalog}
+    if isinstance(selected_payloads, str):
+        selected_payloads = frappe.parse_json(selected_payloads)
+    if isinstance(custom_labels, str):
+        custom_labels = frappe.parse_json(custom_labels)
+    custom_labels = custom_labels or {}
+    if not isinstance(custom_labels, dict):
+        frappe.throw("Custom command labels must be a payload-to-label mapping")
+    unknown_custom = set(custom_labels) - set(by_payload)
+    if unknown_custom:
+        frappe.throw(f"Unknown scanner command label: {sorted(unknown_custom)[0]}")
+
+    # Preserve compatibility with the previous API, where omitting a selection
+    # generated the complete sheet. The new UI sends an explicit list for
+    # selective printing and print_all=1 for the full catalogue.
+    if cint(print_all) or selected_payloads is None:
+        selected = set(by_payload)
+    else:
+        if not isinstance(selected_payloads, (list, tuple)) or not selected_payloads:
+            frappe.throw("Select at least one scanner command to print")
+        selected = set(selected_payloads)
+        unknown = selected - set(by_payload)
+        if unknown:
+            frappe.throw(f"Unknown scanner command: {sorted(unknown)[0]}")
+
+    rows = []
+    for row in catalog:
+        if row["payload"] not in selected:
+            continue
+        custom_label = str(custom_labels.get(row["payload"]) or "").strip()
+        if len(custom_label) > 100:
+            frappe.throw("A custom scanner command label cannot exceed 100 characters")
+        rows.append({
+            **row,
+            "custom_label": custom_label,
+            "qr_svg": get_qr_svg(row["payload"], 180),
+        })
+    return rows
 
 
 @frappe.whitelist()

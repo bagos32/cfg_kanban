@@ -2314,6 +2314,14 @@ For hands-free material quantities, each confirmation row is numbered. Scan `CFG
 The printable scanner command sheet includes Material Quantity labels using the same configurable
 quantity values as the routine Good Quantity labels.
 
+Open **Scanner Help → Print Command Labels** to build a paper-saving command sheet. The catalogue
+groups every registered hard-coded command and quantity label and provides one checkbox per label.
+**Print Selected** generates only the checked labels, while **Print All** generates the complete
+current catalogue for the configured quantity values. The browser terminal remembers its most
+recent selection. An optional custom or translated title may be entered beside any command. That
+custom title prints prominently, while the original standard command name and exact QR payload
+remain on the label for support and audit. Custom text never changes the action executed by the QR.
+
 The **Production Material Trace** window has a dedicated **Scanner Ready — Scan Material Tag or
 Command** field. Operators do not select an ERP row manually: each physical input tag is matched to
 the correct Item, Warehouse, UOM, Batch, and remaining Stock Entry row and allocated immediately.

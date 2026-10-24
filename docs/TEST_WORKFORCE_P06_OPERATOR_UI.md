@@ -24,6 +24,22 @@ sheet includes:
 
 These command labels contain no credentials or production quantity.
 
+### Selective and translated command-label printing
+
+1. Clear all selections, select only **Crew Controls** and **Confirm / Submit**, and choose
+   **Print Selected**.
+2. Confirm the preview contains exactly those two QR labels.
+3. Enter a custom or translated title beside **Crew Controls**, then print it again.
+4. Confirm the custom title is prominent and the standard **Crew Controls** name plus
+   `CFG:CMD:CREW` remain visible.
+5. Choose **Print All** and confirm the preview contains every registered command category,
+   including Scanner Help, session controls, Card/operation controls, production material/WIP,
+   crew controls, numbered selection, configured Good/Material quantities, and confirmation.
+6. Scan the translated label and confirm it executes the same standard command.
+
+Expected result: selective printing reduces paper use. Custom wording never changes the QR payload,
+and the full catalogue remains available without manually selecting every row.
+
 ## Test 1 — open Crew Controls
 
 1. Sign in to the Production Operator Panel with the pilot Main Operator.

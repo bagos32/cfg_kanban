@@ -6,6 +6,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	});
 
 	const session_key = "cfg_kanban_operator_session";
+	const command_print_key = "cfg_kanban_command_print_selection_v1";
 	const live_poll_ms = 12000;
 	const manual_scroll_guard_ms = 8000;
 	const state = { context: null, operator: null, access: null,
@@ -923,18 +924,128 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		dialog.get_primary_btn().before($print);
 	}
 
-	function configure_scanner_command_sheet() {
-		frappe.prompt([
-			{ fieldname: "quantity_steps", label: __("Routine Good / Material Quantity Values"),
-				fieldtype: "Data", reqd: 1, default: "1, 5, 10, 50, 100",
-				description: __("Prints Good +quantity and absolute Material Quantity labels. Example: 1, 10, 50, 100") },
-		], (values) => {
-			const steps = String(values.quantity_steps || "").split(",").map((value) => value.trim()).filter(Boolean);
-			print_scanner_command_sheet(steps);
-		}, __("Configure Command Labels"), __("Generate Printable Sheet"));
+	async function configure_scanner_command_sheet() {
+		let catalog = [];
+		let catalog_quantity_signature = "";
+		let selected = new Set();
+		let custom_labels = {};
+		try {
+			const saved = JSON.parse(localStorage.getItem(command_print_key) || "{}");
+			selected = new Set(Array.isArray(saved.selected) ? saved.selected : []);
+			custom_labels = saved.custom_labels && typeof saved.custom_labels === "object" ?
+				saved.custom_labels : {};
+		} catch (error) {
+			localStorage.removeItem(command_print_key);
+		}
+
+		const dialog = new frappe.ui.Dialog({
+			title: __("Configure Command Labels"),
+			size: "extra-large",
+			fields: [
+				{ fieldname: "quantity_steps", label: __("Routine Good / Material Quantity Values"),
+					fieldtype: "Data", reqd: 1, default: "1, 5, 10, 50, 100",
+					description: __("Creates Good +quantity and absolute Material Quantity commands. Change this list, then leave the field to refresh the catalogue.") },
+				{ fieldname: "command_selector", fieldtype: "HTML" },
+			],
+			primary_action_label: __("Print Selected"),
+			primary_action: () => generate_sheet(false),
+		});
+
+		function quantity_steps() {
+			return String(dialog.get_value("quantity_steps") || "")
+				.split(",").map((value) => value.trim()).filter(Boolean);
+		}
+
+		function capture_editor() {
+			const $body = dialog.get_field("command_selector").$wrapper;
+			selected = new Set();
+			custom_labels = {};
+			$body.find(".cfg-command-print-row").each(function () {
+				const index = Number($(this).data("index"));
+				const row = catalog[index];
+				if (!row) return;
+				if ($(this).find(".cfg-command-select").prop("checked")) selected.add(row.payload);
+				const custom = String($(this).find(".cfg-command-custom-label").val() || "").trim();
+				if (custom) custom_labels[row.payload] = custom;
+			});
+		}
+
+		function render_catalog() {
+			const e = frappe.utils.escape_html;
+			const grouped = {};
+			catalog.forEach((row, index) => {
+				(grouped[row.category] ||= []).push({ row, index });
+			});
+			const groups = Object.entries(grouped).map(([category, rows]) => `
+				<section class="cfg-command-print-group mb-4">
+					<h4>${e(category)}</h4>
+					${rows.map(({ row, index }) => `<div class="cfg-command-print-row" data-index="${index}" style="display:grid;grid-template-columns:28px minmax(210px,1fr) minmax(220px,1fr);gap:10px;align-items:center;padding:8px;border-bottom:1px solid var(--border-color);">
+						<input class="cfg-command-select" type="checkbox" ${selected.has(row.payload) ? "checked" : ""} aria-label="${e(__("Select {0}", [row.label]))}">
+						<div><strong>${e(row.label)}</strong><small class="d-block text-muted"><code>${e(row.payload)}</code>${row.key ? ` · ${e(row.key)}` : ""}</small></div>
+						<input class="form-control cfg-command-custom-label" maxlength="100" value="${e(custom_labels[row.payload] || "")}" placeholder="${e(__("Optional custom / translated label"))}">
+					</div>`).join("")}
+				</section>`).join("");
+			const $wrapper = dialog.get_field("command_selector").$wrapper;
+			$wrapper.html(`<div class="cfg-command-print-tools mb-3">
+				<button class="btn btn-sm btn-default cfg-command-select-all">${__("Select All")}</button>
+				<button class="btn btn-sm btn-default cfg-command-clear-all">${__("Clear All")}</button>
+				<span class="text-muted ml-2">${__("Custom text changes only the printed title. The original command name and QR payload remain visible.")}</span>
+			</div>${groups || `<div class="text-muted">${__("No printable commands are available.")}</div>`}`);
+			$wrapper.find(".cfg-command-select-all").on("click", () => {
+				$wrapper.find(".cfg-command-select").prop("checked", true);
+			});
+			$wrapper.find(".cfg-command-clear-all").on("click", () => {
+				$wrapper.find(".cfg-command-select").prop("checked", false);
+			});
+		}
+
+		async function load_catalog(preserve_editor = false) {
+			if (preserve_editor) capture_editor();
+			const $wrapper = dialog.get_field("command_selector").$wrapper;
+			$wrapper.html(`<div class="text-muted p-3">${__("Loading registered scanner commands...")}</div>`);
+			const response = await frappe.call({
+				method: "cfg_kanban.api.operator.get_scanner_command_catalog",
+				args: { quantity_steps: quantity_steps() },
+			});
+			catalog = response.message || [];
+			catalog_quantity_signature = quantity_steps().join(",");
+			const available = new Set(catalog.map((row) => row.payload));
+			selected = new Set([...selected].filter((payload) => available.has(payload)));
+			custom_labels = Object.fromEntries(
+				Object.entries(custom_labels).filter(([payload]) => available.has(payload))
+			);
+			render_catalog();
+		}
+
+		function save_editor() {
+			localStorage.setItem(command_print_key, JSON.stringify({
+				selected: [...selected], custom_labels,
+			}));
+		}
+
+		async function generate_sheet(print_all) {
+			capture_editor();
+			if (catalog_quantity_signature !== quantity_steps().join(",")) {
+				await load_catalog();
+			}
+			if (!print_all && !selected.size) {
+				return frappe.msgprint(__("Select at least one command label to print."));
+			}
+			save_editor();
+			print_scanner_command_sheet(
+				quantity_steps(), [...selected], custom_labels, print_all
+			);
+		}
+
+		dialog.show();
+		const $print_all = $(`<button class="btn btn-default mr-2">${__("Print All")}</button>`);
+		$print_all.on("click", () => generate_sheet(true));
+		dialog.get_primary_btn().before($print_all);
+		dialog.get_field("quantity_steps").$input.on("change", () => load_catalog(true));
+		await load_catalog();
 	}
 
-	async function print_scanner_command_sheet(quantity_steps) {
+	async function print_scanner_command_sheet(quantity_steps, selected_payloads, custom_labels, print_all) {
 		const popup = window.open("", "_blank", "width=1000,height=800");
 		if (!popup) {
 			frappe.msgprint(__("Allow pop-ups for this site to print scanner command labels."));
@@ -943,16 +1054,17 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		popup.document.write(`<p style="font-family:Arial;padding:20px">${__("Preparing command labels...")}</p>`);
 		try {
 			const response = await frappe.call({ method: "cfg_kanban.api.operator.get_scanner_command_sheet",
-				args: { quantity_steps } });
+				args: { quantity_steps, selected_payloads, custom_labels, print_all: print_all ? 1 : 0 } });
 			const labels = (response.message || []).map((row) => `<div class="command-label">
-				<div class="command-title">${frappe.utils.escape_html(row.label)}</div>
+				<div class="command-title">${frappe.utils.escape_html(row.custom_label || row.label)}</div>
+				${row.custom_label ? `<div class="command-standard">${__("Standard")}: ${frappe.utils.escape_html(row.label)}</div>` : ""}
 				${row.key ? `<div class="command-key">${frappe.utils.escape_html(row.key)}</div>` : ""}
 				<img src="${row.qr_svg}" alt="${frappe.utils.escape_html(row.label)}">
 				<div class="command-payload">${frappe.utils.escape_html(row.payload)}</div>
 			</div>`).join("");
 			popup.document.open();
 			popup.document.write(`<html><head><meta charset="utf-8"><title>${__("Kanban Scanner Command Labels")}</title>
-				<style>@page{size:A4 portrait;margin:8mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;color:#111}.heading{text-align:center;margin-bottom:3mm}.heading h2{margin:0}.sheet{display:grid;grid-template-columns:repeat(2,1fr);gap:3mm}.command-label{height:42mm;border:1.2mm solid #111;border-radius:2mm;padding:2.5mm;display:grid;grid-template-columns:1fr 27mm;grid-template-rows:auto 1fr auto;gap:1mm;break-inside:avoid}.command-title{font-size:4.5mm;font-weight:800}.command-key{grid-column:1;font-size:7mm;font-weight:900;align-self:center}.command-label img{grid-column:2;grid-row:1/4;width:26mm;height:26mm;align-self:center}.command-payload{grid-column:1;font-family:monospace;font-size:2.6mm;font-weight:700;align-self:end;word-break:break-all}.note{text-align:center;font-size:2.8mm;margin-top:3mm}@media print{.no-print{display:none}}</style>
+				<style>@page{size:A4 portrait;margin:8mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;color:#111}.heading{text-align:center;margin-bottom:3mm}.heading h2{margin:0}.sheet{display:grid;grid-template-columns:repeat(2,1fr);gap:3mm}.command-label{height:45mm;border:1.2mm solid #111;border-radius:2mm;padding:2.5mm;display:grid;grid-template-columns:1fr 27mm;grid-template-rows:auto auto 1fr auto;gap:1mm;break-inside:avoid}.command-title{font-size:4.5mm;font-weight:800}.command-standard{grid-column:1;font-size:2.8mm;font-weight:600;color:#444}.command-key{grid-column:1;font-size:7mm;font-weight:900;align-self:center}.command-label img{grid-column:2;grid-row:1/5;width:26mm;height:26mm;align-self:center}.command-payload{grid-column:1;font-family:monospace;font-size:2.6mm;font-weight:700;align-self:end;word-break:break-all}.note{text-align:center;font-size:2.8mm;margin-top:3mm}@media print{.no-print{display:none}}</style>
 				</head><body><div class="heading"><h2>CFG KANBAN — SCANNER CONTROLS</h2></div><div class="sheet">${labels}</div>
 				<div class="note">${__("Configure the fixed scanner to append Enter. Use full-screen or kiosk mode.")}</div>
 				<script>window.onload=()=>window.print();<\/script></body></html>`);
