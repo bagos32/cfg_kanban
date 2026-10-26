@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.07
+**Guide version:** 2.08
 
 **Updated:** 26 October 2026
 
@@ -421,6 +421,33 @@ coverage. These indicators are advisory in P07-0B1 and do not block production. 
 read-only **Cycle Role Assignment** audit interval in **CFG Job Architecture**. A crew break, leave,
 scope mismatch, ownership change, completion, or cancellation ends the active interval while
 preserving its evidence. Use `docs/TEST_WORKFORCE_P07_0B1_RUNTIME_ROLES.md` for acceptance.
+
+### Exact-action supervisor pass for Cycle closure
+
+P07-0B2 introduces the first controlled runtime use of the role snapshot. It is deliberately narrow:
+only a non-owner attempt to close a runtime-selected production Cycle is covered. The pass is enabled
+only when all of these conditions are true:
+
+- the Card enabled **Enforce Job Owner** and the Cycle has an assigned operator-in-charge;
+- the person closing the Cycle is not that owner; and
+- the immutable Cycle snapshot contains a **Supervisor / Mentor** or **Verifier** requirement whose
+  exact Authority Role enables **Close on Behalf**.
+
+When required, the ordinary green close button becomes **Supervisor Pass & Close**. Open it, enter or
+accept the approval reason, scan the eligible supervisor/verifier's existing Operator credential,
+then scan Confirm / Submit. The credential scan does not log out or replace the active operator. It
+creates a two-minute, single-use authorization bound to the exact action, Cycle, Process Execution,
+requesting operator session, and terminal user. Any configured supervisor PIN is still required.
+
+The approving person must satisfy the exact Job Code, scoped Authority Role, competency, active
+presence, and separation rules of one matching snapshot row. Where Active Presence is required, the
+person must also have the active **Cycle Role Assignment** produced by P07-0B1. The approval is consumed
+before the Cycle changes state; a reused, expired, or wrong-context token is rejected.
+
+Cards without owner enforcement, Cycles without a suitable Close-on-Behalf requirement, and closure
+by the assigned owner continue through the existing close workflow. Managers audit every issued and
+consumed pass in **CFG Job Architecture → Supervisor Action Approvals**. Use
+`docs/TEST_WORKFORCE_P07_0B2_SUPERVISOR_PASS.md` for acceptance.
 
 The operator interface is available at:
 
@@ -3957,6 +3984,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.08 | 26 October 2026 | Added P07-0B2 exact-action supervisor pass for non-owner runtime Cycle closure: opt-in through immutable Supervisor/Verifier requirements with Close on Behalf authority, exact Job Code/scope/competency/presence/separation checks, two-minute single-use context-bound approval, scanner-first confirmation without operator-session switching, and read-only approval audit history |
 | 2.07 | 26 October 2026 | Added P07-0B1 advisory runtime job-role coverage: Cycle owner and active crew matching against immutable role requirements, independent Job Code/scoped Authority Role/competency/presence/separation checks, read-only Cycle Role Assignment intervals, live operator visibility, and terminal-history closure without production blocking |
 | 2.06 | 26 October 2026 | Added P07-0A scoped multi-role authority foundation: configurable capability roles, multiple Company/Operation/Workstation/Responsibility/date-scoped Operator assignments, production Card job-role requirements, immutable Cycle snapshots, workspace access, and explicit legacy-role fallback without premature runtime blocking |
 | 2.05 | 26 October 2026 | Added optional per-Card Job Owner enforcement: stable Job Codes, Operator Profile eligibility, immutable Cycle policy snapshot, first-operation ownership acceptance, single Operator-in-Charge visibility, auditable Owner Assignments, and unchanged legacy flow for Cards that keep enforcement disabled |

@@ -47,6 +47,7 @@ class TestJobArchitectureWorkspace(unittest.TestCase):
             "CFG Kanban Job Participation",
             "CFG Kanban Job Owner Assignment",
             "CFG Kanban Cycle Role Assignment",
+            "CFG Kanban Supervisor Action Approval",
             "CFG Kanban Cycle",
             "CFG Kanban Process Execution",
             "CFG Kanban Operation Progress",

@@ -1,0 +1,370 @@
+import hmac
+import json
+import secrets
+
+import frappe
+from frappe.utils import add_to_date, cint, get_datetime, now_datetime
+
+from cfg_kanban.services.authority import has_authority_role
+from cfg_kanban.services.competency import employee_has_competency
+from cfg_kanban.services.events import record
+from cfg_kanban.services.operator_auth import credential_hash, require_operator
+
+
+ACTION_CAPABILITIES = {
+    "CLOSE_CYCLE_ON_BEHALF": "can_close_on_behalf",
+}
+
+
+def close_on_behalf_requirement(execution, requester_profile):
+    """Return the opt-in supervisor-pass requirement for a non-owner close."""
+    execution = _execution_doc(execution)
+    cycle = frappe.get_doc("CFG Kanban Cycle", execution.kanban_cycle)
+    if not cycle.get("enforce_job_owner") or not cycle.get("job_owner"):
+        return _not_required()
+    if cycle.job_owner == requester_profile.employee:
+        return _not_required()
+
+    requirements = _capability_requirements(cycle, "can_close_on_behalf")
+    if not requirements:
+        return _not_required()
+
+    actor_match = _matching_requirement(
+        cycle, execution, requester_profile, requirements,
+        requester_employee=requester_profile.employee,
+        require_separate=False,
+    )
+    strict_separation = any(cint(row.separate_approver_required) for row in requirements)
+    required = bool(strict_separation or not actor_match)
+    return {
+        "required": required,
+        "action_code": "CLOSE_CYCLE_ON_BEHALF",
+        "required_capability": "can_close_on_behalf",
+        "cycle_owner": cycle.job_owner,
+        "cycle_owner_name": cycle.job_owner_name,
+        "separate_approver_required": strict_separation,
+        "authorized_by_current_operator": bool(actor_match and not strict_separation),
+    }
+
+
+def approve_action(
+    action_code,
+    execution_name,
+    approver_qr_token,
+    reason,
+    operator_session_token,
+    approver_pin=None,
+):
+    if action_code not in ACTION_CAPABILITIES:
+        frappe.throw(f"Unsupported supervisor approval action: {action_code}")
+    if not (reason or "").strip():
+        frappe.throw("A reason is required for supervisor action approval")
+
+    execution = _execution_doc(execution_name)
+    requester, session = require_operator(operator_session_token, execution=execution)
+    cycle = frappe.get_doc("CFG Kanban Cycle", execution.kanban_cycle)
+    from cfg_kanban.services.runtime_roles import evaluate_cycle_roles
+    evaluate_cycle_roles(cycle.name, persist=True)
+    requirement = close_on_behalf_requirement(execution, requester)
+    if action_code == "CLOSE_CYCLE_ON_BEHALF" and not requirement["required"]:
+        frappe.throw("This Cycle closure does not require a separate supervisor pass")
+
+    approver = _profile_from_credential(approver_qr_token, approver_pin)
+    if approver.employee == requester.employee:
+        frappe.throw("The requesting operator cannot approve their own exact-action pass")
+    capability = ACTION_CAPABILITIES[action_code]
+    requirements = _capability_requirements(cycle, capability)
+    matched = _matching_requirement(
+        cycle, execution, approver, requirements,
+        requester_employee=requester.employee,
+        require_separate=True,
+    )
+    if not matched:
+        frappe.throw(
+            "The scanned employee does not satisfy the Cycle's scoped supervisor role, "
+            "competency, presence, and separation requirements for this action"
+        )
+
+    raw_token = secrets.token_urlsafe(32)
+    current = now_datetime()
+    _retire_prior_approvals(
+        action_code,
+        cycle.name,
+        execution.name,
+        requester.employee,
+        session.name,
+        current,
+    )
+    approval = frappe.get_doc({
+        "doctype": "CFG Kanban Supervisor Action Approval",
+        "action_code": action_code,
+        "required_capability": capability,
+        "status": "Approved",
+        "company": cycle.company,
+        "kanban_card": cycle.kanban_card,
+        "kanban_cycle": cycle.name,
+        "process_execution": execution.name,
+        "operation": execution.operation,
+        "workstation": execution.workstation,
+        "requested_by_employee": requester.employee,
+        "requested_by_operator_profile": requester.name,
+        "operator_session": session.name,
+        "terminal_user": session.terminal_user,
+        "requested_on": current,
+        "approved_by_employee": approver.employee,
+        "approved_by_name": (
+            approver.employee_name
+            or frappe.db.get_value("Employee", approver.employee, "employee_name")
+            or approver.employee
+        ),
+        "approved_by_operator_profile": approver.name,
+        "matched_requirement_row": matched.name,
+        "matched_authority_role": matched.authority_role,
+        "approved_on": current,
+        "expires_on": add_to_date(current, minutes=2),
+        "reason": reason.strip(),
+        "approval_token_hash": credential_hash(raw_token),
+        "action_context": json.dumps({
+            "action_code": action_code,
+            "capability": capability,
+            "kanban_cycle": cycle.name,
+            "process_execution": execution.name,
+            "requester_employee": requester.employee,
+            "approver_employee": approver.employee,
+            "terminal_user": session.terminal_user,
+        }, sort_keys=True),
+    }).insert(ignore_permissions=True)
+    record(
+        "Supervisor Exact-action Pass Approved",
+        card=cycle.kanban_card,
+        cycle=cycle.name,
+        execution=execution.name,
+        reference_doctype=approval.doctype,
+        reference_name=approval.name,
+        operator=approver.employee,
+        operator_session=session.name,
+        terminal_user=session.terminal_user,
+        notes=f"{action_code}: {reason.strip()}",
+        system_generated=False,
+        ignore_permissions=True,
+    )
+    return {
+        "approval": approval.name,
+        "approval_token": raw_token,
+        "action_code": action_code,
+        "approved_by_employee": approval.approved_by_employee,
+        "approved_by_name": approval.approved_by_name,
+        "expires_on": approval.expires_on,
+    }
+
+
+def consume_action_approval(
+    approval_token,
+    action_code,
+    execution,
+    requester_profile,
+    operator_session,
+):
+    if not approval_token:
+        frappe.throw("Scan an eligible supervisor credential before performing this action")
+    execution = _execution_doc(execution)
+    token_hash = credential_hash(approval_token)
+    frappe.db.sql(
+        "select name from `tabCFG Kanban Supervisor Action Approval` "
+        "where approval_token_hash=%s for update",
+        (token_hash,),
+    )
+    name = frappe.db.get_value(
+        "CFG Kanban Supervisor Action Approval",
+        {"approval_token_hash": token_hash},
+        "name",
+    )
+    if not name:
+        frappe.throw("Supervisor action approval is invalid")
+    approval = frappe.get_doc("CFG Kanban Supervisor Action Approval", name)
+    if not hmac.compare_digest(approval.approval_token_hash or "", token_hash):
+        frappe.throw("Supervisor action approval is invalid")
+    if approval.status != "Approved":
+        frappe.throw(f"Supervisor action approval {approval.name} is already {approval.status}")
+    if approval.expires_on and get_datetime(approval.expires_on) <= now_datetime():
+        approval.db_set("status", "Expired", update_modified=True)
+        frappe.throw("Supervisor action approval expired; scan the supervisor credential again")
+    expected = {
+        "action_code": action_code,
+        "process_execution": execution.name,
+        "kanban_cycle": execution.kanban_cycle,
+        "requested_by_employee": requester_profile.employee,
+        "requested_by_operator_profile": requester_profile.name,
+        "operator_session": operator_session.name,
+        "terminal_user": operator_session.terminal_user,
+    }
+    mismatches = [
+        fieldname for fieldname, value in expected.items()
+        if approval.get(fieldname) != value
+    ]
+    if mismatches:
+        frappe.throw(
+            "Supervisor action approval belongs to a different action context: "
+            + ", ".join(mismatches)
+        )
+    approval.db_set({"status": "Consumed", "consumed_on": now_datetime()}, update_modified=True)
+    record(
+        "Supervisor Exact-action Pass Consumed",
+        card=approval.kanban_card,
+        cycle=approval.kanban_cycle,
+        execution=approval.process_execution,
+        reference_doctype=approval.doctype,
+        reference_name=approval.name,
+        operator=requester_profile.employee,
+        operator_session=operator_session.name,
+        terminal_user=operator_session.terminal_user,
+        notes=action_code,
+        system_generated=False,
+        ignore_permissions=True,
+    )
+    return approval
+
+
+def _retire_prior_approvals(
+    action_code,
+    cycle_name,
+    execution_name,
+    requester_employee,
+    operator_session,
+    current,
+):
+    """Keep only the newest usable pass for one exact action context."""
+    prior = frappe.get_all(
+        "CFG Kanban Supervisor Action Approval",
+        filters={
+            "action_code": action_code,
+            "kanban_cycle": cycle_name,
+            "process_execution": execution_name,
+            "requested_by_employee": requester_employee,
+            "operator_session": operator_session,
+            "status": "Approved",
+        },
+        fields=["name", "expires_on"],
+        limit_page_length=0,
+    )
+    for row in prior:
+        status = (
+            "Expired"
+            if row.expires_on and get_datetime(row.expires_on) <= current
+            else "Cancelled"
+        )
+        frappe.db.set_value(
+            "CFG Kanban Supervisor Action Approval",
+            row.name,
+            "status",
+            status,
+            update_modified=True,
+        )
+
+
+def _profile_from_credential(qr_token, pin=None):
+    profile_name = frappe.db.get_value(
+        "CFG Kanban Operator Profile",
+        {"qr_token_hash": credential_hash(qr_token), "active": 1},
+        "name",
+    )
+    if not profile_name:
+        frappe.throw("Unknown or inactive supervisor credential")
+    profile = frappe.get_doc("CFG Kanban Operator Profile", profile_name)
+    employee_status = frappe.db.get_value("Employee", profile.employee, "status")
+    if employee_status and employee_status != "Active":
+        frappe.throw("The approving employee is not active")
+    if cint(profile.pin_required):
+        saved_pin = profile.get_password("pin", raise_exception=False)
+        if not saved_pin or not hmac.compare_digest(str(pin or ""), str(saved_pin)):
+            frappe.throw("Invalid supervisor PIN")
+    return profile
+
+
+def _capability_requirements(cycle, capability):
+    result = []
+    for row in cycle.get("job_role_requirements_snapshot") or []:
+        if row.assignment_type not in ("Supervisor / Mentor", "Verifier"):
+            continue
+        if not row.authority_role:
+            continue
+        role = frappe.get_cached_doc("CFG Kanban Authority Role", row.authority_role)
+        if cint(role.active) and cint(role.get(capability)):
+            result.append(row)
+    return result
+
+
+def _matching_requirement(
+    cycle,
+    execution,
+    profile,
+    requirements,
+    requester_employee,
+    require_separate,
+):
+    for row in requirements:
+        if require_separate and profile.employee == requester_employee:
+            continue
+        if cint(row.separate_approver_required) and profile.employee in (
+            requester_employee, cycle.get("job_owner")
+        ):
+            continue
+        if row.job_code and row.job_code not in [
+            item.job_code for item in (profile.get("job_codes") or [])
+        ]:
+            continue
+        if row.job_code:
+            job_code = frappe.get_cached_doc("CFG Kanban Job Code", row.job_code)
+            if not cint(job_code.active):
+                continue
+            if job_code.company and job_code.company != cycle.company:
+                continue
+        context = {
+            "company": cycle.company,
+            "operation": execution.operation,
+            "workstation": execution.workstation,
+            "responsibility": None,
+        }
+        if not has_authority_role(profile, row.authority_role, context=context):
+            continue
+        if row.skill and not employee_has_competency(
+            profile.employee,
+            row.skill,
+            row.minimum_competency_level or "L0",
+            require_independent=bool(
+                cint(row.require_independent_authorization)
+                and not cint(row.allow_supervised_trainee)
+            ),
+            require_supervisor=row.assignment_type == "Supervisor / Mentor",
+        ):
+            continue
+        if cint(row.require_active_presence) and not frappe.db.exists(
+            "CFG Kanban Cycle Role Assignment",
+            {
+                "kanban_cycle": cycle.name,
+                "requirement_row": row.name,
+                "employee": profile.employee,
+                "status": "Active",
+            },
+        ):
+            continue
+        return row
+    return None
+
+
+def _execution_doc(execution):
+    if getattr(execution, "doctype", None) == "CFG Kanban Process Execution":
+        return execution
+    return frappe.get_doc("CFG Kanban Process Execution", execution)
+
+
+def _not_required():
+    return {
+        "required": False,
+        "action_code": "CLOSE_CYCLE_ON_BEHALF",
+        "required_capability": "can_close_on_behalf",
+        "cycle_owner": None,
+        "cycle_owner_name": None,
+        "separate_approver_required": False,
+        "authorized_by_current_operator": False,
+    }

@@ -426,6 +426,8 @@ def get_card_context(token, operator_session_token=None):
     if cycle:
         from cfg_kanban.services.job_ownership import ownership_context
         job_ownership = ownership_context(cycle, profile)
+        from cfg_kanban.services.runtime_roles import evaluate_cycle_roles
+        job_role_compliance = evaluate_cycle_roles(cycle.name, persist=True)
         from cfg_kanban.integrations.erp_feedback import reconcile_cycle_job_card_progress
         reconcile_cycle_job_card_progress(cycle.name)
         ensure_tasks(cycle.name)
@@ -458,6 +460,7 @@ def get_card_context(token, operator_session_token=None):
                     "crew_compliance_hold"],
             order_by="sequence asc",
         )
+        from cfg_kanban.services.action_approval import close_on_behalf_requirement
         for execution in executions:
             job = frappe.db.get_value("Job Card", execution.job_card,
                 ["name", "status", "docstatus", "for_quantity", "total_completed_qty"], as_dict=True)
@@ -479,6 +482,10 @@ def get_card_context(token, operator_session_token=None):
             )
             execution["wip_bin_pending_entries"] = readiness.get(
                 "wip_bin_pending_entries", []
+            )
+            execution["close_approval"] = close_on_behalf_requirement(execution, profile)
+            execution["close_requires_supervisor_approval"] = bool(
+                execution["close_approval"].get("required")
             )
             execution["crew"] = _execution_crew_summary(execution, master.company)
         kanban_processed = sum(flt(row.processed_qty) for row in executions)
@@ -531,8 +538,6 @@ def get_card_context(token, operator_session_token=None):
                 production_material_flow = _operation_material_flow_scope(
                     production_material_flow, cycle, operation_material_job
                 )
-        from cfg_kanban.services.runtime_roles import evaluate_cycle_roles
-        job_role_compliance = evaluate_cycle_roles(cycle.name, persist=True)
     return {
         "card": card.as_dict(),
         "master": {"name": master.name, "kanban_name": master.kanban_name,
@@ -975,7 +980,23 @@ def confirm_runtime_selection(card_name, job_card, confirmation, override_reason
 
 
 @frappe.whitelist()
-def complete_runtime_cycle(execution_name, notes=None, operator_session_token=None):
+def approve_supervisor_action(action_code, execution_name, supervisor_qr_token, reason,
+                              operator_session_token=None, supervisor_pin=None):
+    """Issue a short-lived, one-time approval without changing the active operator."""
+    from cfg_kanban.services.action_approval import approve_action
+    return approve_action(
+        action_code=action_code,
+        execution_name=execution_name,
+        approver_qr_token=supervisor_qr_token,
+        reason=reason,
+        operator_session_token=operator_session_token,
+        approver_pin=supervisor_pin,
+    )
+
+
+@frappe.whitelist()
+def complete_runtime_cycle(execution_name, notes=None, operator_session_token=None,
+                           supervisor_approval_token=None):
     execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
     profile, session = require_operator(operator_session_token, "complete", execution=execution)
     enforce_execution_crew(
@@ -997,6 +1018,22 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
     readiness = _runtime_close_readiness(execution, work_order, job_card)
     if not readiness["ready"]:
         frappe.throw(readiness["reason"])
+    from cfg_kanban.services.action_approval import (
+        close_on_behalf_requirement,
+        consume_action_approval,
+    )
+    from cfg_kanban.services.runtime_roles import evaluate_cycle_roles
+    evaluate_cycle_roles(cycle.name, persist=True)
+    close_approval = close_on_behalf_requirement(execution, profile)
+    consumed_approval = None
+    if close_approval["required"]:
+        consumed_approval = consume_action_approval(
+            supervisor_approval_token,
+            "CLOSE_CYCLE_ON_BEHALF",
+            execution,
+            profile,
+            session,
+        )
     execution.db_set({"status": "Completed", "completed_on": now_datetime()})
     from cfg_kanban.services.job_participation import close_execution_participation
     close_execution_participation(
@@ -1066,7 +1103,10 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
             "job_card_submitted": bool(job_card and job_card.docstatus == 1),
             "job_card_kept_open": not target_reached,
             "wip_bin_erp_posting_pending": bool(pending_wip_entries),
-            "wip_bin_pending_entries": pending_wip_entries}
+            "wip_bin_pending_entries": pending_wip_entries,
+            "supervisor_action_approval": (
+                consumed_approval.name if consumed_approval else None
+            )}
 
 
 def _runtime_close_readiness(execution, work_order, job_card):

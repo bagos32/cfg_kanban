@@ -426,16 +426,33 @@ crew presence end the old interval instead of rewriting history.
 
 The Production Operator panel shows **Job Role Coverage** with assigned and missing head count. This
 package is deliberately advisory: `Pending` coverage does not block Start, progress, material,
-completion, or ERPNext posting. P07-0B2 remains responsible for exact-action supervisor credential
-approval and controlled enforcement after P07-0B1 acceptance.
+completion, or ERPNext posting.
 
 Use `docs/TEST_WORKFORCE_P07_0B1_RUNTIME_ROLES.md` for live acceptance.
+
+## P07-0B2 — Exact-action supervisor pass for non-owner closure (implemented)
+
+P07-0B2 uses the immutable role snapshot and P07-0B1 assignment evidence for one deliberately narrow
+enforcement point: a non-owner closing a runtime-selected production Cycle. It activates only when
+owner enforcement is active and a Supervisor / Mentor or Verifier snapshot row names an Authority
+Role with **Close on Behalf** capability. Existing Cards without this explicit configuration retain
+their previous behavior.
+
+The Production Operator panel requests the approving Employee's existing QR credential inside the
+close dialog. This scan never switches the active Operator Session. The server checks the exact Job
+Code, Authority Role scope, competency, active-presence assignment, and separation policy, then issues
+a two-minute single-use token bound to the action, Cycle, Process Execution, requester, session, and
+terminal. The token is consumed before state mutation and only its hash is stored. Approved and
+consumed evidence is available through **CFG Kanban Supervisor Action Approval**; no transactional
+history is deleted.
+
+Use `docs/TEST_WORKFORCE_P07_0B2_SUPERVISOR_PASS.md` for live acceptance.
 
 ## Remaining approved package
 
 ### P07 — Supervisor Control, Reports & Audit
 
-Add workforce traceability, competency expiry, compliance history, trainee supervision, labour
-utilization, controlled corrections, and exception reporting. P07-0B2 must add exact-action
-supervisor credential approval using the P07-0A snapshots and P07-0B1 assignment evidence; it must
-not reinterpret the Employee's designation or silently grant permanent Supervisor authority.
+Continue workforce traceability, competency expiry, compliance history, trainee supervision, labour
+utilization, controlled corrections, and exception reporting. Future exact-action controls must reuse
+the P07-0B2 action-bound pattern; they must not reinterpret the Employee's designation or silently
+grant permanent Supervisor authority.

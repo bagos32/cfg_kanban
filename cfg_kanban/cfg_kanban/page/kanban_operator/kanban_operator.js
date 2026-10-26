@@ -1922,7 +1922,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		field.$input.off("keydown.cfg_confirmation_scan").on("keydown.cfg_confirmation_scan", (event) => {
 			if (event.key !== "Enter" && event.key !== "Tab") return;
 			event.preventDefault();
-			const command = String(field.$input.val() || "").trim().toUpperCase();
+			const command = String(field.$input.val() || "").trim();
 			handle_confirmation_scanner_value(dialog, command);
 		});
 		if (focus_now) window.setTimeout(() => field.set_focus(), 100);
@@ -3396,7 +3396,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				add_action($buttons, __("Complete Job Card"), "btn-primary", () => job_action(row, "complete"));
 			}
 			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && row.can_close_runtime_cycle && state.operator.permissions.complete) {
-				add_action($buttons, __("Close Kanban Cycle"), "btn-success", () => close_runtime_cycle(row));
+				const close_label = row.close_requires_supervisor_approval
+					? __("Supervisor Pass & Close") : __("Close Kanban Cycle");
+				const close_class = row.close_requires_supervisor_approval ? "btn-warning" : "btn-success";
+				add_action($buttons, close_label, close_class, () => close_runtime_cycle(row));
 				if (row.wip_bin_erp_posting_pending) {
 					$row.append(`<div class="mt-2 alert alert-warning py-2"><small>${__("Operation use is recorded for this Job Card. Its ERP consumption {0} remains pending, but it does not prevent the next operation from starting after this Job Card reaches its progress target.", [(row.wip_bin_pending_entries || []).join(", ")])}</small></div>`);
 				}
@@ -3661,6 +3664,22 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	function close_runtime_cycle(row) {
 		const e = frappe.utils.escape_html;
+		const approval = row.close_approval || {};
+		const requires_supervisor = Boolean(row.close_requires_supervisor_approval);
+		let supervisor_approval_token = null;
+		const approval_reason = __("Supervisor reviewed and authorized Cycle closure on behalf of the assigned operator-in-charge.");
+		const supervisor_fields = requires_supervisor ? [
+			{ fieldname: "supervisor_pass_help", fieldtype: "HTML", options:
+				`<div class="alert alert-warning"><strong>${__("Exact-action supervisor pass required")}</strong><br>
+				${__("Assigned operator-in-charge")}: ${e(approval.cycle_owner_name || approval.cycle_owner || "-")}<br>
+				${__("Scan an eligible supervisor or verifier credential below. This approves only this Cycle-close attempt and does not switch the active operator.")}</div>` },
+			{ fieldname: "supervisor_reason", label: __("Supervisor Approval Reason"),
+				fieldtype: "Small Text", reqd: 1, default: approval_reason },
+			{ fieldname: "supervisor_pin", label: __("Supervisor PIN, if required"),
+				fieldtype: "Password" },
+			{ fieldname: "supervisor_pass_status", fieldtype: "HTML", options:
+				`<div class="text-muted">${__("Awaiting eligible supervisor credential scan")}</div>` },
+		] : [];
 		const dialog = new frappe.ui.Dialog({
 			title: __("Close Kanban Cycle"),
 			fields: [
@@ -3671,14 +3690,23 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					${__("Processed")}: ${e(row.processed_qty || 0)} / ${e(row.target_qty || 0)}<br>
 					${__("ERP and process gates will be checked again before closure.")}</div>` },
 				{ fieldname: "notes", label: __("Completion Notes"), fieldtype: "Small Text" },
+				...supervisor_fields,
 				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data",
-					description: __("Scan Confirm / Submit to close and release the Card, or scan Cancel.") },
+					description: requires_supervisor
+						? __("First scan the supervisor credential. After approval, scan Confirm / Submit to close, or scan Cancel.")
+						: __("Scan Confirm / Submit to close and release the Card, or scan Cancel.") },
 			],
-			primary_action_label: __("Close Cycle and Release Card"),
+			primary_action_label: requires_supervisor
+				? __("Use Supervisor Pass and Close") : __("Close Cycle and Release Card"),
 			primary_action: async (values) => {
+				if (requires_supervisor && !supervisor_approval_token) {
+					frappe.show_alert({ message: __("Scan an eligible supervisor credential first"), indicator: "orange" });
+					return window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 80);
+				}
 				const response = await frappe.call({ method: "cfg_kanban.api.operator.complete_runtime_cycle", args: {
 					execution_name: row.name, notes: values.notes,
 					operator_session_token: state.session_token,
+					supervisor_approval_token,
 				}, freeze: true, freeze_message: __("Closing Kanban Cycle...") });
 				dialog.hide();
 				const result = response.message;
@@ -3691,6 +3719,35 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			},
 		});
 		dialog.show();
+		if (requires_supervisor) {
+			dialog.cfg_raw_scanner_handler = async (credential) => {
+				const reason = String(dialog.get_value("supervisor_reason") || "").trim();
+				if (!reason) {
+					frappe.show_alert({ message: __("Enter the supervisor approval reason before scanning"), indicator: "orange" });
+					return;
+				}
+				const response = await frappe.call({
+					method: "cfg_kanban.api.operator.approve_supervisor_action",
+					args: {
+						action_code: "CLOSE_CYCLE_ON_BEHALF",
+						execution_name: row.name,
+						supervisor_qr_token: operator_token_from_scan(credential),
+						supervisor_pin: dialog.get_value("supervisor_pin"),
+						reason,
+						operator_session_token: state.session_token,
+					},
+					freeze: true,
+					freeze_message: __("Validating exact-action supervisor pass..."),
+				});
+				supervisor_approval_token = response.message.approval_token;
+				const status = dialog.get_field("supervisor_pass_status");
+				status.$wrapper.html(`<div class="alert alert-success py-2 mb-2">
+					<strong>${__("Supervisor pass approved")}</strong><br>
+					${e(response.message.approved_by_name || response.message.approved_by_employee)} ·
+					${__("valid for this close attempt until")} ${e(response.message.expires_on)}</div>`);
+				frappe.show_alert({ message: __("Supervisor pass accepted. Scan Confirm / Submit to close."), indicator: "green" });
+			};
+		}
 		bind_confirmation_scanner(dialog, true);
 	}
 
