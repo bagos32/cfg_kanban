@@ -1,0 +1,32 @@
+{
+ "actions": [],
+ "creation": "2026-10-26 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": ["assignment_type","job_code","authority_role","required_count","skill","minimum_competency_level","require_independent_authorization","allow_supervised_trainee","require_active_presence","may_own_cycle","separate_approver_required"],
+ "fields": [
+  {"fieldname":"assignment_type","fieldtype":"Data","in_list_view":1,"label":"Assignment Type","read_only":1},
+  {"fieldname":"job_code","fieldtype":"Link","in_list_view":1,"label":"Required Job Code","options":"CFG Kanban Job Code","read_only":1},
+  {"fieldname":"authority_role","fieldtype":"Link","in_list_view":1,"label":"Required Authority Role","options":"CFG Kanban Authority Role","read_only":1},
+  {"fieldname":"required_count","fieldtype":"Int","in_list_view":1,"label":"Required Count","read_only":1},
+  {"fieldname":"skill","fieldtype":"Link","in_list_view":1,"label":"Required Skill","options":"CFG Kanban Skill","read_only":1},
+  {"fieldname":"minimum_competency_level","fieldtype":"Data","in_list_view":1,"label":"Minimum Competency","read_only":1},
+  {"fieldname":"require_independent_authorization","fieldtype":"Check","label":"Require Independent Authorization","read_only":1},
+  {"fieldname":"allow_supervised_trainee","fieldtype":"Check","label":"Allow Supervised Trainee","read_only":1},
+  {"fieldname":"require_active_presence","fieldtype":"Check","label":"Require Active Presence","read_only":1},
+  {"fieldname":"may_own_cycle","fieldtype":"Check","label":"May Own Cycle","read_only":1},
+  {"fieldname":"separate_approver_required","fieldtype":"Check","label":"Separate Approver Required","read_only":1}
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-26 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "CFG Kanban",
+ "name": "CFG Kanban Cycle Role Requirement",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": []
+}

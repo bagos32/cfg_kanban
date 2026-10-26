@@ -1,5 +1,6 @@
 import frappe
 from frappe.model.document import Document
+from frappe.utils import getdate
 
 
 class CFGKanbanOperatorProfile(Document):
@@ -34,5 +35,44 @@ class CFGKanbanOperatorProfile(Document):
                     f"Job Code {job_code_name} belongs to {job_code.company}, "
                     f"not employee company {employee_company}"
                 )
+        self._validate_authority_assignments()
         if self.view_all_responsibilities and self.kanban_role != "Supervisor":
             frappe.throw("View All Service Tasks is available only to a Supervisor")
+
+    def _validate_authority_assignments(self):
+        seen = set()
+        for row in self.get("authority_assignments") or []:
+            key = (
+                row.authority_role,
+                row.company,
+                row.operation,
+                row.workstation,
+                row.responsibility,
+                str(row.effective_from or ""),
+                str(row.effective_until or ""),
+            )
+            if key in seen:
+                frappe.throw(
+                    f"Row {row.idx}: duplicate scoped Authority Assignment"
+                )
+            seen.add(key)
+            role = frappe.db.get_value(
+                "CFG Kanban Authority Role", row.authority_role,
+                ["active", "company"], as_dict=True,
+            )
+            if not role or not role.active:
+                frappe.throw(
+                    f"Row {row.idx}: Authority Role {row.authority_role} is not active"
+                )
+            if role.company and row.company and role.company != row.company:
+                frappe.throw(
+                    f"Row {row.idx}: Authority Role {row.authority_role} belongs to "
+                    f"{role.company}, not assignment company {row.company}"
+                )
+            if role.company and not row.company:
+                row.company = role.company
+            if (row.effective_from and row.effective_until
+                    and getdate(row.effective_until) < getdate(row.effective_from)):
+                frappe.throw(
+                    f"Row {row.idx}: Effective Until cannot be before Effective From"
+                )

@@ -11,6 +11,9 @@ frappe.ui.form.on("CFG Kanban Card", {
 			filters: { active: 1, docstatus: 1 },
 		}));
 		frm.set_query("owner_job_code", () => ({ filters: { active: 1 } }));
+		frm.set_query("job_code", "job_role_requirements", () => ({ filters: { active: 1 } }));
+		frm.set_query("authority_role", "job_role_requirements", () => ({ filters: { active: 1 } }));
+		frm.set_query("skill", "job_role_requirements", () => ({ filters: { active: 1 } }));
 	},
 	kanban_master(frm) {
 		frm.set_value("operation", null);
@@ -80,6 +83,10 @@ frappe.ui.form.on("CFG Kanban Card", {
 		}
 		if (!production && frm.doc.enforce_job_owner) {
 			frm.set_value({ enforce_job_owner: 0, owner_job_code: null });
+		}
+		if (!production && (frm.doc.job_role_requirements || []).length) {
+			frm.clear_table("job_role_requirements");
+			frm.refresh_field("job_role_requirements");
 		}
 		if (frm.doc.card_type !== "Workstation Queue Card" && frm.doc.queue_company) {
 			frm.set_value("queue_company", null);
@@ -152,7 +159,10 @@ async function refresh_owner_policy_visibility(frm, known_control_type = null) {
 		control_type = response?.message?.control_type;
 	}
 	const supported = Boolean(production_card && control_type === "Production");
-	frm.toggle_display(["job_owner_policy_section", "enforce_job_owner", "owner_job_code"], supported);
+	frm.toggle_display([
+		"job_owner_policy_section", "enforce_job_owner", "owner_job_code",
+		"job_role_requirement_section", "job_role_requirements",
+	], supported);
 }
 
 async function cfg_card_print(frm, format) {

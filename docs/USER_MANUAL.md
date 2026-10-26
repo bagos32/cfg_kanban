@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.04
+**Guide version:** 2.06
 
 **Updated:** 26 October 2026
 
@@ -377,6 +377,36 @@ cannot accept an unowned enforced Cycle. Cards without enforcement continue to s
 action. The Shared Job Register exposes the enforcement snapshot, required Job Code, owner, and owner
 assignment time for manager review. Fixed-scanner terminals may scan `CFG:CMD:ACCEPT_OWNER`; the
 normal `CFG:CMD:START` command also accepts ownership when the Job Card still requires Start.
+
+### Scoped multi-role authority foundation
+
+The legacy **Kanban Role** (`kanban_role`) selection remains active for compatibility. Do not use it
+as an Employee's organizational job title. A Junior Supervisor may retain that real designation in
+ERPNext Employee while CFG Kanban separately records the work they are qualified to perform, their
+competency, their scoped authority, and their role in one Cycle.
+
+Managers configure reusable **CFG Kanban Authority Role** records from **CFG Job Architecture →
+Authority Roles**. Each role contains an explicit capability bundle such as Perform Work, Lead Crew,
+Supervise Trainees, Verify Work, Approve Progress, Close on Behalf, Correct Records, Override
+Material, Cancel or Bypass, or Transfer Ownership. These capabilities never grant ERPNext User roles
+or document permissions.
+
+Add one or more rows under **CFG Kanban Operator Profile → Scoped Authority Assignments**. Each row
+may be narrowed by Company, Operation, Workstation, Kanban Responsibility, Effective From, and
+Effective Until. The same Employee can therefore be a qualified supervisor in one process, a normal
+operator in another, and a supervised trainee for a newly introduced job.
+
+Production Cards may declare several **Required Job Roles**. Each row identifies its assignment type
+(Operator-in-Charge, Direct Worker, Assistant, Supervisor / Mentor, or Verifier), required Job Code
+and/or Authority Role, head count, optional Skill and minimum competency, presence policy, trainee
+policy, and separation requirements. The Card declares what the job needs; it does not grant those
+rights to an Employee. Each new Cycle stores an immutable copy under **Cycle Job Role Requirement
+Snapshot**, so later Card changes cannot rewrite historical requirements.
+
+This release is the P07-0A configuration and snapshot foundation. Existing runtime authorization
+continues to honor the legacy Kanban Role and permission fields. Do not treat the new Card role rows
+as blocking enforcement until the later runtime-assignment and one-action supervisor-credential
+package is deployed.
 
 The operator interface is available at:
 
@@ -3913,6 +3943,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.06 | 26 October 2026 | Added P07-0A scoped multi-role authority foundation: configurable capability roles, multiple Company/Operation/Workstation/Responsibility/date-scoped Operator assignments, production Card job-role requirements, immutable Cycle snapshots, workspace access, and explicit legacy-role fallback without premature runtime blocking |
 | 2.05 | 26 October 2026 | Added optional per-Card Job Owner enforcement: stable Job Codes, Operator Profile eligibility, immutable Cycle policy snapshot, first-operation ownership acceptance, single Operator-in-Charge visibility, auditable Owner Assignments, and unchanged legacy flow for Cards that keep enforcement disabled |
 | 2.04 | 26 October 2026 | Added the permission-aware Shared Job Register using the approved reuse-first model: CFG Kanban Cycle as shared work instance, Process Execution as operation execution, and Job Participation as contribution intervals, with operation/participant summaries and an explicit no-attendance/no-payroll interpretation boundary |
 | 2.03 | 26 October 2026 | Added the separate CFG Job Architecture workspace inside the CFG Kanban app, grouping the existing identity, competency, crew-policy, live workforce, authorization, participation, Cycle, Process Execution, operation result, Event, and Exception records while clearly excluding unimplemented EODR, payroll, general-capacity, and cross-app schema |

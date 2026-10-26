@@ -1,0 +1,32 @@
+{
+ "actions": [],
+ "creation": "2026-10-26 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": ["assignment_type","job_code","authority_role","required_count","skill","minimum_competency_level","require_independent_authorization","allow_supervised_trainee","require_active_presence","may_own_cycle","separate_approver_required"],
+ "fields": [
+  {"columns":2,"fieldname":"assignment_type","fieldtype":"Select","in_list_view":1,"label":"Assignment Type","options":"Operator-in-Charge\nDirect Worker\nAssistant\nSupervisor / Mentor\nVerifier","reqd":1},
+  {"columns":2,"fieldname":"job_code","fieldtype":"Link","in_list_view":1,"label":"Required Job Code","options":"CFG Kanban Job Code"},
+  {"columns":2,"fieldname":"authority_role","fieldtype":"Link","in_list_view":1,"label":"Required Authority Role","options":"CFG Kanban Authority Role"},
+  {"columns":1,"default":"1","fieldname":"required_count","fieldtype":"Int","in_list_view":1,"label":"Required Count","reqd":1},
+  {"columns":2,"fieldname":"skill","fieldtype":"Link","in_list_view":1,"label":"Required Skill","options":"CFG Kanban Skill"},
+  {"columns":2,"fieldname":"minimum_competency_level","fieldtype":"Select","in_list_view":1,"label":"Minimum Competency","options":"\nL0 - Untrained / Awareness Only\nL1 - Trainee\nL2 - Qualified Operator\nL3 - Senior / Lead\nL4 - Trainer / Supervisor"},
+  {"default":"0","fieldname":"require_independent_authorization","fieldtype":"Check","label":"Require Independent Authorization"},
+  {"default":"0","fieldname":"allow_supervised_trainee","fieldtype":"Check","label":"Allow Supervised Trainee"},
+  {"default":"1","fieldname":"require_active_presence","fieldtype":"Check","label":"Require Active Presence"},
+  {"default":"0","fieldname":"may_own_cycle","fieldtype":"Check","label":"May Own Cycle"},
+  {"default":"0","fieldname":"separate_approver_required","fieldtype":"Check","label":"Separate Approver Required"}
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-26 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "CFG Kanban",
+ "name": "CFG Kanban Card Role Requirement",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": []
+}

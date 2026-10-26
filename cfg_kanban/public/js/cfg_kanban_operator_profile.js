@@ -2,6 +2,8 @@ frappe.ui.form.on("CFG Kanban Operator Profile", {
 	setup(frm) {
 		frm.set_query("responsibility", "responsibilities", () => ({ filters: { active: 1 } }));
 		frm.set_query("job_code", "job_codes", () => ({ filters: { active: 1 } }));
+		frm.set_query("authority_role", "authority_assignments", () => ({ filters: { active: 1 } }));
+		frm.set_query("responsibility", "authority_assignments", () => ({ filters: { active: 1 } }));
 	},
 	refresh(frm) {
 		if (frm.is_new()) return;

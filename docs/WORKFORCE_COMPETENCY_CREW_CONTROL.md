@@ -400,9 +400,27 @@ Crew Events participate in the Card's lightweight live revision, so a change mad
 authorized terminal refreshes the crew strip and crew-specific holds without rescanning the Card.
 Use `docs/TEST_WORKFORCE_P06_OPERATOR_UI.md` for the complete scanner and touch acceptance test.
 
+## P07-0A — Scoped multi-role authority foundation (implemented)
+
+The original Operator / Senior Operator / Supervisor selection remains a compatibility default, not
+an Employee job title. **CFG Kanban Authority Role** now defines explicit reusable capability bundles,
+and Operator Profiles may hold multiple assignments scoped by Company, Operation, Workstation,
+Kanban Responsibility, and effective dates. ERPNext permissions remain independently required.
+
+Production Cards may define multiple workforce requirement rows for Operator-in-Charge, Direct
+Worker, Assistant, Supervisor / Mentor, and Verifier assignments. Requirements may combine Job Code,
+Authority Role, head count, Skill/minimum competency, independent-versus-supervised policy, active
+presence, ownership eligibility, and separate-approver control. Every new Cycle receives an immutable
+snapshot. P07-0A deliberately does not enforce or auto-assign these rows yet; the current runtime
+continues through the legacy authority fallback until P07-0B is accepted.
+
+Use `docs/TEST_WORKFORCE_P07_0A_MULTI_ROLE_AUTHORITY.md` for migration and live acceptance.
+
 ## Remaining approved package
 
 ### P07 — Supervisor Control, Reports & Audit
 
 Add workforce traceability, competency expiry, compliance history, trainee supervision, labour
-utilization, controlled corrections, and exception reporting.
+utilization, controlled corrections, and exception reporting. P07-0B must first add runtime role
+assignments and exact-action supervisor credential approval using the P07-0A snapshots; it must not
+reinterpret the Employee's designation or silently grant permanent Supervisor authority.

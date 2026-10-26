@@ -178,7 +178,10 @@ def close_session(session_token, reason="Operator Logout"):
 
 
 def public_operator(profile, session):
+    from cfg_kanban.services.authority import resolve_authorities
+
     employee_name = frappe.db.get_value("Employee", profile.employee, "employee_name")
+    authority = resolve_authorities(profile)
     return {
         "employee": profile.employee,
         "employee_name": employee_name or profile.employee,
@@ -187,6 +190,9 @@ def public_operator(profile, session):
         "responsibilities": [row.responsibility for row in profile.responsibilities
                              if row.responsibility],
         "view_all_responsibilities": bool(cint(profile.get("view_all_responsibilities"))),
+        "authority_roles": authority["roles"],
+        "authority_capabilities": authority["capabilities"],
+        "legacy_authority_fallback": authority["legacy_fallback_active"],
         "station": session.station,
         "started_on": session.started_on,
         "expires_on": session.expires_on,
@@ -199,7 +205,7 @@ def _development_proxy_profile(employee):
     values = {"name": "Administrator Development Proxy", "employee": employee,
               "active": 1, "kanban_role": "Development Proxy",
               "allowed_operations": [], "allowed_workstations": [],
-              "responsibilities": [], "job_codes": [],
+              "responsibilities": [], "job_codes": [], "authority_assignments": [],
               "view_all_responsibilities": 1}
     for flag in set(ACTION_FLAGS.values()):
         values[flag] = 1

@@ -2,6 +2,7 @@ import uuid
 
 import frappe
 from frappe.model.document import Document
+from frappe.utils import cint
 
 
 class CFGKanbanCard(Document):
@@ -39,6 +40,7 @@ class CFGKanbanCard(Document):
         self._copy_master_context()
         self._validate_crew_requirement()
         self._validate_job_owner_policy(production_types)
+        self._validate_job_role_requirements(production_types)
         self._validate_doctype_action_card()
         if self.kanban_master:
             master = frappe.get_cached_doc("CFG Kanban Master", self.kanban_master)
@@ -115,6 +117,110 @@ class CFGKanbanCard(Document):
                 f"Job Code {self.owner_job_code} belongs to {job_code.company}, "
                 f"not Card company {self.company}"
             )
+
+    def _validate_job_role_requirements(self, production_types):
+        rows = self.get("job_role_requirements") or []
+        if self.card_type not in production_types:
+            if rows:
+                frappe.throw(
+                    "Multi-role Job Requirements currently apply only to Production Cards"
+                )
+            return
+
+        before = None if self.is_new() else self.get_doc_before_save()
+        if before and before.active_cycle and (
+                self._job_role_requirement_key(before.get("job_role_requirements") or [])
+                != self._job_role_requirement_key(rows)):
+            frappe.throw(
+                "Job Role requirements cannot change while this Card has an active Cycle. "
+                "Complete or cancel the Cycle first."
+            )
+
+        seen = set()
+        owner_candidate_count = 0
+        for row in rows:
+            if not row.job_code and not row.authority_role:
+                frappe.throw(
+                    f"Row {row.idx}: select a Required Job Code, Required Authority Role, or both"
+                )
+            if cint(row.required_count) < 1:
+                frappe.throw(f"Row {row.idx}: Required Count must be at least 1")
+            if bool(row.skill) != bool(row.minimum_competency_level):
+                frappe.throw(
+                    f"Row {row.idx}: Required Skill and Minimum Competency must be set together"
+                )
+            if row.require_independent_authorization and row.allow_supervised_trainee:
+                frappe.throw(
+                    f"Row {row.idx}: an independently authorized role cannot also allow a "
+                    "supervised trainee"
+                )
+            if row.may_own_cycle:
+                owner_candidate_count += 1
+                if not row.job_code:
+                    frappe.throw(
+                        f"Row {row.idx}: a role that May Own Cycle requires a Job Code"
+                    )
+                if self.enforce_job_owner and row.job_code != self.owner_job_code:
+                    frappe.throw(
+                        f"Row {row.idx}: the Cycle owner role must use Required Owner Job Code "
+                        f"{self.owner_job_code}"
+                    )
+            if row.separate_approver_required and row.assignment_type not in (
+                    "Supervisor / Mentor", "Verifier"):
+                frappe.throw(
+                    f"Row {row.idx}: Separate Approver applies only to Supervisor / Mentor "
+                    "or Verifier assignments"
+                )
+            self._assert_active_job_role_reference(row)
+            key = (
+                row.assignment_type,
+                row.job_code,
+                row.authority_role,
+                row.skill,
+            )
+            if key in seen:
+                frappe.throw(f"Row {row.idx}: duplicate Card Job Role requirement")
+            seen.add(key)
+        if owner_candidate_count > 1:
+            frappe.throw("Only one Card Job Role requirement may be marked May Own Cycle")
+
+    def _assert_active_job_role_reference(self, row):
+        if row.job_code:
+            job_code = frappe.db.get_value(
+                "CFG Kanban Job Code", row.job_code,
+                ["active", "company"], as_dict=True,
+            )
+            if not job_code or not job_code.active:
+                frappe.throw(f"Row {row.idx}: Job Code {row.job_code} is not active")
+            if job_code.company and self.company and job_code.company != self.company:
+                frappe.throw(
+                    f"Row {row.idx}: Job Code {row.job_code} belongs to {job_code.company}, "
+                    f"not Card company {self.company}"
+                )
+        if row.authority_role:
+            role = frappe.db.get_value(
+                "CFG Kanban Authority Role", row.authority_role,
+                ["active", "company"], as_dict=True,
+            )
+            if not role or not role.active:
+                frappe.throw(
+                    f"Row {row.idx}: Authority Role {row.authority_role} is not active"
+                )
+            if role.company and self.company and role.company != self.company:
+                frappe.throw(
+                    f"Row {row.idx}: Authority Role {row.authority_role} belongs to "
+                    f"{role.company}, not Card company {self.company}"
+                )
+
+    @staticmethod
+    def _job_role_requirement_key(rows):
+        fields = (
+            "assignment_type", "job_code", "authority_role", "required_count",
+            "skill", "minimum_competency_level", "require_independent_authorization",
+            "allow_supervised_trainee", "require_active_presence", "may_own_cycle",
+            "separate_approver_required",
+        )
+        return tuple(tuple(row.get(fieldname) or 0 for fieldname in fields) for row in rows)
 
     def _validate_crew_requirement(self):
         if self.card_type not in ("Process Kanban", "Station Kanban"):
