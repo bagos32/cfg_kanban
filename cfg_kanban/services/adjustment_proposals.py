@@ -1,4 +1,4 @@
-"""P07-0D2B1 preview-only foundation for controlled Kanban adjustments."""
+"""P07-0D2B controlled proposal and application workflow for Kanban evidence."""
 
 import json
 
@@ -8,6 +8,7 @@ from frappe.utils import flt, now_datetime
 
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key, insert_once
+from cfg_kanban.services.operation_summary import recalculate
 
 
 TERMINAL_CYCLE_STATUSES = {"Completed", "Cancelled"}
@@ -180,6 +181,201 @@ def cancel_adjustment_proposal(proposal_name, cancellation_reason):
         ignore_permissions=True,
     )
     return {"name": proposal.name, "status": "Cancelled"}
+
+
+@frappe.whitelist()
+def apply_operation_quantity_adjustment(
+    proposal_name,
+    application_notes,
+    approver_qr_token,
+    approver_pin=None,
+    event_token=None,
+):
+    """Apply one current Prepared proposal to Kanban evidence, never to ERPNext."""
+    _require_workforce_manager()
+    notes = (application_notes or "").strip()
+    if not notes:
+        frappe.throw("Application notes are required")
+    if not event_token:
+        frappe.throw("An application event token is required")
+    key = canonical_key("apply-kanban-adjustment", proposal_name, event_token)
+
+    frappe.db.sql(
+        "select name from `tabCFG Kanban Adjustment Proposal` where name=%s for update",
+        (proposal_name,),
+    )
+    proposal = frappe.get_doc("CFG Kanban Adjustment Proposal", proposal_name)
+    proposal.check_permission("read")
+    if proposal.status == "Applied" and proposal.application_idempotency_key == key:
+        return _application_result(proposal, duplicate=True)
+    if proposal.status != "Prepared":
+        frappe.throw(f"Proposal {proposal.name} cannot be applied from {proposal.status}")
+
+    frappe.db.sql(
+        "select name from `tabCFG Kanban Correction Request` where name=%s for update",
+        (proposal.correction_request,),
+    )
+    frappe.db.sql(
+        "select name from `tabCFG Kanban Process Execution` where name=%s for update",
+        (proposal.process_execution,),
+    )
+    request = frappe.get_doc("CFG Kanban Correction Request", proposal.correction_request)
+    execution = frappe.get_doc("CFG Kanban Process Execution", proposal.process_execution)
+    cycle = frappe.get_doc("CFG Kanban Cycle", proposal.kanban_cycle)
+    request.check_permission("read")
+    execution.check_permission("read")
+    cycle.check_permission("read")
+    _assert_consumed_request_approval(request)
+    preview = _assert_prepared_application_current(proposal, request, cycle, execution)
+
+    from cfg_kanban.services.action_approval import (
+        approve_and_consume_adjustment_application,
+    )
+    approval, approver = approve_and_consume_adjustment_application(
+        proposal,
+        approver_qr_token,
+        notes,
+        approver_pin,
+    )
+    applied_on = now_datetime()
+    approver_name = (
+        approver.employee_name
+        or frappe.db.get_value("Employee", approver.employee, "employee_name")
+        or approver.employee
+    )
+    progress = frappe.get_doc({
+        "doctype": "CFG Kanban Operation Progress",
+        "process_execution": execution.name,
+        "kanban_cycle": cycle.name,
+        "posting_datetime": applied_on,
+        "operator": approver.employee,
+        "operator_session": request.operator_session,
+        "terminal_user": frappe.session.user,
+        "good_qty": preview["good_qty_delta"],
+        "reject_qty": preview["reject_qty_delta"],
+        "processed_qty": preview["processed_qty_delta"],
+        "source": "Correction",
+        "linked_job_card": execution.job_card,
+        "correction_request": request.name,
+        "adjustment_proposal": proposal.name,
+        "notes": notes,
+    }).insert(ignore_permissions=True)
+
+    execution.db_set({
+        "good_qty": preview["proposed_good_qty"],
+        "reject_qty": preview["proposed_reject_qty"],
+        "processed_qty": preview["proposed_processed_qty"],
+    }, update_modified=True)
+    recalculate(cycle.name, execution.operation)
+    application_event = record(
+        "Kanban Adjustment Applied",
+        card=proposal.kanban_card,
+        cycle=cycle.name,
+        execution=execution.name,
+        reference_doctype=proposal.doctype,
+        reference_name=proposal.name,
+        operator=approver.employee,
+        operator_session=request.operator_session,
+        terminal_user=frappe.session.user,
+        qty=preview["processed_qty_delta"],
+        notes=(
+            f"Good {preview['good_qty_delta']:+g}; reject "
+            f"{preview['reject_qty_delta']:+g}. Kanban evidence only; ERPNext unchanged. "
+            f"{notes}"
+        ),
+        system_generated=False,
+        ignore_permissions=True,
+    )
+    proposal.db_set({
+        "status": "Applied",
+        "applied_by_employee": approver.employee,
+        "applied_by_name": approver_name,
+        "applied_on": applied_on,
+        "application_approval": approval.name,
+        "application_progress": progress.name,
+        "application_event": application_event.name,
+        "application_notes": notes,
+        "application_idempotency_key": key,
+    }, update_modified=True)
+    request.db_set({
+        "status": "Resolved",
+        "resolution_type": "Kanban Adjustment Applied",
+        "kanban_adjustment_proposal": proposal.name,
+        "resolved_by_employee": approver.employee,
+        "resolved_by_name": approver_name,
+        "resolved_on": applied_on,
+        "resolution_notes": notes,
+    }, update_modified=True)
+    return _application_result(proposal, duplicate=False)
+
+
+def _assert_prepared_application_current(proposal, request, cycle, execution):
+    """Recheck every frozen value immediately before an adjustment is applied."""
+    blocks = []
+    if proposal.status != "Prepared":
+        blocks.append(f"Proposal {proposal.name} is already {proposal.status}")
+    if proposal.correction_request != request.name:
+        blocks.append("The proposal no longer belongs to the selected Correction Request")
+    if proposal.kanban_cycle != cycle.name or proposal.process_execution != execution.name:
+        blocks.append("The proposal Cycle or Process Execution context no longer matches")
+    if request.status != "Approved" or request.review_decision != "Approve Kanban Adjustment":
+        blocks.append("The Correction Request is no longer approved for Kanban adjustment")
+    if str(execution.modified) != str(proposal.target_modified_on):
+        blocks.append(
+            "The Process Execution changed after this proposal was prepared; cancel it and "
+            "prepare a new revision from current values"
+        )
+    frozen = (
+        ("Good Qty", execution.good_qty, proposal.current_good_qty),
+        ("Reject Qty", execution.reject_qty, proposal.current_reject_qty),
+        ("Processed Qty", execution.processed_qty, proposal.current_processed_qty),
+        ("Target Qty", execution.target_qty, proposal.target_qty),
+        ("Released Qty", execution.released_qty, proposal.released_qty),
+    )
+    for label, current, expected in frozen:
+        if abs(flt(current) - flt(expected)) > EPSILON:
+            blocks.append(
+                f"{label} changed from prepared value {flt(expected):g} to {flt(current):g}"
+            )
+    preview = _operation_quantity_preview(
+        request,
+        proposal.good_qty_delta,
+        proposal.reject_qty_delta,
+    )
+    blocks.extend(preview["blocks"])
+    proposed = (
+        ("proposed Good Qty", preview["proposed_good_qty"], proposal.proposed_good_qty),
+        ("proposed Reject Qty", preview["proposed_reject_qty"], proposal.proposed_reject_qty),
+        (
+            "proposed Processed Qty",
+            preview["proposed_processed_qty"],
+            proposal.proposed_processed_qty,
+        ),
+    )
+    for label, current, expected in proposed:
+        if abs(flt(current) - flt(expected)) > EPSILON:
+            blocks.append(f"The recalculated {label} no longer matches the Prepared proposal")
+    if blocks:
+        frappe.throw("This adjustment cannot be applied: " + "; ".join(dict.fromkeys(blocks)))
+    return preview
+
+
+def _application_result(proposal, duplicate=False):
+    return {
+        "name": proposal.name,
+        "status": proposal.status,
+        "correction_request": proposal.correction_request,
+        "process_execution": proposal.process_execution,
+        "application_approval": proposal.application_approval,
+        "application_progress": proposal.application_progress,
+        "application_event": proposal.application_event,
+        "applied_by_employee": proposal.applied_by_employee,
+        "applied_by_name": proposal.applied_by_name,
+        "applied_on": proposal.applied_on,
+        "duplicate": duplicate,
+        "erpnext_changed": False,
+        "payroll_changed": False,
+    }
 
 
 def _operation_quantity_preview(request, good_qty_delta, reject_qty_delta):

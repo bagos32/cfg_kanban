@@ -19,6 +19,8 @@
   "notes",
   "source",
   "linked_job_card",
+  "correction_request",
+  "adjustment_proposal",
   "execution_values",
   "cancelled"
  ],
@@ -117,6 +119,22 @@
    "fieldtype": "Link",
    "options": "Job Card",
    "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "correction_request",
+   "label": "Correction Request",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Correction Request",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "adjustment_proposal",
+   "label": "Adjustment Proposal",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Adjustment Proposal",
+   "read_only": 1,
    "in_standard_filter": 1
   },
   {

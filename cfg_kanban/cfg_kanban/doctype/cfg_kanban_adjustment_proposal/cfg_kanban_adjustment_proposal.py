@@ -3,7 +3,7 @@ from frappe.model.document import Document
 
 
 class CFGKanbanAdjustmentProposal(Document):
-    """Immutable preview of an approved correction; it has no operational effect."""
+    """Immutable proposal whose controlled lifecycle is owned by the service layer."""
 
     def validate(self):
         if self.is_new():

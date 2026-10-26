@@ -19,6 +19,7 @@ ACTION_CAPABILITIES = {
     "REJECT_CORRECTION_REQUEST": "can_correct_records",
     "REQUIRE_ERP_CORRECTION": "can_correct_records",
     "RESOLVE_CORRECTION_REQUEST": "can_correct_records",
+    "APPLY_KANBAN_ADJUSTMENT": "can_correct_records",
 }
 
 CORRECTION_DECISION_ACTIONS = {
@@ -366,6 +367,148 @@ def approve_and_consume_correction_review(
     return consumed, approver
 
 
+def approve_and_consume_adjustment_application(
+    adjustment_proposal,
+    approver_qr_token,
+    reason,
+    approver_pin=None,
+):
+    """Authorize one exact Prepared proposal and consume the pass immediately."""
+    proposal = (
+        adjustment_proposal
+        if getattr(adjustment_proposal, "doctype", None) == "CFG Kanban Adjustment Proposal"
+        else frappe.get_doc("CFG Kanban Adjustment Proposal", adjustment_proposal)
+    )
+    reason = (reason or "").strip()
+    if not reason:
+        frappe.throw("Application notes are required for a Kanban adjustment")
+    request = frappe.get_doc("CFG Kanban Correction Request", proposal.correction_request)
+    execution = _execution_doc(proposal.process_execution)
+    cycle = frappe.get_doc("CFG Kanban Cycle", proposal.kanban_cycle)
+    requester = frappe.get_doc(
+        "CFG Kanban Operator Profile", request.requested_by_operator_profile
+    )
+    operator_session = frappe.get_doc(
+        "CFG Kanban Operator Session", request.operator_session
+    )
+    from cfg_kanban.services.runtime_roles import evaluate_cycle_roles
+    evaluate_cycle_roles(cycle.name, persist=True)
+
+    approver = profile_from_credential(approver_qr_token, approver_pin)
+    if approver.employee == requester.employee:
+        frappe.throw("The correction requester cannot apply their own adjustment")
+    if approver.employee == proposal.prepared_by_employee:
+        frappe.throw(
+            "The employee who prepared this proposal cannot also authorize its application"
+        )
+    capability = ACTION_CAPABILITIES["APPLY_KANBAN_ADJUSTMENT"]
+    requirements = _capability_requirements(cycle, capability)
+    if not requirements:
+        frappe.throw(
+            "The Cycle snapshot has no Supervisor / Mentor or Verifier role with "
+            "Correct Records authority"
+        )
+    matched = _matching_requirement(
+        cycle,
+        execution,
+        approver,
+        requirements,
+        requester_employee=requester.employee,
+        require_separate=True,
+        excluded_employees={proposal.prepared_by_employee},
+    )
+    if not matched:
+        frappe.throw(
+            "The scanned employee does not satisfy the Cycle's scoped correction authority, "
+            "competency, presence, and separation requirements for adjustment application"
+        )
+
+    raw_token = secrets.token_urlsafe(32)
+    current = now_datetime()
+    action_code = "APPLY_KANBAN_ADJUSTMENT"
+    _retire_prior_approvals(
+        action_code,
+        cycle.name,
+        execution.name,
+        requester.employee,
+        operator_session.name,
+        current,
+    )
+    approver_name = (
+        approver.employee_name
+        or frappe.db.get_value("Employee", approver.employee, "employee_name")
+        or approver.employee
+    )
+    approval = frappe.get_doc({
+        "doctype": "CFG Kanban Supervisor Action Approval",
+        "action_code": action_code,
+        "required_capability": capability,
+        "status": "Approved",
+        "company": cycle.company,
+        "kanban_card": cycle.kanban_card,
+        "kanban_cycle": cycle.name,
+        "process_execution": execution.name,
+        "operation": execution.operation,
+        "workstation": execution.workstation,
+        "correction_request": request.name,
+        "correction_decision": "Apply Kanban Adjustment",
+        "adjustment_proposal": proposal.name,
+        "requested_by_employee": requester.employee,
+        "requested_by_operator_profile": requester.name,
+        "operator_session": operator_session.name,
+        "terminal_user": operator_session.terminal_user,
+        "action_terminal_user": frappe.session.user,
+        "requested_on": current,
+        "approved_by_employee": approver.employee,
+        "approved_by_name": approver_name,
+        "approved_by_operator_profile": approver.name,
+        "matched_requirement_row": matched.name,
+        "matched_authority_role": matched.authority_role,
+        "approved_on": current,
+        "expires_on": add_to_date(current, minutes=2),
+        "reason": reason,
+        "approval_token_hash": credential_hash(raw_token),
+        "action_context": json.dumps({
+            "action_code": action_code,
+            "capability": capability,
+            "correction_request": request.name,
+            "adjustment_proposal": proposal.name,
+            "kanban_cycle": cycle.name,
+            "process_execution": execution.name,
+            "requester_employee": requester.employee,
+            "proposal_prepared_by_employee": proposal.prepared_by_employee,
+            "approver_employee": approver.employee,
+            "reason": reason,
+            "origin_terminal_user": operator_session.terminal_user,
+            "action_terminal_user": frappe.session.user,
+        }, sort_keys=True),
+    }).insert(ignore_permissions=True)
+    record(
+        "Adjustment Application Pass Approved",
+        card=cycle.kanban_card,
+        cycle=cycle.name,
+        execution=execution.name,
+        reference_doctype=approval.doctype,
+        reference_name=approval.name,
+        operator=approver.employee,
+        operator_session=operator_session.name,
+        terminal_user=frappe.session.user,
+        notes=f"{proposal.name}: {reason}",
+        system_generated=False,
+        ignore_permissions=True,
+    )
+    consumed = consume_action_approval(
+        raw_token,
+        action_code,
+        execution,
+        requester,
+        operator_session,
+        reason=reason,
+        adjustment_proposal=proposal.name,
+    )
+    return consumed, approver
+
+
 def consume_action_approval(
     approval_token,
     action_code,
@@ -374,6 +517,7 @@ def consume_action_approval(
     operator_session,
     subject_profile=None,
     reason=None,
+    adjustment_proposal=None,
 ):
     if not approval_token:
         frappe.throw("Scan an eligible supervisor credential before performing this action")
@@ -413,6 +557,8 @@ def consume_action_approval(
             "subject_employee": subject_profile.employee,
             "subject_operator_profile": subject_profile.name,
         })
+    if adjustment_proposal:
+        expected["adjustment_proposal"] = adjustment_proposal
     mismatches = [
         fieldname for fieldname, value in expected.items()
         if approval.get(fieldname) != value

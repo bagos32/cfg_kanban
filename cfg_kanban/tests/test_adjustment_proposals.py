@@ -43,6 +43,8 @@ def load_service(cycle, execution):
     idempotency = types.ModuleType("cfg_kanban.services.idempotency")
     idempotency.canonical_key = lambda *args: "::".join(args)
     idempotency.insert_once = lambda *args, **kwargs: (None, False)
+    operation_summary = types.ModuleType("cfg_kanban.services.operation_summary")
+    operation_summary.recalculate = lambda *args, **kwargs: None
     spec = importlib.util.spec_from_file_location(
         "cfg_kanban_test_adjustment_proposals",
         ROOT / "services" / "adjustment_proposals.py",
@@ -53,6 +55,7 @@ def load_service(cycle, execution):
         "frappe.utils": utils,
         "cfg_kanban.services.events": events,
         "cfg_kanban.services.idempotency": idempotency,
+        "cfg_kanban.services.operation_summary": operation_summary,
     }):
         spec.loader.exec_module(module)
     return module
@@ -104,7 +107,7 @@ class TestAdjustmentProposals(unittest.TestCase):
             self.assertFalse(permission.get("write"))
             self.assertFalse(permission.get("delete"))
 
-    def test_preview_is_non_mutating_and_application_is_not_implemented(self):
+    def test_preview_and_prepare_remain_non_mutating_after_application_package(self):
         service = (ROOT / "services" / "adjustment_proposals.py").read_text()
         self.assertIn("def preview_operation_quantity_adjustment(", service)
         self.assertIn("def prepare_operation_quantity_adjustment(", service)
@@ -112,9 +115,12 @@ class TestAdjustmentProposals(unittest.TestCase):
         self.assertIn("def _assert_consumed_request_approval", service)
         self.assertIn('approval.status != "Consumed"', service)
         self.assertIn('check_permission("read")', service)
-        self.assertNotIn("execution.db_set", service)
-        self.assertNotIn("cycle.db_set", service)
-        self.assertNotIn('"CFG Kanban Operation Progress"', service)
+        preview_foundation = service.split(
+            "def apply_operation_quantity_adjustment", 1
+        )[0]
+        self.assertNotIn("execution.db_set", preview_foundation)
+        self.assertNotIn("cycle.db_set", preview_foundation)
+        self.assertNotIn('"CFG Kanban Operation Progress"', preview_foundation)
         self.assertNotIn('frappe.get_doc("Work Order"', service)
         self.assertNotIn('frappe.get_doc("Job Card"', service)
 

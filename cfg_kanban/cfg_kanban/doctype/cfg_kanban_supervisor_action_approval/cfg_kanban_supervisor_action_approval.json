@@ -11,7 +11,7 @@
   "operator_session", "terminal_user", "requested_on", "approval_section",
   "approved_by_employee", "approved_by_name", "approved_by_operator_profile",
   "matched_requirement_row", "matched_authority_role", "approved_on", "expires_on",
-  "consumed_on", "action_terminal_user", "reason", "correction_request", "correction_decision", "subject_section", "subject_employee", "subject_name",
+  "consumed_on", "action_terminal_user", "reason", "correction_request", "correction_decision", "adjustment_proposal", "subject_section", "subject_employee", "subject_name",
   "subject_operator_profile", "security_section", "approval_token_hash", "action_context"
  ],
  "fields": [
@@ -48,6 +48,7 @@
   {"fieldname":"subject_operator_profile","fieldtype":"Link","label":"Target Operator Profile","options":"CFG Kanban Operator Profile","read_only":1},
   {"fieldname":"correction_request","fieldtype":"Link","in_standard_filter":1,"label":"Correction Request","options":"CFG Kanban Correction Request","read_only":1},
   {"fieldname":"correction_decision","fieldtype":"Data","label":"Correction Decision","read_only":1},
+  {"fieldname":"adjustment_proposal","fieldtype":"Link","in_standard_filter":1,"label":"Adjustment Proposal","options":"CFG Kanban Adjustment Proposal","read_only":1},
   {"fieldname":"security_section","fieldtype":"Section Break","label":"One-time Security Evidence"},
   {"fieldname":"approval_token_hash","fieldtype":"Data","hidden":1,"label":"Approval Token Hash","read_only":1,"reqd":1,"unique":1},
   {"fieldname":"action_context","fieldtype":"Code","label":"Bound Action Context","options":"JSON","read_only":1}
@@ -62,7 +63,7 @@
   {"export":1,"print":1,"read":1,"report":1,"role":"Manufacturing Manager"},
   {"export":1,"print":1,"read":1,"report":1,"role":"System Manager"}
  ],
- "search_fields": "kanban_cycle,process_execution,correction_request,requested_by_employee,approved_by_employee,subject_employee,action_code",
+ "search_fields": "kanban_cycle,process_execution,correction_request,adjustment_proposal,requested_by_employee,approved_by_employee,action_code",
  "sort_field": "approved_on",
  "sort_order": "DESC",
  "states": [],

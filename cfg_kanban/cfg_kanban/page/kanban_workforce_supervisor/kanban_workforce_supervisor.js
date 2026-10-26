@@ -102,13 +102,14 @@ frappe.pages["kanban-workforce-supervisor"].on_page_load = function (wrapper) {
 				<div><span>${e(row.reason)}</span><small>${e(row.affected_doctype)} · ${e(row.affected_document)}</small>${proposal}</div>
 				<div><span class="indicator-pill ${colour}">${e(row.status)}</span>
 				${prepare ? `<button class="btn btn-xs btn-warning ml-2 cfg-prepare-adjustment">${__("Prepare Adjustment")}</button>` : ""}
-				${row.adjustment_proposal ? `<button class="btn btn-xs btn-default ml-2 cfg-view-adjustment">${__("View Proposal")}</button><button class="btn btn-xs btn-danger ml-1 cfg-cancel-adjustment">${__("Cancel Proposal")}</button>` : ""}
+				${row.adjustment_proposal ? `<button class="btn btn-xs btn-default ml-2 cfg-view-adjustment">${__("View Proposal")}</button><button class="btn btn-xs btn-success ml-1 cfg-apply-adjustment">${__("Apply Adjustment")}</button><button class="btn btn-xs btn-danger ml-1 cfg-cancel-adjustment">${__("Cancel Proposal")}</button>` : ""}
 				<button class="btn btn-xs btn-primary ml-2 cfg-review">${__("Review")}</button>
 				<button class="btn btn-xs btn-default ml-1 cfg-audit">${__("Audit")}</button></div></div>`).appendTo($list);
 			$item.find(".cfg-review").on("click", () => review_correction(row));
 			$item.find(".cfg-audit").on("click", () => frappe.set_route("Form", "CFG Kanban Correction Request", row.name));
 			$item.find(".cfg-prepare-adjustment").on("click", () => prepare_adjustment(row));
 			$item.find(".cfg-view-adjustment").on("click", () => frappe.set_route("Form", "CFG Kanban Adjustment Proposal", row.adjustment_proposal));
+			$item.find(".cfg-apply-adjustment").on("click", () => apply_adjustment(row));
 			$item.find(".cfg-cancel-adjustment").on("click", () => cancel_adjustment(row));
 		});
 	}
@@ -159,7 +160,7 @@ frappe.pages["kanban-workforce-supervisor"].on_page_load = function (wrapper) {
 				dialog.get_field("preview").$wrapper.html(adjustment_preview_html(preview));
 				if (!preview.eligible) return;
 				frappe.confirm(
-					__("Prepare this immutable proposal? It will remain unapplied until the future controlled-application package."),
+					__("Prepare this immutable proposal for separate controlled application? No quantity changes at this stage."),
 					async () => {
 						await frappe.call({
 							method: "cfg_kanban.services.adjustment_proposals.prepare_operation_quantity_adjustment",
@@ -176,6 +177,47 @@ frappe.pages["kanban-workforce-supervisor"].on_page_load = function (wrapper) {
 			},
 		});
 		dialog.show();
+	}
+
+	function apply_adjustment(row) {
+		let dialog;
+		dialog = new frappe.ui.Dialog({
+			title: __("Apply Kanban Adjustment — {0}", [row.adjustment_proposal]),
+			fields: [
+				{ fieldname: "boundary", fieldtype: "HTML", options:
+					`<div class="alert alert-warning"><strong>${__("Kanban operational correction only")}</strong><br>
+					${__("This changes Process Execution totals and adds an immutable Correction progress row. It does not change ERPNext Job Cards, Work Orders, stock, batches, payroll, or historical progress rows.")}<hr>
+					<strong>${__("Good")}</strong>: ${number(row.adjustment_current_good)} ${signed_number(row.adjustment_good_delta)} → ${number(row.adjustment_proposed_good)}<br>
+					<strong>${__("Reject")}</strong>: ${number(row.adjustment_current_reject)} ${signed_number(row.adjustment_reject_delta)} → ${number(row.adjustment_proposed_reject)}<br>
+					<strong>${__("Processed")}</strong>: ${number(row.adjustment_current_processed)} ${signed_number(Number(row.adjustment_good_delta || 0) + Number(row.adjustment_reject_delta || 0))} → ${number(row.adjustment_proposed_processed)} ${e(row.adjustment_stock_uom || "")}</div>` },
+				{ fieldname: "application_notes", label: __("Application Notes"), fieldtype: "Small Text", reqd: 1,
+					description: __("Record the final evidence checked immediately before applying this proposal.") },
+				{ fieldname: "authority_section", label: __("Separate Exact-action Authority"), fieldtype: "Section Break" },
+				{ fieldname: "approver_qr_token", label: __("Applying Reviewer Employee QR"), fieldtype: "Password", reqd: 1,
+					description: __("Scan a different eligible Correct Records reviewer. The requester and proposal preparer cannot authorize application.") },
+				{ fieldname: "approver_pin", label: __("Reviewer PIN (when configured)"), fieldtype: "Password" },
+			],
+			primary_action_label: __("Authorize and Apply"),
+			primary_action: async (values) => {
+				frappe.confirm(
+					__("Apply this signed correction to Kanban production execution totals? ERPNext and payroll will remain unchanged."),
+					async () => {
+						await frappe.call({
+							method: "cfg_kanban.services.adjustment_proposals.apply_operation_quantity_adjustment",
+							args: { proposal_name: row.adjustment_proposal, ...values,
+								event_token: frappe.utils.get_random(20) },
+							freeze: true,
+							freeze_message: __("Rechecking and applying Kanban adjustment..."),
+						});
+						dialog.hide();
+						frappe.show_alert({ message: __("Kanban adjustment applied; ERPNext and payroll unchanged"), indicator: "green" });
+						await load(false);
+					}
+				);
+			},
+		});
+		dialog.show();
+		window.setTimeout(() => dialog.get_field("approver_qr_token")?.set_focus(), 100);
 	}
 
 	function cancel_adjustment(row) {
@@ -323,10 +365,11 @@ frappe.pages["kanban-workforce-supervisor"].on_page_load = function (wrapper) {
 			const colour = row.effective_status === "Consumed" ? "green" : row.effective_status === "Approved" ? "blue" : "orange";
 			const subject = row.subject_name || row.subject_employee;
 			const correction = row.correction_request ? ` · ${__("Correction")}: ${e(row.correction_request)} · ${e(row.correction_decision || "-")}` : "";
+			const adjustment = row.adjustment_proposal ? ` · ${__("Proposal")}: ${e(row.adjustment_proposal)}` : "";
 			const $item = $(`<div class="cfg-workforce-row"><div><strong>${e(row.approved_by_name || row.approved_by_employee)}</strong>
 				<small>${e(row.action_code)} · ${e(row.matched_authority_role || "-")}</small></div>
 				<div><span>${e(row.kanban_cycle)} · ${e(row.operation || "-")}</span>
-				<small>${e(row.requested_by_employee)}${subject ? ` · ${__("Target")}: ${e(subject)}` : ""}${correction} · ${relative_time(row.approved_on)}</small></div>
+				<small>${e(row.requested_by_employee)}${subject ? ` · ${__("Target")}: ${e(subject)}` : ""}${correction}${adjustment} · ${relative_time(row.approved_on)}</small></div>
 				<div><span class="indicator-pill ${colour}">${e(row.effective_status)}</span>
 				<button class="btn btn-xs btn-default ml-2">${__("Audit")}</button></div></div>`).appendTo($list);
 			$item.find("button").on("click", () => frappe.set_route("Form", "CFG Kanban Supervisor Action Approval", row.name));

@@ -18,7 +18,8 @@
   "prepared_by_user", "prepared_on", "supervisor_action_approval",
   "cancellation_section", "cancelled_by_user", "cancelled_on", "cancellation_reason",
   "future_application_section", "applied_by_employee", "applied_by_name", "applied_on",
-  "application_approval", "application_event", "application_notes", "idempotency_key"
+  "application_approval", "application_progress", "application_event", "application_notes",
+  "application_idempotency_key", "idempotency_key"
  ],
  "fields": [
   {"fieldname":"proposal_section","fieldtype":"Section Break","label":"Controlled Kanban Adjustment Proposal"},
@@ -65,13 +66,15 @@
   {"fieldname":"cancelled_by_user","fieldtype":"Link","label":"Cancelled By User","options":"User","read_only":1},
   {"fieldname":"cancelled_on","fieldtype":"Datetime","label":"Cancelled On","read_only":1},
   {"fieldname":"cancellation_reason","fieldtype":"Text","label":"Cancellation Reason","read_only":1},
-  {"fieldname":"future_application_section","fieldtype":"Section Break","label":"Controlled Application (Reserved for P07-0D2B2)","collapsible":1},
+  {"fieldname":"future_application_section","fieldtype":"Section Break","label":"Controlled Application Audit","collapsible":1},
   {"fieldname":"applied_by_employee","fieldtype":"Link","label":"Applied By Employee","options":"Employee","read_only":1},
   {"fieldname":"applied_by_name","fieldtype":"Data","label":"Applied By Name","read_only":1},
   {"fieldname":"applied_on","fieldtype":"Datetime","label":"Applied On","read_only":1},
   {"fieldname":"application_approval","fieldtype":"Link","label":"Application Exact-action Approval","options":"CFG Kanban Supervisor Action Approval","read_only":1},
+  {"fieldname":"application_progress","fieldtype":"Link","label":"Correction Progress Entry","options":"CFG Kanban Operation Progress","read_only":1},
   {"fieldname":"application_event","fieldtype":"Link","label":"Application Event","options":"CFG Kanban Event","read_only":1},
   {"fieldname":"application_notes","fieldtype":"Text","label":"Application Notes","read_only":1},
+  {"fieldname":"application_idempotency_key","fieldtype":"Data","hidden":1,"label":"Application Idempotency Key","read_only":1,"unique":1},
   {"fieldname":"idempotency_key","fieldtype":"Data","hidden":1,"label":"Idempotency Key","read_only":1,"unique":1}
  ],
  "links": [],

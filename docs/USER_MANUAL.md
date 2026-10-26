@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.13
+**Guide version:** 2.14
 
 **Updated:** 26 October 2026
 
@@ -496,7 +496,7 @@ The requester's own credential cannot authorize the decision.
 
 Each decision creates and immediately consumes a two-minute exact-action approval bound to the
 Correction Request and exact decision. **Approved** means that a Kanban adjustment may be prepared
-by the future P07-0D2B package; P07-0D2A itself applies no adjustment. **ERP Correction Required**
+and separately applied through the P07-0D2B workflow below; P07-0D2A itself applies no adjustment. **ERP Correction Required**
 never cancels or edits ERPNext documents. To resolve that state, link the authoritative Stock Entry,
 Work Order, or Job Card correction created through its proper ERPNext workflow. Original Cycle,
 progress, ownership, participation, Work Order, Job Card, and Stock Entry history remains unchanged.
@@ -524,9 +524,35 @@ handoff, ownership, participation, Job Card, Work Order, Stock Entry, or stock. 
 proposal can be cancelled with a reason; it remains in history and a replacement is a linked new
 revision. Preparation revalidates the consumed exact-action approval against the same request,
 decision, and approving Employee. A request cannot be rerouted to ERP Correction until its Prepared
-proposal is cancelled, preventing two active correction paths. Actual controlled application
-remains P07-0D2B2. Use
+proposal is cancelled, preventing two active correction paths. Use
 `docs/TEST_WORKFORCE_P07_0D2B1_ADJUSTMENT_PROPOSALS.md` for acceptance.
+
+### Controlled Kanban adjustment application
+
+P07-0D2B2 applies a **Prepared** proposal through **Apply Adjustment** in the Workforce Supervisor
+Centre. Before applying, the server locks and rechecks the Proposal, Correction Request, Process
+Execution, current Good/Reject/Processed quantities, target, released quantity, status, and last
+modification. If production changed after preparation, application is blocked; cancel the stale
+proposal and prepare a new revision from current values.
+
+Application requires a second scanned Employee who satisfies the Cycle's immutable
+Supervisor/Verifier requirement with **Correct Records** authority. The original requester cannot
+apply their own correction, and the Employee who prepared the proposal cannot authorize its
+application. The application pass is single-use and bound to the exact Proposal, Request, Cycle,
+Execution, reason, terminal context, and applying Employee.
+
+A successful application adds a new immutable **CFG Kanban Operation Progress** row with Source
+**Correction** and the signed Good, Reject, and Processed deltas. Original progress rows are never
+edited or deleted. The Process Execution and Operation Summary are recalculated, the Proposal becomes
+**Applied**, and the Correction Request becomes **Resolved — Kanban Adjustment Applied**. Positive
+Good corrections do not silently create a downstream handoff; normal controlled release remains
+responsible for physical WIP movement.
+
+This application affects Kanban operational production evidence only. It does not change an ERPNext
+Job Card, Work Order, Stock Entry, Batch, stock balance, payroll, attendance, ownership, or
+participation interval. A non-zero Good delta remains blocked when the execution has a Job Card;
+correct that quantity through ERPNext and link its authoritative correction instead. Use
+`docs/TEST_WORKFORCE_P07_0D2B2_ADJUSTMENT_APPLICATION.md` for acceptance.
 
 ### Workforce Supervisor Centre
 
@@ -1777,8 +1803,8 @@ Progress entries are incremental. If the execution already contains 100 good uni
 entry is 50, the execution total becomes 150. Do not enter the cumulative total unless it is truly
 new output.
 
-Progress records are immutable. Corrections require a future explicit adjustment workflow; do not
-delete or edit production history directly.
+Progress records are immutable. Corrections require the controlled P07-0D2 workflow; it appends a
+signed Source **Correction** row and never deletes or edits earlier production history.
 
 For Digital Quantity Handoff, the app releases only completed Transfer Multiples. Example:
 
@@ -4088,6 +4114,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.14 | 26 October 2026 | Added P07-0D2B2 controlled Kanban adjustment application with second-person proposal-bound Correct Records authorization, live stale-value revalidation, immutable signed Correction progress entries, atomic execution/summary recalculation, resolved-request audit links, idempotent application, and explicit no-ERPNext/no-stock/no-payroll mutation boundary |
 | 2.13 | 26 October 2026 | Added P07-0D2B1 immutable operation-quantity adjustment proposals with current-value preview, signed Good/Reject deltas, ERP Job Card ownership and released/target/terminal safety gates, cancellation/revision audit, and deliberately no operational or ERPNext mutation |
 | 2.12 | 26 October 2026 | Added an early BOM guardrail for Job Card material control: Item Operation becomes mandatory on every raw-material row, Save/Submit rejects missing or off-route mappings, and downstream Kanban Master and Work Order validation remains in place |
 | 2.11 | 26 October 2026 | Added P07-0D2A immutable correction requests with scanner/touch reporting, category-bound current-record snapshots, manager correction queue, request-and-decision-bound Correct Records authorization, ERP correction-reference resolution, terminal-state protection, and no mutation of original Kanban or ERPNext records |

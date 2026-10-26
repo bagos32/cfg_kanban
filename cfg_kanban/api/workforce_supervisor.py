@@ -369,6 +369,7 @@ def _recent_supervisor_approvals(company, workstation, limit):
             "approved_by_employee", "approved_by_name", "matched_authority_role",
             "subject_employee", "subject_name", "subject_operator_profile",
             "correction_request", "correction_decision", "action_terminal_user",
+            "adjustment_proposal",
             "requested_on", "approved_on", "expires_on", "consumed_on", "reason",
         ],
         order_by="approved_on desc",
@@ -421,8 +422,11 @@ def _correction_requests(company, workstation, limit):
             },
             fields=[
                 "name", "correction_request", "status", "revision",
+                "current_good_qty", "proposed_good_qty",
+                "current_reject_qty", "proposed_reject_qty",
+                "current_processed_qty",
                 "good_qty_delta", "reject_qty_delta", "proposed_processed_qty",
-                "stock_uom", "prepared_on",
+                "stock_uom", "prepared_by_employee", "prepared_by_name", "prepared_on",
             ],
             order_by="revision desc",
             limit_page_length=limit,
@@ -437,6 +441,17 @@ def _correction_requests(company, workstation, limit):
         row["adjustment_proposed_processed"] = (
             proposal.proposed_processed_qty if proposal else None
         )
+        row["adjustment_current_good"] = proposal.current_good_qty if proposal else None
+        row["adjustment_proposed_good"] = proposal.proposed_good_qty if proposal else None
+        row["adjustment_current_reject"] = proposal.current_reject_qty if proposal else None
+        row["adjustment_proposed_reject"] = proposal.proposed_reject_qty if proposal else None
+        row["adjustment_current_processed"] = (
+            proposal.current_processed_qty if proposal else None
+        )
+        row["adjustment_prepared_by_employee"] = (
+            proposal.prepared_by_employee if proposal else None
+        )
+        row["adjustment_prepared_by_name"] = proposal.prepared_by_name if proposal else None
         row["adjustment_stock_uom"] = proposal.stock_uom if proposal else None
     return rows
 

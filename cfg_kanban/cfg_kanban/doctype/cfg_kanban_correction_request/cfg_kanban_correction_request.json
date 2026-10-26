@@ -14,7 +14,7 @@
   "reviewed_by_employee", "reviewed_by_name", "reviewed_by_operator_profile",
   "reviewed_on", "review_decision", "review_notes", "supervisor_action_approval",
   "resolution_section", "resolution_type", "erp_correction_doctype",
-  "erp_correction_document", "resolved_by_employee", "resolved_by_name", "resolved_on",
+  "erp_correction_document", "kanban_adjustment_proposal", "resolved_by_employee", "resolved_by_name", "resolved_on",
   "resolution_notes", "idempotency_key"
  ],
  "fields": [
@@ -51,9 +51,10 @@
   {"fieldname":"review_notes","fieldtype":"Text","label":"Review Notes","read_only":1},
   {"fieldname":"supervisor_action_approval","fieldtype":"Link","label":"Exact-action Approval","options":"CFG Kanban Supervisor Action Approval","read_only":1},
   {"fieldname":"resolution_section","fieldtype":"Section Break","label":"Resolution and ERPNext Reference"},
-  {"fieldname":"resolution_type","fieldtype":"Select","in_standard_filter":1,"label":"Resolution Type","options":"\nKanban Adjustment Required\nNo Change Approved\nERP Correction Required\nERP Correction Confirmed\nAudit Resolution Confirmed","read_only":1},
+  {"fieldname":"resolution_type","fieldtype":"Select","in_standard_filter":1,"label":"Resolution Type","options":"\nKanban Adjustment Required\nKanban Adjustment Applied\nNo Change Approved\nERP Correction Required\nERP Correction Confirmed\nAudit Resolution Confirmed","read_only":1},
   {"fieldname":"erp_correction_doctype","fieldtype":"Link","label":"ERP Correction DocType","options":"DocType","read_only":1},
   {"fieldname":"erp_correction_document","fieldtype":"Dynamic Link","label":"ERP Correction Document","options":"erp_correction_doctype","read_only":1},
+  {"fieldname":"kanban_adjustment_proposal","fieldtype":"Link","in_standard_filter":1,"label":"Applied Kanban Adjustment","options":"CFG Kanban Adjustment Proposal","read_only":1},
   {"fieldname":"resolved_by_employee","fieldtype":"Link","label":"Resolved By Employee","options":"Employee","read_only":1},
   {"fieldname":"resolved_by_name","fieldtype":"Data","label":"Resolver Name","read_only":1},
   {"fieldname":"resolved_on","fieldtype":"Datetime","label":"Resolved On","read_only":1},
