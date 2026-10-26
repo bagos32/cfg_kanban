@@ -11,6 +11,18 @@ authorization, crew presence, participation intervals, scanner interaction, and 
 Supporting employees must never create duplicate quantity-bearing ERPNext Job Cards or multiply the
 reported production output.
 
+The separate **CFG Job Architecture** workspace is the manager and auditor entry point for this
+implemented foundation. It groups the existing Operator Profile, Skill, Employee Competency, crew
+policy, live Crew Session, membership, compliance, Job Participation, Cycle, Process Execution,
+operation result, Event, and Exception records without duplicating their data. Record-level access
+continues to use each DocType's existing permissions.
+
+The workspace does not mean that every proposed shared-job architecture record already exists.
+EODR, payroll export, general capacity, and cross-app integration remain controlled future packages.
+If a future package conflicts with an existing CFG Kanban identity, competency scale, Cycle,
+participation record, event contract, exception boundary, or the TrackQMS integration boundary,
+implementation must stop for an explicit product decision before changing the data model.
+
 Delivery remains sequential:
 
 | Release | Packages | Boundary |
