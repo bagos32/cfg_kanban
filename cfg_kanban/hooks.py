@@ -9,6 +9,7 @@ required_apps = ["erpnext"]
 app_include_css = "/assets/cfg_kanban/css/kanban_operator.css"
 
 doctype_js = {
+    "BOM": "public/js/bom.js",
     "CFG Kanban Master": "public/js/cfg_kanban_master.js",
     "CFG Kanban Dashboard Profile": "public/js/cfg_kanban_dashboard_profile.js",
     "Work Order": "public/js/work_order.js",
@@ -64,6 +65,9 @@ fixtures = [
 ]
 
 doc_events = {
+    "BOM": {
+        "validate": "cfg_kanban.integrations.bom_validation.validate_job_card_item_operations",
+    },
     "CFG Kanban Cycle": {
         "after_insert": "cfg_kanban.services.process_tasks.on_cycle_created",
     },

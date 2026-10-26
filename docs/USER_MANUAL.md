@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.11
+**Guide version:** 2.12
 
 **Updated:** 26 October 2026
 
@@ -1392,7 +1392,11 @@ Refresh BOM Material Flow** for an explicit refresh when reviewing an older Mast
 For `Transfer to WIP by Job Card`, ERPNext's BOM **With Operations** must be enabled and every BOM
 Item row must have **Item Operation**. Expand each BOM Item row to see that field. It means “this
 component is first required by this operation”; the Operation table alone does not assign materials
-to Job Cards. CFG Kanban deliberately refuses to guess this relationship.
+to Job Cards. CFG Kanban deliberately refuses to guess this relationship. When the BOM's native
+**Transfer Material Against** field is `Job Card`, the BOM form marks **Item Operation** mandatory
+and both Save and Submit are blocked until every raw-material row is mapped to an Operation that
+also exists in that BOM's Operations table. This catches the configuration error at its source;
+the Kanban Master and Work Order checks remain as additional protection.
 
 #### Optional restricted/secret BOM components
 
@@ -4059,6 +4063,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.12 | 26 October 2026 | Added an early BOM guardrail for Job Card material control: Item Operation becomes mandatory on every raw-material row, Save/Submit rejects missing or off-route mappings, and downstream Kanban Master and Work Order validation remains in place |
 | 2.11 | 26 October 2026 | Added P07-0D2A immutable correction requests with scanner/touch reporting, category-bound current-record snapshots, manager correction queue, request-and-decision-bound Correct Records authorization, ERP correction-reference resolution, terminal-state protection, and no mutation of original Kanban or ERPNext records |
 | 2.10 | 26 October 2026 | Added P07-0D1 controlled live Cycle ownership transfer with scanner/touch workflow, replacement Job Code and configured-crew eligibility, separate Supervisor/Verifier approval using Transfer Ownership authority, two-minute single-use approval bound to replacement and reason, linked immutable owner-assignment history, Cycle timeline evidence, and unchanged ERPNext manufacturing records |
 | 2.09 | 26 October 2026 | Added P07-0C read-only Workforce Supervisor Centre with permission-aware Company/Workstation filtering, missing-role and compliance-hold attention, competency expiry, actual live crew membership, operational participation-duration summaries, recent exact-action approval audit, authoritative-record links, and hidden-tab refresh suppression |
