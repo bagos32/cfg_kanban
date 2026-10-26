@@ -358,6 +358,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			TRIGGER: () => consume_card(true),
 			ACCEPT_OWNER: accept_context_job_ownership,
 			TRANSFER_OWNER: transfer_context_job_ownership,
+			REQUEST_CORRECTION: open_context_correction_request,
 			START: () => run_context_execution_action("start"),
 			REPORT_PROGRESS: () => run_context_execution_action("report_progress"),
 			GO_TO_CURRENT_WORK: go_to_current_work,
@@ -447,6 +448,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}
 		scroll_to_live_action(true);
 		set_scanner_message(__("Current work displayed"), "green");
+	}
+
+	function open_context_correction_request() {
+		const execution = crew_execution_context();
+		if (!execution) {
+			return scanner_command_message(__("Scan an active production Card before reporting a correction."));
+		}
+		return correction_request_dialog(execution.name);
 	}
 
 	function close_context_runtime_cycle() {
@@ -3331,7 +3340,20 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	function render_executions(executions) {
 		if (!executions.length) return;
 		const e = frappe.utils.escape_html;
-		const $section = $("<div><h4>" + __("Job Card Execution Lanes") + "</h4></div>").appendTo($root);
+		const $section = $(`<div><div class="d-flex justify-content-between align-items-center mb-2">
+			<h4 class="mb-0">${__("Job Card Execution Lanes")}</h4><div class="cfg-correction-actions"></div></div></div>`).appendTo($root);
+		add_action($section.find(".cfg-correction-actions"), __("Report Correction"), "btn-warning",
+			() => correction_request_dialog(crew_execution_context().name));
+		const correction_requests = state.context?.correction_requests || [];
+		if (correction_requests.length) {
+			const latest = correction_requests[0];
+			const colour = latest.status === "Resolved" ? "green" : latest.status === "Rejected" ? "grey" :
+				latest.status === "ERP Correction Required" ? "red" : "orange";
+			$section.append(`<div class="alert alert-${colour === "green" ? "success" : colour === "red" ? "danger" : "warning"} py-2 mb-3">
+				<strong>${__("Latest Correction Request")}: ${e(latest.name)}</strong> ·
+				<span class="indicator-pill ${colour}">${e(latest.status)}</span><br>
+				<small>${e(latest.correction_category)} · ${e(latest.reason)}</small></div>`);
+		}
 		const ownership = state.context?.job_ownership;
 		if (ownership?.enabled) {
 			const colour = ownership.owner ? "green" : ownership.eligible_to_accept ? "orange" : "red";
@@ -3874,6 +3896,64 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			);
 			frappe.show_alert({ message: __("Supervisor pass accepted. Scan Confirm / Submit."), indicator: "green" });
 		};
+		bind_confirmation_scanner(dialog, true);
+	}
+
+	function correction_request_dialog(execution_name) {
+		const scopes = {
+			"Cycle Status": ["Current Cycle"],
+			"Operation Progress": ["Current Operation / Execution"],
+			"Ownership": ["Current Ownership"],
+			"Participation": ["My Participation"],
+			"Material / ERP Record": ["Work Order", "Job Card"],
+			"Other": ["Current Cycle", "Current Operation / Execution", "Work Order", "Job Card", "Current Ownership", "My Participation"],
+		};
+		let dialog;
+		dialog = new frappe.ui.Dialog({
+			title: __("Report a Correction for Supervisor Review"),
+			fields: [
+				{ fieldname: "boundary", fieldtype: "HTML", options:
+					`<div class="alert alert-info"><strong>${__("Audit-safe request only")}</strong><br>${__("This request does not rewrite progress, ownership, participation, Job Cards, Work Orders, or Stock Entries. A supervisor must review it separately.")}</div>` },
+				{ fieldname: "correction_category", label: __("Correction Category"), fieldtype: "Select",
+					options: Object.keys(scopes), default: "Operation Progress", reqd: 1,
+					onchange: async () => {
+						if (!dialog) return;
+						const choices = scopes[dialog.get_value("correction_category")] || [];
+						dialog.set_df_property("affected_scope", "options", choices);
+						await dialog.set_value("affected_scope", choices[0] || "");
+					} },
+				{ fieldname: "affected_scope", label: __("Affected Record"), fieldtype: "Select",
+					options: scopes["Operation Progress"], default: "Current Operation / Execution", reqd: 1 },
+				{ fieldname: "reason", label: __("What is incorrect?"), fieldtype: "Small Text", reqd: 1 },
+				{ fieldname: "requested_change", label: __("What should be reviewed or corrected?"), fieldtype: "Text", reqd: 1 },
+				{ fieldname: "evidence_notes", label: __("Evidence / Reference Notes"), fieldtype: "Small Text",
+					description: __("Optional factual reference only. Existing source records remain unchanged.") },
+				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data",
+					description: __("Scan Confirm / Submit to create the request, or Cancel to leave without a request.") },
+			],
+			primary_action_label: __("Submit Correction Request"),
+			primary_action: async (values) => {
+				const response = await frappe.call({
+					method: "cfg_kanban.api.operator.submit_correction_request",
+					args: {
+						execution_name,
+						correction_category: values.correction_category,
+						affected_scope: values.affected_scope,
+						reason: values.reason,
+						requested_change: values.requested_change,
+						evidence_notes: values.evidence_notes,
+						event_token: frappe.utils.get_random(24),
+						operator_session_token: state.session_token,
+					},
+					freeze: true,
+					freeze_message: __("Recording correction request..."),
+				});
+				dialog.hide();
+				frappe.show_alert({ message: __("Correction Request {0} recorded", [response.message.name]), indicator: "green" });
+				await load_card(state.context.card.qr_code || state.context.card.card_number);
+			},
+		});
+		dialog.show();
 		bind_confirmation_scanner(dialog, true);
 	}
 

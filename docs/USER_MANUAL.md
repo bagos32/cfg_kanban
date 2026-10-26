@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.10
+**Guide version:** 2.11
 
 **Updated:** 26 October 2026
 
@@ -475,9 +475,37 @@ Stock Entries, production quantities, and participation records are not rewritte
 cancelled Cycles cannot be transferred. Use
 `docs/TEST_WORKFORCE_P07_0D1_OWNER_TRANSFER.md` for acceptance.
 
+### Controlled correction request and supervisor triage
+
+P07-0D2A records a correction request without rewriting the original operational record. On an
+active production Card, select **Report Correction** above Job Card Execution Lanes or scan
+`CFG:CMD:REQUEST_CORRECTION`. Select the category and server-limited affected scope, explain what is
+incorrect, state what should be reviewed or corrected, and optionally enter factual evidence notes.
+
+The server resolves the current Cycle context and stores the affected DocType/document plus a JSON
+snapshot of its values at request time. It also records the requesting Employee, Operator Profile,
+Operator Session, terminal User, and timestamp. Double submission is idempotent. Direct editing or
+deleting of a `CFG Kanban Correction Request` is prohibited.
+
+Managers review active requests in **CFG Job Architecture → Workforce Supervisor Centre →
+Controlled Correction Queue**. Each **Start Review**, **Approve Kanban Adjustment**, **Reject**,
+**Require ERP Correction**, or **Resolve** decision requires the credential of a separate Employee
+who satisfies an immutable Supervisor/Verifier requirement whose scoped Authority Role enables
+**Correct Records**. Job Code, competency, active-presence, and separation requirements still apply.
+The requester's own credential cannot authorize the decision.
+
+Each decision creates and immediately consumes a two-minute exact-action approval bound to the
+Correction Request and exact decision. **Approved** means that a Kanban adjustment may be prepared
+by the future P07-0D2B package; P07-0D2A itself applies no adjustment. **ERP Correction Required**
+never cancels or edits ERPNext documents. To resolve that state, link the authoritative Stock Entry,
+Work Order, or Job Card correction created through its proper ERPNext workflow. Original Cycle,
+progress, ownership, participation, Work Order, Job Card, and Stock Entry history remains unchanged.
+
+Use `docs/TEST_WORKFORCE_P07_0D2A_CORRECTION_REQUESTS.md` for acceptance.
+
 ### Workforce Supervisor Centre
 
-P07-0C adds a separate, read-only manager page under **CFG Job Architecture → Live Workforce →
+P07-0C adds a separate manager page under **CFG Job Architecture → Live Workforce →
 Workforce Supervisor Centre**. It combines existing records rather than creating another workforce
 ledger. Use its Company, Workstation, competency-expiry window, and Find filters to review:
 
@@ -488,8 +516,10 @@ ledger. Use its Company, Workstation, competency-expiry window, and Find filters
 - active Employee Competencies that are expired or approaching expiry; and
 - recent exact-action supervisor passes with their effective audit state.
 
-Every Review/Audit action opens the underlying authoritative record. This centre does not approve,
-correct, close, submit, or mutate production work. Its participation duration is operational evidence
+Every ordinary workforce Review/Audit action opens the underlying authoritative record. P07-0D2A
+adds one deliberately isolated **Controlled Correction Queue** where a credential-authorized reviewer
+may change only the Correction Request's review state; it still cannot rewrite production or ERPNext
+records. The centre does not close or submit production work. Its participation duration is operational evidence
 only and is never attendance, payroll eligibility, or payable time. The page refreshes every 30
 seconds while visible, pauses background requests while its browser tab is hidden, and refreshes once
 when the user returns. Use `docs/TEST_WORKFORCE_P07_0C_SUPERVISOR_CENTRE.md` for acceptance.
@@ -4029,6 +4059,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.11 | 26 October 2026 | Added P07-0D2A immutable correction requests with scanner/touch reporting, category-bound current-record snapshots, manager correction queue, request-and-decision-bound Correct Records authorization, ERP correction-reference resolution, terminal-state protection, and no mutation of original Kanban or ERPNext records |
 | 2.10 | 26 October 2026 | Added P07-0D1 controlled live Cycle ownership transfer with scanner/touch workflow, replacement Job Code and configured-crew eligibility, separate Supervisor/Verifier approval using Transfer Ownership authority, two-minute single-use approval bound to replacement and reason, linked immutable owner-assignment history, Cycle timeline evidence, and unchanged ERPNext manufacturing records |
 | 2.09 | 26 October 2026 | Added P07-0C read-only Workforce Supervisor Centre with permission-aware Company/Workstation filtering, missing-role and compliance-hold attention, competency expiry, actual live crew membership, operational participation-duration summaries, recent exact-action approval audit, authoritative-record links, and hidden-tab refresh suppression |
 | 2.08 | 26 October 2026 | Added P07-0B2 exact-action supervisor pass for non-owner runtime Cycle closure: opt-in through immutable Supervisor/Verifier requirements with Close on Behalf authority, exact Job Code/scope/competency/presence/separation checks, two-minute single-use context-bound approval, scanner-first confirmation without operator-session switching, and read-only approval audit history |

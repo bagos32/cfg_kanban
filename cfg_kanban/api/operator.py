@@ -134,6 +134,7 @@ def _scanner_command_catalog(quantity_steps=None):
             ("Activate / Consume Card", "CFG:CMD:ACTIVATE", ""),
             ("Accept Cycle Ownership", "CFG:CMD:ACCEPT_OWNER", ""),
             ("Transfer Cycle Ownership", "CFG:CMD:TRANSFER_OWNER", ""),
+            ("Report Correction", "CFG:CMD:REQUEST_CORRECTION", ""),
             ("Start Operation", "CFG:CMD:START", ""),
             ("Report Progress", "CFG:CMD:REPORT_PROGRESS", ""),
             ("Go to Current Work", "CFG:CMD:GO_TO_CURRENT_WORK", ""),
@@ -381,6 +382,7 @@ def get_card_context(token, operator_session_token=None):
             "process_tasks": [], "service_tasks": [],
             "job_ownership": None,
             "job_role_compliance": None,
+            "correction_requests": [],
             "service_identity_card": False, "workstation_queue_card": True,
             "workstation_queue": _workstation_queue_context(card, profile),
         }
@@ -407,6 +409,7 @@ def get_card_context(token, operator_session_token=None):
             "process_tasks": [],
             "job_ownership": None,
             "job_role_compliance": None,
+            "correction_requests": [],
             "service_tasks": service_tasks, "service_identity_card": True,
         }
     master = frappe.get_doc("CFG Kanban Master", card.kanban_master)
@@ -424,6 +427,7 @@ def get_card_context(token, operator_session_token=None):
     process_tasks = []
     job_ownership = None
     job_role_compliance = None
+    correction_requests = []
     if cycle:
         from cfg_kanban.services.job_ownership import ownership_context
         job_ownership = ownership_context(cycle, profile)
@@ -504,6 +508,20 @@ def get_card_context(token, operator_session_token=None):
                 transfer_execution, profile
             )
             job_ownership["transfer_execution"] = transfer_execution.name
+        correction_requests = frappe.get_all(
+            "CFG Kanban Correction Request",
+            filters={
+                "kanban_cycle": cycle.name,
+                "requested_by_employee": profile.employee,
+            },
+            fields=[
+                "name", "status", "correction_category", "affected_scope",
+                "affected_doctype", "affected_document", "reason", "requested_on",
+                "review_decision", "reviewed_by_name", "reviewed_on",
+            ],
+            order_by="requested_on desc",
+            limit_page_length=20,
+        )
         kanban_processed = sum(flt(row.processed_qty) for row in executions)
         if (effective_work_order and effective_work_order.status == "Not Started" and
                 cycle.status in ("Released", "In Production", "Packing In Progress",
@@ -582,6 +600,7 @@ def get_card_context(token, operator_session_token=None):
         "process_tasks": process_tasks,
         "job_ownership": job_ownership,
         "job_role_compliance": job_role_compliance,
+        "correction_requests": correction_requests,
         "service_tasks": [],
         "service_identity_card": False,
         "workstation_queue_card": False,
@@ -671,6 +690,7 @@ def get_card_live_revision(token, operator_session_token=None):
             ("CFG Kanban Process Task", {"kanban_cycle": cycle.name}),
             ("CFG ERP Command", {"kanban_cycle": cycle.name}),
             ("CFG Kanban Cycle Role Assignment", {"kanban_cycle": cycle.name}),
+            ("CFG Kanban Correction Request", {"kanban_cycle": cycle.name}),
         ):
             modified = frappe.db.get_value(doctype, filters, "max(modified)")
             if modified:
@@ -1010,6 +1030,31 @@ def approve_supervisor_action(action_code, execution_name, supervisor_qr_token, 
         approver_pin=supervisor_pin,
         subject_qr_token=subject_qr_token,
         subject_pin=subject_pin,
+    )
+
+
+@frappe.whitelist()
+def submit_correction_request(
+    execution_name,
+    correction_category,
+    affected_scope,
+    reason,
+    requested_change,
+    evidence_notes=None,
+    event_token=None,
+    operator_session_token=None,
+):
+    """Record a correction request without mutating its affected record."""
+    from cfg_kanban.services.correction_requests import create_correction_request
+    return create_correction_request(
+        execution_name=execution_name,
+        correction_category=correction_category,
+        affected_scope=affected_scope,
+        reason=reason,
+        requested_change=requested_change,
+        evidence_notes=evidence_notes,
+        event_token=event_token,
+        operator_session_token=operator_session_token,
     )
 
 

@@ -69,16 +69,91 @@ frappe.pages["kanban-workforce-supervisor"].on_page_load = function (wrapper) {
 			${kpi(__("Active Crews"), counts.active_crews, "purple")}
 			${kpi(__("People / Break"), `${counts.active_people || 0} / ${counts.on_break || 0}`, "blue")}
 			${kpi(__("Competency Attention"), counts.competency_attention, counts.expired_competencies ? "red" : "orange")}
+			${kpi(__("Correction Requests"), counts.open_corrections, counts.open_corrections ? "red" : "green")}
 			${kpi(__("Recorded Hours Today"), number(counts.today_recorded_hours), "green")}
 		</div>
 		<div class="alert alert-info cfg-workforce-boundary">
 			<strong>${__("Operational supervision view")}</strong> ·
 			${__("Participation time is execution evidence only—not attendance, payroll eligibility, or payable hours. ERPNext remains the manufacturing quantity authority.")}
 		</div>`);
+		render_corrections();
 		render_attention();
 		render_crews();
 		render_participation();
 		render_approvals();
+	}
+
+	function render_corrections() {
+		const rows = filtered(state.data.correction_requests);
+		const $section = section(__("Controlled Correction Queue"),
+			__("Review requests without rewriting original Kanban or ERPNext history."), rows.length).appendTo($root);
+		const $list = $("<div class='cfg-workforce-list cfg-correction-list'></div>").appendTo($section);
+		if (!rows.length) return empty($list, __("No correction request requires attention."));
+		rows.slice(0, 100).forEach((row) => {
+			const colour = row.status === "ERP Correction Required" ? "red" :
+				row.status === "Approved" ? "green" : row.status === "Under Review" ? "blue" : "orange";
+			const $item = $(`<div class="cfg-workforce-row"><div><strong>${e(row.name)} · ${e(row.correction_category)}</strong>
+				<small>${e(row.requested_by_name || row.requested_by_employee)} · ${relative_time(row.requested_on)}</small></div>
+				<div><span>${e(row.reason)}</span><small>${e(row.affected_doctype)} · ${e(row.affected_document)}</small></div>
+				<div><span class="indicator-pill ${colour}">${e(row.status)}</span>
+				<button class="btn btn-xs btn-primary ml-2 cfg-review">${__("Review")}</button>
+				<button class="btn btn-xs btn-default ml-1 cfg-audit">${__("Audit")}</button></div></div>`).appendTo($list);
+			$item.find(".cfg-review").on("click", () => review_correction(row));
+			$item.find(".cfg-audit").on("click", () => frappe.set_route("Form", "CFG Kanban Correction Request", row.name));
+		});
+	}
+
+	function correction_decisions(status) {
+		if (status === "Open") return ["Start Review", "Approve Kanban Adjustment", "Reject", "Require ERP Correction"];
+		if (status === "Under Review") return ["Approve Kanban Adjustment", "Reject", "Require ERP Correction"];
+		if (status === "Approved") return ["Require ERP Correction"];
+		if (status === "ERP Correction Required") return ["Resolve"];
+		return [];
+	}
+
+	function review_correction(row) {
+		const decisions = correction_decisions(row.status);
+		if (!decisions.length) return frappe.msgprint(__("This Correction Request is already terminal."));
+		let dialog;
+		dialog = new frappe.ui.Dialog({
+			title: __("Review Correction Request {0}", [row.name]),
+			fields: [
+				{ fieldname: "summary", fieldtype: "HTML", options:
+					`<div class="alert alert-warning"><strong>${e(row.correction_category)} · ${e(row.status)}</strong><br>
+					${e(row.reason)}<hr><strong>${__("Requested correction")}</strong><br>${e(row.requested_change)}<br>
+					<small>${e(row.affected_doctype)} · ${e(row.affected_document)}</small></div>` },
+				{ fieldname: "decision", label: __("Decision"), fieldtype: "Select",
+					options: decisions, default: decisions[0], reqd: 1 },
+				{ fieldname: "review_notes", label: __("Review / Resolution Notes"),
+					fieldtype: "Small Text", reqd: 1,
+					description: __("State what was verified and why this decision is authorized.") },
+				{ fieldname: "erp_correction_section", label: __("Authoritative ERPNext Correction Reference"),
+					fieldtype: "Section Break", collapsible: 1 },
+				{ fieldname: "erp_correction_doctype", label: __("ERP Correction DocType"),
+					fieldtype: "Link", options: "DocType",
+					description: __("Only Stock Entry, Work Order, or Job Card is accepted.") },
+				{ fieldname: "erp_correction_document", label: __("ERP Correction Document"),
+					fieldtype: "Dynamic Link", options: "erp_correction_doctype" },
+				{ fieldname: "authority_section", label: __("Exact-action Authority"), fieldtype: "Section Break" },
+				{ fieldname: "reviewer_qr_token", label: __("Reviewer Employee QR"), fieldtype: "Password",
+					reqd: 1, description: __("Scan an eligible employee with Correct Records authority. This does not switch the active floor operator.") },
+				{ fieldname: "reviewer_pin", label: __("Reviewer PIN (when configured)"), fieldtype: "Password" },
+			],
+			primary_action_label: __("Authorize Decision"),
+			primary_action: async (values) => {
+				await frappe.call({
+					method: "cfg_kanban.services.correction_requests.review_correction_request",
+					args: { request_name: row.name, ...values },
+					freeze: true,
+					freeze_message: __("Authorizing correction decision..."),
+				});
+				dialog.hide();
+				frappe.show_alert({ message: __("Correction Request updated"), indicator: "green" });
+				await load(false);
+			},
+		});
+		dialog.show();
+		window.setTimeout(() => dialog.get_field("reviewer_qr_token")?.set_focus(), 100);
 	}
 
 	function render_attention() {
@@ -158,10 +233,11 @@ frappe.pages["kanban-workforce-supervisor"].on_page_load = function (wrapper) {
 		rows.slice(0, 50).forEach((row) => {
 			const colour = row.effective_status === "Consumed" ? "green" : row.effective_status === "Approved" ? "blue" : "orange";
 			const subject = row.subject_name || row.subject_employee;
+			const correction = row.correction_request ? ` · ${__("Correction")}: ${e(row.correction_request)} · ${e(row.correction_decision || "-")}` : "";
 			const $item = $(`<div class="cfg-workforce-row"><div><strong>${e(row.approved_by_name || row.approved_by_employee)}</strong>
 				<small>${e(row.action_code)} · ${e(row.matched_authority_role || "-")}</small></div>
 				<div><span>${e(row.kanban_cycle)} · ${e(row.operation || "-")}</span>
-				<small>${e(row.requested_by_employee)}${subject ? ` · ${__("Target")}: ${e(subject)}` : ""} · ${relative_time(row.approved_on)}</small></div>
+				<small>${e(row.requested_by_employee)}${subject ? ` · ${__("Target")}: ${e(subject)}` : ""}${correction} · ${relative_time(row.approved_on)}</small></div>
 				<div><span class="indicator-pill ${colour}">${e(row.effective_status)}</span>
 				<button class="btn btn-xs btn-default ml-2">${__("Audit")}</button></div></div>`).appendTo($list);
 			$item.find("button").on("click", () => frappe.set_route("Form", "CFG Kanban Supervisor Action Approval", row.name));

@@ -54,6 +54,14 @@ class TestWorkforceSupervisorCentre(unittest.TestCase):
         self.assertIn('"subject_employee", "subject_name"', source)
         self.assertIn('row.subject_name || row.subject_employee', panel)
 
+    def test_correction_queue_is_visible_but_original_records_are_not_mutated(self):
+        source = (ROOT / "api" / "workforce_supervisor.py").read_text()
+        panel = (PAGE_ROOT / "kanban_workforce_supervisor.js").read_text()
+        self.assertIn("def _correction_requests(", source)
+        self.assertIn('"open_corrections": len(corrections)', source)
+        self.assertIn("Controlled Correction Queue", panel)
+        self.assertIn("review_correction_request", panel)
+
     def test_workspace_exposes_centre(self):
         workspace = json.loads((
             ROOT / "cfg_kanban" / "workspace" / "cfg_job_architecture"

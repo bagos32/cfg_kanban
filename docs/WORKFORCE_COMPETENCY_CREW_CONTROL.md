@@ -483,11 +483,29 @@ The Supervisor Centre remains a read-only monitoring surface; it displays the ta
 approval audit row but does not perform the transfer itself. Use
 `docs/TEST_WORKFORCE_P07_0D1_OWNER_TRANSFER.md` for live acceptance.
 
+## P07-0D2A — Controlled correction request and supervisor triage (implemented)
+
+An active production operator may now report a correction against the current Cycle, Process
+Execution, Work Order, Job Card, active Owner Assignment, or their own Participation interval. The
+server restricts category/scope combinations and stores an immutable JSON snapshot of the affected
+record. The original record is not edited or deleted.
+
+The Workforce Supervisor Centre adds a Controlled Correction Queue. Start Review, Approve Kanban
+Adjustment, Reject, Require ERP Correction, and Resolve decisions each require a separate scanned
+reviewer matched to an immutable Supervisor/Verifier requirement whose scoped Authority Role enables
+**Correct Records**. The exact-action approval is bound to the Correction Request and decision and is
+consumed before the request state changes. Requesters cannot authorize their own correction.
+
+P07-0D2A is triage and audit only. Approval does not apply a quantity, status, ownership, or
+participation adjustment. ERP Correction Required cannot be resolved without a valid authoritative
+Stock Entry, Work Order, or Job Card reference. Applying eligible Kanban-only adjustments remains
+P07-0D2B. Use `docs/TEST_WORKFORCE_P07_0D2A_CORRECTION_REQUESTS.md` for live acceptance.
+
 ## Remaining approved package
 
 ### P07 — Supervisor Control, Reports & Audit
 
 Continue workforce traceability, competency expiry, compliance history, trainee supervision, labour
-utilization, controlled corrections, exceptional reopen, and exception reporting. Future exact-action controls must reuse
+utilization, P07-0D2B controlled Kanban adjustments, exceptional reopen, and exception reporting. Future exact-action controls must reuse
 the P07-0B2 action-bound pattern; they must not reinterpret the Employee's designation or silently
 grant permanent Supervisor authority.

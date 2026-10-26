@@ -11,7 +11,7 @@
   "operator_session", "terminal_user", "requested_on", "approval_section",
   "approved_by_employee", "approved_by_name", "approved_by_operator_profile",
   "matched_requirement_row", "matched_authority_role", "approved_on", "expires_on",
-  "consumed_on", "reason", "subject_section", "subject_employee", "subject_name",
+  "consumed_on", "action_terminal_user", "reason", "correction_request", "correction_decision", "subject_section", "subject_employee", "subject_name",
   "subject_operator_profile", "security_section", "approval_token_hash", "action_context"
  ],
  "fields": [
@@ -40,11 +40,14 @@
   {"fieldname":"approved_on","fieldtype":"Datetime","in_list_view":1,"label":"Approved On","read_only":1,"reqd":1},
   {"fieldname":"expires_on","fieldtype":"Datetime","in_list_view":1,"label":"Expires On","read_only":1,"reqd":1},
   {"fieldname":"consumed_on","fieldtype":"Datetime","in_list_view":1,"label":"Consumed On","read_only":1},
+  {"fieldname":"action_terminal_user","fieldtype":"Link","label":"Action Terminal User","options":"User","read_only":1},
   {"fieldname":"reason","fieldtype":"Small Text","label":"Approval Reason","read_only":1,"reqd":1},
   {"fieldname":"subject_section","fieldtype":"Section Break","label":"Bound Action Subject","collapsible":1},
   {"fieldname":"subject_employee","fieldtype":"Link","in_standard_filter":1,"label":"Target Employee","options":"Employee","read_only":1},
   {"fieldname":"subject_name","fieldtype":"Data","label":"Target Employee Name","read_only":1},
   {"fieldname":"subject_operator_profile","fieldtype":"Link","label":"Target Operator Profile","options":"CFG Kanban Operator Profile","read_only":1},
+  {"fieldname":"correction_request","fieldtype":"Link","in_standard_filter":1,"label":"Correction Request","options":"CFG Kanban Correction Request","read_only":1},
+  {"fieldname":"correction_decision","fieldtype":"Data","label":"Correction Decision","read_only":1},
   {"fieldname":"security_section","fieldtype":"Section Break","label":"One-time Security Evidence"},
   {"fieldname":"approval_token_hash","fieldtype":"Data","hidden":1,"label":"Approval Token Hash","read_only":1,"reqd":1,"unique":1},
   {"fieldname":"action_context","fieldtype":"Code","label":"Bound Action Context","options":"JSON","read_only":1}
@@ -59,7 +62,7 @@
   {"export":1,"print":1,"read":1,"report":1,"role":"Manufacturing Manager"},
   {"export":1,"print":1,"read":1,"report":1,"role":"System Manager"}
  ],
- "search_fields": "kanban_cycle,process_execution,requested_by_employee,approved_by_employee,subject_employee,action_code",
+ "search_fields": "kanban_cycle,process_execution,correction_request,requested_by_employee,approved_by_employee,subject_employee,action_code",
  "sort_field": "approved_on",
  "sort_order": "DESC",
  "states": [],

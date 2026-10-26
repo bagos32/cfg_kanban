@@ -42,6 +42,7 @@ def get_workforce_action_centre(company=None, workstation=None, expiry_days=30, 
     competencies = _competency_attention(company, expiry_days, limit)
     participation = _participation_summary(company, workstation, limit)
     approvals = _recent_supervisor_approvals(company, workstation, limit)
+    corrections = _correction_requests(company, workstation, limit)
 
     return {
         "filters": {
@@ -61,6 +62,7 @@ def get_workforce_action_centre(company=None, workstation=None, expiry_days=30, 
             "active_participants": participation["active_count"],
             "today_recorded_hours": participation["today_recorded_hours"],
             "recent_supervisor_passes": len(approvals),
+            "open_corrections": len(corrections),
         },
         "role_attention": role_attention,
         "compliance_holds": holds,
@@ -68,6 +70,7 @@ def get_workforce_action_centre(company=None, workstation=None, expiry_days=30, 
         "competency_attention": competencies,
         "participation": participation,
         "supervisor_approvals": approvals,
+        "correction_requests": corrections,
         "generated_on": now_datetime(),
     }
 
@@ -362,6 +365,7 @@ def _recent_supervisor_approvals(company, workstation, limit):
             "process_execution", "operation", "workstation", "requested_by_employee",
             "approved_by_employee", "approved_by_name", "matched_authority_role",
             "subject_employee", "subject_name", "subject_operator_profile",
+            "correction_request", "correction_decision", "action_terminal_user",
             "requested_on", "approved_on", "expires_on", "consumed_on", "reason",
         ],
         order_by="approved_on desc",
@@ -376,6 +380,33 @@ def _recent_supervisor_approvals(company, workstation, limit):
             else row.status
         )
     return rows
+
+
+def _correction_requests(company, workstation, limit):
+    if not frappe.has_permission("CFG Kanban Correction Request", "read"):
+        return []
+    filters = {
+        "status": ["in", ["Open", "Under Review", "Approved", "ERP Correction Required"]],
+    }
+    if company:
+        filters["company"] = company
+    if workstation:
+        filters["workstation"] = workstation
+    return frappe.get_list(
+        "CFG Kanban Correction Request",
+        filters=filters,
+        fields=[
+            "name", "status", "correction_category", "affected_scope", "company",
+            "kanban_card", "kanban_cycle", "process_execution", "operation",
+            "workstation", "affected_doctype", "affected_document", "reason",
+            "requested_change", "evidence_notes", "requested_by_employee",
+            "requested_by_name", "requested_on", "reviewed_by_name", "reviewed_on",
+            "review_decision", "resolution_type", "erp_correction_doctype",
+            "erp_correction_document",
+        ],
+        order_by="requested_on asc",
+        limit_page_length=limit,
+    )
 
 
 def _json_value(value, default):

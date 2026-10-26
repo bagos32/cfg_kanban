@@ -14,6 +14,19 @@ from cfg_kanban.services.operator_auth import credential_hash, require_operator
 ACTION_CAPABILITIES = {
     "CLOSE_CYCLE_ON_BEHALF": "can_close_on_behalf",
     "TRANSFER_CYCLE_OWNERSHIP": "can_transfer_ownership",
+    "START_CORRECTION_REVIEW": "can_correct_records",
+    "APPROVE_CORRECTION_REQUEST": "can_correct_records",
+    "REJECT_CORRECTION_REQUEST": "can_correct_records",
+    "REQUIRE_ERP_CORRECTION": "can_correct_records",
+    "RESOLVE_CORRECTION_REQUEST": "can_correct_records",
+}
+
+CORRECTION_DECISION_ACTIONS = {
+    "Start Review": "START_CORRECTION_REVIEW",
+    "Approve Kanban Adjustment": "APPROVE_CORRECTION_REQUEST",
+    "Reject": "REJECT_CORRECTION_REQUEST",
+    "Require ERP Correction": "REQUIRE_ERP_CORRECTION",
+    "Resolve": "RESOLVE_CORRECTION_REQUEST",
 }
 
 
@@ -86,7 +99,9 @@ def approve_action(
     subject_qr_token=None,
     subject_pin=None,
 ):
-    if action_code not in ACTION_CAPABILITIES:
+    if action_code not in (
+        "CLOSE_CYCLE_ON_BEHALF", "TRANSFER_CYCLE_OWNERSHIP"
+    ):
         frappe.throw(f"Unsupported supervisor approval action: {action_code}")
     if not (reason or "").strip():
         frappe.throw("A reason is required for supervisor action approval")
@@ -216,6 +231,141 @@ def approve_action(
     }
 
 
+def approve_and_consume_correction_review(
+    correction_request,
+    decision,
+    approver_qr_token,
+    reason,
+    approver_pin=None,
+):
+    """Create and consume a request-bound exact-action pass in one transaction."""
+    request = (
+        correction_request
+        if getattr(correction_request, "doctype", None) == "CFG Kanban Correction Request"
+        else frappe.get_doc("CFG Kanban Correction Request", correction_request)
+    )
+    action_code = CORRECTION_DECISION_ACTIONS.get(decision)
+    if not action_code:
+        frappe.throw(f"Unsupported correction review decision: {decision}")
+    if not (reason or "").strip():
+        frappe.throw("Review notes are required for a correction decision")
+
+    execution = _execution_doc(request.process_execution)
+    cycle = frappe.get_doc("CFG Kanban Cycle", request.kanban_cycle)
+    requester = frappe.get_doc(
+        "CFG Kanban Operator Profile", request.requested_by_operator_profile
+    )
+    operator_session = frappe.get_doc(
+        "CFG Kanban Operator Session", request.operator_session
+    )
+    from cfg_kanban.services.runtime_roles import evaluate_cycle_roles
+    evaluate_cycle_roles(cycle.name, persist=True)
+
+    approver = profile_from_credential(approver_qr_token, approver_pin)
+    if approver.employee == requester.employee:
+        frappe.throw("The correction requester cannot approve their own correction decision")
+    capability = ACTION_CAPABILITIES[action_code]
+    requirements = _capability_requirements(cycle, capability)
+    if not requirements:
+        frappe.throw(
+            "The Cycle snapshot has no Supervisor / Mentor or Verifier role with "
+            "Correct Records authority"
+        )
+    matched = _matching_requirement(
+        cycle,
+        execution,
+        approver,
+        requirements,
+        requester_employee=requester.employee,
+        require_separate=True,
+    )
+    if not matched:
+        frappe.throw(
+            "The scanned employee does not satisfy the Cycle's scoped correction authority, "
+            "competency, presence, and separation requirements"
+        )
+
+    raw_token = secrets.token_urlsafe(32)
+    current = now_datetime()
+    _retire_prior_approvals(
+        action_code,
+        cycle.name,
+        execution.name,
+        requester.employee,
+        operator_session.name,
+        current,
+    )
+    approval = frappe.get_doc({
+        "doctype": "CFG Kanban Supervisor Action Approval",
+        "action_code": action_code,
+        "required_capability": capability,
+        "status": "Approved",
+        "company": cycle.company,
+        "kanban_card": cycle.kanban_card,
+        "kanban_cycle": cycle.name,
+        "process_execution": execution.name,
+        "operation": execution.operation,
+        "workstation": execution.workstation,
+        "correction_request": request.name,
+        "correction_decision": decision,
+        "requested_by_employee": requester.employee,
+        "requested_by_operator_profile": requester.name,
+        "operator_session": operator_session.name,
+        "terminal_user": operator_session.terminal_user,
+        "action_terminal_user": frappe.session.user,
+        "requested_on": current,
+        "approved_by_employee": approver.employee,
+        "approved_by_name": (
+            approver.employee_name
+            or frappe.db.get_value("Employee", approver.employee, "employee_name")
+            or approver.employee
+        ),
+        "approved_by_operator_profile": approver.name,
+        "matched_requirement_row": matched.name,
+        "matched_authority_role": matched.authority_role,
+        "approved_on": current,
+        "expires_on": add_to_date(current, minutes=2),
+        "reason": reason.strip(),
+        "approval_token_hash": credential_hash(raw_token),
+        "action_context": json.dumps({
+            "action_code": action_code,
+            "capability": capability,
+            "correction_request": request.name,
+            "correction_decision": decision,
+            "kanban_cycle": cycle.name,
+            "process_execution": execution.name,
+            "requester_employee": requester.employee,
+            "approver_employee": approver.employee,
+            "reason": reason.strip(),
+            "origin_terminal_user": operator_session.terminal_user,
+            "action_terminal_user": frappe.session.user,
+        }, sort_keys=True),
+    }).insert(ignore_permissions=True)
+    record(
+        "Correction Exact-action Pass Approved",
+        card=cycle.kanban_card,
+        cycle=cycle.name,
+        execution=execution.name,
+        reference_doctype=approval.doctype,
+        reference_name=approval.name,
+        operator=approver.employee,
+        operator_session=operator_session.name,
+        terminal_user=frappe.session.user,
+        notes=f"{action_code}: {reason.strip()}",
+        system_generated=False,
+        ignore_permissions=True,
+    )
+    consumed = consume_action_approval(
+        raw_token,
+        action_code,
+        execution,
+        requester,
+        operator_session,
+        reason=reason,
+    )
+    return consumed, approver
+
+
 def consume_action_approval(
     approval_token,
     action_code,
@@ -273,6 +423,8 @@ def consume_action_approval(
             + ", ".join(mismatches)
         )
     if reason is not None and (approval.reason or "").strip() != (reason or "").strip():
+        if approval.get("correction_request"):
+            frappe.throw("Supervisor action approval belongs to different correction review notes")
         frappe.throw("Supervisor action approval belongs to a different transfer reason")
     approval.db_set({"status": "Consumed", "consumed_on": now_datetime()}, update_modified=True)
     record(
@@ -282,9 +434,13 @@ def consume_action_approval(
         execution=approval.process_execution,
         reference_doctype=approval.doctype,
         reference_name=approval.name,
-        operator=requester_profile.employee,
+        operator=(
+            approval.approved_by_employee
+            if approval.get("correction_request")
+            else requester_profile.employee
+        ),
         operator_session=operator_session.name,
-        terminal_user=operator_session.terminal_user,
+        terminal_user=approval.get("action_terminal_user") or operator_session.terminal_user,
         notes=action_code,
         system_generated=False,
         ignore_permissions=True,
@@ -330,6 +486,7 @@ def _retire_prior_approvals(
 
 
 def profile_from_credential(qr_token, pin=None):
+    qr_token = _credential_value(qr_token)
     profile_name = frappe.db.get_value(
         "CFG Kanban Operator Profile",
         {"qr_token_hash": credential_hash(qr_token), "active": 1},
@@ -346,6 +503,15 @@ def profile_from_credential(qr_token, pin=None):
         if not saved_pin or not hmac.compare_digest(str(pin or ""), str(saved_pin)):
             frappe.throw("Invalid operator PIN")
     return profile
+
+
+def _credential_value(value):
+    value = str(value or "").strip()
+    if "#operator=" in value:
+        value = value.split("#operator=", 1)[1].split("&", 1)[0]
+    elif "operator=" in value:
+        value = value.split("operator=", 1)[1].split("&", 1)[0]
+    return value
 
 
 def _capability_requirements(cycle, capability):
