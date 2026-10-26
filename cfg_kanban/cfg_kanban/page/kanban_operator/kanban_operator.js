@@ -3259,6 +3259,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		let dialog;
 		const proposal_html = (value) => `<div class="mb-3">
 			<b>${__("Item")}</b>: ${frappe.utils.escape_html(value.item_code || card.item_code)}<br>
+			<b>${__("Recommendation Basis")}</b>: ${frappe.utils.escape_html(value.selection_basis || "-")}
+			${value.selection_basis === "Supervisor Dispatch Queue" ? ` · ${__("Queue")} #${value.selection_rank}` : ""}<br>
 			<b>${__("Work Order")}</b>: ${document_link("work-order", value.work_order)} · ${frappe.utils.escape_html(value.work_order_status)}<br>
 			<b>${__("Job Card")}</b>: ${document_link("job-card", value.job_card)} · ${frappe.utils.escape_html(value.job_card_status)}
 			${value.is_recommended ? `<span class="indicator-pill green ml-2">${__("Recommended")}</span>` : `<span class="indicator-pill orange ml-2">${__("Override")}</span>`}<br>
@@ -3274,7 +3276,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				{ fieldname: "numbered_candidates", fieldtype: "HTML", options: numbered_candidates },
 				{ fieldname: "selected_job_card", label: __("Eligible Work Order / Job Card"), fieldtype: "Select",
 					options: candidate_options, default: proposal.recommended_job_card, reqd: 1,
-					description: __("The system recommendation is selected first. Only item-, operation-, company-, status-, input-, and workstation-eligible choices are listed."),
+					description: __("An audited supervisor dispatch sequence for this workstation is selected first. Otherwise the Operation Profile runtime rule applies. Only item-, operation-, company-, status-, input-, and workstation-eligible choices are listed."),
 					onchange: async () => {
 						if (!dialog) return;
 						const selected = dialog.get_value("selected_job_card");

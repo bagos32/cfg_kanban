@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.14
+**Guide version:** 2.15
 
 **Updated:** 26 October 2026
 
@@ -105,9 +105,11 @@ must not be linked to a Kanban Master.
 A Process/Station card is a reusable runtime allocation tool. It filters Job Cards by the Card Item,
 Master Company, Card Operation, submitted Kanban-controlled Work Order, remaining Job Card demand,
 and available upstream input. A Station Kanban adds an exact Workstation match. The system recommends
-according to **Runtime Selection Priority**, but an authorised operator may choose another eligible
-candidate and must give an Override Reason. One card-sized Cycle is then created for the effective
-quantity; it does not mirror every Job Card on that Work Order.
+according to the audited supervisor dispatch sequence when eligible candidates belong to the same
+Workstation and that sequence has a **Supervisor Override**. The configured **Runtime Selection
+Priority** is the fallback when no supervisor sequence exists. An authorised operator may choose
+another eligible candidate and must give an Override Reason. One card-sized Cycle is then created
+for the effective quantity; it does not mirror every Job Card on that Work Order.
 
 A **Workstation Queue Card** is different: it is a permanent access identity, carries no item or
 quantity, and never allocates work by itself. Scan it in the Production Operator Panel to see the
@@ -1024,7 +1026,7 @@ Important profile fields:
 | Reference Operation Time (Minutes) (`time_in_mins`) | Standard reference duration |
 | Mandatory (`mandatory`) | Whether operation is required |
 | Execution Mode (`execution_mode`) | Single Workstation, Parallel Workstations, or Sequential Split |
-| Runtime Selection Priority (`runtime_selection_rule`) | Oldest WO First, Smallest Remaining First, or Largest Remaining First |
+| Runtime Selection Priority (`runtime_selection_rule`) | Oldest WO First, Smallest Remaining First, or Largest Remaining First; used when no audited supervisor sequence controls the eligible Workstation queue |
 | Interruption Policy (`interruption_policy`) | Controls supervisor pause/give-way behaviour |
 | Setup Family (`setup_family`) / Cleaning Class (`cleaning_class`) | Required for compatible-item interruption checks |
 | Dependency Operation (`dependency_operation`) | Upstream operation controlling readiness |
@@ -4114,6 +4116,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.15 | 26 October 2026 | Connected reusable Process/Station Card recommendations to the audited supervisor dispatch sequence for one eligible Workstation, displayed the recommendation basis and queue rank to the operator, and retained the Operation Profile runtime-selection rule as the no-override fallback |
 | 2.14 | 26 October 2026 | Added P07-0D2B2 controlled Kanban adjustment application with second-person proposal-bound Correct Records authorization, live stale-value revalidation, immutable signed Correction progress entries, atomic execution/summary recalculation, resolved-request audit links, idempotent application, and explicit no-ERPNext/no-stock/no-payroll mutation boundary |
 | 2.13 | 26 October 2026 | Added P07-0D2B1 immutable operation-quantity adjustment proposals with current-value preview, signed Good/Reject deltas, ERP Job Card ownership and released/target/terminal safety gates, cancellation/revision audit, and deliberately no operational or ERPNext mutation |
 | 2.12 | 26 October 2026 | Added an early BOM guardrail for Job Card material control: Item Operation becomes mandatory on every raw-material row, Save/Submit rejects missing or off-route mappings, and downstream Kanban Master and Work Order validation remains in place |

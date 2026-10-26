@@ -38,6 +38,12 @@ def preview(card_name, job_card_name=None):
         "short_cycle": bool(plan.short_reason), "short_cycle_reason": plan.short_reason,
         "recommended_job_card": recommended.name,
         "is_recommended": candidate.name == recommended.name,
+        "selection_basis": recommended.get("selection_basis"),
+        "selection_rank": candidate.get("selection_rank"),
+        "dispatch_queue": candidate.get("dispatch_queue"),
+        "queue_position": candidate.get("queue_position"),
+        "sequence_source": candidate.get("sequence_source"),
+        "expedite": bool(candidate.get("expedite")),
     }
     if not job_card_name:
         result["candidates"] = [_candidate_option(card, row) for row in candidates]
@@ -85,6 +91,10 @@ def allocate(card_name, job_card_name, confirmation, override_reason=None):
         "operator_confirmation": confirmation,
         "selection_method": "Automatic Recommendation" if proposal["is_recommended"] else "Operator Override",
         "recommended_job_card": proposal["recommended_job_card"],
+        "recommendation_basis": proposal.get("selection_basis"),
+        "dispatch_queue": proposal.get("dispatch_queue"),
+        "supervisor_queue_position": proposal.get("queue_position"),
+        "sequence_source": proposal.get("sequence_source"),
         "override_reason": override_reason if not proposal["is_recommended"] else None,
         "status": "Allocated",
         "allocated_on": now_datetime(),
@@ -158,6 +168,11 @@ def allocate(card_name, job_card_name, confirmation, override_reason=None):
 def _candidate_option(card, candidate):
     plan = calculate_cycle_allocation(card.kanban_qty, candidate.remaining_qty,
                                       candidate.available_input_qty)
+    queue_prefix = (
+        f"Queue #{candidate.get('selection_rank')} · "
+        if candidate.get("selection_basis") == "Supervisor Dispatch Queue"
+        else ""
+    )
     return {
         "job_card": candidate.name, "work_order": candidate.work_order,
         "work_order_status": candidate.work_order_status, "job_card_status": candidate.status,
@@ -166,7 +181,13 @@ def _candidate_option(card, candidate):
         "available_input_qty": plan.available_input_qty,
         "effective_cycle_qty": plan.effective_qty,
         "short_cycle_reason": plan.short_reason,
-        "label": (f"{candidate.work_order} · {candidate.name} · {candidate.workstation or '-'} · "
+        "selection_basis": candidate.get("selection_basis"),
+        "selection_rank": candidate.get("selection_rank"),
+        "dispatch_queue": candidate.get("dispatch_queue"),
+        "queue_position": candidate.get("queue_position"),
+        "sequence_source": candidate.get("sequence_source"),
+        "expedite": bool(candidate.get("expedite")),
+        "label": (f"{queue_prefix}{candidate.work_order} · {candidate.name} · {candidate.workstation or '-'} · "
                   f"Qty {plan.effective_qty}"),
     }
 
@@ -220,12 +241,74 @@ def _eligible_candidates(card, master, profile):
                                                    accounted_completed)
         if row.remaining_qty > 0 and row.available_input_qty > 0:
             candidates.append(row)
-    rule = profile.runtime_selection_rule or "Oldest Work Order First"
-    if rule == "Smallest Remaining First":
-        candidates.sort(key=lambda row: (row.remaining_qty, row.creation, row.name))
-    elif rule == "Largest Remaining First":
-        candidates.sort(key=lambda row: (-row.remaining_qty, row.creation, row.name))
+    _order_candidates(candidates, profile.runtime_selection_rule or "Oldest Work Order First")
     return candidates
+
+
+def _order_candidates(candidates, fallback_rule):
+    """Honor one workstation's audited supervisor queue before system fallback rules."""
+    fallback_order = {row.name: index for index, row in enumerate(candidates)}
+    _attach_dispatch_context(candidates)
+    workstations = {row.workstation for row in candidates if row.workstation}
+    supervisor_queue = bool(
+        len(workstations) == 1
+        and any(row.get("sequence_source") == "Supervisor Override" for row in candidates)
+    )
+    if supervisor_queue:
+        candidates.sort(key=lambda row: (
+            flt(row.get("queue_position")) or 999999,
+            fallback_order[row.name],
+        ))
+        basis = "Supervisor Dispatch Queue"
+    else:
+        if fallback_rule == "Smallest Remaining First":
+            candidates.sort(key=lambda row: (
+                row.remaining_qty, row.creation, row.name
+            ))
+        elif fallback_rule == "Largest Remaining First":
+            candidates.sort(key=lambda row: (
+                -row.remaining_qty, row.creation, row.name
+            ))
+        basis = fallback_rule
+    for rank, row in enumerate(candidates, 1):
+        row.selection_basis = basis
+        row.selection_rank = rank
+
+
+def _attach_dispatch_context(candidates):
+    if not candidates:
+        return
+    from cfg_kanban.services.dispatch import dispatch_schema_available
+
+    if not dispatch_schema_available():
+        return
+    queue_rows = frappe.get_all(
+        "CFG Kanban Dispatch Queue",
+        filters={
+            "job_card": ["in", [row.name for row in candidates]],
+            "dispatch_status": ["not in", ["Completed", "Cancelled"]],
+        },
+        fields=[
+            "name", "job_card", "work_order", "operation", "workstation",
+            "queue_position", "sequence_source", "expedite", "modified",
+        ],
+        order_by="modified desc",
+        limit_page_length=0,
+    )
+    by_job_card = {}
+    for queue in queue_rows:
+        by_job_card.setdefault(queue.job_card, []).append(queue)
+    for candidate in candidates:
+        queue = next((row for row in by_job_card.get(candidate.name, [])
+                      if row.work_order == candidate.work_order
+                      and row.operation == candidate.operation
+                      and row.workstation == candidate.workstation), None)
+        if not queue:
+            continue
+        candidate.dispatch_queue = queue.name
+        candidate.queue_position = flt(queue.queue_position)
+        candidate.sequence_source = queue.sequence_source
+        candidate.expedite = int(queue.expedite or 0)
 
 
 def _available_input(job, master, profile, active_allocation, accounted_completed):
