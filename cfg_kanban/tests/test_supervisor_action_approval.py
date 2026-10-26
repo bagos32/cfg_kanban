@@ -47,6 +47,16 @@ class TestSupervisorActionApproval(unittest.TestCase):
         self.assertIn('"status": "Active"', source)
         self.assertIn('"CFG Kanban Job Code"', source)
 
+    def test_requirement_resolves_projected_execution_rows_by_name(self):
+        source = (ROOT / "services" / "action_approval.py").read_text()
+        helper = source[source.index("def _execution_doc(execution):"):]
+        self.assertIn("if isinstance(execution, dict):", helper)
+        self.assertIn('execution_name = execution.get("name")', helper)
+        self.assertIn(
+            'frappe.get_doc("CFG Kanban Process Execution", execution_name)',
+            helper,
+        )
+
     def test_close_api_consumes_pass_before_state_mutation(self):
         source = (ROOT / "api" / "operator.py").read_text()
         function_start = source.index("def complete_runtime_cycle(")

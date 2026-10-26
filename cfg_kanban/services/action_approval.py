@@ -738,6 +738,11 @@ def _matching_requirement(
 def _execution_doc(execution):
     if getattr(execution, "doctype", None) == "CFG Kanban Process Execution":
         return execution
+    if isinstance(execution, dict):
+        execution_name = execution.get("name")
+        if not execution_name:
+            frappe.throw("Process Execution identity is required")
+        return frappe.get_doc("CFG Kanban Process Execution", execution_name)
     return frappe.get_doc("CFG Kanban Process Execution", execution)
 
 
