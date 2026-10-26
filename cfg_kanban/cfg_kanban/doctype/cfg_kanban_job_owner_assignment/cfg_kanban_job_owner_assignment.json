@@ -4,7 +4,7 @@
  "creation": "2026-10-26 00:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
- "field_order": ["assignment_section","kanban_cycle","kanban_card","company","job_code","owner_section","employee","employee_name","operator_profile","status","assigned_on","ended_on","audit_section","assignment_source","assignment_reason","operator_session","terminal_user"],
+ "field_order": ["assignment_section","kanban_cycle","kanban_card","company","job_code","owner_section","employee","employee_name","operator_profile","status","assigned_on","ended_on","audit_section","assignment_source","assignment_reason","previous_assignment","supervisor_action_approval","operator_session","terminal_user"],
  "fields": [
   {"fieldname":"assignment_section","fieldtype":"Section Break","label":"Cycle Ownership"},
   {"fieldname":"kanban_cycle","fieldtype":"Link","in_list_view":1,"in_standard_filter":1,"label":"Kanban Cycle","options":"CFG Kanban Cycle","read_only":1,"reqd":1},
@@ -21,6 +21,8 @@
   {"fieldname":"audit_section","fieldtype":"Section Break","label":"Audit Evidence"},
   {"fieldname":"assignment_source","fieldtype":"Data","label":"Assignment Source","read_only":1,"reqd":1},
   {"fieldname":"assignment_reason","fieldtype":"Small Text","label":"Assignment Reason","read_only":1},
+  {"fieldname":"previous_assignment","fieldtype":"Link","label":"Previous Owner Assignment","options":"CFG Kanban Job Owner Assignment","read_only":1},
+  {"fieldname":"supervisor_action_approval","fieldtype":"Link","label":"Supervisor Action Approval","options":"CFG Kanban Supervisor Action Approval","read_only":1},
   {"fieldname":"operator_session","fieldtype":"Link","label":"Operator Session","options":"CFG Kanban Operator Session","read_only":1},
   {"fieldname":"terminal_user","fieldtype":"Link","label":"Terminal User","options":"User","read_only":1}
  ],

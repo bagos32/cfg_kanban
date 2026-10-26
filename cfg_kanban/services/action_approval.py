@@ -13,6 +13,7 @@ from cfg_kanban.services.operator_auth import credential_hash, require_operator
 
 ACTION_CAPABILITIES = {
     "CLOSE_CYCLE_ON_BEHALF": "can_close_on_behalf",
+    "TRANSFER_CYCLE_OWNERSHIP": "can_transfer_ownership",
 }
 
 
@@ -47,6 +48,34 @@ def close_on_behalf_requirement(execution, requester_profile):
     }
 
 
+def ownership_transfer_requirement(execution, requester_profile):
+    """Return availability and policy evidence for a controlled owner transfer."""
+    execution = _execution_doc(execution)
+    cycle = frappe.get_doc("CFG Kanban Cycle", execution.kanban_cycle)
+    if not cycle.get("enforce_job_owner"):
+        return _transfer_not_available("Job Owner enforcement is not enabled for this Cycle")
+    if not cycle.get("job_owner") or not cycle.get("active_owner_assignment"):
+        return _transfer_not_available("This Cycle does not have an active owner to transfer")
+    if cycle.status in ("Completed", "Cancelled"):
+        return _transfer_not_available(f"Ownership cannot be transferred for a {cycle.status} Cycle")
+
+    requirements = _capability_requirements(cycle, "can_transfer_ownership")
+    if not requirements:
+        return _transfer_not_available(
+            "The Cycle snapshot has no Supervisor / Mentor or Verifier role with Transfer Ownership authority"
+        )
+    return {
+        "available": True,
+        "required": True,
+        "action_code": "TRANSFER_CYCLE_OWNERSHIP",
+        "required_capability": "can_transfer_ownership",
+        "cycle_owner": cycle.job_owner,
+        "cycle_owner_name": cycle.job_owner_name,
+        "requester_employee": requester_profile.employee,
+        "reason": None,
+    }
+
+
 def approve_action(
     action_code,
     execution_name,
@@ -54,6 +83,8 @@ def approve_action(
     reason,
     operator_session_token,
     approver_pin=None,
+    subject_qr_token=None,
+    subject_pin=None,
 ):
     if action_code not in ACTION_CAPABILITIES:
         frappe.throw(f"Unsupported supervisor approval action: {action_code}")
@@ -65,19 +96,33 @@ def approve_action(
     cycle = frappe.get_doc("CFG Kanban Cycle", execution.kanban_cycle)
     from cfg_kanban.services.runtime_roles import evaluate_cycle_roles
     evaluate_cycle_roles(cycle.name, persist=True)
-    requirement = close_on_behalf_requirement(execution, requester)
-    if action_code == "CLOSE_CYCLE_ON_BEHALF" and not requirement["required"]:
-        frappe.throw("This Cycle closure does not require a separate supervisor pass")
+    subject = None
+    if action_code == "CLOSE_CYCLE_ON_BEHALF":
+        requirement = close_on_behalf_requirement(execution, requester)
+        if not requirement["required"]:
+            frappe.throw("This Cycle closure does not require a separate supervisor pass")
+    else:
+        requirement = ownership_transfer_requirement(execution, requester)
+        if not requirement["available"]:
+            frappe.throw(requirement["reason"])
+        if not subject_qr_token:
+            frappe.throw("Scan the replacement operator credential before supervisor approval")
+        subject = profile_from_credential(subject_qr_token, subject_pin)
+        from cfg_kanban.services.job_ownership import validate_transfer_target
+        validate_transfer_target(cycle, execution, subject)
 
-    approver = _profile_from_credential(approver_qr_token, approver_pin)
+    approver = profile_from_credential(approver_qr_token, approver_pin)
     if approver.employee == requester.employee:
         frappe.throw("The requesting operator cannot approve their own exact-action pass")
+    if subject and approver.employee == subject.employee:
+        frappe.throw("The replacement owner cannot approve their own ownership transfer")
     capability = ACTION_CAPABILITIES[action_code]
     requirements = _capability_requirements(cycle, capability)
     matched = _matching_requirement(
         cycle, execution, approver, requirements,
         requester_employee=requester.employee,
         require_separate=True,
+        excluded_employees={subject.employee} if subject else None,
     )
     if not matched:
         frappe.throw(
@@ -123,6 +168,13 @@ def approve_action(
         "approved_on": current,
         "expires_on": add_to_date(current, minutes=2),
         "reason": reason.strip(),
+        "subject_employee": subject.employee if subject else None,
+        "subject_name": (
+            subject.employee_name
+            or frappe.db.get_value("Employee", subject.employee, "employee_name")
+            or subject.employee
+        ) if subject else None,
+        "subject_operator_profile": subject.name if subject else None,
         "approval_token_hash": credential_hash(raw_token),
         "action_context": json.dumps({
             "action_code": action_code,
@@ -131,6 +183,9 @@ def approve_action(
             "process_execution": execution.name,
             "requester_employee": requester.employee,
             "approver_employee": approver.employee,
+            "subject_employee": subject.employee if subject else None,
+            "subject_operator_profile": subject.name if subject else None,
+            "reason": reason.strip(),
             "terminal_user": session.terminal_user,
         }, sort_keys=True),
     }).insert(ignore_permissions=True)
@@ -155,6 +210,9 @@ def approve_action(
         "approved_by_employee": approval.approved_by_employee,
         "approved_by_name": approval.approved_by_name,
         "expires_on": approval.expires_on,
+        "subject_employee": approval.subject_employee,
+        "subject_name": approval.subject_name,
+        "subject_operator_profile": approval.subject_operator_profile,
     }
 
 
@@ -164,6 +222,8 @@ def consume_action_approval(
     execution,
     requester_profile,
     operator_session,
+    subject_profile=None,
+    reason=None,
 ):
     if not approval_token:
         frappe.throw("Scan an eligible supervisor credential before performing this action")
@@ -198,6 +258,11 @@ def consume_action_approval(
         "operator_session": operator_session.name,
         "terminal_user": operator_session.terminal_user,
     }
+    if subject_profile:
+        expected.update({
+            "subject_employee": subject_profile.employee,
+            "subject_operator_profile": subject_profile.name,
+        })
     mismatches = [
         fieldname for fieldname, value in expected.items()
         if approval.get(fieldname) != value
@@ -207,6 +272,8 @@ def consume_action_approval(
             "Supervisor action approval belongs to a different action context: "
             + ", ".join(mismatches)
         )
+    if reason is not None and (approval.reason or "").strip() != (reason or "").strip():
+        frappe.throw("Supervisor action approval belongs to a different transfer reason")
     approval.db_set({"status": "Consumed", "consumed_on": now_datetime()}, update_modified=True)
     record(
         "Supervisor Exact-action Pass Consumed",
@@ -262,22 +329,22 @@ def _retire_prior_approvals(
         )
 
 
-def _profile_from_credential(qr_token, pin=None):
+def profile_from_credential(qr_token, pin=None):
     profile_name = frappe.db.get_value(
         "CFG Kanban Operator Profile",
         {"qr_token_hash": credential_hash(qr_token), "active": 1},
         "name",
     )
     if not profile_name:
-        frappe.throw("Unknown or inactive supervisor credential")
+        frappe.throw("Unknown or inactive operator credential")
     profile = frappe.get_doc("CFG Kanban Operator Profile", profile_name)
     employee_status = frappe.db.get_value("Employee", profile.employee, "status")
     if employee_status and employee_status != "Active":
-        frappe.throw("The approving employee is not active")
+        frappe.throw("The scanned employee is not active")
     if cint(profile.pin_required):
         saved_pin = profile.get_password("pin", raise_exception=False)
         if not saved_pin or not hmac.compare_digest(str(pin or ""), str(saved_pin)):
-            frappe.throw("Invalid supervisor PIN")
+            frappe.throw("Invalid operator PIN")
     return profile
 
 
@@ -301,9 +368,13 @@ def _matching_requirement(
     requirements,
     requester_employee,
     require_separate,
+    excluded_employees=None,
 ):
+    excluded_employees = set(excluded_employees or [])
     for row in requirements:
         if require_separate and profile.employee == requester_employee:
+            continue
+        if profile.employee in excluded_employees:
             continue
         if cint(row.separate_approver_required) and profile.employee in (
             requester_employee, cycle.get("job_owner")
@@ -367,4 +438,16 @@ def _not_required():
         "cycle_owner_name": None,
         "separate_approver_required": False,
         "authorized_by_current_operator": False,
+    }
+
+
+def _transfer_not_available(reason):
+    return {
+        "available": False,
+        "required": False,
+        "action_code": "TRANSFER_CYCLE_OWNERSHIP",
+        "required_capability": "can_transfer_ownership",
+        "cycle_owner": None,
+        "cycle_owner_name": None,
+        "reason": reason,
     }

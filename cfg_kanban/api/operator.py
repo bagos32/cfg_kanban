@@ -133,6 +133,7 @@ def _scanner_command_catalog(quantity_steps=None):
         ("Card and Operation", [
             ("Activate / Consume Card", "CFG:CMD:ACTIVATE", ""),
             ("Accept Cycle Ownership", "CFG:CMD:ACCEPT_OWNER", ""),
+            ("Transfer Cycle Ownership", "CFG:CMD:TRANSFER_OWNER", ""),
             ("Start Operation", "CFG:CMD:START", ""),
             ("Report Progress", "CFG:CMD:REPORT_PROGRESS", ""),
             ("Go to Current Work", "CFG:CMD:GO_TO_CURRENT_WORK", ""),
@@ -460,7 +461,10 @@ def get_card_context(token, operator_session_token=None):
                     "crew_compliance_hold"],
             order_by="sequence asc",
         )
-        from cfg_kanban.services.action_approval import close_on_behalf_requirement
+        from cfg_kanban.services.action_approval import (
+            close_on_behalf_requirement,
+            ownership_transfer_requirement,
+        )
         for execution in executions:
             job = frappe.db.get_value("Job Card", execution.job_card,
                 ["name", "status", "docstatus", "for_quantity", "total_completed_qty"], as_dict=True)
@@ -488,6 +492,18 @@ def get_card_context(token, operator_session_token=None):
                 execution["close_approval"].get("required")
             )
             execution["crew"] = _execution_crew_summary(execution, master.company)
+        if job_ownership and executions:
+            transfer_execution = next(
+                (
+                    row for row in executions
+                    if row.status not in ("Completed", "Cancelled")
+                ),
+                executions[0],
+            )
+            job_ownership["transfer"] = ownership_transfer_requirement(
+                transfer_execution, profile
+            )
+            job_ownership["transfer_execution"] = transfer_execution.name
         kanban_processed = sum(flt(row.processed_qty) for row in executions)
         if (effective_work_order and effective_work_order.status == "Not Started" and
                 cycle.status in ("Released", "In Production", "Packing In Progress",
@@ -981,7 +997,8 @@ def confirm_runtime_selection(card_name, job_card, confirmation, override_reason
 
 @frappe.whitelist()
 def approve_supervisor_action(action_code, execution_name, supervisor_qr_token, reason,
-                              operator_session_token=None, supervisor_pin=None):
+                              operator_session_token=None, supervisor_pin=None,
+                              subject_qr_token=None, subject_pin=None):
     """Issue a short-lived, one-time approval without changing the active operator."""
     from cfg_kanban.services.action_approval import approve_action
     return approve_action(
@@ -991,6 +1008,75 @@ def approve_supervisor_action(action_code, execution_name, supervisor_qr_token, 
         reason=reason,
         operator_session_token=operator_session_token,
         approver_pin=supervisor_pin,
+        subject_qr_token=subject_qr_token,
+        subject_pin=subject_pin,
+    )
+
+
+@frappe.whitelist()
+def preview_job_ownership_transfer(
+    execution_name,
+    replacement_qr_token,
+    operator_session_token=None,
+    replacement_pin=None,
+):
+    """Validate and name the scanned replacement without changing ownership."""
+    execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
+    require_operator(operator_session_token, execution=execution)
+    from cfg_kanban.services.action_approval import profile_from_credential
+    replacement = profile_from_credential(replacement_qr_token, replacement_pin)
+    from cfg_kanban.services.job_ownership import validate_transfer_target
+    validate_transfer_target(execution.kanban_cycle, execution, replacement)
+    return {
+        "employee": replacement.employee,
+        "employee_name": (
+            replacement.employee_name
+            or frappe.db.get_value("Employee", replacement.employee, "employee_name")
+            or replacement.employee
+        ),
+        "operator_profile": replacement.name,
+    }
+
+
+@frappe.whitelist()
+def transfer_job_ownership(
+    execution_name,
+    replacement_qr_token,
+    reason,
+    supervisor_approval_token,
+    operator_session_token=None,
+    replacement_pin=None,
+):
+    """Consume an exact-action pass and atomically transfer live Cycle ownership."""
+    execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
+    requester, session = require_operator(
+        operator_session_token, execution=execution
+    )
+    if not (reason or "").strip():
+        frappe.throw("An ownership transfer reason is required")
+    from cfg_kanban.services.action_approval import (
+        consume_action_approval,
+        profile_from_credential,
+    )
+    replacement = profile_from_credential(replacement_qr_token, replacement_pin)
+    approval = consume_action_approval(
+        supervisor_approval_token,
+        "TRANSFER_CYCLE_OWNERSHIP",
+        execution,
+        requester,
+        session,
+        subject_profile=replacement,
+        reason=reason,
+    )
+    from cfg_kanban.services.job_ownership import transfer_cycle_ownership
+    return transfer_cycle_ownership(
+        execution.kanban_cycle,
+        execution,
+        replacement,
+        requester,
+        session,
+        reason,
+        approval,
     )
 
 

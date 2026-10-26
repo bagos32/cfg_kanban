@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import now_datetime
+from frappe.utils import cint, now_datetime
 
 from cfg_kanban.services.events import record
 
@@ -145,6 +145,145 @@ def close_cycle_ownership(cycle, reason):
     return assignment.name
 
 
+def validate_transfer_target(cycle, execution, target_profile):
+    """Validate a replacement owner against the immutable Cycle policy and live crew."""
+    if isinstance(cycle, str):
+        cycle = frappe.get_doc("CFG Kanban Cycle", cycle)
+    if getattr(execution, "doctype", None) != "CFG Kanban Process Execution":
+        execution = frappe.get_doc("CFG Kanban Process Execution", execution)
+    if not cycle.get("enforce_job_owner"):
+        frappe.throw("Job Owner enforcement is not enabled for this Cycle")
+    if cycle.status in ("Completed", "Cancelled"):
+        frappe.throw(f"Ownership cannot be transferred for a {cycle.status} Cycle")
+    if not cycle.get("job_owner") or not cycle.get("active_owner_assignment"):
+        frappe.throw("This Cycle does not have an active owner to transfer")
+    if target_profile.employee == cycle.job_owner:
+        frappe.throw("The scanned replacement operator is already the Cycle owner")
+
+    assigned_codes = [row.job_code for row in (target_profile.get("job_codes") or [])]
+    if cycle.owner_job_code not in assigned_codes:
+        frappe.throw(
+            f"Replacement operator requires Job Code {cycle.owner_job_code}"
+        )
+    job_code = frappe.db.get_value(
+        "CFG Kanban Job Code", cycle.owner_job_code,
+        ["active", "company"], as_dict=True,
+    )
+    if not job_code or not job_code.active:
+        frappe.throw(f"Required Job Code {cycle.owner_job_code} is not active")
+    if job_code.company and cycle.company and job_code.company != cycle.company:
+        frappe.throw(
+            f"Required Job Code {cycle.owner_job_code} does not belong to {cycle.company}"
+        )
+
+    from cfg_kanban.services.crew_authorization import evaluate_execution_crew
+    crew_result = evaluate_execution_crew(
+        execution.name, "Ownership Transfer Target", persist=False
+    )
+    _assert_direct_crew_participant(target_profile.employee, crew_result)
+    _assert_owner_role_requirements(cycle, target_profile)
+    return target_profile
+
+
+def transfer_cycle_ownership(
+    cycle_name,
+    execution,
+    target_profile,
+    requester_profile,
+    operator_session,
+    reason,
+    supervisor_approval,
+):
+    """End the old interval and create a linked owner interval without rewriting history."""
+    reason = (reason or "").strip()
+    if not reason:
+        frappe.throw("An ownership transfer reason is required")
+    frappe.db.sql(
+        "select name from `tabCFG Kanban Cycle` where name=%s for update",
+        (cycle_name,),
+    )
+    cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
+    validate_transfer_target(cycle, execution, target_profile)
+    previous_assignment = frappe.get_doc(
+        "CFG Kanban Job Owner Assignment", cycle.active_owner_assignment
+    )
+    if previous_assignment.status != "Active":
+        frappe.throw("The current owner assignment is no longer active; refresh the Card")
+
+    assigned_on = now_datetime()
+    target_name = (
+        target_profile.employee_name
+        or frappe.db.get_value("Employee", target_profile.employee, "employee_name")
+        or target_profile.employee
+    )
+    previous_owner = cycle.job_owner
+    previous_owner_name = cycle.job_owner_name or previous_owner
+    previous_assignment.db_set({
+        "status": "Ended",
+        "ended_on": assigned_on,
+        "assignment_reason": (
+            (previous_assignment.assignment_reason or "")
+            + f"\nTransferred to {target_name}: {reason}"
+        ).strip(),
+    }, update_modified=True)
+    assignment = frappe.get_doc({
+        "doctype": "CFG Kanban Job Owner Assignment",
+        "kanban_cycle": cycle.name,
+        "kanban_card": cycle.kanban_card,
+        "company": cycle.company,
+        "job_code": cycle.owner_job_code,
+        "employee": target_profile.employee,
+        "employee_name": target_name,
+        "operator_profile": target_profile.name,
+        "status": "Active",
+        "assigned_on": assigned_on,
+        "assignment_source": "Supervisor Ownership Transfer",
+        "assignment_reason": reason,
+        "operator_session": operator_session.name,
+        "terminal_user": operator_session.terminal_user,
+        "previous_assignment": previous_assignment.name,
+        "supervisor_action_approval": supervisor_approval.name,
+    }).insert(ignore_permissions=True)
+    cycle.db_set({
+        "job_owner": target_profile.employee,
+        "job_owner_name": target_name,
+        "job_owner_operator_profile": target_profile.name,
+        "job_owner_assigned_on": assigned_on,
+        "active_owner_assignment": assignment.name,
+    }, update_modified=True)
+    record(
+        "Cycle Ownership Transferred",
+        card=cycle.kanban_card,
+        cycle=cycle.name,
+        execution=execution.name,
+        reference_doctype=assignment.doctype,
+        reference_name=assignment.name,
+        notes=(
+            f"{previous_owner_name} → {target_name}; {reason}; "
+            f"approval {supervisor_approval.name}"
+        ),
+        operator=requester_profile.employee,
+        operator_session=operator_session.name,
+        terminal_user=operator_session.terminal_user,
+        system_generated=False,
+        ignore_permissions=True,
+    )
+    from cfg_kanban.services.runtime_roles import evaluate_cycle_roles
+    evaluate_cycle_roles(cycle.name, persist=True)
+    cycle.reload()
+    result = ownership_context(cycle, requester_profile)
+    result.update({
+        "previous_owner": previous_owner,
+        "previous_owner_name": previous_owner_name,
+        "new_owner": target_profile.employee,
+        "new_owner_name": target_name,
+        "new_assignment": assignment.name,
+        "previous_assignment": previous_assignment.name,
+        "supervisor_action_approval": supervisor_approval.name,
+    })
+    return result
+
+
 def _assert_direct_crew_participant(employee, crew_result):
     if not crew_result or not crew_result.get("configured"):
         return
@@ -161,3 +300,63 @@ def _assert_direct_crew_participant(employee, crew_result):
             "authorized workstation crew. Oversight-only members remain participants, "
             "not the operator-in-charge."
         )
+
+
+def _assert_owner_role_requirements(cycle, target_profile):
+    """Do not let a transfer weaken immutable Operator-in-Charge requirements."""
+    requirements = [
+        row for row in (cycle.get("job_role_requirements_snapshot") or [])
+        if row.assignment_type == "Operator-in-Charge"
+    ]
+    if not requirements:
+        return
+    from cfg_kanban.services.authority import has_authority_role
+    from cfg_kanban.services.competency import employee_has_competency
+
+    assigned_codes = [row.job_code for row in (target_profile.get("job_codes") or [])]
+    context = {
+        "company": cycle.company,
+        # Cycle ownership spans every operation. Match the same company-wide
+        # context used by the runtime Operator-in-Charge candidate.
+        "operation": None,
+        "workstation": None,
+        "responsibility": None,
+    }
+    for requirement in requirements:
+        if requirement.job_code and requirement.job_code not in assigned_codes:
+            frappe.throw(
+                f"Replacement operator does not satisfy Operator-in-Charge Job Code "
+                f"{requirement.job_code}"
+            )
+        if requirement.job_code:
+            job_code = frappe.get_cached_doc(
+                "CFG Kanban Job Code", requirement.job_code
+            )
+            if not cint(job_code.active) or (
+                job_code.company and job_code.company != cycle.company
+            ):
+                frappe.throw(
+                    f"Operator-in-Charge Job Code {requirement.job_code} is not active "
+                    f"for {cycle.company}"
+                )
+        if requirement.authority_role and not has_authority_role(
+            target_profile, requirement.authority_role, context=context
+        ):
+            frappe.throw(
+                f"Replacement operator does not hold scoped Operator-in-Charge authority "
+                f"{requirement.authority_role}"
+            )
+        if requirement.skill and not employee_has_competency(
+            target_profile.employee,
+            requirement.skill,
+            requirement.minimum_competency_level or "L0",
+            require_independent=bool(
+                cint(requirement.require_independent_authorization)
+                and not cint(requirement.allow_supervised_trainee)
+            ),
+            require_supervisor=False,
+        ):
+            frappe.throw(
+                f"Replacement operator does not satisfy Operator-in-Charge competency "
+                f"{requirement.skill} at {requirement.minimum_competency_level or 'L0'}"
+            )

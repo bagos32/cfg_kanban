@@ -157,10 +157,11 @@ frappe.pages["kanban-workforce-supervisor"].on_page_load = function (wrapper) {
 		if (!rows.length) return empty($list, __("No supervisor passes match the filters."));
 		rows.slice(0, 50).forEach((row) => {
 			const colour = row.effective_status === "Consumed" ? "green" : row.effective_status === "Approved" ? "blue" : "orange";
+			const subject = row.subject_name || row.subject_employee;
 			const $item = $(`<div class="cfg-workforce-row"><div><strong>${e(row.approved_by_name || row.approved_by_employee)}</strong>
 				<small>${e(row.action_code)} · ${e(row.matched_authority_role || "-")}</small></div>
 				<div><span>${e(row.kanban_cycle)} · ${e(row.operation || "-")}</span>
-				<small>${e(row.requested_by_employee)} · ${relative_time(row.approved_on)}</small></div>
+				<small>${e(row.requested_by_employee)}${subject ? ` · ${__("Target")}: ${e(subject)}` : ""} · ${relative_time(row.approved_on)}</small></div>
 				<div><span class="indicator-pill ${colour}">${e(row.effective_status)}</span>
 				<button class="btn btn-xs btn-default ml-2">${__("Audit")}</button></div></div>`).appendTo($list);
 			$item.find("button").on("click", () => frappe.set_route("Form", "CFG Kanban Supervisor Action Approval", row.name));

@@ -463,11 +463,31 @@ payroll or attendance calculation.
 
 Use `docs/TEST_WORKFORCE_P07_0C_SUPERVISOR_CENTRE.md` for live acceptance.
 
+## P07-0D1 — Controlled live Cycle ownership transfer (implemented)
+
+An active, owner-enforced production Cycle may now move accountability to another eligible Employee
+without overwriting the first owner interval. The Production Operator panel provides **Transfer
+Owner**, and fixed-scanner terminals may use `CFG:CMD:TRANSFER_OWNER`. The flow captures a mandatory
+reason, validates the replacement's required Job Code, immutable Operator-in-Charge authority and
+competency requirements, and configured active direct-crew presence,
+then requires a separate Supervisor / Mentor or Verifier credential matched to an immutable Cycle
+requirement whose Authority Role enables **Transfer Ownership**.
+
+The two-minute single-use exact-action approval is bound to the Cycle, Process Execution, requester,
+Operator Session, terminal, replacement profile, and reason. Consumption occurs before mutation.
+The old Owner Assignment becomes Ended, the new assignment links to both its predecessor and the
+Supervisor Action Approval, and the Cycle timeline receives one explicit transfer event. ERPNext
+Work Orders, Job Cards, Stock Entries, quantities, and historical participation are untouched.
+
+The Supervisor Centre remains a read-only monitoring surface; it displays the target Employee on the
+approval audit row but does not perform the transfer itself. Use
+`docs/TEST_WORKFORCE_P07_0D1_OWNER_TRANSFER.md` for live acceptance.
+
 ## Remaining approved package
 
 ### P07 — Supervisor Control, Reports & Audit
 
 Continue workforce traceability, competency expiry, compliance history, trainee supervision, labour
-utilization, controlled corrections, and exception reporting. Future exact-action controls must reuse
+utilization, controlled corrections, exceptional reopen, and exception reporting. Future exact-action controls must reuse
 the P07-0B2 action-bound pattern; they must not reinterpret the Employee's designation or silently
 grant permanent Supervisor authority.

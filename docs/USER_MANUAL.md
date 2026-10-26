@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.09
+**Guide version:** 2.10
 
 **Updated:** 26 October 2026
 
@@ -448,6 +448,32 @@ Cards without owner enforcement, Cycles without a suitable Close-on-Behalf requi
 by the assigned owner continue through the existing close workflow. Managers audit every issued and
 consumed pass in **CFG Job Architecture → Supervisor Action Approvals**. Use
 `docs/TEST_WORKFORCE_P07_0B2_SUPERVISOR_PASS.md` for acceptance.
+
+### Controlled live Cycle ownership transfer
+
+P07-0D1 lets the floor transfer an active production Cycle from its current Operator-in-Charge to an
+eligible replacement without editing or deleting the earlier ownership record. It is available only
+when Job Owner enforcement is active and the immutable Cycle snapshot contains a **Supervisor /
+Mentor** or **Verifier** requirement whose exact Authority Role enables **Transfer Ownership**.
+
+Open the active production Card and select **Transfer Owner**, or scan
+`CFG:CMD:TRANSFER_OWNER`. Enter the operational reason, scan the replacement operator credential,
+then scan the credential of a separate eligible approving supervisor/verifier. Finally scan Confirm /
+Submit. Both credentials are validated without switching the active terminal Operator Session.
+
+The replacement must have the Cycle's Required Owner Job Code and satisfy every immutable
+Operator-in-Charge Job Code, scoped Authority Role, and competency requirement. Where the operation
+has configured crew policy, the replacement must already be an Active Direct Participation crew
+member. The approver must satisfy the snapshot's exact Job Code, scoped Authority Role, competency, active
+presence, and separation rules; the requester and replacement cannot approve their own transfer.
+
+Approval produces a two-minute single-use token bound to the action, Cycle, Process Execution,
+requester, terminal session, replacement operator, and exact reason. The server consumes that token
+before ending the previous Owner Assignment and creating the linked successor assignment. The Cycle
+timeline records the old owner, new owner, reason, assignment, and approval. Work Orders, Job Cards,
+Stock Entries, production quantities, and participation records are not rewritten. Completed and
+cancelled Cycles cannot be transferred. Use
+`docs/TEST_WORKFORCE_P07_0D1_OWNER_TRANSFER.md` for acceptance.
 
 ### Workforce Supervisor Centre
 
@@ -4003,6 +4029,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.10 | 26 October 2026 | Added P07-0D1 controlled live Cycle ownership transfer with scanner/touch workflow, replacement Job Code and configured-crew eligibility, separate Supervisor/Verifier approval using Transfer Ownership authority, two-minute single-use approval bound to replacement and reason, linked immutable owner-assignment history, Cycle timeline evidence, and unchanged ERPNext manufacturing records |
 | 2.09 | 26 October 2026 | Added P07-0C read-only Workforce Supervisor Centre with permission-aware Company/Workstation filtering, missing-role and compliance-hold attention, competency expiry, actual live crew membership, operational participation-duration summaries, recent exact-action approval audit, authoritative-record links, and hidden-tab refresh suppression |
 | 2.08 | 26 October 2026 | Added P07-0B2 exact-action supervisor pass for non-owner runtime Cycle closure: opt-in through immutable Supervisor/Verifier requirements with Close on Behalf authority, exact Job Code/scope/competency/presence/separation checks, two-minute single-use context-bound approval, scanner-first confirmation without operator-session switching, and read-only approval audit history |
 | 2.07 | 26 October 2026 | Added P07-0B1 advisory runtime job-role coverage: Cycle owner and active crew matching against immutable role requirements, independent Job Code/scoped Authority Role/competency/presence/separation checks, read-only Cycle Role Assignment intervals, live operator visibility, and terminal-history closure without production blocking |

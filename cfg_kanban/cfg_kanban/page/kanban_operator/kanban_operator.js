@@ -357,6 +357,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			CONSUME: () => consume_card(true),
 			TRIGGER: () => consume_card(true),
 			ACCEPT_OWNER: accept_context_job_ownership,
+			TRANSFER_OWNER: transfer_context_job_ownership,
 			START: () => run_context_execution_action("start"),
 			REPORT_PROGRESS: () => run_context_execution_action("report_progress"),
 			GO_TO_CURRENT_WORK: go_to_current_work,
@@ -938,7 +939,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<tr><td>F4</td><td><code>CFG:CMD:CAMERA_CARD</code></td><td>${__("Open camera scanner")}</td></tr>
 			<tr><td>F8</td><td><code>CFG:CMD:END_SESSION</code></td><td>${__("End operator session after confirmation")}</td></tr>
 			</tbody></table>
-			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:ACCEPT_OWNER</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
+			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:ACCEPT_OWNER</code>, <code>CFG:CMD:TRANSFER_OWNER</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
 			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
 			<p><strong>${__("Progress dialog commands")}</strong>: <code>CFG:QTY:GOOD:+1</code>, <code>CFG:QTY:REJECT:+1</code>, <code>CFG:CMD:CONFIRM</code>, <code>CFG:CMD:CANCEL</code>.</p>
 			<p><strong>${__("Message control")}</strong>: scan the next card to close an error and continue, or scan <code>CFG:CMD:DISMISS</code> to close it.</p>
@@ -3356,6 +3357,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					await load_card(state.context.card.qr_code);
 				});
 			}
+			if (ownership.owner && ownership.transfer?.available && ownership.transfer_execution) {
+				add_action($ownership_banner, __("Transfer Owner"), "btn-warning mt-2", () =>
+					open_job_ownership_transfer(ownership.transfer_execution));
+			} else if (ownership.owner && ownership.transfer && !ownership.transfer.available) {
+				$ownership_banner.append(`<br><small class="text-muted">${e(ownership.transfer.reason || __("Controlled ownership transfer is not configured for this Cycle snapshot."))}</small>`);
+			}
 		}
 		executions.forEach((row) => {
 			const crew = row.crew || {};
@@ -3748,6 +3755,125 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				frappe.show_alert({ message: __("Supervisor pass accepted. Scan Confirm / Submit to close."), indicator: "green" });
 			};
 		}
+		bind_confirmation_scanner(dialog, true);
+	}
+
+	function transfer_context_job_ownership() {
+		const ownership = state.context?.job_ownership;
+		if (!ownership?.owner || !ownership.transfer?.available || !ownership.transfer_execution) {
+			frappe.show_alert({
+				message: ownership?.transfer?.reason || __("Ownership transfer is not available for this Card"),
+				indicator: "orange",
+			});
+			return focus_scanner();
+		}
+		open_job_ownership_transfer(ownership.transfer_execution);
+	}
+
+	function open_job_ownership_transfer(execution_name) {
+		const e = frappe.utils.escape_html;
+		const ownership = state.context?.job_ownership || {};
+		let replacement_token = null;
+		let supervisor_approval_token = null;
+		let scan_stage = "replacement";
+		const dialog = new frappe.ui.Dialog({
+			title: __("Transfer Cycle Ownership"),
+			fields: [
+				{ fieldname: "transfer_warning", fieldtype: "HTML", options:
+					`<div class="alert alert-warning"><strong>${__("Controlled ownership transfer")}</strong><br>
+					${__("Current operator-in-charge")}: ${e(ownership.owner_name || ownership.owner || "-")}<br>
+					${__("The existing assignment will be ended, not overwritten. ERPNext documents and production quantities are unchanged.")}</div>` },
+				{ fieldname: "reason", label: __("Transfer Reason"), fieldtype: "Small Text", reqd: 1 },
+				{ fieldname: "replacement_pin", label: __("Replacement Operator PIN, if required"), fieldtype: "Password" },
+				{ fieldname: "supervisor_pin", label: __("Supervisor PIN, if required"), fieldtype: "Password" },
+				{ fieldname: "transfer_scan_status", fieldtype: "HTML", options:
+					`<div class="alert alert-info py-2 mb-2"><strong>${__("Step 1 of 2")}</strong><br>${__("Scan the replacement operator credential.")}</div>` },
+				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data",
+					description: __("Scan replacement operator, then approving supervisor, then Confirm / Submit. Scan Cancel to leave without changing ownership.") },
+			],
+			primary_action_label: __("Transfer Ownership"),
+			primary_action: async (values) => {
+				if (!replacement_token) {
+					frappe.show_alert({ message: __("Scan the replacement operator credential first"), indicator: "orange" });
+					return;
+				}
+				if (!supervisor_approval_token) {
+					frappe.show_alert({ message: __("Scan an eligible approving supervisor credential"), indicator: "orange" });
+					return;
+				}
+				const response = await frappe.call({
+					method: "cfg_kanban.api.operator.transfer_job_ownership",
+					args: {
+						execution_name,
+						replacement_qr_token: replacement_token,
+						replacement_pin: values.replacement_pin,
+						reason: String(values.reason || "").trim(),
+						supervisor_approval_token,
+						operator_session_token: state.session_token,
+					},
+					freeze: true,
+					freeze_message: __("Transferring Cycle ownership..."),
+				});
+				dialog.hide();
+				frappe.show_alert({
+					message: __("Ownership transferred to {0}", [response.message.new_owner_name || response.message.new_owner]),
+					indicator: "green",
+				});
+				await load_card(state.context.card.qr_code);
+			},
+		});
+		dialog.show();
+		dialog.cfg_raw_scanner_handler = async (credential) => {
+			const reason = String(dialog.get_value("reason") || "").trim();
+			if (!reason) {
+				frappe.show_alert({ message: __("Enter the transfer reason before scanning"), indicator: "orange" });
+				return;
+			}
+			if (scan_stage === "replacement") {
+				replacement_token = operator_token_from_scan(credential);
+				try {
+					const response = await frappe.call({
+						method: "cfg_kanban.api.operator.preview_job_ownership_transfer",
+						args: {
+							execution_name,
+							replacement_qr_token: replacement_token,
+							replacement_pin: dialog.get_value("replacement_pin"),
+							operator_session_token: state.session_token,
+						},
+					});
+					scan_stage = "supervisor";
+					dialog.get_field("transfer_scan_status").$wrapper.html(
+						`<div class="alert alert-info py-2 mb-2"><strong>${__("Replacement")}: ${e(response.message.employee_name || response.message.employee)}</strong><br>${__("Step 2 of 2: scan the eligible approving supervisor credential.")}</div>`
+					);
+					frappe.show_alert({ message: __("Replacement operator accepted. Scan supervisor approval."), indicator: "blue" });
+				} catch (error) {
+					replacement_token = null;
+					throw error;
+				}
+				return;
+			}
+			const response = await frappe.call({
+				method: "cfg_kanban.api.operator.approve_supervisor_action",
+				args: {
+					action_code: "TRANSFER_CYCLE_OWNERSHIP",
+					execution_name,
+					supervisor_qr_token: operator_token_from_scan(credential),
+					supervisor_pin: dialog.get_value("supervisor_pin"),
+					subject_qr_token: replacement_token,
+					subject_pin: dialog.get_value("replacement_pin"),
+					reason,
+					operator_session_token: state.session_token,
+				},
+				freeze: true,
+				freeze_message: __("Validating ownership-transfer supervisor pass..."),
+			});
+			supervisor_approval_token = response.message.approval_token;
+			scan_stage = "approved";
+			dialog.get_field("transfer_scan_status").$wrapper.html(
+				`<div class="alert alert-success py-2 mb-2"><strong>${__("Transfer approved")}</strong><br>${__("Replacement")}: ${e(response.message.subject_name || response.message.subject_employee)}<br>${__("Approved by")}: ${e(response.message.approved_by_name || response.message.approved_by_employee)}<br>${__("Scan Confirm / Submit to transfer ownership.")}</div>`
+			);
+			frappe.show_alert({ message: __("Supervisor pass accepted. Scan Confirm / Submit."), indicator: "green" });
+		};
 		bind_confirmation_scanner(dialog, true);
 	}
 

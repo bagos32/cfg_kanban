@@ -361,6 +361,7 @@ def _recent_supervisor_approvals(company, workstation, limit):
             "name", "action_code", "status", "company", "kanban_cycle",
             "process_execution", "operation", "workstation", "requested_by_employee",
             "approved_by_employee", "approved_by_name", "matched_authority_role",
+            "subject_employee", "subject_name", "subject_operator_profile",
             "requested_on", "approved_on", "expires_on", "consumed_on", "reason",
         ],
         order_by="approved_on desc",

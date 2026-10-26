@@ -48,6 +48,12 @@ class TestWorkforceSupervisorCentre(unittest.TestCase):
         self.assertIn("visibilitychange.cfg-workforce", panel)
         self.assertIn("state.loading", panel)
 
+    def test_transfer_target_is_visible_in_exact_action_audit(self):
+        source = (ROOT / "api" / "workforce_supervisor.py").read_text()
+        panel = (PAGE_ROOT / "kanban_workforce_supervisor.js").read_text()
+        self.assertIn('"subject_employee", "subject_name"', source)
+        self.assertIn('row.subject_name || row.subject_employee', panel)
+
     def test_workspace_exposes_centre(self):
         workspace = json.loads((
             ROOT / "cfg_kanban" / "workspace" / "cfg_job_architecture"
