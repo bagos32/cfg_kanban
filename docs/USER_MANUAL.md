@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.03
+**Guide version:** 2.04
 
 **Updated:** 26 October 2026
 
@@ -345,6 +345,15 @@ The workspace deliberately does not show EODR, payroll export, a general capacit
 TrackQMS integration as completed features. Those remain controlled future packages. Their data
 model must not be added merely to fill the workspace, and any conflict with the existing CFG Kanban
 records requires an explicit product decision before implementation continues.
+
+Open **Shared Job Register** from the **Execution Context** card for one read-only row per permitted
+**CFG Kanban Cycle**. In this reuse-first model, the Cycle is the shared work instance, its **CFG
+Kanban Process Execution** records are operation-level executions, and **CFG Kanban Job
+Participation** records are worker contribution intervals. The report summarizes
+open/completed/blocked operations, participants, active participants, participation segments, and
+recorded participation hours without creating duplicate job or participation records. Recorded
+participation time is operational evidence only and must not be treated as attendance, payable time,
+payroll eligibility, or earnings.
 
 The operator interface is available at:
 
@@ -3881,6 +3890,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.04 | 26 October 2026 | Added the permission-aware Shared Job Register using the approved reuse-first model: CFG Kanban Cycle as shared work instance, Process Execution as operation execution, and Job Participation as contribution intervals, with operation/participant summaries and an explicit no-attendance/no-payroll interpretation boundary |
 | 2.03 | 26 October 2026 | Added the separate CFG Job Architecture workspace inside the CFG Kanban app, grouping the existing identity, competency, crew-policy, live workforce, authorization, participation, Cycle, Process Execution, operation result, Event, and Exception records while clearly excluding unimplemented EODR, payroll, general-capacity, and cross-app schema |
 | 2.02 | 24 October 2026 | Added lightweight 15-second live revision checks for Service and Logistics panels with in-place status refresh, persistent operator alerts, filter/scroll preservation and selected Manifest/ERP feedback monitoring; hardened the checks against dialogs or scanner/actions starting while a request is in flight by revalidating popup, input, frozen-action and operator-session state before every render; added deliberate Manifest-list selection scrolling with visible loaded-card feedback; also documented selective/full scanner-command printing with safe custom or translated display labels |
 | 2.01 | 22 October 2026 | Added Workforce P06 scanner-first Workstation Crew controls to each Production execution lane: touch and printable QR commands for persistent crew open/join/break/resume/leave/main/context/close actions, existing Employee QR identity without terminal-login replacement, live crew/compliance status refresh, and controlled two-scan crew closure |

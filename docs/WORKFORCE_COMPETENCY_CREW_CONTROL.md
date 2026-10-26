@@ -23,6 +23,24 @@ If a future package conflicts with an existing CFG Kanban identity, competency s
 participation record, event contract, exception boundary, or the TrackQMS integration boundary,
 implementation must stop for an explicit product decision before changing the data model.
 
+### Reuse-first shared job register
+
+The **Shared Job Register** report in the CFG Job Architecture workspace implements the approved
+reuse boundary without creating a second job database:
+
+- **CFG Kanban Cycle** is the shared work instance and stable repeated-execution identity.
+- **CFG Kanban Process Execution** is the operation-level execution under that Cycle.
+- **CFG Kanban Job Participation** is the employee contribution interval under the Process
+  Execution and Cycle.
+- ERPNext Work Order and Job Card remain the manufacturing and quantity authority.
+
+The report shows each permitted Cycle once, with operation counts, blocked/open operation counts,
+unique participants, active participants, participation segment count, and recorded participation
+hours. Active intervals are measured to the current report time. These hours are operational
+evidence only: they are not attendance, payable time, payroll eligibility, or earnings. The report
+uses permission-aware Cycle selection before calculating aggregates, so it does not create a
+broader cross-company visibility path.
+
 Delivery remains sequential:
 
 | Release | Packages | Boundary |

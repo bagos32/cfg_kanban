@@ -55,7 +55,8 @@ class TestJobArchitectureWorkspace(unittest.TestCase):
     def test_does_not_claim_unimplemented_architecture_records(self):
         serialized = json.dumps(self.workspace)
         for proposed_record in (
-            "CFG Shared Job",
+            "CFG Work Instance Reference",
+            "CFG Work Participation",
             "CFG EODR",
             "CFG Payroll Export",
             "CFG Capacity Ledger",
