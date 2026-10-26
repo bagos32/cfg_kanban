@@ -1,0 +1,12 @@
+{
+ "doctype": "Page",
+ "name": "kanban-workforce-supervisor",
+ "module": "CFG Kanban",
+ "title": "Kanban Workforce Supervisor Centre",
+ "standard": "Yes",
+ "roles": [
+  {"role": "Manufacturing Manager"},
+  {"role": "HR Manager"},
+  {"role": "System Manager"}
+ ]
+}

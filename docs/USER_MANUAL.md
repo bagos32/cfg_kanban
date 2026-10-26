@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.08
+**Guide version:** 2.09
 
 **Updated:** 26 October 2026
 
@@ -448,6 +448,25 @@ Cards without owner enforcement, Cycles without a suitable Close-on-Behalf requi
 by the assigned owner continue through the existing close workflow. Managers audit every issued and
 consumed pass in **CFG Job Architecture → Supervisor Action Approvals**. Use
 `docs/TEST_WORKFORCE_P07_0B2_SUPERVISOR_PASS.md` for acceptance.
+
+### Workforce Supervisor Centre
+
+P07-0C adds a separate, read-only manager page under **CFG Job Architecture → Live Workforce →
+Workforce Supervisor Centre**. It combines existing records rather than creating another workforce
+ledger. Use its Company, Workstation, competency-expiry window, and Find filters to review:
+
+- open production Cycles with missing or attention-level role coverage;
+- active Crew Compliance Holds and their latest findings;
+- active Crew Sessions with scanned Active and On Break members;
+- active Job Participation intervals and today's separated Production Labour/Oversight duration;
+- active Employee Competencies that are expired or approaching expiry; and
+- recent exact-action supervisor passes with their effective audit state.
+
+Every Review/Audit action opens the underlying authoritative record. This centre does not approve,
+correct, close, submit, or mutate production work. Its participation duration is operational evidence
+only and is never attendance, payroll eligibility, or payable time. The page refreshes every 30
+seconds while visible, pauses background requests while its browser tab is hidden, and refreshes once
+when the user returns. Use `docs/TEST_WORKFORCE_P07_0C_SUPERVISOR_CENTRE.md` for acceptance.
 
 The operator interface is available at:
 
@@ -3984,6 +4003,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.09 | 26 October 2026 | Added P07-0C read-only Workforce Supervisor Centre with permission-aware Company/Workstation filtering, missing-role and compliance-hold attention, competency expiry, actual live crew membership, operational participation-duration summaries, recent exact-action approval audit, authoritative-record links, and hidden-tab refresh suppression |
 | 2.08 | 26 October 2026 | Added P07-0B2 exact-action supervisor pass for non-owner runtime Cycle closure: opt-in through immutable Supervisor/Verifier requirements with Close on Behalf authority, exact Job Code/scope/competency/presence/separation checks, two-minute single-use context-bound approval, scanner-first confirmation without operator-session switching, and read-only approval audit history |
 | 2.07 | 26 October 2026 | Added P07-0B1 advisory runtime job-role coverage: Cycle owner and active crew matching against immutable role requirements, independent Job Code/scoped Authority Role/competency/presence/separation checks, read-only Cycle Role Assignment intervals, live operator visibility, and terminal-history closure without production blocking |
 | 2.06 | 26 October 2026 | Added P07-0A scoped multi-role authority foundation: configurable capability roles, multiple Company/Operation/Workstation/Responsibility/date-scoped Operator assignments, production Card job-role requirements, immutable Cycle snapshots, workspace access, and explicit legacy-role fallback without premature runtime blocking |

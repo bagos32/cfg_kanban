@@ -448,6 +448,21 @@ history is deleted.
 
 Use `docs/TEST_WORKFORCE_P07_0B2_SUPERVISOR_PASS.md` for live acceptance.
 
+## P07-0C — Read-only Workforce Supervisor Centre (implemented)
+
+The separate **Kanban Workforce Supervisor Centre** consolidates existing Cycle ownership and role
+coverage, Process Execution compliance holds, Crew Sessions and actual memberships, Employee
+Competency expiry, Job Participation intervals, and exact-action supervisor-pass audit. It is a
+permission-aware manager view with Company and Workstation filters; it creates no second job,
+workforce, attendance, payroll, or compliance ledger.
+
+The centre automatically refreshes only while visible. Review actions navigate to the existing
+authoritative record, and no production mutation endpoint is exposed by this package. Participation
+duration remains operational evidence, split between Production Labour and Oversight, and is never a
+payroll or attendance calculation.
+
+Use `docs/TEST_WORKFORCE_P07_0C_SUPERVISOR_CENTRE.md` for live acceptance.
+
 ## Remaining approved package
 
 ### P07 — Supervisor Control, Reports & Audit
