@@ -23,7 +23,12 @@ frappe.ui.form.on("CFG Kanban Signal", {
 		}
 		if (frm.doc.status !== "Cancelled" &&
 			(frappe.user.has_role("Manufacturing Manager") || frappe.user.has_role("Purchase Manager") || frappe.user.has_role("System Manager"))) {
-			frm.add_custom_button(__("Cancel and Roll Back"), () => {
+			if (frm.doc.signal_type === "Production Replenishment" && frm.doc.kanban_cycle &&
+				(frappe.user.has_role("Manufacturing Manager") || frappe.user.has_role("System Manager"))) {
+				frm.add_custom_button(__("Controlled Production Cancellation"), () =>
+					request_controlled_production_cancellation(frm.doc.kanban_cycle), __("Actions"));
+			}
+			frm.add_custom_button(__("Safe Cancel (No Activity)"), () => {
 				const dialog = new frappe.ui.Dialog({
 					title: __("Cancel Kanban Signal"),
 					fields: [{ fieldname: "reason", label: __("Cancellation Reason"),
@@ -43,3 +48,37 @@ frappe.ui.form.on("CFG Kanban Signal", {
 		}
 	},
 });
+
+async function request_controlled_production_cancellation(cycle_name) {
+	const preview = (await frappe.call({
+		method: "cfg_kanban.services.production_cancellation.preview_production_cancellation",
+		args: { cycle_name }, freeze: true,
+		freeze_message: __("Assessing production dependencies..."),
+	})).message || {};
+	if (preview.existing_cancellation) {
+		frappe.set_route("Form", "CFG Kanban Production Cancellation", preview.existing_cancellation);
+		return;
+	}
+	const dialog = new frappe.ui.Dialog({
+		title: __("Controlled Production Cancellation"),
+		fields: [
+			{ fieldname: "warning", fieldtype: "HTML", options:
+				`<div class="alert alert-warning"><strong>${__("Production will be frozen immediately.")}</strong><br>${__("ERPNext and physical records must then be reversed and reconciled before the Card can be released.")}</div>` },
+			{ fieldname: "reason_category", label: __("Reason Category"), fieldtype: "Select",
+				options: ["Mistaken Release", "Demand Withdrawn", "Material or Quality Issue",
+					"Equipment or Capacity Issue", "Duplicate Production", "Other"], reqd: 1 },
+			{ fieldname: "reason", label: __("Detailed Reason"), fieldtype: "Small Text", reqd: 1 },
+		],
+		primary_action_label: __("Freeze Production"),
+		primary_action: async (values) => {
+			const result = await frappe.call({
+				method: "cfg_kanban.services.production_cancellation.request_production_cancellation",
+				args: { cycle_name, ...values }, freeze: true,
+				freeze_message: __("Freezing production..."),
+			});
+			dialog.hide();
+			frappe.set_route("Form", "CFG Kanban Production Cancellation", result.message.name);
+		},
+	});
+	dialog.show();
+}

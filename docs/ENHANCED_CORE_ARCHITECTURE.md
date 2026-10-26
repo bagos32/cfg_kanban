@@ -68,6 +68,13 @@ Process Task and standalone Task events use the existing CFG Kanban Event stream
 link Exceptions. Transaction history is preserved; cancellation, expiry, invalidation, reconciliation,
 and recovery are preferred over deletion.
 
+An activity-free production Signal may use safe rollback. Once a Work Order has live progress,
+stock movement, WIP, or physical output identity, **CFG Kanban Production Cancellation** is the V1
+recovery aggregate. It freezes floor mutations and the reusable Card, lists authoritative ERPNext
+reversal dependencies and physical reconciliation dependencies separately, and permits final Kanban
+closure/Card release only after both lists are clear. It never deletes or silently rewrites ERPNext,
+Operation Progress, WIP Ledger, Handling Unit, or Event evidence.
+
 ## Approved logistics extension
 
 Multi-company handover, persistent Stock Tags, company-specific lorry Warehouses, Customer Site

@@ -150,6 +150,14 @@ def assert_gate_open(cycle_name, trigger_point, operation=None):
     return result
 
 
+def _assert_cycle_execution_open(cycle_name):
+    from cfg_kanban.services.production_cancellation import (
+        assert_cycle_not_under_cancellation,
+    )
+
+    assert_cycle_not_under_cancellation(cycle_name)
+
+
 def task_form(task_name, capture_on):
     task = frappe.get_doc("CFG Kanban Process Task", task_name)
     rows = definitions(task.kanban_master, capture_on, process_task_key=task.task_key)
@@ -164,6 +172,7 @@ def task_form(task_name, capture_on):
 
 def start_task(task_name, session_token, values=None, notes=None):
     task = frappe.get_doc("CFG Kanban Process Task", task_name)
+    _assert_cycle_execution_open(task.kanban_cycle)
     profile, session = require_operator(
         session_token, "task_start", operation=task.linked_operation,
         workstation=task.workstation,
@@ -192,6 +201,7 @@ def start_task(task_name, session_token, values=None, notes=None):
 def complete_task(task_name, session_token, values=None, checklist_results=None, notes=None,
                   sample_id=None, qc_result=None, qc_disposition_notes=None):
     task = frappe.get_doc("CFG Kanban Process Task", task_name)
+    _assert_cycle_execution_open(task.kanban_cycle)
     profile, session = require_operator(
         session_token, "task_complete", operation=task.linked_operation,
         workstation=task.workstation,
@@ -239,6 +249,7 @@ def complete_task(task_name, session_token, values=None, checklist_results=None,
 
 def verify_task(task_name, session_token, values=None, notes=None):
     task = frappe.get_doc("CFG Kanban Process Task", task_name)
+    _assert_cycle_execution_open(task.kanban_cycle)
     profile, session = require_operator(
         session_token, "task_verify", operation=task.linked_operation,
         workstation=task.workstation,
@@ -269,6 +280,7 @@ def verify_task(task_name, session_token, values=None, notes=None):
 
 def reset_qc_for_retest(task_name, session_token, reason):
     task = frappe.get_doc("CFG Kanban Process Task", task_name)
+    _assert_cycle_execution_open(task.kanban_cycle)
     profile, session = require_operator(
         session_token, "task_verify", operation=task.linked_operation,
         workstation=task.workstation,

@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.16
+**Guide version:** 2.17
 
 **Updated:** 26 October 2026
 
@@ -3322,20 +3322,56 @@ reviewing the warehouse queue; only an authorized supervisor receives cardless s
 
 | Situation | Correct action | Do not do |
 |---|---|---|
-| Accidental non-Sales Signal; no production activity | Open Signal → Cancel and Roll Back; enter reason | Delete Signal/Cycle/Card |
+| Accidental non-Sales Signal; no production activity | Open Signal → **Safe Cancel (No Activity)**; enter reason | Delete Signal/Cycle/Card |
 | Sales Order Demand must stop before release | Cancel Sales Order or controlled Demand workflow | Use Signal rollback directly |
 | More than one Work Order claims one Cycle | On Cycle select the effective submitted Work Order and reason; inactive WO must have no activity | Edit Cycle link directly |
 | Submitted WO has operations/Job Cards but Kanban missed them | Use Work Order **Sync to Kanban** / reconcile action | Create Process Executions manually |
 | Draft legacy WO was created without BOM rows | Use **Reload Draft Work Order BOM** after correcting BOM | Submit an operation-less WO |
 | Submitted WO has no operation rows | Correct BOM/WO; ERPNext cannot generate valid Job Cards | Fabricate unrelated Job Cards |
 | Legacy Process/Station Cycle predates runtime allocation and has no activity | Use **Release Legacy Runtime Card** with reason | Force Card state to Available |
-| Any progress, WIP, submitted Stock Entry, Job Card time log, or production quantity exists | Raise/resolve a production Exception; automatic rollback is deliberately refused | Delete audit/ERP records |
+| Any progress, WIP, submitted Stock Entry, Job Card time log, or production quantity exists | Use **Request Controlled Cancellation**, reverse ERPNext dependencies, reconcile physical material, then finalize | Delete audit/ERP records or force the Card to Available |
 | Service occurrence falls on closure/holiday after generation | Supervisor Cancel or Bypass with reason | Delete occurrence |
 | QC Result is Fail | Correct cause, Supervisor Authorise Retest, enter a new controlled result | Manually clear Cycle Hold |
 
 Signal rollback cancels/deletes only activity-free ERP documents, marks Cycle and Signal Cancelled,
 returns the Card to Available, clears Active Cycle, and records Events. A submitted Work Order can be
 cancelled only while ERPNext permits it and the code has found no production/material activity.
+
+### Controlled production cancellation after release or activity
+
+Use this path when a Production Cycle already owns a Work Order and the simple **Safe Cancel (No
+Activity)** safety test refuses cancellation. Only **Manufacturing Manager** and **System Manager** may
+start or finalize it.
+
+1. Open the Production **CFG Kanban Cycle** or its **CFG Kanban Signal**.
+2. Select **Kanban Recovery → Request Controlled Cancellation** (Cycle) or **Actions → Controlled
+   Production Cancellation** (Signal).
+3. Select **Cancellation Reason Category** (`reason_category`) and enter **Detailed Reason**
+   (`reason`). The request immediately sets the Cycle to Hold, blocks the reusable Card, blocks its
+   active executions, attempts an audited pause of open Job Card timers, and raises a Critical
+   Exception. Any active reusable Process/Station Card Cycle allocated to the same Work Order is
+   frozen under the same control record. New floor progress, runtime allocations, Process Task
+   changes, and production-tag changes are refused.
+4. Open the created **CFG Kanban Production Cancellation**. Its **ERP and Physical Dependencies**
+   (`dependencies`) is a live checklist, not a replacement for ERPNext. Resolve ERP dependencies in
+   reverse production order: cancel submitted Manufacture entries first, then material-consumption
+   entries, then material-transfer entries; discard unused Draft Stock Entries; cancel affected Job
+   Cards; finally cancel the Work Order. ERPNext validates whether each cancellation is legal.
+5. Resolve every listed WIP Bin reconciliation and physical Handling Unit balance. Do not merely
+   move or relabel material to clear the list—the ERP reversal and actual floor quantity/location
+   must agree.
+6. Select **Refresh Assessment** after each ERP or physical correction. Status moves from
+   **Awaiting ERP Reversal** to **Awaiting Physical Reconciliation**, then **Ready to Finalize**.
+7. At **Ready to Finalize**, select **Finalize and Release Card**, record exact document references,
+   physical count/location, and verifier in **Final Reconciliation Evidence**, then confirm. The
+   system marks Kanban projections Cancelled, resolves the cancellation Exception, and returns the
+   main Card plus its related Process/Station Cards to Available. Original progress, Stock Entries,
+   WIP ledgers, and Events remain as audit evidence.
+
+An active request is visible in **Production Supervisor Action Center → Controlled Production
+Cancellation** and under **CFG Kanban → Production Records → Controlled Production Cancellations**.
+Repeating the request opens the same control record; it cannot create a second cancellation for the
+same Cycle. The Card is never released if it has become assigned to a different Cycle.
 
 ## 25. Multi-company logistics and customer allocation (Packages A-B, C1-C2B, and D1-D3)
 
@@ -4116,6 +4152,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.17 | 26 October 2026 | Closed the V1 in-flight production cancellation gap with manager-only freeze, audited Job Card timer pause, live ERP/physical dependency assessment, ordered ERPNext reversal guidance, WIP/Handling Unit reconciliation gates, protected floor writes, Supervisor Action Centre visibility, immutable evidence, and final Card release only after zero blockers |
 | 2.16 | 26 October 2026 | Preserved an active supervisor WO/Job Card sequence across repeated reusable Process Card cycles so a newer system-generated runtime queue entry cannot silently restore the oldest-WO fallback |
 | 2.15 | 26 October 2026 | Connected reusable Process/Station Card recommendations to the audited supervisor dispatch sequence for one eligible Workstation, displayed the recommendation basis and queue rank to the operator, and retained the Operation Profile runtime-selection rule as the no-override fallback |
 | 2.14 | 26 October 2026 | Added P07-0D2B2 controlled Kanban adjustment application with second-person proposal-bound Correct Records authorization, live stale-value revalidation, immutable signed Correction progress entries, atomic execution/summary recalculation, resolved-request audit links, idempotent application, and explicit no-ERPNext/no-stock/no-payroll mutation boundary |

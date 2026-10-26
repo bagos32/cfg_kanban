@@ -28,23 +28,29 @@ def get_action_centre(limit=100):
     service_tasks = _service_verifications(limit)
     process_tasks = _process_verifications(limit)
     action_recoveries = _doctype_action_recoveries(limit)
+    production_cancellations = _production_cancellations(limit)
     exceptions = _open_exceptions(limit)
     return {
         "permissions": {
             "can_approve_signals": bool(roles.intersection(SIGNAL_APPROVAL_ROLES)),
             "can_cancel_signals": bool(roles.intersection(SIGNAL_APPROVAL_ROLES)),
+            "can_manage_production_cancellation": bool(
+                roles.intersection({"Manufacturing Manager", "System Manager"})
+            ),
         },
         "counts": {
             "signals": len(signals),
             "service_verifications": len(service_tasks),
             "process_verifications": len(process_tasks),
             "action_recoveries": len(action_recoveries),
+            "production_cancellations": len(production_cancellations),
             "exceptions": len(exceptions),
         },
         "signals": signals,
         "service_verifications": service_tasks,
         "process_verifications": process_tasks,
         "action_recoveries": action_recoveries,
+        "production_cancellations": production_cancellations,
         "exceptions": exceptions,
     }
 
@@ -209,6 +215,25 @@ def _doctype_action_recoveries(limit):
                        "responsible_role": task.responsible_role,
                        "task_status": task.status})
     return output
+
+
+def _production_cancellations(limit):
+    if not frappe.db.table_exists("CFG Kanban Production Cancellation"):
+        return []
+    if not frappe.has_permission("CFG Kanban Production Cancellation", "read"):
+        return []
+    return frappe.get_list(
+        "CFG Kanban Production Cancellation",
+        filters={"status": ["!=", "Completed"]},
+        fields=[
+            "name", "status", "kanban_cycle", "kanban_card", "company", "item_code",
+            "work_order", "reason_category", "reason", "blocking_count",
+            "erp_reversal_required", "physical_reconciliation_required",
+            "assessment_summary", "requested_by", "requested_on", "last_assessed_on",
+        ],
+        order_by="requested_on asc",
+        limit_page_length=limit,
+    )
 
 
 def _open_exceptions(limit):

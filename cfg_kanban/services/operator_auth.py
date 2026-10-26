@@ -140,6 +140,11 @@ def require_operator(session_token, action=None, execution=None, operation=None,
         )
         operation = operation or execution.operation
         workstation = workstation or execution.workstation
+        if action:
+            from cfg_kanban.services.production_cancellation import (
+                assert_cycle_not_under_cancellation,
+            )
+            assert_cycle_not_under_cancellation(execution.kanban_cycle)
     if action:
         flag = ACTION_FLAGS.get(action)
         if not flag or not cint(profile.get(flag)):

@@ -55,9 +55,13 @@ def allocate(card_name, job_card_name, confirmation, override_reason=None):
         frappe.throw("Operator confirmation is required")
     card = frappe.get_doc("CFG Kanban Card", card_name)
     _validate_runtime_card(card)
-    # Serialize allocation decisions for this Job Card and recalculate from live ERP quantities.
+    proposal = preview(card.name, job_card_name)
+    _assert_work_order_execution_open(proposal["work_order"], lock_cycle=True)
+    # Lock the owner Cycle before the Job Card. Controlled cancellation uses the same order,
+    # preventing a new operation Card allocation from crossing a production freeze.
     frappe.db.sql("select name from `tabJob Card` where name=%s for update", job_card_name)
     proposal = preview(card.name, job_card_name)
+    _assert_work_order_execution_open(proposal["work_order"])
     if not proposal["is_recommended"] and not (override_reason or "").strip():
         frappe.throw("Override Reason is required when selecting a non-recommended Work Order or Job Card")
     master = frappe.get_doc("CFG Kanban Master", card.kanban_master)
@@ -212,7 +216,7 @@ def _eligible_candidates(card, master, profile):
     rows = frappe.db.sql("""
         select jc.name, jc.work_order, jc.operation, jc.workstation, jc.status,
                jc.for_quantity, jc.total_completed_qty, jc.creation,
-               wo.status as work_order_status
+               wo.status as work_order_status, wo.cfg_kanban_cycle as owner_cycle
         from `tabJob Card` jc
         inner join `tabWork Order` wo on wo.name=jc.work_order
         where jc.docstatus < 2 and wo.docstatus=1 and wo.cfg_kanban_controlled=1
@@ -223,6 +227,8 @@ def _eligible_candidates(card, master, profile):
     """, (card.item_code, master.company, card.operation), as_dict=True)
     candidates = []
     for row in rows:
+        if not _work_order_execution_open(row.owner_cycle):
+            continue
         if card.card_type == "Station Kanban" and card.workstation and row.workstation != card.workstation:
             continue
         active = flt(frappe.db.sql("""
@@ -243,6 +249,32 @@ def _eligible_candidates(card, master, profile):
             candidates.append(row)
     _order_candidates(candidates, profile.runtime_selection_rule or "Oldest Work Order First")
     return candidates
+
+
+def _work_order_execution_open(owner_cycle):
+    if not owner_cycle:
+        return True
+    from cfg_kanban.services.production_cancellation import ACTIVE_CANCELLATION_STATES
+
+    return not frappe.db.exists(
+        "CFG Kanban Production Cancellation",
+        {"kanban_cycle": owner_cycle, "status": ["in", ACTIVE_CANCELLATION_STATES]},
+    )
+
+
+def _assert_work_order_execution_open(work_order, lock_cycle=False):
+    owner_cycle = frappe.db.get_value("Work Order", work_order, "cfg_kanban_cycle")
+    if not owner_cycle:
+        return
+    if lock_cycle:
+        frappe.db.sql(
+            "select name from `tabCFG Kanban Cycle` where name=%s for update", owner_cycle
+        )
+    from cfg_kanban.services.production_cancellation import (
+        assert_cycle_not_under_cancellation,
+    )
+
+    assert_cycle_not_under_cancellation(owner_cycle)
 
 
 def _order_candidates(candidates, fallback_rule):

@@ -37,6 +37,8 @@ The controlled consumable/indirect-stock issue continuation is
 The production material-transfer, two-operation execution, Manufacture receipt, finished-output
 tagging, and reusable-container acceptance flow is
 [RW Noodle Two-Operation Batch Production Test](docs/TEST_RW_NOODLE_TWO_OPERATION_BATCH.md).
+The audit-preserving recovery procedure for an in-flight production Cycle is
+[Controlled Production Cancellation Acceptance Test](docs/TEST_CONTROLLED_PRODUCTION_CANCELLATION.md).
 The tagged operational-inventory continuation for Items that do not maintain ERPNext stock is
 [Package L2N Non-stock Operational Inventory Test](docs/TEST_PACKAGE_L2_NON_STOCK_OPERATIONAL_INVENTORY.md).
 Package A identity/configuration, Package B intercompany handover, Package C1 customer/vehicle
@@ -91,6 +93,9 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
 - Process executions linked to ERPNext Job Cards, immutable progress entries, and an auditable WIP
   quantity ledger.
 - Event, signal, ERP command, and exception records.
+- Manager-controlled in-flight production cancellation that freezes floor writes, exposes live
+  ERPNext/WIP/physical blockers, retains every production record, and releases the reusable Card
+  only after ERP reversal and physical reconciliation are both complete.
 - End-of-route reconciliation for each Company-specific Vehicle Warehouse, with exact tag/container
   scans, loose-stock counts, submitted ERP movement comparison, variance Exceptions, resolution
   audit, and a printable closing report. Reconciliation never changes ERPNext stock.

@@ -1117,6 +1117,11 @@ def _authorize_trace_access(doc, permission_type, operator_session_token=None,
     if not operator_session_token:
         frappe.only_for(ALLOWED_ROLES)
         doc.check_permission(permission_type)
+        if permission_type == "write" and doc.get("cfg_kanban_cycle"):
+            from cfg_kanban.services.production_cancellation import (
+                assert_cycle_not_under_cancellation,
+            )
+            assert_cycle_not_under_cancellation(doc.cfg_kanban_cycle)
         return None
 
     if not kanban_card:
@@ -1150,6 +1155,11 @@ def _authorize_trace_access(doc, permission_type, operator_session_token=None,
         frappe.throw("The active Kanban Cycle has no effective Work Order")
     if permission_type == "write" and cycle.status in ("Completed", "Cancelled"):
         frappe.throw(f"Production Material Trace is closed because Cycle {cycle.name} is {cycle.status}")
+    if permission_type == "write":
+        from cfg_kanban.services.production_cancellation import (
+            assert_cycle_not_under_cancellation,
+        )
+        assert_cycle_not_under_cancellation(doc.get("cfg_kanban_cycle") or cycle.name)
     if doc.work_order != cycle.work_order:
         frappe.throw(
             f"Stock Entry {doc.name} belongs to Work Order {doc.work_order or '(blank)'}, "

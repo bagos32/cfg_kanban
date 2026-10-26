@@ -1,0 +1,20 @@
+{
+ "doctype":"DocType",
+ "name":"CFG Kanban Production Cancellation Dependency",
+ "module":"CFG Kanban",
+ "istable":1,
+ "editable_grid":0,
+ "field_order":["sequence","category","reference_doctype","reference_name","current_state","quantity","blocking","resolved","required_action","details"],
+ "fields":[
+  {"fieldname":"sequence","label":"Sequence","fieldtype":"Int","read_only":1,"in_list_view":1},
+  {"fieldname":"category","label":"Dependency Category","fieldtype":"Data","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"reference_doctype","label":"Reference DocType","fieldtype":"Link","options":"DocType","read_only":1},
+  {"fieldname":"reference_name","label":"Reference Document","fieldtype":"Dynamic Link","options":"reference_doctype","read_only":1,"in_list_view":1},
+  {"fieldname":"current_state","label":"Current State","fieldtype":"Data","read_only":1,"in_list_view":1},
+  {"fieldname":"quantity","label":"Quantity","fieldtype":"Float","read_only":1},
+  {"fieldname":"blocking","label":"Blocks Finalization","fieldtype":"Check","read_only":1,"in_list_view":1},
+  {"fieldname":"resolved","label":"Resolved","fieldtype":"Check","read_only":1,"in_list_view":1},
+  {"fieldname":"required_action","label":"Required Action","fieldtype":"Small Text","read_only":1,"in_list_view":1},
+  {"fieldname":"details","label":"Evidence Details","fieldtype":"Small Text","read_only":1}
+ ]
+}
