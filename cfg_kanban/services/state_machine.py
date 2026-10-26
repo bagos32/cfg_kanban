@@ -44,7 +44,9 @@ def set_cycle_state(cycle, status, *, event_type, reference_doctype=None, refere
     cycle.db_set("status", status, update_modified=True)
     if status in ("Completed", "Cancelled"):
         from cfg_kanban.services.job_ownership import close_cycle_ownership
+        from cfg_kanban.services.runtime_roles import close_cycle_role_assignments
         close_cycle_ownership(cycle, f"Cycle status changed to {status}")
+        close_cycle_role_assignments(cycle, f"Cycle status changed to {status}")
     record(event_type, card=cycle.kanban_card, cycle=cycle.name, previous_state=previous,
            new_state=status, reference_doctype=reference_doctype, reference_name=reference_name)
     return cycle

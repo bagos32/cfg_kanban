@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.06
+**Guide version:** 2.07
 
 **Updated:** 26 October 2026
 
@@ -407,6 +407,20 @@ This release is the P07-0A configuration and snapshot foundation. Existing runti
 continues to honor the legacy Kanban Role and permission fields. Do not treat the new Card role rows
 as blocking enforcement until the later runtime-assignment and one-action supervisor-credential
 package is deployed.
+
+### Advisory runtime job-role coverage
+
+P07-0B1 matches each immutable Cycle requirement to actual runtime people. The Cycle owner is the
+Operator-in-Charge candidate; actively present workstation crew provide Direct Worker, Assistant,
+Supervisor / Mentor, and Verifier candidates. Job Code, exact scoped Authority Role, competency,
+crew role, work category, presence, and separate-approver rules remain independent checks.
+
+The Production Operator panel displays **Job Role Coverage** above the execution lanes. `Compliant`
+means every configured position currently has an eligible match; `Pending` identifies missing
+coverage. These indicators are advisory in P07-0B1 and do not block production. Each match creates a
+read-only **Cycle Role Assignment** audit interval in **CFG Job Architecture**. A crew break, leave,
+scope mismatch, ownership change, completion, or cancellation ends the active interval while
+preserving its evidence. Use `docs/TEST_WORKFORCE_P07_0B1_RUNTIME_ROLES.md` for acceptance.
 
 The operator interface is available at:
 
@@ -3943,6 +3957,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.07 | 26 October 2026 | Added P07-0B1 advisory runtime job-role coverage: Cycle owner and active crew matching against immutable role requirements, independent Job Code/scoped Authority Role/competency/presence/separation checks, read-only Cycle Role Assignment intervals, live operator visibility, and terminal-history closure without production blocking |
 | 2.06 | 26 October 2026 | Added P07-0A scoped multi-role authority foundation: configurable capability roles, multiple Company/Operation/Workstation/Responsibility/date-scoped Operator assignments, production Card job-role requirements, immutable Cycle snapshots, workspace access, and explicit legacy-role fallback without premature runtime blocking |
 | 2.05 | 26 October 2026 | Added optional per-Card Job Owner enforcement: stable Job Codes, Operator Profile eligibility, immutable Cycle policy snapshot, first-operation ownership acceptance, single Operator-in-Charge visibility, auditable Owner Assignments, and unchanged legacy flow for Cards that keep enforcement disabled |
 | 2.04 | 26 October 2026 | Added the permission-aware Shared Job Register using the approved reuse-first model: CFG Kanban Cycle as shared work instance, Process Execution as operation execution, and Job Participation as contribution intervals, with operation/participant summaries and an explicit no-attendance/no-payroll interpretation boundary |

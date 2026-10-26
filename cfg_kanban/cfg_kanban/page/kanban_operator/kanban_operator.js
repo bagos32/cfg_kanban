@@ -1331,6 +1331,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		render_production_stock_entries(production_stock_entries || [], effective_work_order,
 			production_material_flow);
 		render_process_tasks(process_tasks || []);
+		render_job_role_coverage(state.context?.job_role_compliance);
 		render_summaries(operation_summaries || []);
 		render_executions(executions || []);
 		render_live_current_action();
@@ -3300,6 +3301,30 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		dialog.show();
 		bind_confirmation_scanner(dialog, true,
 			candidate_options.map((row) => row.value), "selected_job_card");
+	}
+
+	function render_job_role_coverage(role_coverage) {
+		if (!role_coverage?.configured) return;
+		const e = frappe.utils.escape_html;
+		const colour = role_coverage.status === "Compliant" ? "green" :
+			role_coverage.status === "Attention" ? "red" : "orange";
+		const rows = (role_coverage.requirements || []).map((row) => {
+			const people = (row.assignments || [])
+				.map((assignment) => assignment.employee_name || assignment.employee)
+				.join(", ") || __("Awaiting eligible active assignment");
+			return `<div class="col-md-6 mb-2"><strong>${e(row.assignment_type)}</strong>
+				<span class="indicator-pill ${row.missing_count ? "orange" : "green"}">${e(row.assigned_count)} / ${e(row.required_count)}</span>
+				<br><small>${e(people)}</small></div>`;
+		}).join("");
+		$(`<div class="frappe-card p-3 mb-3" data-live-focus="job-role-coverage">
+			<div class="d-flex justify-content-between align-items-center mb-2">
+				<strong>${__("Job Role Coverage")}</strong>
+				<span class="indicator-pill ${colour}">${e(role_coverage.status)}</span>
+			</div>
+			<div class="text-muted mb-2">${e(role_coverage.summary || "")}</div>
+			<div class="row">${rows}</div>
+			<small class="text-muted">${__("Advisory visibility only in P07-0B1; missing coverage does not block production actions.")}</small>
+		</div>`).appendTo($root);
 	}
 
 	function render_executions(executions) {

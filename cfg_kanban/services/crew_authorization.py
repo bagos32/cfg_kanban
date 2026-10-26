@@ -134,6 +134,7 @@ def reconcile_workstation_crew_compliance(company, workstation, actor=None):
         limit_page_length=0,
     )
     results = []
+    affected_cycles = set()
     for row in rows:
         cycle_company = frappe.db.get_value("CFG Kanban Cycle", row.kanban_cycle, "company")
         if cycle_company and cycle_company != company:
@@ -149,6 +150,10 @@ def reconcile_workstation_crew_compliance(company, workstation, actor=None):
                 row.name, actor, "Crew Change", result.get("check")
             )
         results.append(result)
+        affected_cycles.add(row.kanban_cycle)
+    from cfg_kanban.services.runtime_roles import evaluate_cycle_roles
+    for cycle_name in affected_cycles:
+        evaluate_cycle_roles(cycle_name, persist=True)
     return results
 
 

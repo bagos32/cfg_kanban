@@ -416,11 +416,26 @@ continues through the legacy authority fallback until P07-0B is accepted.
 
 Use `docs/TEST_WORKFORCE_P07_0A_MULTI_ROLE_AUTHORITY.md` for migration and live acceptance.
 
+## P07-0B1 — Advisory runtime role matching and audit (implemented)
+
+Every live production Cycle now evaluates its immutable role-requirement snapshot against the
+current Cycle owner and actively present workstation crew. Assignment type, Job Code, exact scoped
+Authority Role, competency, presence, and separate-approver rules are evaluated independently. A
+match creates an auditable **CFG Kanban Cycle Role Assignment** interval; changes in ownership or
+crew presence end the old interval instead of rewriting history.
+
+The Production Operator panel shows **Job Role Coverage** with assigned and missing head count. This
+package is deliberately advisory: `Pending` coverage does not block Start, progress, material,
+completion, or ERPNext posting. P07-0B2 remains responsible for exact-action supervisor credential
+approval and controlled enforcement after P07-0B1 acceptance.
+
+Use `docs/TEST_WORKFORCE_P07_0B1_RUNTIME_ROLES.md` for live acceptance.
+
 ## Remaining approved package
 
 ### P07 — Supervisor Control, Reports & Audit
 
 Add workforce traceability, competency expiry, compliance history, trainee supervision, labour
-utilization, controlled corrections, and exception reporting. P07-0B must first add runtime role
-assignments and exact-action supervisor credential approval using the P07-0A snapshots; it must not
-reinterpret the Employee's designation or silently grant permanent Supervisor authority.
+utilization, controlled corrections, and exception reporting. P07-0B2 must add exact-action
+supervisor credential approval using the P07-0A snapshots and P07-0B1 assignment evidence; it must
+not reinterpret the Employee's designation or silently grant permanent Supervisor authority.

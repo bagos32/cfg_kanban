@@ -1074,7 +1074,9 @@ def release_legacy_runtime_card(cycle_name, reason):
                   "blocked": 0, "remarks": ((cycle.remarks or "") +
                   f"\nLegacy runtime reconciliation released: {reason}").strip()})
     from cfg_kanban.services.job_ownership import close_cycle_ownership
+    from cfg_kanban.services.runtime_roles import close_cycle_role_assignments
     close_cycle_ownership(cycle, "Legacy runtime Cycle cancelled by recovery")
+    close_cycle_role_assignments(cycle, "Legacy runtime Cycle cancelled by recovery")
     card.db_set({"current_state": "Available", "active_cycle": None,
                  "blocked": 0, "blocked_reason": None}, update_modified=True)
     record("Legacy Runtime Cycle Cancelled", card=card.name, cycle=cycle.name,

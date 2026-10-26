@@ -55,7 +55,9 @@ def cancel_and_rollback(signal_name, reason):
         "remarks": ((cycle.remarks or "") + f"\nSignal rollback: {reason}").strip(),
     })
     from cfg_kanban.services.job_ownership import close_cycle_ownership
+    from cfg_kanban.services.runtime_roles import close_cycle_role_assignments
     close_cycle_ownership(cycle, "Signal cancelled and rolled back")
+    close_cycle_role_assignments(cycle, "Signal cancelled and rolled back")
     signal.db_set({
         "status": "Cancelled", "cancelled_on": now_datetime(),
         "cancelled_by": frappe.session.user, "cancellation_reason": reason.strip(),

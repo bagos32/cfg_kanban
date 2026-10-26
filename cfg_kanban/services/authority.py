@@ -113,6 +113,24 @@ def has_authority(profile, capability, context=None, on_date=None, include_legac
     return capability in result["capabilities"]
 
 
+def has_authority_role(profile, authority_role, context=None, on_date=None):
+    """Match one explicit scoped role; the legacy dropdown cannot impersonate it."""
+    if not authority_role:
+        return True
+    profile = _profile_doc(profile)
+    context = frappe._dict(context or {})
+    effective_date = getdate(on_date or nowdate())
+    for assignment in profile.get("authority_assignments") or []:
+        if assignment.authority_role != authority_role:
+            continue
+        if not _assignment_applies(assignment, context, effective_date):
+            continue
+        role = frappe.get_cached_doc("CFG Kanban Authority Role", authority_role)
+        if role.active and _role_company_applies(role, context):
+            return True
+    return False
+
+
 def _profile_doc(profile):
     if getattr(profile, "doctype", None) == "CFG Kanban Operator Profile":
         return profile

@@ -112,6 +112,8 @@ def accept_cycle_ownership(cycle_name, operator_profile, operator_session, crew_
         terminal_user=operator_session.terminal_user,
     )
     cycle.reload()
+    from cfg_kanban.services.runtime_roles import evaluate_cycle_roles
+    evaluate_cycle_roles(cycle.name, persist=True)
     return ownership_context(cycle, operator_profile)
 
 
