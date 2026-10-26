@@ -33,6 +33,7 @@ class TestJobArchitectureWorkspace(unittest.TestCase):
         }
         expected = {
             "CFG Kanban Operator Profile",
+            "CFG Kanban Job Code",
             "CFG Kanban Skill",
             "CFG Kanban Employee Competency",
             "CFG Kanban Crew Requirement Profile",
@@ -43,6 +44,7 @@ class TestJobArchitectureWorkspace(unittest.TestCase):
             "CFG Kanban Crew Event",
             "CFG Kanban Crew Compliance Check",
             "CFG Kanban Job Participation",
+            "CFG Kanban Job Owner Assignment",
             "CFG Kanban Cycle",
             "CFG Kanban Process Execution",
             "CFG Kanban Operation Progress",

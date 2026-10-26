@@ -10,14 +10,19 @@ frappe.ui.form.on("CFG Kanban Card", {
 		frm.set_query("crew_requirement_profile", () => ({
 			filters: { active: 1, docstatus: 1 },
 		}));
+		frm.set_query("owner_job_code", () => ({ filters: { active: 1 } }));
 	},
 	kanban_master(frm) {
 		frm.set_value("operation", null);
-		if (!frm.doc.kanban_master) return;
+		if (!frm.doc.kanban_master) {
+			refresh_owner_policy_visibility(frm);
+			return;
+		}
 		frappe.db.get_value("CFG Kanban Master", frm.doc.kanban_master,
 			["item_code", "stock_uom", "replenishment_qty", "source_warehouse", "destination_warehouse", "control_type"])
 			.then(async ({ message }) => {
 				const stock_control = ["Purchase Replenishment", "Transfer", "Withdrawal"].includes(message.control_type);
+				refresh_owner_policy_visibility(frm, message.control_type);
 				if (stock_control && !["Physical Unit Card", "Physical Batch Card"].includes(frm.doc.card_type)) {
 					await frm.set_value("card_type", "Physical Batch Card");
 					frappe.show_alert({
@@ -73,12 +78,17 @@ frappe.ui.form.on("CFG Kanban Card", {
 				indicator: "orange",
 			});
 		}
+		if (!production && frm.doc.enforce_job_owner) {
+			frm.set_value({ enforce_job_owner: 0, owner_job_code: null });
+		}
 		if (frm.doc.card_type !== "Workstation Queue Card" && frm.doc.queue_company) {
 			frm.set_value("queue_company", null);
 		}
+		refresh_owner_policy_visibility(frm);
 	},
 	refresh(frm) {
 		frm.trigger("card_type");
+		refresh_owner_policy_visibility(frm);
 		if (frm.is_new()) return;
 		frm.add_custom_button(__("Open Operator Console"), () => {
 			frappe.set_route("kanban-operator");
@@ -132,6 +142,18 @@ frappe.ui.form.on("CFG Kanban Card", {
 		}
 	},
 });
+
+async function refresh_owner_policy_visibility(frm, known_control_type = null) {
+	const production_card = ["Physical Unit Card", "Physical Batch Card", "Process Kanban", "Station Kanban"]
+		.includes(frm.doc.card_type);
+	let control_type = known_control_type;
+	if (!control_type && frm.doc.kanban_master) {
+		const response = await frappe.db.get_value("CFG Kanban Master", frm.doc.kanban_master, "control_type");
+		control_type = response?.message?.control_type;
+	}
+	const supported = Boolean(production_card && control_type === "Production");
+	frm.toggle_display(["job_owner_policy_section", "enforce_job_owner", "owner_job_code"], supported);
+}
 
 async function cfg_card_print(frm, format) {
 	let reason = null;

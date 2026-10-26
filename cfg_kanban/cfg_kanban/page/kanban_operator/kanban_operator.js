@@ -356,6 +356,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			ACTIVATE: () => consume_card(true),
 			CONSUME: () => consume_card(true),
 			TRIGGER: () => consume_card(true),
+			ACCEPT_OWNER: accept_context_job_ownership,
 			START: () => run_context_execution_action("start"),
 			REPORT_PROGRESS: () => run_context_execution_action("report_progress"),
 			GO_TO_CURRENT_WORK: go_to_current_work,
@@ -410,6 +411,32 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}
 		if (action === "start") return job_action(eligible[0], "start");
 		return progress_dialog(eligible[0]);
+	}
+
+	async function accept_context_job_ownership() {
+		const ownership = state.context?.job_ownership;
+		if (!ownership?.enabled) {
+			return scanner_command_message(__("The scanned Card does not require a Cycle owner."));
+		}
+		if (ownership.owner) {
+			return scanner_command_message(__("This Cycle already has an operator-in-charge."));
+		}
+		if (!ownership.eligible_to_accept) {
+			return scanner_command_message(__("This operator does not carry the required Job Code."));
+		}
+		const execution = (state.context.executions || []).find((row) =>
+			["In Progress", "Ready", "Paused", "Waiting Input"].includes(row.status));
+		if (!execution) {
+			return scanner_command_message(__("No execution lane is available for ownership acceptance."));
+		}
+		await frappe.call({
+			method: "cfg_kanban.api.operator.accept_job_ownership",
+			args: { execution_name: execution.name, operator_session_token: state.session_token },
+			freeze: true,
+			freeze_message: __("Accepting Cycle ownership..."),
+		});
+		frappe.show_alert({ message: __("Cycle ownership accepted"), indicator: "green" });
+		await load_card(state.context.card.qr_code);
 	}
 
 	function go_to_current_work() {
@@ -911,7 +938,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<tr><td>F4</td><td><code>CFG:CMD:CAMERA_CARD</code></td><td>${__("Open camera scanner")}</td></tr>
 			<tr><td>F8</td><td><code>CFG:CMD:END_SESSION</code></td><td>${__("End operator session after confirmation")}</td></tr>
 			</tbody></table>
-			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
+			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:ACCEPT_OWNER</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
 			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
 			<p><strong>${__("Progress dialog commands")}</strong>: <code>CFG:QTY:GOOD:+1</code>, <code>CFG:QTY:REJECT:+1</code>, <code>CFG:CMD:CONFIRM</code>, <code>CFG:CMD:CANCEL</code>.</p>
 			<p><strong>${__("Message control")}</strong>: scan the next card to close an error and continue, or scan <code>CFG:CMD:DISMISS</code> to close it.</p>
@@ -3279,6 +3306,32 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (!executions.length) return;
 		const e = frappe.utils.escape_html;
 		const $section = $("<div><h4>" + __("Job Card Execution Lanes") + "</h4></div>").appendTo($root);
+		const ownership = state.context?.job_ownership;
+		if (ownership?.enabled) {
+			const colour = ownership.owner ? "green" : ownership.eligible_to_accept ? "orange" : "red";
+			const owner_text = ownership.owner
+				? `${ownership.owner_name || ownership.owner} · ${ownership.required_job_code}`
+				: ownership.eligible_to_accept
+					? `${__("You are eligible to accept ownership")} · ${ownership.required_job_code}`
+					: `${__("Eligible operator required")} · ${ownership.required_job_code}`;
+			const $ownership_banner = $(`<div class="alert alert-${colour === "green" ? "success" : colour === "orange" ? "warning" : "danger"} py-2 mb-3">
+				<strong>${__("Cycle Operator-in-Charge")}</strong><br>${e(owner_text)}
+				${ownership.owner ? `<br><small>${__("Other authorized operators may still participate as assistants, trainers, or supervisors without replacing the owner.")}</small>` : ""}
+			</div>`).appendTo($section);
+			if (!ownership.owner && ownership.eligible_to_accept && state.operator.permissions.start) {
+				add_action($ownership_banner, __("Accept Ownership"), "btn-primary mt-2", async () => {
+					await frappe.call({
+						method: "cfg_kanban.api.operator.accept_job_ownership",
+						args: { execution_name: executions[0].name,
+							operator_session_token: state.session_token },
+						freeze: true,
+						freeze_message: __("Accepting Cycle ownership..."),
+					});
+					frappe.show_alert({ message: __("Cycle ownership accepted"), indicator: "green" });
+					await load_card(state.context.card.qr_code);
+				});
+			}
+		}
 		executions.forEach((row) => {
 			const crew = row.crew || {};
 			const crew_colour = crew.compliance_status === "Compliant" ? "green" :
@@ -3303,7 +3356,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				<button class="btn btn-sm btn-default cfg-open-crew">${__("Crew Controls")}</button></div>
 			</div>`).appendTo($row).find(".cfg-open-crew").on("click", () => open_crew_control(row));
 			const $buttons = $row.find(".cfg-execution-actions");
-			if (row.status === "Ready" && state.operator.permissions.start) add_action($buttons, __("Start"), "btn-primary", () => job_action(row, "start"));
+			if (row.status === "Ready" && state.operator.permissions.start) {
+				if (ownership?.enabled && !ownership.owner && !ownership.eligible_to_accept) {
+					$(`<button class="btn btn-sm btn-warning ml-1" disabled>${__("Job Code Required")}</button>`).appendTo($buttons);
+				} else {
+					const start_label = ownership?.enabled && !ownership.owner
+						? __("Accept Ownership and Start") : __("Start");
+					add_action($buttons, start_label, "btn-primary", () => job_action(row, "start"));
+				}
+			}
 			if (["Ready", "In Progress", "Paused"].includes(row.status) && state.operator.permissions.report_progress) add_action($buttons, __("Report Progress"), "btn-default", () => progress_dialog(row));
 			if (row.status === "In Progress" && !row.runtime_allocation && state.operator.permissions.complete) add_action($buttons, __("Complete"), "btn-default", () => job_action(row, "complete"));
 			if (row.runtime_allocation && row.job_card_needs_submit && state.operator.permissions.complete) {

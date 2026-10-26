@@ -199,7 +199,8 @@ def _development_proxy_profile(employee):
     values = {"name": "Administrator Development Proxy", "employee": employee,
               "active": 1, "kanban_role": "Development Proxy",
               "allowed_operations": [], "allowed_workstations": [],
-              "responsibilities": [], "view_all_responsibilities": 1}
+              "responsibilities": [], "job_codes": [],
+              "view_all_responsibilities": 1}
     for flag in set(ACTION_FLAGS.values()):
         values[flag] = 1
     return frappe._dict(values)

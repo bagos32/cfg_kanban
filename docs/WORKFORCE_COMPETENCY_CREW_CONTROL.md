@@ -41,6 +41,25 @@ evidence only: they are not attendance, payable time, payroll eligibility, or ea
 uses permission-aware Cycle selection before calculating aggregates, so it does not create a
 broader cross-company visibility path.
 
+### Optional Cycle operator-in-charge
+
+Job ownership is an explicit **Card-level opt-in** and is separate from crew participation:
+
+- Create stable business identifiers in **CFG Kanban Job Code**.
+- Add the Job Codes an Employee may own under **CFG Kanban Operator Profile → Job Codes**.
+- On a production **CFG Kanban Card**, enable **Enforce Job Owner** and select the required Job Code.
+- Disabled Cards continue through the established execution flow and do not require or create a Job
+  Owner Assignment. Existing Cards migrate with enforcement disabled.
+- Each new Cycle snapshots the Card policy. The first eligible direct operator who starts work accepts
+  ownership and becomes the single **Operator-in-Charge** for that Cycle.
+- Assistants, trainers, supporting operators, and supervisors remain Job Participation/Crew records;
+  they do not become co-owners and may still perform authorized later work without replacing the owner.
+- **CFG Kanban Job Owner Assignment** preserves the ownership audit record. ERPNext Work Order and Job
+  Card remain the manufacturing and quantity authority.
+
+Do not use Kanban Role, Service Responsibility, allowed Operation/Workstation, or Competency as a
+substitute for Job Code. They answer different authorization questions.
+
 Delivery remains sequential:
 
 | Release | Packages | Boundary |

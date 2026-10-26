@@ -38,6 +38,7 @@ class CFGKanbanCard(Document):
             frappe.throw("Kanban Master is required for a production card")
         self._copy_master_context()
         self._validate_crew_requirement()
+        self._validate_job_owner_policy(production_types)
         self._validate_doctype_action_card()
         if self.kanban_master:
             master = frappe.get_cached_doc("CFG Kanban Master", self.kanban_master)
@@ -76,6 +77,44 @@ class CFGKanbanCard(Document):
             frappe.throw("Task Schedule is required for a Task Card")
         if self.card_type != "Task Card":
             self.task_schedule = None
+
+    def _validate_job_owner_policy(self, production_types):
+        before = None if self.is_new() else self.get_doc_before_save()
+        if self.card_type not in production_types:
+            self.enforce_job_owner = 0
+            self.owner_job_code = None
+            return
+        if before and before.active_cycle and (
+                before.enforce_job_owner != self.enforce_job_owner
+                or before.owner_job_code != self.owner_job_code):
+            frappe.throw(
+                "Job Owner policy cannot change while this Card has an active Cycle. "
+                "Complete or cancel the Cycle first."
+            )
+        if not self.enforce_job_owner:
+            self.owner_job_code = None
+            return
+        control_type = frappe.db.get_value(
+            "CFG Kanban Master", self.kanban_master, "control_type"
+        ) if self.kanban_master else None
+        if control_type != "Production":
+            frappe.throw(
+                "Job Owner enforcement currently applies to Production Cards. "
+                "Leave it disabled for Purchase, Transfer, Withdrawal, and permanent identity Cards."
+            )
+        if not self.owner_job_code:
+            frappe.throw("Required Owner Job Code is mandatory when Job Owner is enforced")
+        job_code = frappe.db.get_value(
+            "CFG Kanban Job Code", self.owner_job_code,
+            ["active", "company"], as_dict=True,
+        )
+        if not job_code or not job_code.active:
+            frappe.throw(f"Job Code {self.owner_job_code} is not active")
+        if job_code.company and self.company and job_code.company != self.company:
+            frappe.throw(
+                f"Job Code {self.owner_job_code} belongs to {job_code.company}, "
+                f"not Card company {self.company}"
+            )
 
     def _validate_crew_requirement(self):
         if self.card_type not in ("Process Kanban", "Station Kanban"):

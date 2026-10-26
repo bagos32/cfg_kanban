@@ -355,6 +355,29 @@ recorded participation hours without creating duplicate job or participation rec
 participation time is operational evidence only and must not be treated as attendance, payable time,
 payroll eligibility, or earnings.
 
+### Optional Job Owner enforcement per Card
+
+Use Job Owner enforcement only when one operator must be visibly accountable for the executed Card
+Cycle. It is optional and is disabled by default, including for all existing Cards. This first
+package applies to Production Cards; Purchase, Transfer, Withdrawal, service, location, and other
+permanent identity Cards stay outside this ownership workflow.
+
+1. In **CFG Job Architecture → Job Codes**, create an active Job Code such as `COOK-OWNER`.
+2. Open each eligible Employee's **CFG Kanban Operator Profile** and add that code under **Job Codes**.
+3. While configuring the production **CFG Kanban Card**, select **Enforce Job Owner** and set
+   **Required Owner Job Code**. Leave the checkbox clear for Cards outside this job architecture.
+4. Trigger and approve the Card normally. Approval does not assign the owner.
+5. When the first eligible operator selects **Accept Ownership and Start**, the new Cycle records that
+   Employee as its single **Operator-in-Charge** and creates an immutable Owner Assignment record.
+6. Other authorized crew members can still contribute as assistants, trainers, supporting operators,
+   or supervisors. Their work is recorded in Job Participation; it does not replace the Cycle owner.
+
+The Production Operator panel shows **Job Code Required** instead of Start when the current operator
+cannot accept an unowned enforced Cycle. Cards without enforcement continue to show the normal Start
+action. The Shared Job Register exposes the enforcement snapshot, required Job Code, owner, and owner
+assignment time for manager review. Fixed-scanner terminals may scan `CFG:CMD:ACCEPT_OWNER`; the
+normal `CFG:CMD:START` command also accepts ownership when the Job Card still requires Start.
+
 The operator interface is available at:
 
 ```text
@@ -3890,6 +3913,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.05 | 26 October 2026 | Added optional per-Card Job Owner enforcement: stable Job Codes, Operator Profile eligibility, immutable Cycle policy snapshot, first-operation ownership acceptance, single Operator-in-Charge visibility, auditable Owner Assignments, and unchanged legacy flow for Cards that keep enforcement disabled |
 | 2.04 | 26 October 2026 | Added the permission-aware Shared Job Register using the approved reuse-first model: CFG Kanban Cycle as shared work instance, Process Execution as operation execution, and Job Participation as contribution intervals, with operation/participant summaries and an explicit no-attendance/no-payroll interpretation boundary |
 | 2.03 | 26 October 2026 | Added the separate CFG Job Architecture workspace inside the CFG Kanban app, grouping the existing identity, competency, crew-policy, live workforce, authorization, participation, Cycle, Process Execution, operation result, Event, and Exception records while clearly excluding unimplemented EODR, payroll, general-capacity, and cross-app schema |
 | 2.02 | 24 October 2026 | Added lightweight 15-second live revision checks for Service and Logistics panels with in-place status refresh, persistent operator alerts, filter/scroll preservation and selected Manifest/ERP feedback monitoring; hardened the checks against dialogs or scanner/actions starting while a request is in flight by revalidating popup, input, frozen-action and operator-session state before every render; added deliberate Manifest-list selection scrolling with visible loaded-card feedback; also documented selective/full scanner-command printing with safe custom or translated display labels |

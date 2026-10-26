@@ -132,6 +132,7 @@ def _scanner_command_catalog(quantity_steps=None):
         ]),
         ("Card and Operation", [
             ("Activate / Consume Card", "CFG:CMD:ACTIVATE", ""),
+            ("Accept Cycle Ownership", "CFG:CMD:ACCEPT_OWNER", ""),
             ("Start Operation", "CFG:CMD:START", ""),
             ("Report Progress", "CFG:CMD:REPORT_PROGRESS", ""),
             ("Go to Current Work", "CFG:CMD:GO_TO_CURRENT_WORK", ""),
@@ -377,6 +378,7 @@ def get_card_context(token, operator_session_token=None):
             "route_warnings": [], "operation_summaries": [],
             "production_stock_entries": [], "production_material_flow": None,
             "process_tasks": [], "service_tasks": [],
+            "job_ownership": None,
             "service_identity_card": False, "workstation_queue_card": True,
             "workstation_queue": _workstation_queue_context(card, profile),
         }
@@ -401,6 +403,7 @@ def get_card_context(token, operator_session_token=None):
             "route_warnings": [], "operation_summaries": [],
             "production_stock_entries": [], "production_material_flow": None,
             "process_tasks": [],
+            "job_ownership": None,
             "service_tasks": service_tasks, "service_identity_card": True,
         }
     master = frappe.get_doc("CFG Kanban Master", card.kanban_master)
@@ -416,7 +419,10 @@ def get_card_context(token, operator_session_token=None):
     effective_work_order = None
     work_order_attention = None
     process_tasks = []
+    job_ownership = None
     if cycle:
+        from cfg_kanban.services.job_ownership import ownership_context
+        job_ownership = ownership_context(cycle, profile)
         from cfg_kanban.integrations.erp_feedback import reconcile_cycle_job_card_progress
         reconcile_cycle_job_card_progress(cycle.name)
         ensure_tasks(cycle.name)
@@ -548,6 +554,7 @@ def get_card_context(token, operator_session_token=None):
         "production_material_owner_cycle": production_material_owner_cycle,
         "operation_material_job": operation_material_job,
         "process_tasks": process_tasks,
+        "job_ownership": job_ownership,
         "service_tasks": [],
         "service_identity_card": False,
         "workstation_queue_card": False,
@@ -1183,8 +1190,12 @@ def submit_progress(execution_name, good_qty, reject_qty=0, processed_qty=None,
                     values=None, notes=None, event_token=None, operator_session_token=None):
     execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
     profile, session = require_operator(operator_session_token, "report_progress", execution=execution)
-    enforce_execution_crew(
+    crew_result = enforce_execution_crew(
         execution.name, "Progress", actor=_crew_actor(profile, session)
+    )
+    from cfg_kanban.services.job_ownership import accept_cycle_ownership
+    accept_cycle_ownership(
+        execution.kanban_cycle, profile, session, crew_result=crew_result
     )
     if flt(reject_qty) > 0:
         require_operator(operator_session_token, "report_reject", execution=execution)
@@ -1261,7 +1272,7 @@ def run_job_card_action(execution_name, action, event_token=None, operator_sessi
     profile, session = require_operator(operator_session_token, action, execution=execution)
     if not execution.job_card:
         frappe.throw("This execution is not linked to an ERPNext Job Card")
-    enforce_execution_crew(
+    crew_result = enforce_execution_crew(
         execution.name,
         "Before Operation Start" if action == "start" else "Before Completion",
         actor=_crew_actor(profile, session),
@@ -1279,6 +1290,13 @@ def run_job_card_action(execution_name, action, event_token=None, operator_sessi
     command_type = {"start": "Start Job Card", "complete": "Complete Job Card"}.get(action)
     if not command_type:
         frappe.throw("Unsupported Job Card action")
+    from cfg_kanban.services.job_ownership import accept_cycle_ownership
+    accept_cycle_ownership(
+        execution.kanban_cycle,
+        profile,
+        session,
+        crew_result=crew_result,
+    )
     key = canonical_key("job-card-action", execution.job_card, command_type,
                         event_token or execution.modified)
     command, created = insert_once(frappe.get_doc({
@@ -1313,6 +1331,26 @@ def run_job_card_action(execution_name, action, event_token=None, operator_sessi
            operator=profile.employee, operator_session=session.name,
            terminal_user=session.terminal_user)
     return {"command": command.name, "job_card": result.name, "duplicate": not created}
+
+
+@frappe.whitelist()
+def accept_job_ownership(execution_name, operator_session_token=None):
+    execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
+    profile, session = require_operator(
+        operator_session_token, "start", execution=execution
+    )
+    crew_result = enforce_execution_crew(
+        execution.name,
+        "Owner Acceptance",
+        actor=_crew_actor(profile, session),
+    )
+    from cfg_kanban.services.job_ownership import accept_cycle_ownership
+    return accept_cycle_ownership(
+        execution.kanban_cycle,
+        profile,
+        session,
+        crew_result=crew_result,
+    )
 
 
 def _crew_actor(profile, session):

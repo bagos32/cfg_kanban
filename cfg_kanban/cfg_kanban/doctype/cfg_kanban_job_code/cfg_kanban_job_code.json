@@ -1,0 +1,34 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:job_code",
+ "creation": "2026-10-26 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["job_code", "job_title", "company", "active", "description"],
+ "fields": [
+  {"fieldname":"job_code","fieldtype":"Data","in_list_view":1,"in_standard_filter":1,"label":"Job Code","reqd":1,"unique":1},
+  {"fieldname":"job_title","fieldtype":"Data","in_list_view":1,"in_standard_filter":1,"label":"Job Title","reqd":1},
+  {"fieldname":"company","fieldtype":"Link","in_list_view":1,"in_standard_filter":1,"label":"Company","options":"Company"},
+  {"default":"1","fieldname":"active","fieldtype":"Check","in_list_view":1,"in_standard_filter":1,"label":"Active"},
+  {"fieldname":"description","fieldtype":"Small Text","label":"Responsibility Description"}
+ ],
+ "links": [],
+ "modified": "2026-10-26 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "CFG Kanban",
+ "name": "CFG Kanban Job Code",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {"create":1,"delete":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Manufacturing Manager","share":1,"write":1},
+  {"create":1,"delete":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"System Manager","share":1,"write":1},
+  {"create":1,"delete":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"CFG Kanban System Maintenance","share":1,"write":1}
+ ],
+ "search_fields": "job_code,job_title",
+ "sort_field": "job_code",
+ "sort_order": "ASC",
+ "states": [],
+ "title_field": "job_title",
+ "track_changes": 1
+}
