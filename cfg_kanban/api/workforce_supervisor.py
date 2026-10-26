@@ -63,6 +63,9 @@ def get_workforce_action_centre(company=None, workstation=None, expiry_days=30, 
             "today_recorded_hours": participation["today_recorded_hours"],
             "recent_supervisor_passes": len(approvals),
             "open_corrections": len(corrections),
+            "prepared_adjustments": sum(
+                bool(row.get("adjustment_proposal")) for row in corrections
+            ),
         },
         "role_attention": role_attention,
         "compliance_holds": holds,
@@ -392,7 +395,7 @@ def _correction_requests(company, workstation, limit):
         filters["company"] = company
     if workstation:
         filters["workstation"] = workstation
-    return frappe.get_list(
+    rows = frappe.get_list(
         "CFG Kanban Correction Request",
         filters=filters,
         fields=[
@@ -407,6 +410,35 @@ def _correction_requests(company, workstation, limit):
         order_by="requested_on asc",
         limit_page_length=limit,
     )
+    names = [row.name for row in rows]
+    proposals = {}
+    if names and frappe.has_permission("CFG Kanban Adjustment Proposal", "read"):
+        for proposal in frappe.get_list(
+            "CFG Kanban Adjustment Proposal",
+            filters={
+                "correction_request": ["in", names],
+                "status": "Prepared",
+            },
+            fields=[
+                "name", "correction_request", "status", "revision",
+                "good_qty_delta", "reject_qty_delta", "proposed_processed_qty",
+                "stock_uom", "prepared_on",
+            ],
+            order_by="revision desc",
+            limit_page_length=limit,
+        ):
+            proposals.setdefault(proposal.correction_request, proposal)
+    for row in rows:
+        proposal = proposals.get(row.name)
+        row["adjustment_proposal"] = proposal.name if proposal else None
+        row["adjustment_revision"] = proposal.revision if proposal else None
+        row["adjustment_good_delta"] = proposal.good_qty_delta if proposal else None
+        row["adjustment_reject_delta"] = proposal.reject_qty_delta if proposal else None
+        row["adjustment_proposed_processed"] = (
+            proposal.proposed_processed_qty if proposal else None
+        )
+        row["adjustment_stock_uom"] = proposal.stock_uom if proposal else None
+    return rows
 
 
 def _json_value(value, default):

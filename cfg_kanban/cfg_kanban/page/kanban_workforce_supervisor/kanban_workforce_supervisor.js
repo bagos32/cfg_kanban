@@ -70,6 +70,7 @@ frappe.pages["kanban-workforce-supervisor"].on_page_load = function (wrapper) {
 			${kpi(__("People / Break"), `${counts.active_people || 0} / ${counts.on_break || 0}`, "blue")}
 			${kpi(__("Competency Attention"), counts.competency_attention, counts.expired_competencies ? "red" : "orange")}
 			${kpi(__("Correction Requests"), counts.open_corrections, counts.open_corrections ? "red" : "green")}
+			${kpi(__("Prepared Adjustments"), counts.prepared_adjustments, counts.prepared_adjustments ? "orange" : "green")}
 			${kpi(__("Recorded Hours Today"), number(counts.today_recorded_hours), "green")}
 		</div>
 		<div class="alert alert-info cfg-workforce-boundary">
@@ -92,15 +93,103 @@ frappe.pages["kanban-workforce-supervisor"].on_page_load = function (wrapper) {
 		rows.slice(0, 100).forEach((row) => {
 			const colour = row.status === "ERP Correction Required" ? "red" :
 				row.status === "Approved" ? "green" : row.status === "Under Review" ? "blue" : "orange";
+			const proposal = row.adjustment_proposal
+				? `<small>${__("Prepared proposal")}: ${e(row.adjustment_proposal)} · ${__("Revision")} ${e(row.adjustment_revision)}</small>` : "";
+			const prepare = row.status === "Approved" && row.correction_category === "Operation Progress" &&
+				row.affected_doctype === "CFG Kanban Process Execution" && !row.adjustment_proposal;
 			const $item = $(`<div class="cfg-workforce-row"><div><strong>${e(row.name)} · ${e(row.correction_category)}</strong>
 				<small>${e(row.requested_by_name || row.requested_by_employee)} · ${relative_time(row.requested_on)}</small></div>
-				<div><span>${e(row.reason)}</span><small>${e(row.affected_doctype)} · ${e(row.affected_document)}</small></div>
+				<div><span>${e(row.reason)}</span><small>${e(row.affected_doctype)} · ${e(row.affected_document)}</small>${proposal}</div>
 				<div><span class="indicator-pill ${colour}">${e(row.status)}</span>
+				${prepare ? `<button class="btn btn-xs btn-warning ml-2 cfg-prepare-adjustment">${__("Prepare Adjustment")}</button>` : ""}
+				${row.adjustment_proposal ? `<button class="btn btn-xs btn-default ml-2 cfg-view-adjustment">${__("View Proposal")}</button><button class="btn btn-xs btn-danger ml-1 cfg-cancel-adjustment">${__("Cancel Proposal")}</button>` : ""}
 				<button class="btn btn-xs btn-primary ml-2 cfg-review">${__("Review")}</button>
 				<button class="btn btn-xs btn-default ml-1 cfg-audit">${__("Audit")}</button></div></div>`).appendTo($list);
 			$item.find(".cfg-review").on("click", () => review_correction(row));
 			$item.find(".cfg-audit").on("click", () => frappe.set_route("Form", "CFG Kanban Correction Request", row.name));
+			$item.find(".cfg-prepare-adjustment").on("click", () => prepare_adjustment(row));
+			$item.find(".cfg-view-adjustment").on("click", () => frappe.set_route("Form", "CFG Kanban Adjustment Proposal", row.adjustment_proposal));
+			$item.find(".cfg-cancel-adjustment").on("click", () => cancel_adjustment(row));
 		});
+	}
+
+	function adjustment_preview_html(preview) {
+		const indicator = preview.eligible ? "green" : "red";
+		const issues = preview.eligible ? __("Eligible for proposal preparation. No quantity will be changed.") :
+			(preview.blocks || []).map((value) => e(value)).join("<br>");
+		const warnings = (preview.warnings || []).length
+			? `<div class="mt-2 text-warning">${preview.warnings.map((value) => e(value)).join("<br>")}</div>` : "";
+		return `<div class="alert alert-${preview.eligible ? "success" : "danger"}">
+			<span class="indicator-pill ${indicator}">${preview.eligible ? __("Eligible") : __("Blocked")}</span><br>
+			<strong>${__("Good")}</strong>: ${number(preview.current_good_qty)} ${signed_number(preview.good_qty_delta)} → ${number(preview.proposed_good_qty)}<br>
+			<strong>${__("Reject")}</strong>: ${number(preview.current_reject_qty)} ${signed_number(preview.reject_qty_delta)} → ${number(preview.proposed_reject_qty)}<br>
+			<strong>${__("Processed")}</strong>: ${number(preview.current_processed_qty)} ${signed_number(preview.processed_qty_delta)} → ${number(preview.proposed_processed_qty)} / ${number(preview.target_qty)} ${e(preview.stock_uom || "")}<hr>
+			${issues}${warnings}</div>`;
+	}
+
+	function signed_number(value) {
+		const amount = Number(value || 0);
+		return amount >= 0 ? `+ ${number(amount)}` : `− ${number(Math.abs(amount))}`;
+	}
+
+	function prepare_adjustment(row) {
+		let dialog;
+		dialog = new frappe.ui.Dialog({
+			title: __("Prepare Kanban Adjustment — {0}", [row.name]),
+			fields: [
+				{ fieldname: "boundary", fieldtype: "HTML", options:
+					`<div class="alert alert-info"><strong>${__("Preview only")}</strong><br>${__("This package prepares an immutable proposal. It does not change progress, handoff, Cycle, Job Card, Work Order, stock, or history.")}</div>` },
+				{ fieldname: "good_qty_delta", label: __("Good Quantity Delta"), fieldtype: "Float", default: 0,
+					description: __("Use a positive or negative change. Linked ERPNext Job Card good quantity is blocked from Kanban-only correction.") },
+				{ fieldname: "reject_qty_delta", label: __("Reject Quantity Delta"), fieldtype: "Float", default: 0,
+					description: __("Use both deltas to reclassify quantity, for example Good -5 and Reject +5.") },
+				{ fieldname: "preparation_notes", label: __("Preparation Notes"), fieldtype: "Small Text", reqd: 1,
+					description: __("Explain the verified arithmetic and evidence used for this proposal.") },
+				{ fieldname: "preview", fieldtype: "HTML" },
+			],
+			primary_action_label: __("Preview Adjustment"),
+			primary_action: async (values) => {
+				const response = await frappe.call({
+					method: "cfg_kanban.services.adjustment_proposals.preview_operation_quantity_adjustment",
+					args: { request_name: row.name, good_qty_delta: values.good_qty_delta,
+						reject_qty_delta: values.reject_qty_delta },
+					freeze: true, freeze_message: __("Checking current adjustment readiness..."),
+				});
+				const preview = response.message;
+				dialog.get_field("preview").$wrapper.html(adjustment_preview_html(preview));
+				if (!preview.eligible) return;
+				frappe.confirm(
+					__("Prepare this immutable proposal? It will remain unapplied until the future controlled-application package."),
+					async () => {
+						await frappe.call({
+							method: "cfg_kanban.services.adjustment_proposals.prepare_operation_quantity_adjustment",
+							args: { request_name: row.name, good_qty_delta: values.good_qty_delta,
+								reject_qty_delta: values.reject_qty_delta, preparation_notes: values.preparation_notes,
+								event_token: frappe.utils.get_random(20) },
+							freeze: true, freeze_message: __("Preparing audited adjustment proposal..."),
+						});
+						dialog.hide();
+						frappe.show_alert({ message: __("Adjustment proposal prepared; no production quantity changed"), indicator: "green" });
+						await load(false);
+					}
+				);
+			},
+		});
+		dialog.show();
+	}
+
+	function cancel_adjustment(row) {
+		frappe.prompt([
+			{ fieldname: "cancellation_reason", label: __("Cancellation Reason"), fieldtype: "Small Text", reqd: 1 },
+		], async (values) => {
+			await frappe.call({
+				method: "cfg_kanban.services.adjustment_proposals.cancel_adjustment_proposal",
+				args: { proposal_name: row.adjustment_proposal, cancellation_reason: values.cancellation_reason },
+				freeze: true, freeze_message: __("Cancelling proposal..."),
+			});
+			frappe.show_alert({ message: __("Proposal cancelled; production records were unchanged"), indicator: "orange" });
+			await load(false);
+		}, __("Cancel Adjustment Proposal"), __("Cancel Proposal"));
 	}
 
 	function correction_decisions(status) {

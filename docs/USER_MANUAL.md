@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.12
+**Guide version:** 2.13
 
 **Updated:** 26 October 2026
 
@@ -502,6 +502,31 @@ Work Order, or Job Card correction created through its proper ERPNext workflow. 
 progress, ownership, participation, Work Order, Job Card, and Stock Entry history remains unchanged.
 
 Use `docs/TEST_WORKFORCE_P07_0D2A_CORRECTION_REQUESTS.md` for acceptance.
+
+### Controlled Kanban adjustment proposal
+
+P07-0D2B1 adds a preview and audit stage after an Operation Progress request is approved. In the
+Workforce Supervisor Centre, select **Prepare Adjustment**, enter signed **Good Quantity Delta** and
+**Reject Quantity Delta**, state the verified preparation notes, and select **Preview Adjustment**.
+The preview shows current, delta, and proposed Good/Reject/Processed quantities before any record is
+created. Good `-5` and Reject `+5`, for example, represents reclassification without changing total
+processed quantity.
+
+Preparation is permitted only for an unfinished Kanban Process Execution. Proposed quantities may
+not be negative, Processed may not exceed target, and Good may not fall below quantity already
+released downstream. When an ERPNext Job Card is linked, Good quantity belongs to ERPNext and a
+non-zero Good delta is blocked; use the authoritative ERP correction workflow. A Reject-only
+proposal remains Kanban operational evidence and explicitly does not edit the Job Card.
+
+Confirming the preview creates an immutable **CFG Kanban Adjustment Proposal** and a preparation
+Event. It does not apply the proposal or change Process Execution, Operation Progress, Cycle,
+handoff, ownership, participation, Job Card, Work Order, Stock Entry, or stock. A mistaken Prepared
+proposal can be cancelled with a reason; it remains in history and a replacement is a linked new
+revision. Preparation revalidates the consumed exact-action approval against the same request,
+decision, and approving Employee. A request cannot be rerouted to ERP Correction until its Prepared
+proposal is cancelled, preventing two active correction paths. Actual controlled application
+remains P07-0D2B2. Use
+`docs/TEST_WORKFORCE_P07_0D2B1_ADJUSTMENT_PROPOSALS.md` for acceptance.
 
 ### Workforce Supervisor Centre
 
@@ -4063,6 +4088,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.13 | 26 October 2026 | Added P07-0D2B1 immutable operation-quantity adjustment proposals with current-value preview, signed Good/Reject deltas, ERP Job Card ownership and released/target/terminal safety gates, cancellation/revision audit, and deliberately no operational or ERPNext mutation |
 | 2.12 | 26 October 2026 | Added an early BOM guardrail for Job Card material control: Item Operation becomes mandatory on every raw-material row, Save/Submit rejects missing or off-route mappings, and downstream Kanban Master and Work Order validation remains in place |
 | 2.11 | 26 October 2026 | Added P07-0D2A immutable correction requests with scanner/touch reporting, category-bound current-record snapshots, manager correction queue, request-and-decision-bound Correct Records authorization, ERP correction-reference resolution, terminal-state protection, and no mutation of original Kanban or ERPNext records |
 | 2.10 | 26 October 2026 | Added P07-0D1 controlled live Cycle ownership transfer with scanner/touch workflow, replacement Job Code and configured-crew eligibility, separate Supervisor/Verifier approval using Transfer Ownership authority, two-minute single-use approval bound to replacement and reason, linked immutable owner-assignment history, Cycle timeline evidence, and unchanged ERPNext manufacturing records |

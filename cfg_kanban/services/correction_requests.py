@@ -192,6 +192,7 @@ def review_correction_request(
         (request_name,),
     )
     request = frappe.get_doc("CFG Kanban Correction Request", request_name)
+    request.check_permission("read")
     transition = DECISION_TRANSITIONS.get(decision)
     if not transition:
         frappe.throw("Select a valid correction review decision")
@@ -200,6 +201,17 @@ def review_correction_request(
             f"Correction Request {request.name} cannot move from {request.status} "
             f"using {decision}"
         )
+    if decision == "Require ERP Correction":
+        active_proposal = frappe.db.get_value(
+            "CFG Kanban Adjustment Proposal",
+            {"correction_request": request.name, "status": "Prepared"},
+            "name",
+        )
+        if active_proposal:
+            frappe.throw(
+                f"Cancel Prepared adjustment proposal {active_proposal} before routing this "
+                "Correction Request to ERP correction"
+            )
     review_notes = (review_notes or "").strip()
     if not review_notes:
         frappe.throw("Review notes are required")

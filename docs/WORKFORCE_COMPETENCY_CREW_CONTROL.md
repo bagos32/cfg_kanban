@@ -501,11 +501,32 @@ participation adjustment. ERP Correction Required cannot be resolved without a v
 Stock Entry, Work Order, or Job Card reference. Applying eligible Kanban-only adjustments remains
 P07-0D2B. Use `docs/TEST_WORKFORCE_P07_0D2A_CORRECTION_REQUESTS.md` for live acceptance.
 
+## P07-0D2B1 — Controlled Kanban adjustment proposal foundation (implemented)
+
+An approved **Operation Progress** correction can now be converted into a current-value, immutable
+`CFG Kanban Adjustment Proposal` from the Workforce Supervisor Centre. The supervisor enters signed
+Good and Reject deltas, previews the resulting quantities, and freezes an eligible proposal with
+preparation notes. Reclassification is represented explicitly, for example Good `-5` plus Reject
+`+5`, rather than editing the original progress row.
+
+The readiness gate blocks negative results, total processed quantity above target, Good quantity
+below already released handoff, terminal Cycles/executions, and any Good-quantity change owned by a
+linked ERPNext Job Card. Reject evidence may be proposed without editing that Job Card. A target
+changed since the original request produces a visible warning and a fresh current snapshot.
+
+This is deliberately preview-only. Preparing or cancelling a proposal records an Event but does not
+change Process Execution, Operation Progress, Cycle, handoff, ownership, participation, Work Order,
+Job Card, Stock Entry, or stock. Cancelled proposals remain immutable and a later revision links
+back to them. Preparation revalidates the consumed, request-bound exact-action approval. A request
+cannot be rerouted to ERP Correction while a Prepared proposal remains active. Controlled
+application remains P07-0D2B2. Use
+`docs/TEST_WORKFORCE_P07_0D2B1_ADJUSTMENT_PROPOSALS.md` for acceptance.
+
 ## Remaining approved package
 
 ### P07 — Supervisor Control, Reports & Audit
 
 Continue workforce traceability, competency expiry, compliance history, trainee supervision, labour
-utilization, P07-0D2B controlled Kanban adjustments, exceptional reopen, and exception reporting. Future exact-action controls must reuse
+utilization, P07-0D2B2 controlled proposal application, exceptional reopen, and exception reporting. Future exact-action controls must reuse
 the P07-0B2 action-bound pattern; they must not reinterpret the Employee's designation or silently
 grant permanent Supervisor authority.
