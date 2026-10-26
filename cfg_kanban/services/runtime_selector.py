@@ -299,10 +299,20 @@ def _attach_dispatch_context(candidates):
     for queue in queue_rows:
         by_job_card.setdefault(queue.job_card, []).append(queue)
     for candidate in candidates:
-        queue = next((row for row in by_job_card.get(candidate.name, [])
-                      if row.work_order == candidate.work_order
-                      and row.operation == candidate.operation
-                      and row.workstation == candidate.workstation), None)
+        matching = [
+            row for row in by_job_card.get(candidate.name, [])
+            if row.work_order == candidate.work_order
+            and row.operation == candidate.operation
+            and row.workstation == candidate.workstation
+        ]
+        # A reusable Process Card creates a new execution/queue row for each
+        # allocation. Do not let that newer System Recommendation shadow the
+        # supervisor's still-active sequence for the underlying WO/Job Card.
+        matching.sort(key=lambda row: (
+            0 if row.sequence_source == "Supervisor Override" else 1,
+            flt(row.queue_position) or 999999,
+        ))
+        queue = matching[0] if matching else None
         if not queue:
             continue
         candidate.dispatch_queue = queue.name

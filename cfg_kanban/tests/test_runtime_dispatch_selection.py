@@ -46,6 +46,19 @@ class TestRuntimeDispatchSelection(unittest.TestCase):
             self.assertIn(f'"{fieldname}"', service)
             self.assertIn(f'"fieldname":"{fieldname}"', schema)
 
+    def test_repeated_cycles_do_not_shadow_the_supervisor_queue(self):
+        service = (ROOT / "services" / "runtime_selector.py").read_text()
+        attach = service[
+            service.index("def _attach_dispatch_context"):
+            service.index("def _available_input")
+        ]
+        self.assertIn("A reusable Process Card creates a new execution/queue row", attach)
+        self.assertIn(
+            '0 if row.sequence_source == "Supervisor Override" else 1',
+            attach,
+        )
+        self.assertIn("queue = matching[0] if matching else None", attach)
+
 
 if __name__ == "__main__":
     unittest.main()

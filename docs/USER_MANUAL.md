@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.15
+**Guide version:** 2.16
 
 **Updated:** 26 October 2026
 
@@ -4116,6 +4116,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.16 | 26 October 2026 | Preserved an active supervisor WO/Job Card sequence across repeated reusable Process Card cycles so a newer system-generated runtime queue entry cannot silently restore the oldest-WO fallback |
 | 2.15 | 26 October 2026 | Connected reusable Process/Station Card recommendations to the audited supervisor dispatch sequence for one eligible Workstation, displayed the recommendation basis and queue rank to the operator, and retained the Operation Profile runtime-selection rule as the no-override fallback |
 | 2.14 | 26 October 2026 | Added P07-0D2B2 controlled Kanban adjustment application with second-person proposal-bound Correct Records authorization, live stale-value revalidation, immutable signed Correction progress entries, atomic execution/summary recalculation, resolved-request audit links, idempotent application, and explicit no-ERPNext/no-stock/no-payroll mutation boundary |
 | 2.13 | 26 October 2026 | Added P07-0D2B1 immutable operation-quantity adjustment proposals with current-value preview, signed Good/Reject deltas, ERP Job Card ownership and released/target/terminal safety gates, cancellation/revision audit, and deliberately no operational or ERPNext mutation |
