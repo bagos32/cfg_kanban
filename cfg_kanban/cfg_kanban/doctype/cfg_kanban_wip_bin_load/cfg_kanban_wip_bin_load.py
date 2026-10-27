@@ -8,7 +8,7 @@ ACTIVE_STATUSES = (
     "Consumption Draft", "Return Draft",
 )
 IDENTITY_FIELDS = (
-    "reusable_bin", "wip_bin_pool", "company", "item_code", "batch_no",
+    "bin_mode", "reusable_bin", "wip_bin_pool", "company", "item_code", "batch_no",
     "standard_qty", "actual_qty", "stock_uom", "partial_exception",
     "exception_reason", "approved_by", "approved_by_operator", "exception_approved_on",
     "kanban_master", "kanban_cycle", "work_order",
@@ -32,6 +32,17 @@ class CFGKanbanWIPBinLoad(Document):
         frappe.throw("WIP Bin Load records are immutable; use controlled reversal or cancellation")
 
     def _validate_quantity(self):
+        self.bin_mode = self.bin_mode or "Standard Quantity"
+        if self.bin_mode == "Loose Multi-Item":
+            if flt(self.actual_qty) <= 0:
+                frappe.throw("Loose WIP Bin load quantity must be positive")
+            self.standard_qty = flt(self.actual_qty)
+            self.partial_exception = 0
+            self.exception_reason = None
+            self.approved_by = None
+            self.approved_by_operator = None
+            self.exception_approved_on = None
+            return
         if flt(self.standard_qty) <= 0 or flt(self.actual_qty) <= 0:
             frappe.throw("Standard and actual WIP Bin quantities must be positive")
         if flt(self.actual_qty) > flt(self.standard_qty) + TOLERANCE:
@@ -84,28 +95,36 @@ class CFGKanbanWIPBinLoad(Document):
              "current_warehouse", "identity_state", "quality_state", "wip_bin_state"],
             as_dict=True,
         )
+        expected_role = (
+            "Loose Multi-Item WIP Bin"
+            if (self.bin_mode or "Standard Quantity") == "Loose Multi-Item"
+            else "Standard Quantity WIP Bin"
+        )
         if not unit or unit.tag_kind != "Reusable Container" or (
-            unit.reusable_container_role != "Standard Quantity WIP Bin"
+            unit.reusable_container_role != expected_role
         ):
-            frappe.throw("Select a Reusable Container with role Standard Quantity WIP Bin")
+            frappe.throw(f"Select a Reusable Container with role {expected_role}")
         if unit.identity_state != "Active" or unit.quality_state != "Released":
             frappe.throw("The reusable WIP Bin must be active and quality released")
         if unit.inventory_company != self.company or unit.current_warehouse != self.wip_warehouse:
             frappe.throw("WIP Bin Company and Warehouse do not match the load snapshot")
         if self.is_new() and self.recovery_of_load:
             self._validate_recovery_context(unit)
-        elif self.is_new() and unit.wip_bin_state != "Empty":
+        elif (self.is_new() and self.bin_mode != "Loose Multi-Item"
+              and unit.wip_bin_state != "Empty"):
             frappe.throw(f"Reusable WIP Bin is {unit.wip_bin_state or 'not Empty'}")
 
         pool = frappe.db.get_value(
             "CFG Kanban WIP Bin Pool", self.wip_bin_pool,
-            ["active", "company", "operation", "wip_warehouse"], as_dict=True,
+            ["active", "pool_mode", "company", "operation", "wip_warehouse"], as_dict=True,
         )
         if not pool or not pool.active:
             frappe.throw("Select an active WIP Bin Pool")
         if (pool.company != self.company or pool.operation != self.operation
                 or pool.wip_warehouse != self.wip_warehouse):
             frappe.throw("WIP Bin Pool does not match Company, Operation, or WIP Warehouse")
+        if (pool.pool_mode or "Standard Quantity") != self.bin_mode:
+            frappe.throw("WIP Bin Pool mode does not match this physical load")
         if not frappe.db.exists("CFG Kanban WIP Bin Pool Entry", {
             "parent": self.wip_bin_pool,
             "parenttype": "CFG Kanban WIP Bin Pool",
@@ -130,16 +149,35 @@ class CFGKanbanWIPBinLoad(Document):
         if (not job or job.docstatus == 2 or job.work_order != self.work_order
                 or job.operation != self.operation or job.workstation != self.workstation):
             frappe.throw("WIP Bin Load does not match the active Job Card operation/workstation")
+        presentation = (
+            "Loose Multi-Item WIP Bin" if self.bin_mode == "Loose Multi-Item"
+            else "Standard Quantity Reusable WIP Bin"
+        )
         rule = frappe.db.get_value("CFG Kanban Material Flow Rule", {
             "parent": self.kanban_master,
             "parenttype": "CFG Kanban Master",
             "item_code": self.item_code,
             "operation": self.operation,
-            "wip_presentation_method": "Standard Quantity Reusable WIP Bin",
+            "wip_presentation_method": presentation,
             "wip_bin_pool": self.wip_bin_pool,
         }, ["standard_bin_qty", "stock_uom"], as_dict=True)
         if not rule:
             frappe.throw("Item is not configured for this WIP Bin Pool on the Kanban Master")
+        if self.bin_mode == "Loose Multi-Item":
+            if not frappe.db.exists("CFG Kanban Loose WIP Allowed Item", {
+                "parent": self.reusable_bin,
+                "parenttype": "CFG Kanban Handling Unit",
+                "parentfield": "loose_wip_allowed_items",
+                "item_code": self.item_code,
+                "active": 1,
+            }):
+                frappe.throw(
+                    f"Item {self.item_code} is not authorized for Loose WIP Bin "
+                    f"{self.reusable_bin}"
+                )
+            if rule.stock_uom != self.stock_uom:
+                frappe.throw("Loose WIP Bin Item UOM does not match the Kanban Master")
+            return
         from cfg_kanban.services.wip_bin_loads import wip_bin_full_qty
         expected_qty = wip_bin_full_qty(
             self.reusable_bin, self.item_code, self.stock_uom, rule.standard_bin_qty
@@ -183,13 +221,32 @@ class CFGKanbanWIPBinLoad(Document):
     def _validate_active_bin_exclusivity(self):
         if self.status not in ACTIVE_STATUSES:
             return
-        duplicate = frappe.db.get_value("CFG Kanban WIP Bin Load", {
+        duplicates = frappe.get_all("CFG Kanban WIP Bin Load", {
             "reusable_bin": self.reusable_bin,
             "status": ["in", ACTIVE_STATUSES],
             "name": ["!=", self.name],
-        }, "name")
-        if duplicate:
-            frappe.throw(f"WIP Bin already has active Load {duplicate}")
+        }, ["name", "bin_mode", "company", "wip_bin_pool", "work_order", "job_card",
+            "operation", "workstation", "wip_warehouse"])
+        if not duplicates:
+            return
+        if self.bin_mode != "Loose Multi-Item":
+            frappe.throw(f"WIP Bin already has active Load {duplicates[0].name}")
+        boundary = (
+            self.company, self.wip_bin_pool, self.work_order, self.job_card,
+            self.operation, self.workstation, self.wip_warehouse,
+        )
+        for duplicate in duplicates:
+            other_boundary = (
+                duplicate.company, duplicate.wip_bin_pool, duplicate.work_order,
+                duplicate.job_card, duplicate.operation, duplicate.workstation,
+                duplicate.wip_warehouse,
+            )
+            if (duplicate.bin_mode or "Standard Quantity") != "Loose Multi-Item" \
+                    or other_boundary != boundary:
+                frappe.throw(
+                    f"Loose WIP Bin is already owned by active Load {duplicate.name} "
+                    "for another Work Order, Job Card, Operation, Workstation, or Pool"
+                )
 
     def _validate_immutable_identity(self):
         if self.is_new():

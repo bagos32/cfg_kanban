@@ -247,13 +247,19 @@ class CFGKanbanMaster(Document):
 
     def _validate_wip_bin_rule(self, row, mode):
         presentation = row.wip_presentation_method or "Standard ERP / Tag Flow"
-        if presentation != "Standard Quantity Reusable WIP Bin":
+        wip_presentations = (
+            "Standard Quantity Reusable WIP Bin", "Loose Multi-Item WIP Bin",
+        )
+        if presentation not in wip_presentations:
             row.wip_bin_pool = None
             row.standard_bin_qty = 0
             return
+        loose_mode = presentation == "Loose Multi-Item WIP Bin"
+        if loose_mode:
+            row.standard_bin_qty = 0
         if mode != "Transfer to WIP by Job Card":
             frappe.throw(
-                f"Material Flow row {row.idx}: Standard Quantity Reusable WIP Bin "
+                f"Material Flow row {row.idx}: {presentation} "
                 "requires Production Material Mode Transfer to WIP by Job Card"
             )
         if not row.operation:
@@ -272,7 +278,7 @@ class CFGKanbanMaster(Document):
         pool = frappe.db.get_value(
             "CFG Kanban WIP Bin Pool",
             row.wip_bin_pool,
-            ["active", "company", "operation", "wip_warehouse"],
+            ["active", "pool_mode", "company", "operation", "wip_warehouse"],
             as_dict=True,
         )
         if not pool or not pool.active:
@@ -281,6 +287,13 @@ class CFGKanbanMaster(Document):
             frappe.throw(
                 f"Material Flow row {row.idx}: WIP Bin Pool belongs to {pool.company}, "
                 f"not {self.company}"
+            )
+        expected_pool_mode = "Loose Multi-Item" if loose_mode else "Standard Quantity"
+        if (pool.pool_mode or "Standard Quantity") != expected_pool_mode:
+            frappe.throw(
+                f"Material Flow row {row.idx}: WIP Bin Pool mode is "
+                f"{pool.pool_mode or 'Standard Quantity'}, but {presentation} requires "
+                f"{expected_pool_mode}"
             )
         if pool.operation != row.operation:
             frappe.throw(
@@ -308,7 +321,23 @@ class CFGKanbanMaster(Document):
             frappe.throw(
                 f"Material Flow row {row.idx}: WIP Bin Pool has no active physical bins"
             )
-        if flt(row.standard_bin_qty) <= 0:
+        if loose_mode:
+            unauthorized = [
+                value.reusable_bin for value in active_bins
+                if not frappe.db.exists("CFG Kanban Loose WIP Allowed Item", {
+                    "parent": value.reusable_bin,
+                    "parenttype": "CFG Kanban Handling Unit",
+                    "parentfield": "loose_wip_allowed_items",
+                    "item_code": row.item_code,
+                    "active": 1,
+                })
+            ]
+            if unauthorized:
+                frappe.throw(
+                    f"Material Flow row {row.idx}: authorize Item {row.item_code} on every "
+                    "active Loose WIP Bin. Missing: " + ", ".join(unauthorized)
+                )
+        elif flt(row.standard_bin_qty) <= 0:
             missing_capacity = [
                 value.reusable_bin for value in active_bins
                 if not frappe.db.exists("CFG Kanban WIP Bin Capacity", {

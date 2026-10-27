@@ -69,10 +69,12 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Route Reconciliation")
         self.assertEqual(links["Material Trace Policies"],
                          "CFG Kanban Material Trace Policy")
-        self.assertEqual(links["Standard WIP Bin Pools"],
+        self.assertEqual(links["WIP Bin Pools"],
                          "CFG Kanban WIP Bin Pool")
         self.assertEqual(links["WIP Bin Reconciliations"],
                          "CFG Kanban WIP Bin Reconciliation")
+        self.assertEqual(links["Loose WIP Usage"],
+                         "CFG Kanban Loose WIP Usage")
         self.assertEqual(links["WIP Bin Control"], "Kanban WIP Bin Control")
         self.assertEqual(shortcuts["WIP Bin Control"], "Kanban WIP Bin Control")
         self.assertEqual(links["DocType Action Policies"],
@@ -125,7 +127,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("return _columns(), rows, None, _chart(rows), _summary(rows)",
                       controller)
         for fieldname in (
-            "company", "wip_bin_pool", "operation", "workstation",
+            "company", "reusable_container_role", "wip_bin_pool", "operation", "workstation",
             "wip_warehouse", "wip_bin_state", "load_status", "item_code",
             "attention_only", "include_unavailable",
         ):
@@ -1848,6 +1850,8 @@ class TestDocTypeSchema(TestCase):
                 schemas["CFG Kanban WIP Bin Load"]["fields"]}
         self.assertIn("Standard Quantity WIP Bin",
                       handling_unit["reusable_container_role"]["options"])
+        self.assertIn("Loose Multi-Item WIP Bin",
+                      handling_unit["reusable_container_role"]["options"])
         self.assertIn("Production Output Container",
                       handling_unit["reusable_container_role"]["options"])
         self.assertTrue(handling_unit["virtual_content"].get("hidden"))
@@ -1861,11 +1865,21 @@ class TestDocTypeSchema(TestCase):
             handling_unit["wip_bin_capacities"]["options"],
             "CFG Kanban WIP Bin Capacity",
         )
+        self.assertEqual(
+            handling_unit["loose_wip_allowed_items"]["options"],
+            "CFG Kanban Loose WIP Allowed Item",
+        )
+        loose_allowed_item = {row["fieldname"]: row for row in
+                              schemas["CFG Kanban Loose WIP Allowed Item"]["fields"]}
+        self.assertTrue({"item_code", "stock_uom", "active"}.issubset(
+            loose_allowed_item
+        ))
         self.assertTrue({"item_code", "full_bin_qty", "stock_uom", "active"}.issubset(
             bin_capacity
         ))
         self.assertTrue({
-            "pool_name", "active", "company", "operation",
+            "pool_name", "active", "pool_mode", "loose_consumption_policy",
+            "company", "operation",
             "wip_warehouse", "require_bin_scan", "require_full_bin_consumption",
             "allow_supervisor_partial_exception", "bins",
         }.issubset(pool))
@@ -1873,9 +1887,11 @@ class TestDocTypeSchema(TestCase):
         self.assertTrue({"reusable_bin", "workstation", "priority", "active"}.issubset(pool_entry))
         self.assertIn("Standard Quantity Reusable WIP Bin",
                       rule["wip_presentation_method"]["options"])
+        self.assertIn("Loose Multi-Item WIP Bin",
+                      rule["wip_presentation_method"]["options"])
         self.assertFalse(rule["standard_bin_qty"].get("mandatory_depends_on"))
         self.assertTrue({
-            "status", "reusable_bin", "wip_bin_pool", "company", "item_code",
+            "status", "bin_mode", "reusable_bin", "wip_bin_pool", "company", "item_code",
             "batch_no", "standard_qty", "actual_qty", "stock_uom", "kanban_master",
             "kanban_cycle", "work_order", "job_card", "operation", "workstation",
             "source_warehouse", "wip_warehouse", "transfer_stock_entry",
@@ -1890,6 +1906,20 @@ class TestDocTypeSchema(TestCase):
         }.issubset(load))
         self.assertIn("Return Draft", load["status"]["options"])
         self.assertTrue(load["idempotency_key"].get("unique"))
+        loose_usage = {row["fieldname"]: row for row in
+                       schemas["CFG Kanban Loose WIP Usage"]["fields"]}
+        self.assertTrue({
+            "status", "reusable_bin", "wip_bin_load", "wip_bin_pool", "company",
+            "item_code", "batch_no", "qty", "stock_uom", "kanban_master",
+            "material_owner_cycle", "requesting_cycle", "work_order", "job_card",
+            "process_execution", "operation", "workstation", "source_warehouse",
+            "wip_warehouse", "consumption_stock_entry",
+            "consumption_stock_entry_detail", "idempotency_key",
+            "reported_by_operator", "operator_session", "reported_on", "posted_on",
+            "reversal_reason", "notes",
+        }.issubset(loose_usage))
+        self.assertTrue(loose_usage["idempotency_key"].get("unique"))
+        self.assertIn("Posting Reversed", loose_usage["status"]["options"])
         reconciliation = {row["fieldname"]: row for row in
                           schemas["CFG Kanban WIP Bin Reconciliation"]["fields"]}
         self.assertIn("Unused Return Cancellation",
@@ -1907,6 +1937,19 @@ class TestDocTypeSchema(TestCase):
             "source_resolution_ledger",
         }.issubset(reconciliation))
         self.assertTrue(reconciliation["wip_bin_load"].get("unique"))
+
+        loose_service = (APP_ROOT / "services" / "loose_wip.py").read_text()
+        material_flow = (APP_ROOT / "services" /
+                         "production_material_flow.py").read_text()
+        operator_panel = (APP_ROOT / "cfg_kanban" / "page" /
+                          "kanban_operator" / "kanban_operator.js").read_text()
+        self.assertIn("def record_loose_usage", loose_service)
+        self.assertIn("def bind_consolidated_consumption", loose_service)
+        self.assertIn("Accumulate until Work Order close", loose_service)
+        self.assertIn("def prepare_consolidated_loose_wip_consumption", material_flow)
+        self.assertIn('"loose_wip_consolidated": 1', material_flow)
+        self.assertIn("Record Loose WIP Use", operator_panel)
+        self.assertIn("Prepare Consolidated Loose WIP Consumption", operator_panel)
 
         master_controller = (
             APP_ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_master" /
@@ -2017,8 +2060,16 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Select Job Card for Material Consumption", panel)
         self.assertIn("CFG:QTY:MATERIAL:", panel)
         self.assertIn("classify_trace_scan", panel)
+        self.assertIn("classify_wip_trace_scan", panel)
+        self.assertIn("route_classified_wip_scan", panel)
+        self.assertIn("cfg_held_wip_scan", panel)
+        self.assertIn("cfg_pending_wip_bin_scan", panel)
+        self.assertIn("arm_operator_wip_quantity", panel)
         self.assertIn("stage_operator_output_tag", panel)
         self.assertIn("def classify_trace_scan", trace_service)
+        self.assertIn("def classify_wip_trace_scan", trace_service)
+        self.assertIn("def _matching_wip_bin_rows", trace_service)
+        self.assertIn("def _matching_wip_source_rows", trace_service)
         self.assertIn("def _resolve_output_row", trace_service)
         self.assertIn("def _bind_submitted_output_batch", trace_service)
         self.assertIn("def _submitted_output_batch_no", trace_service)

@@ -153,9 +153,16 @@ def _custom_fields():
              "fieldtype": "Link", "options": "CFG Kanban WIP Bin Load", "read_only": 1,
              "insert_after": "cfg_kanban_job_card", "module": "CFG Kanban",
              "description": "Identifies the controlled return of unused material from a reusable WIP bin."},
+            {"fieldname": "cfg_loose_wip_consolidated", "label": "Consolidated Loose WIP Consumption",
+             "fieldtype": "Check", "read_only": 1,
+             "insert_after": "cfg_wip_bin_return_load", "module": "CFG Kanban",
+             "description": (
+                 "Marks the Work Order-level consumption of immutable Loose WIP usage "
+                 "reported by one or more operation-card cycles."
+             )},
             {"fieldname": "cfg_logistics_route", "label": "Logistics Route",
              "fieldtype": "Link", "options": "CFG Kanban Logistics Route", "read_only": 1,
-             "insert_after": "cfg_wip_bin_return_load", "module": "CFG Kanban"},
+             "insert_after": "cfg_loose_wip_consolidated", "module": "CFG Kanban"},
             {"fieldname": "cfg_movement_manifest", "label": "Movement Manifest",
              "fieldtype": "Link", "options": "CFG Kanban Movement Manifest", "read_only": 1,
              "insert_after": "cfg_logistics_route", "module": "CFG Kanban"},

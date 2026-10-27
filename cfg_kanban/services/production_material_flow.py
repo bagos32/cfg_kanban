@@ -134,10 +134,31 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
             {"kanban_cycle": cycle.name, "job_card": job.name,
              "status": ["in", ["Ready", "In Use", "Consumption Pending ERP",
                                "Consumption Draft", "Return Draft"]]},
-            ["name", "status", "item_code", "actual_qty", "consumed_qty", "return_qty",
+            ["name", "status", "bin_mode", "item_code", "actual_qty", "consumed_qty", "return_qty",
              "stock_uom", "reusable_bin", "return_stock_entry"],
             order_by="creation asc",
         )
+        loose_usage = frappe.get_all(
+            "CFG Kanban Loose WIP Usage",
+            {"material_owner_cycle": cycle.name, "job_card": job.name,
+             "status": ["in", ["Recorded", "Consumption Draft", "Posted"]]},
+            ["name", "status", "requesting_cycle", "reusable_bin", "item_code",
+             "batch_no", "qty", "stock_uom", "reported_on",
+             "consumption_stock_entry"],
+            order_by="reported_on asc", limit_page_length=0,
+        )
+        physical_bins = {
+            row.name: row.handling_unit_id for row in frappe.get_all(
+                "CFG Kanban Handling Unit",
+                {"name": ["in", sorted({
+                    row.reusable_bin for row in [*wip_loads, *loose_usage]
+                    if row.reusable_bin
+                })]},
+                ["name", "handling_unit_id"], limit_page_length=0,
+            )
+        } if any(row.reusable_bin for row in [*wip_loads, *loose_usage]) else {}
+        for row in [*wip_loads, *loose_usage]:
+            row["visible_bin_code"] = physical_bins.get(row.reusable_bin, row.reusable_bin)
         open_wip_consumption = frappe.db.get_value("Stock Entry", {
             "cfg_kanban_cycle": cycle.name,
             "work_order": work_order.name,
@@ -162,9 +183,11 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
                      ),
                      "wip_bin_ready_count": sum(
                          1 for row in wip_loads if row.status == "Ready"
+                         and (row.bin_mode or "Standard Quantity") != "Loose Multi-Item"
                      ),
                      "wip_bin_ready_qty": sum(
                          flt(row.actual_qty) for row in wip_loads if row.status == "Ready"
+                         and (row.bin_mode or "Standard Quantity") != "Loose Multi-Item"
                      ),
                      "wip_bin_pending_erp_count": sum(
                          1 for row in wip_loads if row.status == "Consumption Pending ERP"
@@ -180,6 +203,25 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
                          for row in wip_loads if row.status == "Consumption Pending ERP"
                      ],
                      "wip_bin_consumption_draft": open_wip_consumption,
+                     "has_loose_wip": any(
+                         row["wip_presentation_method"] == "Loose Multi-Item WIP Bin"
+                         for row in all_material_rows
+                     ) or any(
+                         (row.bin_mode or "Standard Quantity") == "Loose Multi-Item"
+                         for row in wip_loads
+                     ),
+                     "loose_wip_active_bins": sorted({
+                         row.visible_bin_code for row in wip_loads
+                         if (row.bin_mode or "Standard Quantity") == "Loose Multi-Item"
+                     }),
+                     "loose_wip_loaded_qty": sum(
+                         flt(row.actual_qty) for row in wip_loads
+                         if (row.bin_mode or "Standard Quantity") == "Loose Multi-Item"
+                     ),
+                     "loose_wip_recorded_qty": sum(
+                         flt(row.qty) for row in loose_usage if row.status == "Recorded"
+                     ),
+                     "loose_wip_usage_rows": [dict(row) for row in loose_usage],
                      "erp_consumption_submission_ready": operation_readiness["ready"],
                      "erp_consumption_submission_reason": operation_readiness["reason"]})
 
@@ -204,6 +246,19 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
     receipt_wip_readiness = manufacture_receipt_wip_bin_readiness(
         work_order.name, cycle.name
     )
+    loose_wip_recorded = frappe.get_all(
+        "CFG Kanban Loose WIP Usage",
+        {"material_owner_cycle": cycle.name, "work_order": work_order.name,
+         "status": "Recorded"},
+        ["name", "qty", "stock_uom"], limit_page_length=0,
+    )
+    loose_wip_consumption_draft = frappe.db.get_value("Stock Entry", {
+        "cfg_kanban_cycle": cycle.name,
+        "work_order": work_order.name,
+        "cfg_loose_wip_consolidated": 1,
+        "purpose": "Material Consumption for Manufacture",
+        "docstatus": 0,
+    }, "name")
     return {
         "cycle": cycle.name,
         "work_order": work_order.name,
@@ -241,6 +296,9 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
         "wip_bin_receipt_ready": receipt_wip_readiness["ready"],
         "wip_bin_receipt_block_reason": receipt_wip_readiness["reason"],
         "active_wip_bin_loads": receipt_wip_readiness["active_loads"],
+        "loose_wip_recorded_count": len(loose_wip_recorded),
+        "loose_wip_recorded_qty": sum(flt(row.qty) for row in loose_wip_recorded),
+        "loose_wip_consumption_draft": loose_wip_consumption_draft,
         "material_transfer_posting_mode": master.get("material_transfer_posting_mode")
             or "Create Draft for Review",
         "material_consumption_posting_mode": "Create Draft for Review",
@@ -421,6 +479,177 @@ def cancel_recorded_wip_bin_consumption(load_name, operator_session_token=None):
     return cancel_pending_consumption(
         load_name, operator=profile.employee, operator_session=session.name
     )
+
+
+@frappe.whitelist()
+def get_loose_wip_bin_balance(cycle_name, job_card, reusable_bin_scan,
+                              operator_session_token=None, requesting_cycle=None):
+    """Resolve one permanent Loose WIP QR into its live Job Card material choices."""
+    cycle, master, work_order = _production_context(cycle_name)
+    job = frappe.db.get_value(
+        "Job Card", {"name": job_card, "work_order": work_order.name,
+                     "docstatus": ["<", 2]},
+        ["name", "operation", "workstation"], as_dict=True,
+    )
+    if not job:
+        frappe.throw("Job Card does not belong to the effective Work Order")
+    _validated_operation_requesting_cycle(
+        requesting_cycle, cycle, work_order, job_card
+    )
+    execution = frappe.db.get_value(
+        "CFG Kanban Process Execution",
+        {"kanban_cycle": cycle.name, "job_card": job.name}, "name",
+    )
+    require_operator(
+        operator_session_token, "material_transfer", execution=execution,
+        operation=job.operation, workstation=job.workstation,
+    )
+    from cfg_kanban.services.loose_wip import loose_bin_balance
+    return loose_bin_balance(
+        material_owner_cycle=cycle.name, work_order=work_order.name,
+        job_card=job.name, reusable_bin_scan=reusable_bin_scan,
+        requesting_cycle=requesting_cycle,
+    )
+
+
+@frappe.whitelist()
+def record_loose_wip_usage(cycle_name, job_card, reusable_bin_scan, qty,
+                           item_code=None, batch_no=None, confirmation=None,
+                           operator_session_token=None, event_token=None,
+                           requesting_cycle=None):
+    """Record one cumulative Loose WIP use contribution without posting ERP stock."""
+    cycle, master, work_order = _production_context(cycle_name)
+    if work_order.docstatus != 1:
+        frappe.throw("Submit the effective Work Order before recording Loose WIP use")
+    job = frappe.db.get_value(
+        "Job Card", {"name": job_card, "work_order": work_order.name,
+                     "docstatus": ["<", 2]},
+        ["name", "operation", "workstation"], as_dict=True,
+    )
+    if not job:
+        frappe.throw("Job Card does not belong to the effective Work Order")
+    operation_cycle = _validated_operation_requesting_cycle(
+        requesting_cycle, cycle, work_order, job_card
+    )
+    execution = frappe.db.get_value(
+        "CFG Kanban Process Execution",
+        {"kanban_cycle": cycle.name, "job_card": job.name}, "name",
+    )
+    profile, session = require_operator(
+        operator_session_token, "material_transfer", execution=execution,
+        operation=job.operation, workstation=job.workstation,
+    )
+    confirmation = _validated_confirmation(confirmation)
+    from cfg_kanban.services.loose_wip import record_loose_usage
+    result = record_loose_usage(
+        material_owner_cycle=cycle.name, work_order=work_order.name,
+        job_card=job.name, reusable_bin_scan=reusable_bin_scan,
+        qty=qty, item_code=item_code, batch_no=batch_no,
+        requesting_cycle=operation_cycle.name if operation_cycle else None,
+        process_execution=execution, operator=profile.employee,
+        operator_session=session.name, notes=confirmation,
+        event_token=event_token,
+    )
+    return result
+
+
+@frappe.whitelist()
+def cancel_recorded_loose_wip_usage(usage_name, reason,
+                                    operator_session_token=None):
+    context = frappe.db.get_value(
+        "CFG Kanban Loose WIP Usage", usage_name,
+        ["name", "operation", "workstation", "process_execution"], as_dict=True,
+    )
+    if not context:
+        frappe.throw("Loose WIP Usage was not found")
+    profile, session = require_operator(
+        operator_session_token, "material_transfer", execution=context.process_execution,
+        operation=context.operation, workstation=context.workstation,
+    )
+    from cfg_kanban.services.loose_wip import reverse_recorded_usage
+    return reverse_recorded_usage(
+        usage_name, reason=reason, operator=profile.employee,
+        operator_session=session.name,
+    )
+
+
+@frappe.whitelist()
+def prepare_consolidated_loose_wip_consumption(cycle_name, confirmation,
+                                                operator_session_token=None,
+                                                event_token=None):
+    """Create one Work Order-level ERP consumption from all unposted Loose WIP usage."""
+    cycle, master, work_order = _production_context(cycle_name)
+    if work_order.docstatus != 1:
+        frappe.throw("Submit the effective Work Order before posting Loose WIP consumption")
+    profile, session = require_operator(operator_session_token, "material_transfer")
+    confirmation = _validated_confirmation(confirmation)
+    route_readiness = erp_consumption_submission_readiness(work_order.name)
+    if not route_readiness["ready"]:
+        frappe.throw(route_readiness["reason"])
+    _assert_no_open_production_entry(
+        cycle.name, work_order.name, "Material Consumption for Manufacture"
+    )
+    usages = frappe.get_all(
+        "CFG Kanban Loose WIP Usage",
+        {"material_owner_cycle": cycle.name, "work_order": work_order.name,
+         "status": "Recorded"},
+        ["name", "item_code", "batch_no", "qty", "stock_uom", "wip_warehouse"],
+        order_by="reported_on asc", limit_page_length=0,
+    )
+    if not usages:
+        frappe.throw("No recorded Loose WIP usage is awaiting consolidated ERP posting")
+    grouped = {}
+    for usage in usages:
+        key = (usage.item_code, usage.wip_warehouse, usage.batch_no or "", usage.stock_uom)
+        grouped[key] = grouped.get(key, 0) + flt(usage.qty)
+    lines = [{
+        "item_code": item_code,
+        "source_warehouse": warehouse,
+        "batch_no": batch_no or None,
+        "stock_uom": stock_uom,
+        "qty": qty,
+    } for (item_code, warehouse, batch_no, stock_uom), qty in grouped.items()]
+    key = canonical_key(
+        "loose-wip-consolidated-consumption", cycle.name,
+        event_token or frappe.as_json(lines),
+    )
+    command, created = insert_once(frappe.get_doc({
+        "doctype": "CFG ERP Command",
+        "command_type": "Create Production Material Consumption",
+        "source_signal": cycle.signal,
+        "kanban_cycle": cycle.name,
+        "status": "Pending",
+        "target_doctype": "Stock Entry",
+        "request_payload": frappe.as_json({
+            "work_order": work_order.name,
+            "lines": lines,
+            "wip_bin_consumption": 1,
+            "loose_wip_consolidated": 1,
+            "submit": False,
+            "operator": profile.employee,
+            "confirmation": confirmation,
+        }),
+        "requested_on": now_datetime(),
+        "created_by_system": 1,
+        "requested_by_operator": profile.employee,
+        "operator_session": session.name,
+        "terminal_user": session.terminal_user,
+    }), key, ignore_permissions=True)
+    entry = execute_command(command.name)
+    from cfg_kanban.services.loose_wip import bind_consolidated_consumption
+    bind_consolidated_consumption(entry.name, [usage.name for usage in usages])
+    record(
+        "Consolidated Loose WIP Consumption Prepared", card=cycle.kanban_card,
+        cycle=cycle.name, qty=sum(row["qty"] for row in lines),
+        reference_doctype="Stock Entry", reference_name=entry.name,
+        operator=profile.employee, operator_session=session.name,
+        terminal_user=session.terminal_user,
+        notes=(f"{len(usages)} usage contribution(s); Operator confirmation: "
+               f"{confirmation}"),
+    )
+    return {"command": command.name, "stock_entry": entry.name,
+            "docstatus": entry.docstatus, "duplicate": not created,
+            "usage_count": len(usages)}
 
 
 @frappe.whitelist()
@@ -919,15 +1148,22 @@ def submit_production_stock_entry(stock_entry, event_token=None,
             flt(entry.get("fg_completed_qty")) + flt(work_order.produced_qty)
         )
         owning_job_card = entry.get("cfg_kanban_job_card")
-        if not owning_job_card:
+        if not owning_job_card and not entry.get("cfg_loose_wip_consolidated"):
             frappe.throw(
                 "Operation-owned WIP-bin consumption is missing its audited Job Card"
             )
-        operation_readiness = operation_consumption_submission_readiness(
-            work_order.name, owning_job_card, required_qty=required_operation_qty
-        )
-        if not operation_readiness["ready"]:
-            frappe.throw(operation_readiness["reason"])
+        if owning_job_card:
+            operation_readiness = operation_consumption_submission_readiness(
+                work_order.name, owning_job_card, required_qty=required_operation_qty
+            )
+            if not operation_readiness["ready"]:
+                frappe.throw(operation_readiness["reason"])
+        else:
+            route_readiness = erp_consumption_submission_readiness(
+                work_order.name, required_qty=required_operation_qty
+            )
+            if not route_readiness["ready"]:
+                frappe.throw(route_readiness["reason"])
         from cfg_kanban.services.wip_bin_loads import finalize_wip_bin_consumption_entry
         entry = finalize_wip_bin_consumption_entry(entry.name)
     action = ("material_transfer" if entry.purpose in (

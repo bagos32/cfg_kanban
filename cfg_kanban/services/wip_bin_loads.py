@@ -165,11 +165,13 @@ def job_card_wip_bin_close_readiness(job_card):
     active = frappe.get_all(
         "CFG Kanban WIP Bin Load",
         {"job_card": job_card, "status": ["in", list(ACTIVE_LOAD_STATUSES)]},
-        ["name", "reusable_bin", "status", "consumption_stock_entry"],
+        ["name", "reusable_bin", "status", "bin_mode", "consumption_stock_entry"],
         order_by="creation asc", limit_page_length=0,
     )
     blocking = [
-        row for row in active if row.status in OPERATION_CLOSE_BLOCK_STATUSES
+        row for row in active
+        if row.status in OPERATION_CLOSE_BLOCK_STATUSES
+        and (row.bin_mode or "Standard Quantity") != "Loose Multi-Item"
     ]
     pending_use = [row for row in active if row.status == "Consumption Pending ERP"]
     pending = [row for row in active if row.status == "Consumption Draft"]
@@ -244,6 +246,8 @@ def abandon_draft_stock_entry(doc, method=None):
     """Release physical-bin intent when an ERP Draft is deleted before submission."""
     if doc.docstatus != 0:
         return
+    from cfg_kanban.services.loose_wip import abandon_consumption_draft
+    abandon_consumption_draft(doc.name)
     loads, direction = _loads_for_entry(doc.name)
     if not loads:
         return
@@ -266,10 +270,7 @@ def abandon_draft_stock_entry(doc, method=None):
             "in_use_on": None,
             "notes": f"ERP Draft {doc.name} deleted; physical WIP Bin restored to Ready",
         }, update_modified=True)
-        frappe.db.set_value(
-            "CFG Kanban Handling Unit", load.reusable_bin, "wip_bin_state", "Ready",
-            update_modified=False,
-        )
+        _refresh_wip_bin_state(load.reusable_bin)
         record(
             "WIP Bin Consumption Draft Abandoned", cycle=load.kanban_cycle,
             execution=load.process_execution, handling_unit=load.reusable_bin,
@@ -299,7 +300,7 @@ def allocate_transfer_bin(stock_entry, item_row, reusable_bin_scan,
     row = _entry_row(entry, item_row)
     context = entry_wip_bin_rule(entry, row)
     if not context:
-        frappe.throw(f"Item {row.item_code} is not configured for a Standard Quantity WIP Bin")
+        frappe.throw(f"Item {row.item_code} is not configured for a controlled WIP Bin")
     profile, session = actor
     if event_token:
         existing = frappe.db.get_value(
@@ -320,17 +321,20 @@ def allocate_transfer_bin(stock_entry, item_row, reusable_bin_scan,
     remaining = _remaining_transfer_qty(entry.name, row.name, _row_stock_qty(row))
     bin_unit = _resolve_reusable_bin(reusable_bin_scan, context, entry, row)
     _lock_reusable_bin(bin_unit.name)
-    standard_qty = wip_bin_full_qty(
-        bin_unit.name, row.item_code, row.stock_uom, context["standard_bin_qty"]
+    loose_mode = context.get("bin_mode") == "Loose Multi-Item"
+    standard_qty = (
+        remaining if loose_mode else wip_bin_full_qty(
+            bin_unit.name, row.item_code, row.stock_uom, context["standard_bin_qty"]
+        )
     )
     explicit_qty = actual_qty not in (None, "")
     requested_qty = flt(actual_qty)
     if explicit_qty and requested_qty <= TOLERANCE:
         frappe.throw("Partial WIP Bin quantity must be greater than zero")
     qty = requested_qty if explicit_qty else standard_qty
-    partial_exception = abs(qty - standard_qty) > TOLERANCE
+    partial_exception = (not loose_mode and abs(qty - standard_qty) > TOLERANCE)
     exception_reason = (exception_reason or "").strip()
-    if qty > standard_qty + TOLERANCE:
+    if not loose_mode and qty > standard_qty + TOLERANCE:
         frappe.throw(
             f"A WIP Bin cannot exceed its Standard Full-bin Qty of {standard_qty} "
             f"{row.stock_uom}"
@@ -369,7 +373,8 @@ def allocate_transfer_bin(stock_entry, item_row, reusable_bin_scan,
             source_company=entry.company, source_warehouse=row.s_warehouse,
             reference_doctype="Stock Entry", reference_name=entry.name,
             operator=profile.employee, operator_session=session.name,
-            reason=f"Reserved for fixed WIP Bin {bin_unit.handling_unit_id}",
+            reason=(f"Reserved for {'loose' if loose_mode else 'fixed'} WIP Bin "
+                    f"{bin_unit.handling_unit_id}"),
         )
     load, _created = create_transfer_load(
         stock_entry=entry.name, stock_entry_detail=row.name,
@@ -433,10 +438,7 @@ def cancel_transfer_bin(load_name, operator_session_token, kanban_card):
         "source_reversal_ledger": reversal_ledger.name if reversal_ledger else None,
         "notes": "Draft WIP Bin allocation cancelled; ERPNext stock was not moved",
     }, update_modified=True)
-    frappe.db.set_value(
-        "CFG Kanban Handling Unit", load.reusable_bin, "wip_bin_state", "Empty",
-        update_modified=False,
-    )
+    _refresh_wip_bin_state(load.reusable_bin)
     return {"load": load.name, "status": "Cancelled", "stock_entry": entry.name}
 
 
@@ -549,10 +551,7 @@ def cancel_consumption_bin(load_name, operator_session_token, kanban_card):
         "in_use_on": None,
         "notes": "Removed from Draft consumption; physical WIP Bin restored to Ready",
     }, update_modified=True)
-    frappe.db.set_value(
-        "CFG Kanban Handling Unit", load.reusable_bin, "wip_bin_state", "Ready",
-        update_modified=False,
-    )
+    _refresh_wip_bin_state(load.reusable_bin)
     record(
         "WIP Bin Consumption Draft Released", cycle=load.kanban_cycle,
         execution=load.process_execution, handling_unit=load.reusable_bin,
@@ -638,10 +637,7 @@ def record_pending_consumption(*, kanban_cycle, work_order, job_card,
             f"consume {consumed}; return {returned}; token {event_token or '-'}"
         ),
     }, update_modified=True)
-    frappe.db.set_value(
-        "CFG Kanban Handling Unit", load.reusable_bin, "wip_bin_state", "In Use",
-        update_modified=False,
-    )
+    _refresh_wip_bin_state(load.reusable_bin)
     card = frappe.db.get_value("CFG Kanban Cycle", load.kanban_cycle, "kanban_card")
     record(
         "WIP Bin Physical Use Recorded", card=card, cycle=load.kanban_cycle,
@@ -668,10 +664,7 @@ def cancel_pending_consumption(load_name, *, operator=None, operator_session=Non
         "consumption_reported_on": None, "in_use_on": None,
         "notes": "Unposted physical-use record cancelled; WIP Bin restored to Ready",
     }, update_modified=True)
-    frappe.db.set_value(
-        "CFG Kanban Handling Unit", load.reusable_bin, "wip_bin_state", "Ready",
-        update_modified=False,
-    )
+    _refresh_wip_bin_state(load.reusable_bin)
     record(
         "WIP Bin Physical Use Cancelled", cycle=load.kanban_cycle,
         execution=load.process_execution, handling_unit=load.reusable_bin,
@@ -685,7 +678,7 @@ def cancel_pending_consumption(load_name, *, operator=None, operator_session=Non
 
 
 def entry_wip_bin_rule(entry, row):
-    """Return the exact Master/Job Card context when an ERP row uses a fixed WIP bin."""
+    """Return the exact Master/Job Card context for either controlled WIP-bin mode."""
     cycle_name = entry.get("cfg_kanban_cycle")
     if not cycle_name:
         return None
@@ -714,19 +707,27 @@ def entry_wip_bin_rule(entry, row):
         "parenttype": "CFG Kanban Master",
         "item_code": row.item_code,
         "operation": job.operation,
-        "wip_presentation_method": "Standard Quantity Reusable WIP Bin",
-    }, ["wip_bin_pool", "standard_bin_qty", "stock_uom"], as_dict=True)
+        "wip_presentation_method": ["in", [
+            "Standard Quantity Reusable WIP Bin", "Loose Multi-Item WIP Bin",
+        ]],
+    }, ["wip_bin_pool", "standard_bin_qty", "stock_uom",
+        "wip_presentation_method"], as_dict=True)
     if not rule:
         return None
     pool = frappe.db.get_value(
         "CFG Kanban WIP Bin Pool", rule.wip_bin_pool,
-        ["require_full_bin_consumption", "allow_supervisor_partial_exception"],
+        ["pool_mode", "loose_consumption_policy", "require_full_bin_consumption",
+         "allow_supervisor_partial_exception"],
         as_dict=True,
     ) or {}
     return {
         "kanban_cycle": cycle.name, "kanban_master": cycle.kanban_master,
+        "work_order": entry.work_order,
         "job_card": job.name, "operation": job.operation,
         "workstation": job.workstation, "wip_bin_pool": rule.wip_bin_pool,
+        "presentation_method": rule.wip_presentation_method,
+        "bin_mode": pool.get("pool_mode") or "Standard Quantity",
+        "loose_consumption_policy": pool.get("loose_consumption_policy"),
         "standard_bin_qty": flt(rule.standard_bin_qty), "stock_uom": rule.stock_uom,
         "require_full_bin_consumption": bool(cint(pool.get("require_full_bin_consumption"))),
         "allow_supervisor_partial_exception": bool(cint(
@@ -796,7 +797,7 @@ def create_transfer_load(*, stock_entry, stock_entry_detail, reusable_bin,
     rule = _wip_rule(cycle.kanban_master, item_code, job.operation)
     pool = frappe.db.get_value(
         "CFG Kanban WIP Bin Pool", rule.wip_bin_pool,
-        ["company", "wip_warehouse"], as_dict=True,
+        ["company", "pool_mode", "wip_warehouse"], as_dict=True,
     )
     if not pool or pool.company != entry.company or pool.wip_warehouse != row.t_warehouse:
         frappe.throw("WIP Bin Pool does not match the ERPNext transfer Company/WIP Warehouse")
@@ -812,11 +813,21 @@ def create_transfer_load(*, stock_entry, stock_entry_detail, reusable_bin,
 
     _lock_reusable_bin(reusable_bin)
     bin_unit = frappe.get_doc("CFG Kanban Handling Unit", reusable_bin)
-    _assert_reusable_bin(bin_unit, rule.wip_bin_pool, entry.company, row.t_warehouse)
-    standard_qty = wip_bin_full_qty(
-        bin_unit.name, item_code, row.stock_uom, rule.standard_bin_qty
+    bin_mode = pool.pool_mode or "Standard Quantity"
+    context = {
+        "wip_bin_pool": rule.wip_bin_pool, "bin_mode": bin_mode,
+        "work_order": entry.work_order, "job_card": job.name,
+        "operation": job.operation, "workstation": job.workstation,
+        "item_code": item_code,
+    }
+    _assert_reusable_bin(
+        bin_unit, context, entry.company, row.t_warehouse,
     )
-    if qty > standard_qty + TOLERANCE:
+    standard_qty = (
+        qty if bin_mode == "Loose Multi-Item" else
+        wip_bin_full_qty(bin_unit.name, item_code, row.stock_uom, rule.standard_bin_qty)
+    )
+    if bin_mode == "Standard Quantity" and qty > standard_qty + TOLERANCE:
         frappe.throw(
             f"WIP Bin {bin_unit.handling_unit_id} cannot exceed its Item-specific Full-bin "
             f"Capacity of {standard_qty} {row.stock_uom}"
@@ -825,6 +836,7 @@ def create_transfer_load(*, stock_entry, stock_entry_detail, reusable_bin,
     load = frappe.get_doc({
         "doctype": "CFG Kanban WIP Bin Load",
         "status": "Transfer Draft",
+        "bin_mode": bin_mode,
         "reusable_bin": reusable_bin,
         "wip_bin_pool": rule.wip_bin_pool,
         "company": entry.company,
@@ -856,10 +868,7 @@ def create_transfer_load(*, stock_entry, stock_entry_detail, reusable_bin,
         "operator_session": operator_session,
         "notes": "Awaiting ERPNext Material Transfer submission",
     }).insert(ignore_permissions=True)
-    frappe.db.set_value(
-        "CFG Kanban Handling Unit", reusable_bin, "wip_bin_state", "Reserved",
-        update_modified=False,
-    )
+    _refresh_wip_bin_state(reusable_bin)
     record(
         "WIP Bin Load Reserved", card=cycle.kanban_card, cycle=cycle.name,
         execution=process_execution, handling_unit=reusable_bin, qty=qty,
@@ -909,10 +918,7 @@ def bind_consumption_draft(load_name, stock_entry, stock_entry_detail,
             f"consume {consumed}; return {returned}"
         ),
     }, update_modified=True)
-    frappe.db.set_value(
-        "CFG Kanban Handling Unit", load.reusable_bin, "wip_bin_state", "In Use",
-        update_modified=False,
-    )
+    _refresh_wip_bin_state(load.reusable_bin)
     return frappe.get_doc("CFG Kanban WIP Bin Load", load.name)
 
 
@@ -1152,10 +1158,7 @@ def confirm_wip_bin_stock_entry(doc):
             event_type = "WIP Bin Unused Material Returned"
         if load.job_card:
             deferred_job_cards.add(load.job_card)
-        frappe.db.set_value(
-            "CFG Kanban Handling Unit", load.reusable_bin,
-            "wip_bin_state", bin_state, update_modified=False,
-        )
+        _refresh_wip_bin_state(load.reusable_bin)
         record(
             event_type, cycle=load.kanban_cycle, execution=load.process_execution,
             handling_unit=load.reusable_bin,
@@ -1167,6 +1170,9 @@ def confirm_wip_bin_stock_entry(doc):
         )
     if deferred_job_cards:
         _submit_deferred_job_cards(deferred_job_cards, doc)
+    if direction == "consumption":
+        from cfg_kanban.services.loose_wip import confirm_consumption
+        confirm_consumption(doc.name)
 
 
 def _create_wip_bin_return_draft(load):
@@ -1332,6 +1338,22 @@ def reverse_wip_bin_stock_entry(doc):
                    else "Draft allocation released before ERP movement")
             ),
         }, update_modified=True)
+        if direction == "consumption" and load.bin_mode == "Loose Multi-Item":
+            for usage_name in frappe.get_all(
+                "CFG Kanban Loose WIP Usage",
+                {"wip_bin_load": load.name, "consumption_stock_entry": doc.name,
+                 "status": "Posted"},
+                pluck="name", limit_page_length=0,
+            ):
+                frappe.db.set_value(
+                    "CFG Kanban Loose WIP Usage", usage_name,
+                    {"status": "Posting Reversed",
+                     "reversal_reason": (
+                         f"ERPNext consumption {doc.name} was cancelled; supervisor "
+                         "reconciliation is required"
+                     )},
+                    update_modified=True,
+                )
         frappe.db.set_value(
             "CFG Kanban Handling Unit", load.reusable_bin,
             "wip_bin_state", bin_state, update_modified=False,
@@ -1479,8 +1501,7 @@ def resolve_wip_bin_reconciliation(reconciliation_name, decision, reusable_bin_s
     timestamp = now_datetime()
     frappe.db.set_value(
         "CFG Kanban Handling Unit", load.reusable_bin,
-        {"wip_bin_state": physical_state, "last_reconciled_on": timestamp},
-        update_modified=False,
+        "last_reconciled_on", timestamp, update_modified=False,
     )
     reconciliation.db_set({
         "status": "Resolved", "decision": decision,
@@ -1493,6 +1514,7 @@ def resolve_wip_bin_reconciliation(reconciliation_name, decision, reusable_bin_s
         "operator_session": session.name, "terminal_user": session.terminal_user,
         "reason": reason, "resolution_notes": evidence,
     }, update_modified=True)
+    _refresh_wip_bin_state(load.reusable_bin)
     _release_reconciled_cycle_hold(reconciliation)
     load.db_set(
         "notes", f"{load.notes or ''}\nResolved by {reconciliation.name}: {evidence}".strip(),
@@ -1650,6 +1672,7 @@ def _create_recovered_ready_load(load, reconciliation, profile, session, event_t
         return recovered
     return frappe.get_doc({
         "doctype": "CFG Kanban WIP Bin Load", "status": "Ready",
+        "bin_mode": load.bin_mode or "Standard Quantity",
         "reusable_bin": load.reusable_bin, "wip_bin_pool": load.wip_bin_pool,
         "company": load.company, "item_code": load.item_code,
         "batch_no": load.batch_no, "standard_qty": load.standard_qty,
@@ -1883,8 +1906,11 @@ def _wip_rule(master, item_code, operation):
         "parenttype": "CFG Kanban Master",
         "item_code": item_code,
         "operation": operation,
-        "wip_presentation_method": "Standard Quantity Reusable WIP Bin",
-    }, ["wip_bin_pool", "standard_bin_qty", "stock_uom"], as_dict=True)
+        "wip_presentation_method": ["in", [
+            "Standard Quantity Reusable WIP Bin", "Loose Multi-Item WIP Bin",
+        ]],
+    }, ["wip_bin_pool", "standard_bin_qty", "stock_uom",
+        "wip_presentation_method"], as_dict=True)
     if not rule:
         frappe.throw(f"Item {item_code} is not configured as a reusable WIP Bin material")
     return rule
@@ -1974,6 +2000,51 @@ def _lock_reusable_bin(reusable_bin):
         reusable_bin,
     ):
         frappe.throw("Reusable WIP Bin was not found")
+
+
+def _refresh_wip_bin_state(reusable_bin):
+    """Derive physical state from all active load episodes for one permanent bin."""
+    unit = frappe.db.get_value(
+        "CFG Kanban Handling Unit", reusable_bin,
+        ["reusable_container_role", "wip_bin_state"], as_dict=True,
+    )
+    if not unit or unit.reusable_container_role not in (
+        "Standard Quantity WIP Bin", "Loose Multi-Item WIP Bin",
+    ):
+        return
+    if frappe.db.exists(
+        "CFG Kanban WIP Bin Reconciliation",
+        {"reusable_bin": reusable_bin, "status": "Open"},
+    ):
+        next_state = "Exception"
+    else:
+        active = frappe.get_all(
+            "CFG Kanban WIP Bin Load",
+            {"reusable_bin": reusable_bin, "status": ["in", list(ACTIVE_LOAD_STATUSES)]},
+            ["status", "bin_mode"], limit_page_length=0,
+        )
+        if not active:
+            next_state = "Empty"
+        elif unit.reusable_container_role == "Loose Multi-Item WIP Bin":
+            statuses = {row.status for row in active}
+            if statuses.intersection({"Consumption Draft", "Return Draft"}):
+                next_state = "Awaiting Consumption"
+            elif statuses.intersection({"Transfer Draft"}):
+                next_state = "Filling"
+            else:
+                next_state = "Accumulating"
+        else:
+            status = active[0].status
+            if status == "Transfer Draft":
+                next_state = "Reserved"
+            elif status == "Ready":
+                next_state = "Ready"
+            else:
+                next_state = "In Use"
+    frappe.db.set_value(
+        "CFG Kanban Handling Unit", reusable_bin, "wip_bin_state", next_state,
+        update_modified=False,
+    )
 
 
 def _lock_load(load_name):
@@ -2148,17 +2219,25 @@ def manufacture_receipt_wip_bin_readiness(work_order, cycle_name=None):
 def _resolve_reusable_bin(scan_value, context, entry, row):
     identity = resolve_logistics_scan(scan_value)
     if not identity or identity.get("identity_type") != "Handling Unit":
-        frappe.throw("Scan an active Standard Quantity WIP Bin")
+        frappe.throw("Scan an active reusable WIP Bin")
     unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
-    _assert_reusable_bin(unit, context["wip_bin_pool"], entry.company, row.t_warehouse)
+    _assert_reusable_bin(unit, context, entry.company, row.t_warehouse)
     return unit
 
 
-def _assert_reusable_bin(unit, pool_name, company, wip_warehouse):
+def _assert_reusable_bin(unit, context, company, wip_warehouse):
+    pool_name = context["wip_bin_pool"]
+    bin_mode = context.get("bin_mode") or "Standard Quantity"
+    expected_role = (
+        "Loose Multi-Item WIP Bin" if bin_mode == "Loose Multi-Item"
+        else "Standard Quantity WIP Bin"
+    )
     if (unit.tag_kind != "Reusable Container"
-            or unit.reusable_container_role != "Standard Quantity WIP Bin"):
-        frappe.throw(f"Tag {unit.handling_unit_id} is not a Standard Quantity WIP Bin")
-    if unit.identity_state not in ("Active", "Empty") or unit.wip_bin_state != "Empty":
+            or unit.reusable_container_role != expected_role):
+        frappe.throw(f"Tag {unit.handling_unit_id} is not a {expected_role}")
+    if unit.identity_state not in ("Active", "Empty"):
+        frappe.throw(f"WIP Bin {unit.handling_unit_id} is not active")
+    if bin_mode != "Loose Multi-Item" and unit.wip_bin_state != "Empty":
         frappe.throw(
             f"WIP Bin {unit.handling_unit_id} is {unit.identity_state} / "
             f"{unit.wip_bin_state or 'Unspecified'}, not Empty"
@@ -2169,18 +2248,41 @@ def _assert_reusable_bin(unit, pool_name, company, wip_warehouse):
         )
     if not frappe.db.exists("CFG Kanban WIP Bin Pool Entry", {
         "parent": pool_name, "parenttype": "CFG Kanban WIP Bin Pool",
-        "reusable_bin": unit.name,
+        "reusable_bin": unit.name, "workstation": context.get("workstation"), "active": 1,
     }):
         frappe.throw(f"WIP Bin {unit.handling_unit_id} is not approved in Pool {pool_name}")
-    active = frappe.db.get_value(
+    if bin_mode == "Loose Multi-Item" and not frappe.db.exists(
+        "CFG Kanban Loose WIP Allowed Item", {
+            "parent": unit.name, "parenttype": "CFG Kanban Handling Unit",
+            "parentfield": "loose_wip_allowed_items",
+            "item_code": context.get("item_code"), "active": 1,
+        },
+    ):
+        frappe.throw(
+            f"Item {context.get('item_code')} is not authorized for Loose WIP Bin "
+            f"{unit.handling_unit_id}"
+        )
+    active = frappe.get_all(
         "CFG Kanban WIP Bin Load",
         {"reusable_bin": unit.name,
          "status": ["in", ["Reserved", "Transfer Draft", "Ready", "In Use",
-                            "Consumption Pending ERP", "Consumption Draft"]]},
-        "name",
+                            "Consumption Pending ERP", "Consumption Draft", "Return Draft"]]},
+        ["name", "bin_mode", "wip_bin_pool", "work_order", "job_card", "operation",
+         "workstation"],
     )
-    if active:
-        frappe.throw(f"WIP Bin {unit.handling_unit_id} already has active Load {active}")
+    if active and bin_mode != "Loose Multi-Item":
+        frappe.throw(f"WIP Bin {unit.handling_unit_id} already has active Load {active[0].name}")
+    for load in active:
+        if ((load.bin_mode or "Standard Quantity") != "Loose Multi-Item"
+                or load.wip_bin_pool != pool_name
+                or load.work_order != context.get("work_order")
+                or load.job_card != context.get("job_card")
+                or load.operation != context.get("operation")
+                or load.workstation != context.get("workstation")):
+            frappe.throw(
+                f"Loose WIP Bin {unit.handling_unit_id} is already owned by Load "
+                f"{load.name} for another production context"
+            )
 
 
 def _resolve_source_unit(scan_value, entry, row, policy, qty, batch_no):

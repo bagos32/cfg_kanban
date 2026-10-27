@@ -79,6 +79,210 @@ def classify_trace_scan(stock_entry, scan_value, operator_session_token=None,
 
 
 @frappe.whitelist()
+def classify_wip_trace_scan(stock_entry, scan_value, operator_session_token=None,
+                            kanban_card=None):
+    """Resolve a physical scan before the operator dialog assigns it to a field.
+
+    A production transfer may contain Standard WIP Bins, Loose WIP Bins, ordinary
+    Stock Tags, and ERP-only rows at the same time.  The scanned identity—not the
+    currently selected browser row—is therefore authoritative.  This method is
+    intentionally read-only; allocation remains in the existing controlled services.
+    """
+    doc = frappe.get_doc("Stock Entry", stock_entry)
+    actor = _authorize_trace_access(
+        doc, "write", operator_session_token=operator_session_token,
+        kanban_card=kanban_card,
+    )
+    _assert_editable(doc)
+    _assert_supported(doc)
+    plan = _trace_plan(doc, _get_trace(doc.name), operator_actor=actor)
+    pending = [
+        row for row in plan.get("rows", [])
+        if row.get("direction") == "Input" and row.get("wip_bin_required")
+        and flt(row.get("wip_bin_remaining_qty")) > TOLERANCE
+    ]
+    identity = resolve_logistics_scan(scan_value)
+    if not identity or identity.get("identity_type") != "Handling Unit":
+        frappe.throw("Scan an active Stock Tag or reusable WIP Bin")
+    unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
+    result = {
+        "identity_type": "Handling Unit",
+        "name": unit.name,
+        "handling_unit_id": unit.handling_unit_id,
+        "tag_kind": unit.tag_kind,
+        "reusable_container_role": unit.reusable_container_role,
+        "item_code": unit.item_code,
+        "batch_no": unit.batch_no,
+        "stock_uom": unit.stock_uom,
+        "candidate_rows": [],
+    }
+    if unit.tag_kind == "Reusable Container":
+        if unit.reusable_container_role not in (
+            "Standard Quantity WIP Bin", "Loose Multi-Item WIP Bin",
+        ):
+            result.update({
+                "scan_kind": "Unsupported Reusable Container",
+                "message": (
+                    f"Reusable Container {unit.handling_unit_id} is configured as "
+                    f"{unit.reusable_container_role or 'Unspecified'}, not as a WIP Bin"
+                ),
+            })
+            return result
+        result["scan_kind"] = "WIP Bin"
+        result["bin_mode"] = (
+            "Loose Multi-Item"
+            if unit.reusable_container_role == "Loose Multi-Item WIP Bin"
+            else "Standard Quantity"
+        )
+        result["candidate_rows"] = _matching_wip_bin_rows(doc, unit, pending)
+    else:
+        result["scan_kind"] = "Source Stock Tag"
+        result["candidate_rows"] = _matching_wip_source_rows(doc, unit, pending)
+    if len(result["candidate_rows"]) == 1:
+        result["selected_row"] = result["candidate_rows"][0]
+    elif not result["candidate_rows"]:
+        result["message"] = _wip_scan_no_match_message(doc, unit, result["scan_kind"])
+    else:
+        result["ambiguous"] = 1
+        result["message"] = (
+            f"Tag {unit.handling_unit_id} matches more than one pending material row; "
+            "scan the numbered Select command"
+        )
+    return result
+
+
+def _matching_wip_bin_rows(doc, unit, pending):
+    """Return pending ERP row names that the physical WIP Bin can validly serve."""
+    from cfg_kanban.services.wip_bin_loads import entry_wip_bin_rule
+
+    expected_mode = (
+        "Loose Multi-Item"
+        if unit.reusable_container_role == "Loose Multi-Item WIP Bin"
+        else "Standard Quantity"
+    )
+    entry_rows = {row.name: row for row in doc.items}
+    matches = []
+    consumption = _purpose(doc) == "Material Consumption for Manufacture"
+    capacities = set()
+    if expected_mode == "Standard Quantity":
+        capacities = {
+            (value.item_code, value.stock_uom)
+            for value in frappe.get_all(
+                "CFG Kanban WIP Bin Capacity",
+                {
+                    "parent": unit.name,
+                    "parenttype": "CFG Kanban Handling Unit",
+                    "parentfield": "wip_bin_capacities",
+                    "active": 1,
+                },
+                ["item_code", "stock_uom"], limit_page_length=0,
+            )
+        }
+    ready_loads = []
+    if consumption:
+        ready_loads = frappe.get_all(
+            "CFG Kanban WIP Bin Load",
+            {
+                "reusable_bin": unit.name,
+                "status": ["in", ["Ready", "Consumption Draft"]],
+                "work_order": doc.work_order,
+            },
+            ["status", "wip_bin_pool", "kanban_cycle", "job_card", "item_code",
+             "batch_no", "wip_warehouse", "stock_uom", "consumption_stock_entry",
+             "consumption_stock_entry_detail"],
+            order_by="creation desc", limit_page_length=0,
+        )
+    for summary in pending:
+        row = entry_rows.get(summary.get("row_name"))
+        if not row or summary.get("wip_bin_mode") != expected_mode:
+            continue
+        context = entry_wip_bin_rule(doc, row)
+        if not context or not context.get("wip_bin_pool"):
+            continue
+        expected_warehouse = row.s_warehouse if consumption else row.t_warehouse
+        if (unit.inventory_company != doc.company
+                or unit.current_warehouse != expected_warehouse):
+            continue
+        if not frappe.db.exists("CFG Kanban WIP Bin Pool Entry", {
+            "parent": context["wip_bin_pool"],
+            "parenttype": "CFG Kanban WIP Bin Pool",
+            "reusable_bin": unit.name,
+            "workstation": context.get("workstation"),
+            "active": 1,
+        }):
+            continue
+        if expected_mode == "Loose Multi-Item" and not frappe.db.exists(
+            "CFG Kanban Loose WIP Allowed Item", {
+                "parent": unit.name,
+                "parenttype": "CFG Kanban Handling Unit",
+                "parentfield": "loose_wip_allowed_items",
+                "item_code": row.item_code,
+                "active": 1,
+            },
+        ):
+            continue
+        if (expected_mode == "Standard Quantity" and capacities
+                and (row.item_code, row.stock_uom) not in capacities):
+            continue
+        if not consumption:
+            matches.append(row.name)
+            continue
+        entry_job_card = doc.get("cfg_kanban_job_card") or doc.get("job_card")
+        row_batch = _tag_batch_no(row) or ""
+        if any(
+            load.wip_bin_pool == context["wip_bin_pool"]
+            and load.kanban_cycle == doc.get("cfg_kanban_cycle")
+            and (not entry_job_card or load.job_card == entry_job_card)
+            and load.item_code == row.item_code
+            and load.wip_warehouse == row.s_warehouse
+            and load.stock_uom == row.stock_uom
+            and (load.batch_no or "") == row_batch
+            and (load.status != "Consumption Draft"
+                 or (load.consumption_stock_entry == doc.name
+                     and load.consumption_stock_entry_detail == row.name))
+            for load in ready_loads
+        ):
+            matches.append(row.name)
+    return list(dict.fromkeys(matches))
+
+
+def _matching_wip_source_rows(doc, unit, pending):
+    """Match an ordinary source tag to pending WIP transfer rows without mutating them."""
+    if _purpose(doc) == "Material Consumption for Manufacture":
+        return []
+    if (unit.identity_state != "Active" or flt(unit.available_qty) <= TOLERANCE
+            or unit.inventory_company != doc.company):
+        return []
+    entry_rows = {row.name: row for row in doc.items}
+    matches = []
+    for summary in pending:
+        row = entry_rows.get(summary.get("row_name"))
+        if not row or summary.get("tag_policy") == NO_TAG:
+            continue
+        if (unit.item_code != row.item_code
+                or unit.current_warehouse != row.s_warehouse
+                or unit.stock_uom != row.stock_uom):
+            continue
+        row_batch = _tag_batch_no(row)
+        if row_batch and (unit.batch_no or "") != row_batch:
+            continue
+        matches.append(row.name)
+    return list(dict.fromkeys(matches))
+
+
+def _wip_scan_no_match_message(doc, unit, scan_kind):
+    if scan_kind == "WIP Bin":
+        return (
+            f"WIP Bin {unit.handling_unit_id} does not match any pending material row by "
+            "bin role, Pool, workstation, Item permission, Company, or WIP Warehouse"
+        )
+    return (
+        f"Stock Tag {unit.handling_unit_id} ({unit.item_code or 'no Item'}) does not match "
+        "any pending material row by Item, source Warehouse, UOM, or Batch"
+    )
+
+
+@frappe.whitelist()
 def allocate_input_tag(stock_entry, item_row=None, scan_value=None, qty=0,
                        operator_session_token=None, kanban_card=None):
     qty = flt(qty)
@@ -829,6 +1033,12 @@ def _trace_plan(doc, trace, operator_actor=None):
                     entry_wip_bin_rule,
                 )
                 wip_context = entry_wip_bin_rule(doc, row)
+                if doc.get("cfg_loose_wip_consolidated"):
+                    wip_context = {
+                        "bin_mode": "Loose Multi-Item",
+                        "presentation_method": "Loose Multi-Item WIP Bin",
+                        "loose_consumption_policy": "Accumulate until Work Order close",
+                    }
                 if wip_context:
                     wip_loads = consumption_loads_for_row(doc.name, row.name)
                     wip_action = "Consume"
@@ -907,6 +1117,13 @@ def _plan_row(row, direction, warehouse, tag_policy, policy_source, allocated,
         "tag_required": tag_policy == "Required Physical Tag",
         "wip_bin_required": bool(wip_context),
         "wip_bin_action": wip_action,
+        "wip_bin_mode": (wip_context.get("bin_mode") if wip_context else None),
+        "wip_presentation_method": (
+            wip_context.get("presentation_method") if wip_context else None
+        ),
+        "loose_consumption_policy": (
+            wip_context.get("loose_consumption_policy") if wip_context else None
+        ),
         "wip_bin_pool": wip_context.get("wip_bin_pool") if wip_context else None,
         "allow_supervisor_partial_exception": (
             bool(wip_context.get("allow_supervisor_partial_exception"))

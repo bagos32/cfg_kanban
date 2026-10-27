@@ -1,0 +1,13 @@
+{
+  "doctype": "DocType",
+  "name": "CFG Kanban Loose WIP Allowed Item",
+  "module": "CFG Kanban",
+  "istable": 1,
+  "editable_grid": 1,
+  "field_order": ["item_code", "stock_uom", "active"],
+  "fields": [
+    {"fieldname":"item_code","label":"Allowed Item","fieldtype":"Link","options":"Item","reqd":1,"in_list_view":1,"columns":6,"description":"Only this Item may be loaded into the Loose WIP Bin."},
+    {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM","read_only":1,"in_list_view":1,"columns":4},
+    {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"columns":2}
+  ]
+}

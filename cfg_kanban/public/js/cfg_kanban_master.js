@@ -26,6 +26,8 @@ frappe.ui.form.on("CFG Kanban Master", {
 			const row = locals[cdt][cdn];
 			return { filters: {
 				active: 1,
+				pool_mode: row.wip_presentation_method === "Loose Multi-Item WIP Bin"
+					? "Loose Multi-Item" : "Standard Quantity",
 				company: frm.doc.company || "",
 				operation: row.operation || "",
 				wip_warehouse: frm.doc.wip_warehouse || "",
@@ -241,8 +243,11 @@ frappe.ui.form.on("CFG Kanban Operation Profile", {
 frappe.ui.form.on("CFG Kanban Material Flow Rule", {
 	wip_presentation_method(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
-		if (row.wip_presentation_method !== "Standard Quantity Reusable WIP Bin") {
+		if (!["Standard Quantity Reusable WIP Bin", "Loose Multi-Item WIP Bin"]
+			.includes(row.wip_presentation_method)) {
 			frappe.model.set_value(cdt, cdn, "wip_bin_pool", null);
+		}
+		if (row.wip_presentation_method !== "Standard Quantity Reusable WIP Bin") {
 			frappe.model.set_value(cdt, cdn, "standard_bin_qty", 0);
 		}
 	},

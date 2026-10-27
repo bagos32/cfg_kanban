@@ -1747,6 +1747,62 @@ condition.
 Use `docs/TEST_STANDARD_QUANTITY_WIP_BIN_TRANSFER_GATE.md` for the complete transfer-and-consumption
 acceptance test before enabling the method on a live production Master.
 
+#### Loose multi-Item reusable WIP bins
+
+Use a **Loose Multi-Item WIP Bin** when a workstation needs variable quantities, may prepare more
+than one explicitly authorized Item in the same physical bin, and should not print or detach a child
+tag merely to move material into WIP. This is separate from the visually fixed **Standard Quantity
+WIP Bin**.
+
+Create the permanent **CFG Kanban Handling Unit** with **Tag Kind** = `Reusable Container`,
+**Reusable Container Role** = `Loose Multi-Item WIP Bin`, the exact Company and WIP Warehouse, and
+one or more active **Allowed Loose WIP Items** (`loose_wip_allowed_items`). Serial-controlled Items
+are rejected. Create a **CFG Kanban WIP Bin Pool** with **WIP Bin Mode** (`pool_mode`) =
+`Loose Multi-Item`, assign the bin to its exact Workstation, and retain **Loose WIP Consumption
+Posting** = `Accumulate until Work Order close`. On each applicable BOM component row choose **WIP
+Presentation** = `Loose Multi-Item WIP Bin` and the matching Pool. The Master must use **Transfer to
+WIP by Job Card**.
+
+The transfer scanner accepts an operator-entered quantity up to the remaining ERP row rather than
+using a fixed capacity. A submitted ERPNext `Material Transfer for Manufacture` creates a separate
+immutable **CFG Kanban WIP Bin Load** for every Item/Batch/load episode. Several episodes may share
+one Loose bin only inside the same Company, Pool, WIP Warehouse, Work Order, Job Card, Operation, and
+Workstation. No child Stock Tag is created; a source Stock Tag is reserved while Draft and reduced
+only after ERP transfer submission.
+
+The material-trace scanner identifies the physical tag type before choosing a field or ERP row.
+An ordinary Stock Tag becomes a source; a Standard Quantity WIP Bin can select only a compatible
+Standard row; and a Loose Multi-Item WIP Bin can select only an allow-listed Loose row in its exact
+Pool, Workstation, Company, and WIP Warehouse. For Loose loading, scan
+`CFG:QTY:MATERIAL:<quantity>`, then the source tag when required, then the permanent Loose bin. For
+full Standard loading, scan the source when required and the Standard bin; its configured capacity
+is the quantity. A WIP Bin scanned before its source is held safely instead of being written into
+the source field. If several rows remain genuinely valid, scan the displayed `CFG:SELECT:n`; the
+held physical scan then continues automatically.
+
+Each operation-card cycle may select **Record Loose WIP Use**, scan the same permanent bin, choose
+the numbered Item/Batch when the bin contains several choices, and enter actual use. Every scan
+creates immutable **CFG Kanban Loose WIP Usage** evidence containing both the material-owner Cycle
+and the requesting operation-card Cycle. Repeated cycles accumulate against the same Job Card.
+**Undo** reverses only an unposted mistake with a reason; it never deletes the audit row or changes
+ERP stock.
+
+After all Work Order Job Cards complete, the main Production Card shows **Prepare Consolidated Loose
+WIP Consumption**. It creates one native Draft `Material Consumption for Manufacture`, grouped by
+Item, Batch, UOM, and WIP Warehouse. Only its submitted ERPNext feedback marks usage Posted. Every
+unused load balance receives a separate controlled WIP-to-source return Draft, and the permanent bin
+does not become Empty until every required return submits. Manufacture receipt remains blocked
+until all Loose WIP consumption and return movements are resolved.
+
+Supervisors can monitor both Standard and Loose bins in **WIP Bin Control**. Loose rows show bin
+role/mode, multiple active load count, loaded Item/Batch identities, active loaded quantity,
+accumulated reported use, and `Accumulating` or `Awaiting Consumption` state. Multiple active loads
+are valid for Loose bins inside one production boundary; they remain a critical error for Standard
+bins.
+
+See `docs/LOOSE_MULTI_ITEM_WIP_BIN.md` for the design boundary and
+`docs/TEST_LOOSE_MULTI_ITEM_WIP_BIN.md` for the complete acceptance test.
+
 For **Transfer to WIP by Job Card**, both the main Production Card and the activated reusable
 Process/Station operation Card can prepare the transfer. The operation Card is deliberately limited
 to its runtime-selected Job Card: it cannot view or transfer another operation's materials and it
@@ -2627,6 +2683,15 @@ When all tagged inputs are complete, the same field advances to unused output-ta
 output row exists. Scans captured before browser focus reaches this field are routed back into this
 window instead of being interpreted as a new Kanban card. Rows marked **No Physical Tag** require no
 scan and remain controlled by the ERPNext Stock Entry.
+
+When controlled WIP rows are present, the same Scanner Ready field performs typed routing before
+allocation. It distinguishes ordinary Stock Tags, Standard Quantity WIP Bins, Loose Multi-Item WIP
+Bins, and unsupported reusable-container roles. A material quantity may be scanned before the
+physical identity; CFG Kanban holds it until the source tag or bin identifies the correct row.
+Loose WIP requires that quantity. Standard WIP takes its normal quantity from the scanned bin's
+Item-specific capacity; a scanned quantity on Standard WIP remains a controlled supervisor partial
+exception. An ambiguous physical match is held until `CFG:SELECT:n`, never assigned by the visually
+selected default row.
 
 The scanner determines the active stage from the Stock Entry's pending input/output rows, not from
 the visual position of fields in the popup. If a scanned Handling Unit belongs to an Item outside
@@ -4190,6 +4255,8 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.21 | 27 October 2026 | Added typed mixed-mode Production Material Trace routing: physical Stock Tags, Standard WIP Bins, and Loose WIP Bins now select compatible pending rows from live role/Pool/Workstation/Item/Company/Warehouse/UOM/Batch context; quantity-first scans are held until identity resolution, bin-first optional/required source flows are preserved safely, and ambiguous matches continue through numbered scanner selection without rescanning |
+| 2.20 | 27 October 2026 | Added Loose Multi-Item WIP Bins: permanent allow-listed multi-Item bins, variable no-capacity Job Card transfer loads without child-tag splitting, repeatable operation-card usage accumulation, immutable per-cycle use evidence, final Work Order-level consolidated ERP consumption, controlled unused-material returns, supervisor report visibility, print identity, and a complete acceptance guide while preserving Standard WIP behavior |
 | 2.19 | 27 October 2026 | Added Logistics Quantity Bins: a permanent lorry/bin QR receives a controlled partial Item/Batch quantity from a physical source Stock Tag without printing a child tag, preserves an internal audited fill identity and exact source genealogy, supports matching top-ups and controlled return-to-source, and moves through ordinary Manifest/ERP confirmation controls |
 | 2.18 | 27 October 2026 | Corrected Pause and Give Way runtime selection: a paused Job Card is no longer offered for a second Process/Station Card allocation, its paused queue row cannot carry stale supervisor priority into the eligible-work list, the Ready replacement remains recommended, and interrupted work continues only through Resume Paused Work |
 | 2.17 | 26 October 2026 | Closed the V1 in-flight production cancellation gap with manager-only freeze, audited Job Card timer pause, live ERP/physical dependency assessment, ordered ERPNext reversal guidance, WIP/Handling Unit reconciliation gates, protected floor writes, Supervisor Action Centre visibility, immutable evidence, and final Card release only after zero blockers |

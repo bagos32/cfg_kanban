@@ -5,6 +5,21 @@ from frappe.utils import cint
 
 class CFGKanbanWIPBinPool(Document):
     def validate(self):
+        self.pool_mode = self.pool_mode or "Standard Quantity"
+        if self.pool_mode not in ("Standard Quantity", "Loose Multi-Item"):
+            frappe.throw("Select a supported WIP Bin Mode")
+        if self.pool_mode == "Loose Multi-Item":
+            self.loose_consumption_policy = (
+                self.loose_consumption_policy or "Accumulate until Work Order close"
+            )
+            if self.loose_consumption_policy != "Accumulate until Work Order close":
+                frappe.throw(
+                    "Loose Multi-Item WIP currently posts accumulated use at Work Order close"
+                )
+            self.require_full_bin_consumption = 0
+            self.allow_supervisor_partial_exception = 0
+        else:
+            self.loose_consumption_policy = None
         self._validate_warehouse()
         self._validate_bins()
 
@@ -49,12 +64,17 @@ class CFGKanbanWIPBinPool(Document):
             )
             if not unit:
                 frappe.throw(f"WIP Bin row {row.idx}: Handling Unit was not found")
+            expected_role = (
+                "Loose Multi-Item WIP Bin"
+                if self.pool_mode == "Loose Multi-Item"
+                else "Standard Quantity WIP Bin"
+            )
             if unit.tag_kind != "Reusable Container" or (
-                unit.reusable_container_role != "Standard Quantity WIP Bin"
+                unit.reusable_container_role != expected_role
             ):
                 frappe.throw(
                     f"WIP Bin row {row.idx}: {unit.handling_unit_id} must be a Reusable "
-                    "Container with role Standard Quantity WIP Bin"
+                    f"Container with role {expected_role}"
                 )
             if unit.identity_state not in ("Active", "Empty"):
                 frappe.throw(

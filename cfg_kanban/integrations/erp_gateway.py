@@ -1315,6 +1315,9 @@ def create_production_material_consumption(command, payload):
         entry.cfg_kanban_controlled = 1
         entry.cfg_kanban_cycle = command.kanban_cycle
         entry.cfg_kanban_signal = command.source_signal
+        entry.cfg_loose_wip_consolidated = 1 if payload.get(
+            "loose_wip_consolidated"
+        ) else 0
         from cfg_kanban.services.wip_bin_loads import (
             enable_operation_scoped_consumption_validation,
         )

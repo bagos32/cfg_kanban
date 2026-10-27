@@ -5,7 +5,7 @@
  "doc_type": "CFG Kanban Handling Unit",
  "doctype": "Print Format",
  "font": "Arial",
- "html": "<div class=\"bin-label\"><div class=\"label-head\"><b>{% if doc.reusable_container_role == 'Standard Quantity WIP Bin' %}WIP BIN{% elif doc.reusable_container_role == 'Production Output Container' %}OUTPUT BIN{% elif doc.reusable_container_role == 'Logistics Quantity Bin' %}LORRY QTY BIN{% elif doc.tag_kind == 'Reusable Container' %}BIN / SLOT{% else %}STOCK TAG{% endif %}</b><span>{{ doc.wip_bin_state or doc.identity_state or doc.state or '' }}</span></div><div class=\"identity\">{{ doc.handling_unit_id }}</div><div class=\"barcode\">{{ get_code128_svg(doc.handling_unit_id, 24)|safe }}</div><div class=\"location\">{{ doc.container_reference or doc.current_warehouse or doc.current_operation or '-' }}</div></div>",
+ "html": "<div class=\"bin-label\"><div class=\"label-head\"><b>{% if doc.reusable_container_role == 'Standard Quantity WIP Bin' %}STANDARD WIP BIN{% elif doc.reusable_container_role == 'Loose Multi-Item WIP Bin' %}LOOSE WIP BIN{% elif doc.reusable_container_role == 'Production Output Container' %}OUTPUT BIN{% elif doc.reusable_container_role == 'Logistics Quantity Bin' %}LORRY QTY BIN{% elif doc.tag_kind == 'Reusable Container' %}BIN / SLOT{% else %}STOCK TAG{% endif %}</b><span>{{ doc.wip_bin_state or doc.identity_state or doc.state or '' }}</span></div><div class=\"identity\">{{ doc.handling_unit_id }}</div><div class=\"barcode\">{{ get_code128_svg(doc.handling_unit_id, 24)|safe }}</div><div class=\"location\">{{ doc.container_reference or doc.current_warehouse or doc.current_operation or '-' }}</div></div>",
  "margin_bottom": 0,
  "margin_left": 0,
  "margin_right": 0,

@@ -25,7 +25,9 @@ class CFGKanbanHandlingUnit(Document):
             )
             self._clear_stock_tag_identity()
             self._clear_reusable_stock_context()
-            if self.reusable_container_role == "Standard Quantity WIP Bin":
+            if self.reusable_container_role in (
+                "Standard Quantity WIP Bin", "Loose Multi-Item WIP Bin",
+            ):
                 self.wip_bin_state = self.wip_bin_state or "Empty"
         elif self.get("virtual_content"):
             self.reusable_container_role = None
@@ -108,6 +110,7 @@ class CFGKanbanHandlingUnit(Document):
                 self._clear_reusable_stock_context()
             self._validate_reusable_container_role()
             self._validate_wip_bin_capacities()
+            self._validate_loose_wip_allowed_items()
         else:
             self.reusable_container_role = None
             self.wip_bin_state = None
@@ -233,19 +236,22 @@ class CFGKanbanHandlingUnit(Document):
                 f"Company and Warehouse cannot change while this bin belongs to WIP Bin Pool "
                 f"{assigned_pool}"
             )
-        capacity_changed = _wip_capacity_signature(before) != _wip_capacity_signature(self)
-        active_load = capacity_changed and frappe.db.exists("CFG Kanban WIP Bin Load", {
+        policy_changed = (
+            _wip_capacity_signature(before) != _wip_capacity_signature(self)
+            or _loose_wip_item_signature(before) != _loose_wip_item_signature(self)
+        )
+        active_load = policy_changed and frappe.db.exists("CFG Kanban WIP Bin Load", {
             "reusable_bin": self.name,
             "status": ["in", ["Reserved", "Transfer Draft", "Ready", "In Use",
                               "Consumption Pending ERP", "Consumption Draft"]],
         })
-        open_reconciliation = capacity_changed and frappe.db.exists(
+        open_reconciliation = policy_changed and frappe.db.exists(
             "CFG Kanban WIP Bin Reconciliation",
             {"reusable_bin": self.name, "status": "Open"},
         )
         if active_load or open_reconciliation:
             frappe.throw(
-                "Item-specific Full-bin Capacity cannot change while this WIP Bin has an "
+                "WIP Bin Item/capacity policy cannot change while this bin has an "
                 "active material load or Open reconciliation"
             )
 
@@ -253,6 +259,7 @@ class CFGKanbanHandlingUnit(Document):
         role = self.reusable_container_role or "Logistics Container"
         if role not in (
             "Logistics Quantity Bin", "Standard Quantity WIP Bin",
+            "Loose Multi-Item WIP Bin",
             "Production Output Container",
         ):
             self.wip_bin_state = None
@@ -279,6 +286,23 @@ class CFGKanbanHandlingUnit(Document):
                 {"container_handling_unit": self.name, "state": "Loaded"},
             ) > 1:
                 frappe.throw("A Production Output Container can hold only one active production fill")
+            return
+        if role == "Loose Multi-Item WIP Bin":
+            if not self.inventory_company or not self.current_warehouse:
+                frappe.throw(
+                    "Inventory Company and Current Warehouse are required for a "
+                    "Loose Multi-Item WIP Bin"
+                )
+            if frappe.db.exists(
+                "CFG Kanban Container Content",
+                {"container_handling_unit": self.name, "state": "Loaded"},
+            ):
+                frappe.throw(
+                    "A logistics container with loaded Stock Tags cannot become a "
+                    "Loose Multi-Item WIP Bin"
+                )
+            self.allow_mixed_content = 0
+            self.wip_bin_state = self.wip_bin_state or "Empty"
             return
         if self.allow_mixed_content:
             frappe.throw("A Standard Quantity WIP Bin cannot allow mixed Item or Batch content")
@@ -347,6 +371,41 @@ class CFGKanbanHandlingUnit(Document):
                     f"WIP Bin Capacity row {row.idx}: Item {row.item_code} was not found"
                 )
             row.stock_uom = stock_uom
+
+    def _validate_loose_wip_allowed_items(self):
+        rows = self.get("loose_wip_allowed_items") or []
+        if self.reusable_container_role != "Loose Multi-Item WIP Bin":
+            if rows:
+                frappe.throw(
+                    "Authorized Loose WIP Items are valid only for a Loose Multi-Item WIP Bin"
+                )
+            return
+        if not rows:
+            frappe.throw("A Loose Multi-Item WIP Bin requires at least one authorized Item")
+        seen = set()
+        active_count = 0
+        for row in rows:
+            if not row.item_code:
+                frappe.throw(f"Allowed Item row {row.idx}: Item is required")
+            if row.item_code in seen:
+                frappe.throw(
+                    f"Allowed Item row {row.idx}: Item {row.item_code} is repeated"
+                )
+            seen.add(row.item_code)
+            stock_uom, has_serial_no = frappe.db.get_value(
+                "Item", row.item_code, ["stock_uom", "has_serial_no"]
+            ) or (None, None)
+            if not stock_uom:
+                frappe.throw(f"Allowed Item row {row.idx}: Item {row.item_code} was not found")
+            if cint(has_serial_no):
+                frappe.throw(
+                    f"Allowed Item row {row.idx}: serial-controlled Item {row.item_code} "
+                    "cannot use a Loose Multi-Item WIP Bin"
+                )
+            row.stock_uom = stock_uom
+            active_count += cint(row.active)
+        if not active_count:
+            frappe.throw("A Loose Multi-Item WIP Bin requires at least one active authorized Item")
 
     def _bind_tag_identity(self):
         if not self.tag_family or not self.handling_unit_id:
@@ -491,4 +550,15 @@ def _wip_capacity_signature(doc):
             cint(row.active),
         )
         for row in (doc.get("wip_bin_capacities") or [])
+    ))
+
+
+def _loose_wip_item_signature(doc):
+    return tuple(sorted(
+        (
+            row.item_code or "",
+            row.stock_uom or "",
+            cint(row.active),
+        )
+        for row in (doc.get("loose_wip_allowed_items") or [])
     ))

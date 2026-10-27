@@ -1,6 +1,8 @@
 frappe.query_reports["Kanban WIP Bin Control"] = {
 	filters: [
 		{ fieldname: "company", label: __("Company"), fieldtype: "Link", options: "Company" },
+		{ fieldname: "reusable_container_role", label: __("Bin Role"), fieldtype: "Select",
+			options: "\nStandard Quantity WIP Bin\nLoose Multi-Item WIP Bin" },
 		{ fieldname: "wip_bin_pool", label: __("WIP Bin Pool"), fieldtype: "Link",
 			options: "CFG Kanban WIP Bin Pool",
 			get_query: () => {
@@ -20,7 +22,7 @@ frappe.query_reports["Kanban WIP Bin Control"] = {
 				return company ? { filters: { company } } : {};
 			} },
 		{ fieldname: "wip_bin_state", label: __("WIP Bin State"), fieldtype: "Select",
-			options: "\nEmpty\nReserved\nFilling\nReady\nIn Use\nException" },
+			options: "\nEmpty\nReserved\nFilling\nReady\nAccumulating\nIn Use\nAwaiting Consumption\nException" },
 		{ fieldname: "load_status", label: __("Active Load Status"), fieldtype: "Select",
 			options: "\nTransfer Draft\nReady\nIn Use\nConsumption Pending ERP\nConsumption Draft\nReversed" },
 		{ fieldname: "item_code", label: __("Loaded Item"), fieldtype: "Link", options: "Item" },

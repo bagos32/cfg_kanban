@@ -13,6 +13,9 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 		frm.set_query("current_operation", () => ({ filters: {
 			name: ["in", frm._cfg_cycle_operations.length ? frm._cfg_cycle_operations : ["__none__"]],
 		} }));
+		frm.set_query("item_code", "loose_wip_allowed_items", () => ({ filters: {
+			disabled: 0, has_serial_no: 0,
+		} }));
 	},
 	async tag_kind(frm) {
 		if (!frm.is_new() || frm.doc.tag_kind !== "Reusable Container") return;
@@ -49,14 +52,26 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 		if (frm.doc.tag_kind !== "Reusable Container") return;
 		if (frm.doc.reusable_container_role === "Standard Quantity WIP Bin") {
 			await frm.set_value({ allow_mixed_content: 0, wip_bin_state: "Empty" });
+			frm.clear_table("loose_wip_allowed_items");
+			frm.refresh_field("loose_wip_allowed_items");
 			frappe.show_alert({
 				message: __("Assign this fixed bin to a WIP Bin Pool. Saving the identity does not move ERPNext stock."),
 				indicator: "blue",
 			}, 10);
+		} else if (frm.doc.reusable_container_role === "Loose Multi-Item WIP Bin") {
+			await frm.set_value({ allow_mixed_content: 0, wip_bin_state: "Empty" });
+			frm.clear_table("wip_bin_capacities");
+			frm.refresh_field("wip_bin_capacities");
+			frappe.show_alert({
+				message: __("Authorize every Item permitted in this permanent loose WIP bin, then assign the bin to a Loose Multi-Item WIP Pool. Quantities are loaded and consumed only through controlled production Stock Entries."),
+				indicator: "blue",
+			}, 12);
 		} else if (frm.doc.reusable_container_role === "Production Output Container") {
 			await frm.set_value({ allow_mixed_content: 0, wip_bin_state: null });
 			frm.clear_table("wip_bin_capacities");
+			frm.clear_table("loose_wip_allowed_items");
 			frm.refresh_field("wip_bin_capacities");
+			frm.refresh_field("loose_wip_allowed_items");
 			frappe.show_alert({
 				message: __("This permanent QR receives one manufactured fill at a time. The submitted Manufacture entry creates its audited Item/Batch content identity."),
 				indicator: "blue",
@@ -64,15 +79,19 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 		} else if (frm.doc.reusable_container_role === "Logistics Quantity Bin") {
 			await frm.set_value({ allow_mixed_content: 0, wip_bin_state: null });
 			frm.clear_table("wip_bin_capacities");
+			frm.clear_table("loose_wip_allowed_items");
 			frm.refresh_field("wip_bin_capacities");
+			frm.refresh_field("loose_wip_allowed_items");
 			frappe.show_alert({
 				message: __("This permanent bin QR can receive a controlled partial quantity from a Stock Tag without printing a child tag. Configure its Company and current Warehouse before use."),
 				indicator: "blue",
 			}, 10);
-		} else if (frm.is_new()) {
+		} else {
 			await frm.set_value("wip_bin_state", null);
 			frm.clear_table("wip_bin_capacities");
+			frm.clear_table("loose_wip_allowed_items");
 			frm.refresh_field("wip_bin_capacities");
+			frm.refresh_field("loose_wip_allowed_items");
 		}
 	},
 	async kanban_cycle(frm) {
@@ -163,7 +182,9 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 	refresh(frm) {
 		if (frm.doc.kanban_cycle) frm.trigger("kanban_cycle");
 		if (frm.is_new()) return;
-		if (frm.doc.tag_kind === "Reusable Container") show_container_content_quantity(frm);
+		if (frm.doc.tag_kind === "Reusable Container" && ![
+			"Standard Quantity WIP Bin", "Loose Multi-Item WIP Bin",
+		].includes(frm.doc.reusable_container_role)) show_container_content_quantity(frm);
 		if (frm.doc.tag_kind !== "Reusable Container" && !frm.doc.current_warehouse) {
 			frm.add_custom_button(__("Assign Initial Warehouse"), () => {
 				assign_initial_warehouse(frm);
@@ -174,7 +195,8 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 			frappe.set_route("material-genealogy", frm.doc.handling_unit_id);
 		}, __("Kanban Actions"));
 		if (frm.doc.tag_kind === "Reusable Container") {
-			if (frm.doc.reusable_container_role !== "Production Output Container") {
+			if (!["Production Output Container", "Standard Quantity WIP Bin",
+				"Loose Multi-Item WIP Bin"].includes(frm.doc.reusable_container_role)) {
 				frm.add_custom_button(__("Manage Container Contents"), () => {
 					frappe.set_route("kanban-logistics", frm.doc.handling_unit_id);
 				}, __("Kanban Actions"));
@@ -236,6 +258,29 @@ frappe.ui.form.on("CFG Kanban WIP Bin Capacity", {
 		}
 		const response = await frappe.db.get_value("Item", row.item_code, "stock_uom");
 		await frappe.model.set_value(cdt, cdn, "stock_uom", response.message?.stock_uom || null);
+	},
+});
+
+frappe.ui.form.on("CFG Kanban Loose WIP Allowed Item", {
+	async item_code(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row.item_code) {
+			await frappe.model.set_value(cdt, cdn, "stock_uom", null);
+			return;
+		}
+		const response = await frappe.db.get_value("Item", row.item_code,
+			["stock_uom", "has_serial_no"]);
+		if (response.message?.has_serial_no) {
+			await frappe.model.set_value(cdt, cdn, "item_code", null);
+			frappe.msgprint({
+				title: __("Serial Item Not Supported"),
+				message: __("Loose WIP bins cannot hold serial-controlled Items. Use Standard ERP / Tag Flow."),
+				indicator: "orange",
+			});
+			return;
+		}
+		await frappe.model.set_value(cdt, cdn, "stock_uom",
+			response.message?.stock_uom || null);
 	},
 });
 
