@@ -61,6 +61,14 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 				message: __("This permanent QR receives one manufactured fill at a time. The submitted Manufacture entry creates its audited Item/Batch content identity."),
 				indicator: "blue",
 			}, 10);
+		} else if (frm.doc.reusable_container_role === "Logistics Quantity Bin") {
+			await frm.set_value({ allow_mixed_content: 0, wip_bin_state: null });
+			frm.clear_table("wip_bin_capacities");
+			frm.refresh_field("wip_bin_capacities");
+			frappe.show_alert({
+				message: __("This permanent bin QR can receive a controlled partial quantity from a Stock Tag without printing a child tag. Configure its Company and current Warehouse before use."),
+				indicator: "blue",
+			}, 10);
 		} else if (frm.is_new()) {
 			await frm.set_value("wip_bin_state", null);
 			frm.clear_table("wip_bin_capacities");

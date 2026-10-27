@@ -313,6 +313,44 @@ class TestDocTypeSchema(TestCase):
         feedback = (APP_ROOT / "integrations" / "logistics_feedback.py").read_text()
         self.assertIn("def _update_manifest_containers", feedback)
 
+    def test_logistics_quantity_bin_uses_permanent_qr_without_child_tag(self):
+        handling_unit = json.loads((
+            ROOT / "cfg_kanban_handling_unit" / "cfg_kanban_handling_unit.json"
+        ).read_text())
+        fields = {row["fieldname"]: row for row in handling_unit["fields"]}
+        roles = fields["reusable_container_role"]["options"].splitlines()
+        self.assertIn("Logistics Quantity Bin", roles)
+        self.assertIn(
+            "Logistics Quantity Bin",
+            fields["inventory_company"]["mandatory_depends_on"],
+        )
+        self.assertIn(
+            "Logistics Quantity Bin",
+            fields["current_warehouse"]["mandatory_depends_on"],
+        )
+
+        service = (
+            APP_ROOT / "services" / "logistics_quantity_bins.py"
+        ).read_text()
+        self.assertIn("def load_quantity_into_bin", service)
+        self.assertIn("def return_quantity_to_source", service)
+        self.assertIn('event_type="Load into Container"', service)
+        self.assertIn('event_type="Unload from Container"', service)
+        self.assertIn('"virtual_content": 1', service)
+        self.assertIn('"physical_container": container.name', service)
+        self.assertIn("A Logistics Quantity Bin can hold only one Item, Batch and UOM", service)
+        self.assertNotIn("split_to_unused_tag", service)
+        self.assertNotIn("split_to_unused_child_tag", service)
+
+        panel = (
+            APP_ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
+            "kanban_logistics.js"
+        ).read_text()
+        self.assertIn('container.reusable_container_role === "Logistics Quantity Bin"', panel)
+        self.assertIn('__("Load Quantity")', panel)
+        self.assertIn('__("Return to Source")', panel)
+        self.assertIn("cfg_kanban.services.logistics_quantity_bins", panel)
+
     def test_route_reconciliation_is_count_only_and_erp_authoritative(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}
         reconciliation = schemas["CFG Kanban Route Reconciliation"]

@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.18
+**Guide version:** 2.19
 
 **Updated:** 27 October 2026
 
@@ -2406,6 +2406,37 @@ replaced, or voided independently while loaded, and a nonempty container cannot 
 voided. Managers can review **Container Content History** or **Reusable Container Episodes** in the
 Material Genealogy Explorer.
 
+### Reusable logistics quantity bins without disposable child tags
+
+Use **Reusable Container Role** (`reusable_container_role`) = **Logistics Quantity Bin** for a
+permanent lorry compartment, delivery basket, or controlled loose-stock bin whose printed QR should
+temporarily identify a selected quantity. This differs from an ordinary **Logistics Container**:
+the ordinary container groups complete visible Stock Tags, while a Logistics Quantity Bin receives
+quantity directly from one source Stock Tag without printing or scanning a child tag.
+
+1. Create a **CFG Kanban Handling Unit** with **Tag Kind = Reusable Container** and **Reusable
+   Container Role = Logistics Quantity Bin**. Set its permanent scan code, Inventory Company,
+   Current Warehouse, container/vehicle reference, and print its reusable label.
+2. Give the operator **Container Loading** responsibility.
+3. In **Kanban Logistics**, scan the permanent bin QR and select **Manage Contents**.
+4. Scan the physical source Stock Tag, enter **Quantity to Load** and the loading reason, then select
+   **Load Quantity**. No unused main tag or detachable child tag is requested.
+5. The source tag balance decreases and the bin immediately displays its Item, Batch, UOM and live
+   quantity. Additional loads are permitted only when Item, Batch and UOM match the existing fill.
+6. To undo unused quantity before the bin enters a Manifest or Delivery Session, select **Return to
+   Source**, enter the quantity and reason. The quantity returns only to its exact original Stock Tag.
+7. To move the filled bin, open the correct Movement Manifest and scan the bin once. Dispatch and
+   receipt continue through the normal ERP-confirmed Manifest workflow.
+
+The reusable bin record itself still carries no Item balance. The system creates an unprinted,
+immutable content identity behind the permanent QR and transfers quantity through the Handling Unit
+ledger. This prevents double counting while preserving source genealogy, idempotency, Company,
+Warehouse and Batch traceability. The internal `QBIN-FILL-...` code is audit evidence only; the
+operator continues scanning the permanent bin QR. Serialized stock is excluded from this workflow
+because it requires exact-serial allocation. A quantity bin cannot mix Item, Batch or UOM, cannot be
+changed while reserved by a Manifest or Delivery Session, and must be emptied before it is reused
+for a different Item or Batch.
+
 #### Dispatch and receive a complete reusable container
 
 When every Stock Tag currently inside the reusable container must travel together:
@@ -4159,6 +4190,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.19 | 27 October 2026 | Added Logistics Quantity Bins: a permanent lorry/bin QR receives a controlled partial Item/Batch quantity from a physical source Stock Tag without printing a child tag, preserves an internal audited fill identity and exact source genealogy, supports matching top-ups and controlled return-to-source, and moves through ordinary Manifest/ERP confirmation controls |
 | 2.18 | 27 October 2026 | Corrected Pause and Give Way runtime selection: a paused Job Card is no longer offered for a second Process/Station Card allocation, its paused queue row cannot carry stale supervisor priority into the eligible-work list, the Ready replacement remains recommended, and interrupted work continues only through Resume Paused Work |
 | 2.17 | 26 October 2026 | Closed the V1 in-flight production cancellation gap with manager-only freeze, audited Job Card timer pause, live ERP/physical dependency assessment, ordered ERPNext reversal guidance, WIP/Handling Unit reconciliation gates, protected floor writes, Supervisor Action Centre visibility, immutable evidence, and final Card release only after zero blockers |
 | 2.16 | 26 October 2026 | Preserved an active supervisor WO/Job Card sequence across repeated reusable Process Card cycles so a newer system-generated runtime queue entry cannot silently restore the oldest-WO fallback |

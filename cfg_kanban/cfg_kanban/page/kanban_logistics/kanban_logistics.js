@@ -2187,19 +2187,34 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const status = state.lookup && state.lookup.container_status;
 		if (!status || status.mode !== "container") return;
 		const container = status.container;
+		const is_quantity_bin = container.reusable_container_role === "Logistics Quantity Bin";
 		const dialog = new frappe.ui.Dialog({
 			title: __("Reusable Container {0}", [container.visible_code]),
 			size: "extra-large",
 			fields: [
-				{ fieldname: "content_scan", label: __("Stock Tag"), fieldtype: "Data",
-					description: __("Scan one complete physical Stock Tag, then select Load Tag.") },
-				{ fieldname: "scan_camera", fieldtype: "Button", label: __("Scan Stock Tag with Camera") },
+				{ fieldname: "content_scan", label: is_quantity_bin ? __("Source Stock Tag") : __("Stock Tag"), fieldtype: "Data",
+					description: is_quantity_bin ? __("Scan the source Stock Tag. The selected quantity will use this permanent bin QR; no child tag is required.") : __("Scan one complete physical Stock Tag, then select Load Tag.") },
+				{ fieldname: "scan_camera", fieldtype: "Button",
+					label: is_quantity_bin ? __("Scan Source Tag with Camera") : __("Scan Stock Tag with Camera") },
+				{ fieldname: "load_qty", label: __("Quantity to Load"), fieldtype: "Float",
+					reqd: is_quantity_bin ? 1 : 0, hidden: !is_quantity_bin },
+				{ fieldname: "load_reason", label: __("Loading Reason"), fieldtype: "Small Text",
+					reqd: is_quantity_bin ? 1 : 0, hidden: !is_quantity_bin,
+					default: is_quantity_bin ? __("Loaded into reusable lorry/bin identity") : "" },
 				{ fieldname: "content_html", fieldtype: "HTML" },
 			],
-			primary_action_label: __("Load Tag"),
+			primary_action_label: is_quantity_bin ? __("Load Quantity") : __("Load Tag"),
 			primary_action: async (values) => {
 				const content_scan = String(values.content_scan || "").trim();
 				if (!content_scan) return frappe.msgprint(__("Scan or enter a Stock Tag first."));
+				if (is_quantity_bin) {
+					if (Number(values.load_qty || 0) <= 0) return frappe.msgprint(__("Enter a positive Quantity to Load."));
+					return change_quantity_bin_content("load_quantity_into_bin", {
+						container_scan: container.visible_code, source_scan: content_scan,
+						qty: values.load_qty, reason: values.load_reason,
+						event_token: unique_token(), operator_session_token: state.token,
+					}, dialog);
+				}
 				await change_container_content("load_content_tag", {
 					container_scan: container.visible_code, content_scan,
 					event_token: unique_token(), operator_session_token: state.token,
@@ -2222,14 +2237,16 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const quantity_summary = (summary.by_uom || []).map((row) =>
 			`${format_number(row.current_qty)} ${e(row.stock_uom || "")}`
 		).join(" + ") || __("Empty");
+		const is_quantity_bin = status.container.reusable_container_role === "Logistics Quantity Bin";
 		const current = (status.current_contents || []).map((row) => `<tr>
-			<td><strong>${e(row.content_visible_code)}</strong></td><td>${e(row.item_code || "-")}</td>
+			<td><strong>${e(is_quantity_bin ? status.container.visible_code : row.content_visible_code)}</strong>${row.source_visible_code ? `<br><small>${__("Source")}: ${e(row.source_visible_code)}</small>` : ""}</td><td>${e(row.item_code || "-")}</td>
 			<td>${e(row.batch_no || __("No Batch"))}</td><td>${format_number(row.live_current_qty)} ${e(row.live_stock_uom || row.stock_uom || "")}</td>
-			<td>${e(display_datetime(row.loaded_on))}</td><td><button class="btn btn-xs btn-danger unload-content" data-code="${e(row.content_visible_code)}">${__("Unload")}</button></td></tr>`).join("");
+			<td>${e(display_datetime(row.loaded_on))}</td><td>${row.virtual_content ? `<button class="btn btn-xs btn-danger return-bin-quantity" data-content="${e(row.content_handling_unit)}" data-qty="${e(row.live_available_qty)}" data-source="${e(row.source_visible_code || "")}">${__("Return to Source")}</button>` : `<button class="btn btn-xs btn-danger unload-content" data-code="${e(row.content_visible_code)}">${__("Unload")}</button>`}</td></tr>`).join("");
 		const history = (status.history || []).slice(0, 20).map((row) => `<tr>
 			<td>${e(row.content_visible_code)}</td><td>${e(row.item_code || "-")}</td><td>${format_number(row.qty)} ${e(row.stock_uom || "")}</td>
 			<td>${e(display_datetime(row.unloaded_on))}</td><td>${e(row.unload_reason || "-")}</td></tr>`).join("");
-		const html = `<div class="cfg-container-summary"><strong>${summary.tag_count || 0} ${__("Stock Tags currently loaded")} · ${quantity_summary}</strong>
+		const content_label = is_quantity_bin ? __("controlled fill(s) currently loaded") : __("Stock Tags currently loaded");
+		const html = `<div class="cfg-container-summary"><strong>${summary.tag_count || 0} ${content_label} · ${quantity_summary}</strong>
 			<span>${e(status.container.inventory_company || "-")} · ${e(status.container.current_warehouse || "-")}</span></div>
 			<h5>${__("Current Contents")}</h5><div class="table-responsive"><table class="table table-bordered"><thead><tr><th>${__("Tag")}</th><th>${__("Item")}</th><th>${__("Batch")}</th><th>${__("Quantity")}</th><th>${__("Loaded")}</th><th></th></tr></thead>
 			<tbody>${current || `<tr><td colspan="6" class="text-muted">${__("Container is empty")}</td></tr>`}</tbody></table></div>
@@ -2244,6 +2261,20 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 					event_token: unique_token(), operator_session_token: state.token,
 				}, dialog), __("Unload {0}", [content_scan]), __("Unload Tag"));
 		});
+		$html.find(".return-bin-quantity").on("click", function () {
+			const content_handling_unit = $(this).data("content");
+			const available_qty = Number($(this).data("qty") || 0);
+			const source = $(this).data("source") || __("original source");
+			frappe.prompt([
+				{ fieldname: "qty", label: __("Quantity to Return"), fieldtype: "Float", reqd: 1, default: available_qty },
+				{ fieldname: "reason", label: __("Return Reason"), fieldtype: "Small Text", reqd: 1,
+					default: __("Unused quantity returned to source tag") },
+			], async (values) => change_quantity_bin_content("return_quantity_to_source", {
+				container_scan: status.container.visible_code, content_handling_unit,
+				qty: values.qty, reason: values.reason, event_token: unique_token(),
+				operator_session_token: state.token,
+			}, dialog), __("Return Quantity to {0}", [source]), __("Return Quantity"));
+		});
 	}
 
 	async function change_container_content(method, args, dialog) {
@@ -2252,6 +2283,19 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.lookup.container_status = { mode: "container", ...response.message };
 		render_container_dialog(dialog, state.lookup.container_status);
 		dialog.set_value("content_scan", "");
+		render_lookup();
+	}
+
+	async function change_quantity_bin_content(method, args, dialog) {
+		const response = await frappe.call({
+			method: `cfg_kanban.services.logistics_quantity_bins.${method}`,
+			args, freeze: true,
+			freeze_message: method === "load_quantity_into_bin" ? __("Loading quantity into bin...") : __("Returning quantity to source tag..."),
+		});
+		state.lookup.container_status = { mode: "container", ...response.message };
+		render_container_dialog(dialog, state.lookup.container_status);
+		dialog.set_value("content_scan", "");
+		if (method === "load_quantity_into_bin") dialog.set_value("load_qty", 0);
 		render_lookup();
 	}
 

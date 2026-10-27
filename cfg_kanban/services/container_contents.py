@@ -549,6 +549,10 @@ def _resolve_content(scan_value, require_active=True):
 
 
 def _validate_load(container, content):
+    if container.reusable_container_role == "Logistics Quantity Bin":
+        frappe.throw(
+            _("Use Load Partial Quantity for a Logistics Quantity Bin; a child tag is not required")
+        )
     if container.reusable_container_role == "Production Output Container":
         frappe.throw(
             _("Production Output Containers are loaded only by a submitted ERP Manufacture entry")
@@ -661,7 +665,10 @@ def _attach_live_balances(current_contents):
         for row in frappe.get_all(
             "CFG Kanban Handling Unit",
             filters={"name": ["in", names]},
-            fields=["name", "current_qty", "reserved_qty", "available_qty", "stock_uom"],
+            fields=[
+                "name", "current_qty", "reserved_qty", "available_qty", "stock_uom",
+                "virtual_content", "origin_reference_doctype", "origin_reference_name",
+            ],
             limit_page_length=500,
         )
     }
@@ -673,6 +680,25 @@ def _attach_live_balances(current_contents):
             flt(balance.available_qty) if balance else flt(row.qty)
         )
         row["live_stock_uom"] = balance.stock_uom if balance else row.stock_uom
+        row["virtual_content"] = bool(balance.virtual_content) if balance else False
+        row["source_handling_unit"] = (
+            balance.origin_reference_name
+            if balance and balance.origin_reference_doctype == "CFG Kanban Handling Unit"
+            else None
+        )
+    source_names = [row.get("source_handling_unit") for row in current_contents
+                    if row.get("source_handling_unit")]
+    source_codes = {
+        source.name: source.handling_unit_id
+        for source in frappe.get_all(
+            "CFG Kanban Handling Unit",
+            filters={"name": ["in", source_names]},
+            fields=["name", "handling_unit_id"],
+            limit_page_length=500,
+        )
+    } if source_names else {}
+    for row in current_contents:
+        row["source_visible_code"] = source_codes.get(row.get("source_handling_unit"))
 
 
 def _summarize_current_contents(current_contents):
