@@ -1,9 +1,9 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.17
+**Guide version:** 2.18
 
-**Updated:** 26 October 2026
+**Updated:** 27 October 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
@@ -110,6 +110,13 @@ Workstation and that sequence has a **Supervisor Override**. The configured **Ru
 Priority** is the fallback when no supervisor sequence exists. An authorised operator may choose
 another eligible candidate and must give an Override Reason. One card-sized Cycle is then created
 for the effective quantity; it does not mirror every Job Card on that Work Order.
+
+When a supervisor uses **Pause and Give Way**, the paused Job Card is removed from new
+Process/Station Card allocation choices. Its remaining quantity is already owned by the retained
+paused execution and must continue through **Resume Paused Work**. The Ready replacement keeps the
+supervisor queue recommendation; the paused row cannot lend its previous queue position or Urgent
+override to another allocation. This prevents an operator from accidentally opening a second Cycle
+for the interrupted Work Order while its original WIP remains paused.
 
 A **Workstation Queue Card** is different: it is a permanent access identity, carries no item or
 quantity, and never allocates work by itself. Scan it in the Production Operator Panel to see the
@@ -4152,6 +4159,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.18 | 27 October 2026 | Corrected Pause and Give Way runtime selection: a paused Job Card is no longer offered for a second Process/Station Card allocation, its paused queue row cannot carry stale supervisor priority into the eligible-work list, the Ready replacement remains recommended, and interrupted work continues only through Resume Paused Work |
 | 2.17 | 26 October 2026 | Closed the V1 in-flight production cancellation gap with manager-only freeze, audited Job Card timer pause, live ERP/physical dependency assessment, ordered ERPNext reversal guidance, WIP/Handling Unit reconciliation gates, protected floor writes, Supervisor Action Centre visibility, immutable evidence, and final Card release only after zero blockers |
 | 2.16 | 26 October 2026 | Preserved an active supervisor WO/Job Card sequence across repeated reusable Process Card cycles so a newer system-generated runtime queue entry cannot silently restore the oldest-WO fallback |
 | 2.15 | 26 October 2026 | Connected reusable Process/Station Card recommendations to the audited supervisor dispatch sequence for one eligible Workstation, displayed the recommendation basis and queue rank to the operator, and retained the Operation Profile runtime-selection rule as the no-override fallback |

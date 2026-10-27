@@ -59,6 +59,28 @@ class TestRuntimeDispatchSelection(unittest.TestCase):
         )
         self.assertIn("queue = matching[0] if matching else None", attach)
 
+    def test_paused_job_card_is_not_offered_as_a_new_runtime_allocation(self):
+        service = (ROOT / "services" / "runtime_selector.py").read_text()
+        candidate_section = service[
+            service.index("def _eligible_candidates"):
+            service.index("def _work_order_execution_open")
+        ]
+        self.assertIn("paused_job_cards = _paused_job_cards(rows)", candidate_section)
+        self.assertIn("if row.name in paused_job_cards:", candidate_section)
+        self.assertIn('"status": "Paused"', candidate_section)
+        self.assertIn('pluck="job_card"', candidate_section)
+
+    def test_paused_queue_row_cannot_supply_stale_supervisor_priority(self):
+        service = (ROOT / "services" / "runtime_selector.py").read_text()
+        attach = service[
+            service.index("def _attach_dispatch_context"):
+            service.index("def _available_input")
+        ]
+        self.assertIn(
+            '"dispatch_status": ["not in", ["Completed", "Cancelled", "Paused"]]',
+            attach,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

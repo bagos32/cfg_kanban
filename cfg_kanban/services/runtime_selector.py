@@ -225,9 +225,16 @@ def _eligible_candidates(card, master, profile):
           and jc.status not in ('Completed', 'Cancelled')
         order by wo.creation asc, jc.creation asc
     """, (card.item_code, master.company, card.operation), as_dict=True)
+    paused_job_cards = _paused_job_cards(rows)
     candidates = []
     for row in rows:
         if not _work_order_execution_open(row.owner_cycle):
+            continue
+        # Pause and Give Way retains the existing allocation so it can be
+        # resumed with its exact WIP and audit context.  Offering the same Job
+        # Card here would create a second runtime allocation instead of
+        # resuming the paused work.
+        if row.name in paused_job_cards:
             continue
         if card.card_type == "Station Kanban" and card.workstation and row.workstation != card.workstation:
             continue
@@ -249,6 +256,18 @@ def _eligible_candidates(card, master, profile):
             candidates.append(row)
     _order_candidates(candidates, profile.runtime_selection_rule or "Oldest Work Order First")
     return candidates
+
+
+def _paused_job_cards(rows):
+    job_cards = [row.name for row in rows if row.name]
+    if not job_cards:
+        return set()
+    return set(frappe.get_all(
+        "CFG Kanban Process Execution",
+        filters={"job_card": ["in", job_cards], "status": "Paused"},
+        pluck="job_card",
+        limit_page_length=0,
+    ))
 
 
 def _work_order_execution_open(owner_cycle):
@@ -318,7 +337,10 @@ def _attach_dispatch_context(candidates):
         "CFG Kanban Dispatch Queue",
         filters={
             "job_card": ["in", [row.name for row in candidates]],
-            "dispatch_status": ["not in", ["Completed", "Cancelled"]],
+            # Paused work is resumed through its existing execution.  It must
+            # not lend its old queue position or Supervisor Override to a new
+            # Process/Station Card allocation.
+            "dispatch_status": ["not in", ["Completed", "Cancelled", "Paused"]],
         },
         fields=[
             "name", "job_card", "work_order", "operation", "workstation",
