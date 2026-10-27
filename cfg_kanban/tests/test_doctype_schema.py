@@ -12,6 +12,14 @@ class TestDocTypeSchema(TestCase):
         for path in ROOT.glob("*/*.json"):
             yield path, json.loads(path.read_text())
 
+    def test_every_standard_doctype_has_an_importable_controller_source(self):
+        for path, schema in self._schemas():
+            with self.subTest(doctype=schema.get("name"), path=path):
+                self.assertTrue(
+                    path.with_suffix(".py").is_file(),
+                    f"Frappe cannot synchronize {schema.get('name')} without {path.stem}.py",
+                )
+
     def test_search_fields_fit_frappe_schema_limit(self):
         for path, schema in self._schemas():
             with self.subTest(doctype=schema.get("name"), path=path):
