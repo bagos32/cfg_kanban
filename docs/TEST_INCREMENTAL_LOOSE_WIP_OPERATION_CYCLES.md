@@ -39,6 +39,9 @@ Expected: the operation starts with the positive `1 Bag` Loose WIP balance even 
 requires `3 Bag`. If the Loose WIP balance is zero, start must be rejected with an instruction to
 load material. If the normal component is incomplete, start must still be rejected.
 
+The submitted `Material Transfer for Manufacture` must move exactly `1 Bag`, not the original
+`3 Bag` ERP row requirement. The remaining `2 Bag` stays pending for later operation-card cycles.
+
 ## C. First partial operation cycle
 
 1. Report actual Job Card progress: Good `35` (or another positive partial quantity).

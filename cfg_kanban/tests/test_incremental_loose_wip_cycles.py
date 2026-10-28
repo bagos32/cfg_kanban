@@ -27,6 +27,16 @@ class TestIncrementalLooseWIPCycles(TestCase):
         self.assertIn('"quantity is not required for incremental rows."', readiness)
         self.assertIn("_available_incremental_loose_wip", readiness)
 
+    def test_incremental_loose_transfer_submits_only_scanned_quantity(self):
+        source = (ROOT / "services" / "wip_bin_loads.py").read_text()
+        validation = source[source.index("def validate_wip_bin_stock_entry("):]
+        validation = validation[:validation.index("\ndef confirm_wip_bin_stock_entry(")]
+        self.assertIn('context.get("bin_mode") == "Loose Multi-Item"', validation)
+        self.assertIn('== "Incremental by Operation Cycle"', validation)
+        self.assertIn("row.transfer_qty = qty", validation)
+        self.assertIn("row.qty = qty / conversion", validation)
+        self.assertIn("allocate the complete Stock Entry row", validation)
+
     def test_operation_cycle_closure_requires_its_loose_usage(self):
         source = (ROOT / "api" / "operator.py").read_text()
         readiness = source[source.index("def _runtime_close_readiness("):]

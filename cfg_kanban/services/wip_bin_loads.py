@@ -711,7 +711,7 @@ def entry_wip_bin_rule(entry, row):
             "Standard Quantity Reusable WIP Bin", "Loose Multi-Item WIP Bin",
         ]],
     }, ["wip_bin_pool", "standard_bin_qty", "stock_uom",
-        "wip_presentation_method"], as_dict=True)
+        "wip_presentation_method", "loose_wip_release_policy"], as_dict=True)
     if not rule:
         return None
     pool = frappe.db.get_value(
@@ -726,6 +726,9 @@ def entry_wip_bin_rule(entry, row):
         "job_card": job.name, "operation": job.operation,
         "workstation": job.workstation, "wip_bin_pool": rule.wip_bin_pool,
         "presentation_method": rule.wip_presentation_method,
+        "loose_wip_release_policy": (
+            rule.loose_wip_release_policy or "Full Job Card Quantity Before Start"
+        ),
         "bin_mode": pool.get("pool_mode") or "Standard Quantity",
         "loose_consumption_policy": pool.get("loose_consumption_policy"),
         "standard_bin_qty": flt(rule.standard_bin_qty), "stock_uom": rule.stock_uom,
@@ -995,7 +998,7 @@ def finalize_wip_bin_consumption_entry(stock_entry):
 
 
 def validate_wip_bin_stock_entry(doc):
-    """Validate every linked load and require complete coverage of WIP-bin material rows."""
+    """Validate linked loads and narrow approved incremental Loose WIP transfer rows."""
     purpose = _purpose(doc)
     is_unused_return = bool(doc.get("cfg_wip_bin_return_load"))
     if purpose not in (TRANSFER_PURPOSE, *CONSUMPTION_PURPOSES) and not is_unused_return:
@@ -1055,11 +1058,27 @@ def validate_wip_bin_stock_entry(doc):
         )
         allocated[row.name] = allocated.get(row.name, 0) + load_qty
     for row_name, qty in allocated.items():
-        row_qty = _row_stock_qty(rows[row_name])
+        row = rows[row_name]
+        row_qty = _row_stock_qty(row)
         if abs(qty - row_qty) > TOLERANCE:
+            context = entry_wip_bin_rule(doc, row)
+            incremental_loose_transfer = bool(
+                direction == "transfer"
+                and context
+                and context.get("bin_mode") == "Loose Multi-Item"
+                and context.get("loose_wip_release_policy")
+                    == "Incremental by Operation Cycle"
+                and qty > TOLERANCE
+                and qty < row_qty + TOLERANCE
+            )
+            if incremental_loose_transfer:
+                conversion = flt(row.conversion_factor) or 1
+                row.transfer_qty = qty
+                row.qty = qty / conversion
+                continue
             frappe.throw(
-                f"WIP Bin loads cover {qty} of {row_qty} {rows[row_name].stock_uom} "
-                f"for Item {rows[row_name].item_code}; allocate the complete Stock Entry row"
+                f"WIP Bin loads cover {qty} of {row_qty} {row.stock_uom} "
+                f"for Item {row.item_code}; allocate the complete Stock Entry row"
             )
     missing_required = set(required_transfer_rows) - set(allocated)
     if direction == "consumption":
