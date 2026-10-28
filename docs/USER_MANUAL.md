@@ -17,7 +17,10 @@ is posted when its owning Job Card completes, without waiting for downstream Job
 WIP transfer submits only the scanned Loose-bin quantity; the unallocated ERP row balance remains
 pending for later cycles. Operation closure verifies only the ERPNext time-log evidence created by
 that exact reusable-card Cycle, so other completed or pending allocations on the shared Job Card do
-not incorrectly block an `Operator Complete` closure.
+not incorrectly block an `Operator Complete` closure. If an older panel recorded physical Loose WIP
+use without its requesting operation Cycle, the explicit close action may repair the link only when
+the usage occurred after this execution started and no other runtime execution is active for the
+Job Card; the repair is retained as a Kanban audit event.
 
 **2.31 scanner control:** Standard Quantity WIP Bin floor-use reporting now has the dedicated,
 printable `CFG:CMD:RECORD_WIP_BIN_USE` command. It opens the same authorized **Record WIP Bin Use**
@@ -1534,6 +1537,8 @@ On the Kanban Master's **BOM Component Material Flow**, the optional fields are:
 | Screen label (`fieldname`) | Meaning |
 |---|---|
 | WIP Presentation (`wip_presentation_method`) | Keeps the existing ERP/tag workflow or selects the visually controlled reusable-bin model |
+| Loose WIP Release Policy (`loose_wip_release_policy`) | `Incremental by Operation Cycle` permits partial Loose WIP readiness for high-frequency reusable operation cards |
+| Loose WIP Use Recording (`loose_wip_usage_timing`) | `Every Operation Cycle` keeps strict per-card use scans. `At Job Card End` allows incremental operation cards to close without a use scan and requires consolidated actual use before ERP consumption and Manufacture receipt |
 | WIP Bin Pool (`wip_bin_pool`) | Approved physical bins for the component's exact BOM Item Operation |
 | Fallback Qty per Full Bin (`standard_bin_qty`) | Optional backward-compatible capacity used only when the scanned bin has no active Item-specific capacity; leave it at zero only when every active bin in the Pool has an Item-specific capacity. This is not the total BOM/ERP row requirement |
 

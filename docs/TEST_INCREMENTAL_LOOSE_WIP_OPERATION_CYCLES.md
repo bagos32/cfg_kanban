@@ -13,6 +13,7 @@ Use this test on a development site after migration, asset build, cache clear, a
 - Material Flow Rule for TPJ:
   - WIP Presentation: `Loose Multi-Item WIP Bin`
   - Loose WIP Release Policy: `Incremental by Operation Cycle`
+  - Loose WIP Use Recording: test both `Every Operation Cycle` and `At Job Card End`
 
 Keep at least one other BOM row on **Standard ERP / Tag Flow**. This proves the incremental option
 does not weaken unrelated material gates.
@@ -56,7 +57,14 @@ Expected:
 - the Cycle may close at its full allocation or at any positive partial quantity when its
   completion rule is `Operator Complete`, provided that Cycle's progress is linked to the ERPNext
   Job Card time log;
+- an existing unscoped Loose WIP usage recorded after this execution started is linked during the
+  explicit close action only when this is the sole active runtime execution for the Job Card;
 - the Runtime Allocation records Completion Rule `Operator Complete`;
+
+When **Loose WIP Use Recording** is `At Job Card End`, omit steps 2 and 3. The operation card must
+still close from its positive ERP-linked progress. The Loose WIP Bin remains controlled by the Job
+Card and its consolidated actual use must be recorded before ERP consumption and Manufacture
+receipt.
 - the allocation records its processed/good/reject quantities and unfulfilled quantity;
 - the remaining Job Card demand returns to the operation-card queue; and
 - the handoff follows the configured handoff mode, not the partial-close rule.

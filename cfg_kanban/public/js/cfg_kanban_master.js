@@ -153,6 +153,7 @@ async function load_bom_material_flow(frm, options = {}) {
 				source_warehouse: row.source_warehouse,
 				wip_presentation_method: row.wip_presentation_method || "Standard ERP / Tag Flow",
 				loose_wip_release_policy: row.loose_wip_release_policy || "Full Job Card Quantity Before Start",
+				loose_wip_usage_timing: row.loose_wip_usage_timing || "Every Operation Cycle",
 				wip_bin_pool: row.wip_bin_pool,
 				standard_bin_qty: row.standard_bin_qty,
 			};
@@ -253,8 +254,16 @@ frappe.ui.form.on("CFG Kanban Material Flow Rule", {
 		}
 		if (row.wip_presentation_method !== "Loose Multi-Item WIP Bin") {
 			frappe.model.set_value(cdt, cdn, "loose_wip_release_policy", "Full Job Card Quantity Before Start");
+			frappe.model.set_value(cdt, cdn, "loose_wip_usage_timing", "Every Operation Cycle");
 		} else if (!row.loose_wip_release_policy) {
 			frappe.model.set_value(cdt, cdn, "loose_wip_release_policy", "Full Job Card Quantity Before Start");
+		}
+	},
+	loose_wip_release_policy(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (row.loose_wip_release_policy !== "Incremental by Operation Cycle" ||
+			!row.loose_wip_usage_timing) {
+			frappe.model.set_value(cdt, cdn, "loose_wip_usage_timing", "Every Operation Cycle");
 		}
 	},
 });

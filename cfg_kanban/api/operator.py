@@ -468,6 +468,7 @@ def get_card_context(token, operator_session_token=None):
                     "lane_sequence", "execution_mode", "runtime_allocation", "allocated_qty",
                     "target_qty", "processed_qty", "good_qty", "reject_qty", "released_qty",
                     "handoff_mode", "completion_rule", "completion_basis", "unfulfilled_qty",
+                    "started_on",
                     "crew_compliance_status", "last_crew_compliance_check",
                     "crew_compliance_hold"],
             order_by="sequence asc",
@@ -1160,6 +1161,7 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
         as_dict=True)
     job_card = frappe.db.get_value("Job Card", execution.job_card,
         ["name", "status", "docstatus", "for_quantity", "total_completed_qty"], as_dict=True)
+    _claim_unscoped_runtime_loose_wip_usage(execution, work_order, job_card)
     readiness = _runtime_close_readiness(execution, work_order, job_card)
     if not readiness["ready"]:
         frappe.throw(readiness["reason"])
@@ -1301,17 +1303,10 @@ def _runtime_close_readiness(execution, work_order, job_card):
         status = job_card.status if job_card else "Missing"
         return {"ready": False, "reason": (f"Cannot close the Operation Cycle while ERPNext Job Card "
                 f"is {status}. Start the Job Card and record its production time log first.")}
-    from cfg_kanban.services.production_material_flow import incremental_loose_wip_items
-    incremental_items = incremental_loose_wip_items(work_order.name, job_card.name)
-    missing_usage = []
-    for item_code in incremental_items:
-        if not frappe.db.exists("CFG Kanban Loose WIP Usage", {
-            "requesting_cycle": execution.kanban_cycle,
-            "job_card": job_card.name,
-            "item_code": item_code,
-            "status": ["in", ["Recorded", "Consumption Draft", "Posted"]],
-        }):
-            missing_usage.append(item_code)
+    from cfg_kanban.services.production_material_flow import per_cycle_loose_wip_usage_items
+    per_cycle_items = per_cycle_loose_wip_usage_items(work_order.name, job_card.name)
+    usage_scope = _runtime_loose_wip_usage_scope(execution, job_card, per_cycle_items)
+    missing_usage = usage_scope["missing_items"]
     if missing_usage:
         return {"ready": False, "reason": (
             "Record the actual Loose WIP use for this Operation Card cycle before closing it. "
@@ -1355,6 +1350,97 @@ def _runtime_close_readiness(execution, work_order, job_card):
         "wip_bin_pending_stock_entries": pending_wip_stock_entries,
         "wip_bin_pending_loads": pending_wip_loads,
     }
+
+
+def _runtime_loose_wip_usage_scope(execution, job_card, item_codes):
+    """Resolve exact and safely claimable Loose WIP usage for one runtime Cycle.
+
+    Older or stale operator-panel contexts could record a physical usage without the requesting
+    operation Cycle. It is claimable only when it was recorded after this execution started and
+    no other runtime execution for the Job Card is active. This preserves the physical record
+    without guessing between concurrent cards.
+    """
+    item_codes = set(item_codes or [])
+    if not item_codes:
+        return {"missing_items": [], "claimable_usages": []}
+    exact_items = set(frappe.get_all(
+        "CFG Kanban Loose WIP Usage",
+        filters={
+            "requesting_cycle": execution.kanban_cycle,
+            "job_card": job_card.name,
+            "item_code": ["in", sorted(item_codes)],
+            "status": ["in", ["Recorded", "Consumption Draft", "Posted"]],
+        },
+        pluck="item_code", limit_page_length=0,
+    ))
+    unresolved = item_codes - exact_items
+    if not unresolved or not execution.get("started_on"):
+        return {"missing_items": sorted(unresolved), "claimable_usages": []}
+    active_runtime = frappe.get_all(
+        "CFG Kanban Process Execution",
+        filters={
+            "job_card": job_card.name,
+            "runtime_allocation": ["is", "set"],
+            "status": ["not in", ["Completed", "Cancelled"]],
+        },
+        pluck="name", limit_page_length=0,
+    )
+    if set(active_runtime) != {execution.name}:
+        return {"missing_items": sorted(unresolved), "claimable_usages": []}
+    claimable = frappe.get_all(
+        "CFG Kanban Loose WIP Usage",
+        filters={
+            "requesting_cycle": ["is", "not set"],
+            "job_card": job_card.name,
+            "item_code": ["in", sorted(unresolved)],
+            "status": ["in", ["Recorded", "Consumption Draft", "Posted"]],
+            "reported_on": [">=", execution.started_on],
+        },
+        fields=["name", "item_code"], order_by="reported_on asc",
+        limit_page_length=0,
+    )
+    claimable_items = {row.item_code for row in claimable}
+    return {
+        "missing_items": sorted(unresolved - claimable_items),
+        "claimable_usages": claimable,
+    }
+
+
+def _claim_unscoped_runtime_loose_wip_usage(execution, work_order, job_card):
+    """Attach unambiguous legacy/unscoped usage during an explicit Cycle-close action."""
+    if not work_order or not job_card:
+        return []
+    from cfg_kanban.services.production_material_flow import per_cycle_loose_wip_usage_items
+    item_codes = per_cycle_loose_wip_usage_items(work_order.name, job_card.name)
+    scope = _runtime_loose_wip_usage_scope(execution, job_card, item_codes)
+    if scope["missing_items"] or not scope["claimable_usages"]:
+        return []
+    claimed = []
+    for row in scope["claimable_usages"]:
+        frappe.db.sql(
+            "select name from `tabCFG Kanban Loose WIP Usage` where name=%s for update",
+            row.name,
+        )
+        current = frappe.db.get_value(
+            "CFG Kanban Loose WIP Usage", row.name,
+            ["requesting_cycle", "status"], as_dict=True,
+        )
+        if (not current or current.requesting_cycle
+                or current.status not in ("Recorded", "Consumption Draft", "Posted")):
+            continue
+        frappe.db.set_value(
+            "CFG Kanban Loose WIP Usage", row.name,
+            "requesting_cycle", execution.kanban_cycle, update_modified=True,
+        )
+        record(
+            "Loose WIP Usage Linked to Operation Cycle",
+            cycle=execution.kanban_cycle, execution=execution.name,
+            reference_doctype="CFG Kanban Loose WIP Usage", reference_name=row.name,
+            notes=(f"Unscoped physical usage linked during explicit Cycle close; "
+                   f"Job Card {job_card.name}; Item {row.item_code}"),
+        )
+        claimed.append(row.name)
+    return claimed
 
 
 def _runtime_execution_erp_progress_qty(execution_name, job_card_name):

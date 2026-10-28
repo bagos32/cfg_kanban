@@ -17,6 +17,9 @@ class TestIncrementalLooseWIPCycles(TestCase):
         self.assertIn("Full Job Card Quantity Before Start", policy["options"])
         self.assertIn("Incremental by Operation Cycle", policy["options"])
         self.assertEqual(policy["default"], "Full Job Card Quantity Before Start")
+        timing = fields["loose_wip_usage_timing"]
+        self.assertIn("Every Operation Cycle", timing["options"])
+        self.assertIn("At Job Card End", timing["options"])
 
     def test_job_card_start_preserves_non_incremental_material_gates(self):
         source = (ROOT / "services" / "production_material_flow.py").read_text()
@@ -41,7 +44,7 @@ class TestIncrementalLooseWIPCycles(TestCase):
         source = (ROOT / "api" / "operator.py").read_text()
         readiness = source[source.index("def _runtime_close_readiness("):]
         readiness = readiness[:readiness.index("\ndef _execution_completion_rule(")]
-        self.assertIn("incremental_loose_wip_items", readiness)
+        self.assertIn("per_cycle_loose_wip_usage_items", readiness)
         self.assertIn('"requesting_cycle": execution.kanban_cycle', readiness)
         self.assertIn("Record the actual Loose WIP use", readiness)
 
@@ -60,6 +63,11 @@ class TestIncrementalLooseWIPCycles(TestCase):
         readiness = readiness[:readiness.index("\ndef _execution_completion_rule(")]
         self.assertIn("required_erp_qty = flt(execution.good_qty)", readiness)
         self.assertIn("_runtime_execution_erp_progress_qty", readiness)
+        self.assertIn("_runtime_loose_wip_usage_scope", readiness)
+        self.assertIn('"requesting_cycle": ["is", "not set"]', readiness)
+        self.assertIn('set(active_runtime) != {execution.name}', readiness)
+        self.assertIn("Loose WIP Usage Linked to Operation Cycle", readiness)
+        self.assertIn("per_cycle_loose_wip_usage_items", readiness)
 
     def test_loose_wip_erp_posting_can_be_scoped_to_completed_job_card(self):
         service = (ROOT / "services" / "production_material_flow.py").read_text()

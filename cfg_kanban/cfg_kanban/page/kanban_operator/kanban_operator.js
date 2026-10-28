@@ -1468,8 +1468,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				}
 				if (job.has_loose_wip && (job.loose_wip_active_bins || []).length &&
 					!job.wip_bin_consumption_draft) {
-					add_action($job_actions, __("Record Loose WIP Use"), "btn-success", () =>
-						record_loose_wip_usage_dialog(flow, job));
+					const defer_use_to_job_end = flow.operation_card_scope &&
+						job.loose_wip_job_end_use && !job.loose_wip_cycle_use_required;
+					if (!defer_use_to_job_end) {
+						add_action($job_actions, __("Record Loose WIP Use"), "btn-success", () =>
+							record_loose_wip_usage_dialog(flow, job));
+					} else {
+						$job.append(`<div class="mt-2 alert alert-info py-2"><small><strong>${__("Loose WIP use is recorded at Job Card End")}</strong><br>${__("This high-frequency operation Cycle closes from its ERP-linked progress. The bin stays assigned to this Job Card until consolidated actual use and ERP consumption are posted.")}</small></div>`);
+					}
 					const usage_rows = (job.loose_wip_usage_rows || []).filter((row) => row.status === "Recorded");
 					const usage_html = usage_rows.map((usage) =>
 						`<div class="d-flex justify-content-between align-items-center mt-1"><span>${e(usage.visible_bin_code || usage.reusable_bin)} · ${e(usage.item_code)}${usage.batch_no ? ` · ${e(usage.batch_no)}` : ""} · ${e(usage.qty)} ${e(usage.stock_uom)}</span>
@@ -3920,6 +3926,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				const $blocked = $("<button class='btn btn-sm btn-warning ml-1'>" + __("ERP Update Required") + "</button>").appendTo($buttons);
 				$blocked.on("click", () => frappe.msgprint({ title: __("Cannot Close Operation Cycle"),
 					message: e(row.close_block_reason || __("ERP operation evidence is not ready.")), indicator: "orange" }));
+				$row.append(`<div class="mt-2 text-warning"><small>${e(row.close_block_reason || __("ERP operation evidence is not ready."))}</small></div>`);
 			}
 		});
 	}

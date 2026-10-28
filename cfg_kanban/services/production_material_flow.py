@@ -129,6 +129,10 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
                 (rule.loose_wip_release_policy if rule else None)
                 or "Full Job Card Quantity Before Start"
             )
+            material_row["loose_wip_usage_timing"] = (
+                (rule.loose_wip_usage_timing if rule else None)
+                or "Every Operation Cycle"
+            )
         restricted_job_rows = [row for row in all_material_rows
                                if row["item_code"] in restricted_items]
         material_rows = [row for row in all_material_rows
@@ -213,6 +217,18 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
                      ) or any(
                          (row.bin_mode or "Standard Quantity") == "Loose Multi-Item"
                          for row in wip_loads
+                     ),
+                     "loose_wip_cycle_use_required": any(
+                         row["wip_presentation_method"] == "Loose Multi-Item WIP Bin"
+                         and row["loose_wip_release_policy"] == "Incremental by Operation Cycle"
+                         and row["loose_wip_usage_timing"] == "Every Operation Cycle"
+                         for row in all_material_rows
+                     ),
+                     "loose_wip_job_end_use": any(
+                         row["wip_presentation_method"] == "Loose Multi-Item WIP Bin"
+                         and row["loose_wip_release_policy"] == "Incremental by Operation Cycle"
+                         and row["loose_wip_usage_timing"] == "At Job Card End"
+                         for row in all_material_rows
                      ),
                      "loose_wip_active_bins": sorted({
                          row.visible_bin_code for row in wip_loads
@@ -1462,6 +1478,37 @@ def _incremental_loose_wip_items(work_order_name, job_card_name):
 def incremental_loose_wip_items(work_order_name, job_card_name):
     """Public policy lookup used by operation-cycle readiness and closure controls."""
     return _incremental_loose_wip_items(work_order_name, job_card_name)
+
+
+def per_cycle_loose_wip_usage_items(work_order_name, job_card_name):
+    """Return incremental Loose WIP Items that require use evidence on every card Cycle."""
+    context = frappe.db.get_value(
+        "Work Order", work_order_name, ["cfg_kanban_cycle"], as_dict=True
+    )
+    if not context or not context.cfg_kanban_cycle:
+        return set()
+    owner = frappe.db.get_value(
+        "CFG Kanban Cycle", context.cfg_kanban_cycle, ["kanban_master"], as_dict=True
+    )
+    job = frappe.db.get_value("Job Card", job_card_name, ["operation"], as_dict=True)
+    if not owner or not job:
+        return set()
+    rows = frappe.get_all(
+        "CFG Kanban Material Flow Rule",
+        filters={
+            "parent": owner.kanban_master,
+            "parenttype": "CFG Kanban Master",
+            "operation": job.operation,
+            "wip_presentation_method": "Loose Multi-Item WIP Bin",
+            "loose_wip_release_policy": "Incremental by Operation Cycle",
+        },
+        fields=["item_code", "loose_wip_usage_timing"], limit_page_length=0,
+    )
+    return {
+        row.item_code for row in rows
+        if (row.loose_wip_usage_timing or "Every Operation Cycle")
+            == "Every Operation Cycle"
+    }
 
 
 def _available_incremental_loose_wip(job_card_name, item_code):

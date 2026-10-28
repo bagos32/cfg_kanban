@@ -2030,6 +2030,7 @@ class TestDocTypeSchema(TestCase):
                       master["production_material_mode"]["options"])
         self.assertTrue({"item_code", "operation", "source_warehouse",
                          "bom_qty", "stock_uom", "wip_presentation_method",
+                         "loose_wip_release_policy", "loose_wip_usage_timing",
                          "wip_bin_pool", "standard_bin_qty"}.issubset(rule))
         self.assertTrue(rule["item_code"].get("read_only"))
         self.assertTrue(rule["operation"].get("read_only"))
@@ -2089,6 +2090,10 @@ class TestDocTypeSchema(TestCase):
                       rule["wip_presentation_method"]["options"])
         self.assertIn("Loose Multi-Item WIP Bin",
                       rule["wip_presentation_method"]["options"])
+        self.assertIn("Every Operation Cycle",
+                      rule["loose_wip_usage_timing"]["options"])
+        self.assertIn("At Job Card End",
+                      rule["loose_wip_usage_timing"]["options"])
         self.assertFalse(rule["standard_bin_qty"].get("mandatory_depends_on"))
         self.assertTrue({
             "status", "bin_mode", "reusable_bin", "wip_bin_pool", "company", "item_code",
