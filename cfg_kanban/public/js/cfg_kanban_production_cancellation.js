@@ -79,7 +79,7 @@ function add_erp_reversal_buttons(frm) {
 				title: __("Cancel ERP Job Card"),
 				fields: [
 					{ fieldname: "warning", fieldtype: "HTML", options:
-						`<div class="alert alert-warning">${__("Use this only after every related Stock Entry is cancelled or discarded. A submitted Job Card runs ERPNext cancellation hooks; a Draft is retained and marked Cancelled. The Kanban audit link remains.")}</div>` },
+						`<div class="alert alert-warning">${__("Use this only after every related Stock Entry is cancelled or discarded. Resolve every listed Work Order Job Card, including not-started downstream Drafts. A submitted Job Card runs ERPNext cancellation hooks; a Draft is retained and marked Cancelled. Kanban and Process Execution audit links remain.")}</div>` },
 					{ fieldname: "job_card", label: __("Job Card"), fieldtype: "Select", reqd: 1,
 						options: job_cards.join("\n") },
 					{ fieldname: "reversal_notes", label: __("ERP Reversal Evidence"),

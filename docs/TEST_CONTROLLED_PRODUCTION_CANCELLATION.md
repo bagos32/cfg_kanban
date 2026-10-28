@@ -61,7 +61,8 @@ Expected ERP rows, where present:
 - submitted or Draft **Manufacture** Stock Entry;
 - submitted or Draft **Material Consumption for Manufacture** Stock Entry;
 - submitted or Draft **Material Transfer for Manufacture** Stock Entry;
-- active/completed Job Card or active timer;
+- every unresolved Job Card, including a not-started downstream Open/Draft Job Card with zero
+  completed quantity, plus any active timer;
 - Work Order until it is Cancelled.
 
 Reverse through ERPNext in this order:
@@ -70,11 +71,14 @@ Reverse through ERPNext in this order:
 2. cancel submitted material-consumption Stock Entry;
 3. cancel submitted material-transfer Stock Entry;
 4. discard unused Draft Stock Entries after confirming nothing was physically posted;
-5. in the Controlled Production Cancellation record, select **ERP Reversal → Cancel Linked Job
-   Card** for each active or submitted Job Card, enter reversal evidence, and confirm its Stock
-   Entries are already reversed. Submitted Job Cards run the ERPNext cancellation hooks; Draft Job
-   Cards and their child rows are retained as Cancelled audit records rather than deleted;
-6. after no Job Card or Stock Entry blocker remains, select **ERP Reversal → Cancel Work Order**.
+5. select **Refresh Assessment** and confirm every Job Card belonging to the Work Order appears.
+   Not-started downstream Job Cards must appear as **Open · Draft**, and the dependency details
+   should identify any linked **CFG Kanban Process Execution**;
+6. in the Controlled Production Cancellation record, select **ERP Reversal → Cancel Linked Job
+   Card** for every listed Job Card, enter reversal evidence, and confirm its Stock Entries are
+   already reversed. Submitted Job Cards run the ERPNext cancellation hooks; Draft Job Cards and
+   their child rows are retained as Cancelled audit records rather than deleted;
+7. after no Job Card or Stock Entry blocker remains, select **ERP Reversal → Cancel Work Order**.
 
 The two controlled ERP actions retain the Cycle-to-ERP links as audit evidence while running the
 normal ERPNext document cancellation hooks. They bypass only the circular Kanban link check that

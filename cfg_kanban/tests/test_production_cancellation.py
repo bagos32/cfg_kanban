@@ -69,6 +69,9 @@ class TestControlledProductionCancellation(unittest.TestCase):
         self.assertIn('frappe.get_meta("Job Card").has_field("is_paused")', service)
         self.assertIn("work_order.flags.ignore_links = True", service)
         self.assertIn("_assert_stock_entries_reversed(cycle)", service)
+        self.assertIn("if cint(job.docstatus) != 2:", service)
+        self.assertIn('filters={"job_card": job.name}', service)
+        self.assertNotIn('(job.status != "Open" or flt(job.total_completed_qty) > 0)', service)
 
     def test_assessment_covers_erp_and_physical_dependencies(self):
         service = (ROOT / "services" / "production_cancellation.py").read_text()

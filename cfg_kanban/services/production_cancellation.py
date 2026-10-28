@@ -1018,12 +1018,29 @@ def _assess(cycle):
                 "Pause the active Job Card timer before ERP cancellation.",
                 details=f"{open_timers} open time log(s)",
             ))
-        if (job.docstatus != 2 and job.status != "Cancelled" and
-                (job.status != "Open" or flt(job.total_completed_qty) > 0)):
+        # Every Job Card owned by the Work Order must be resolved before ERPNext can cancel
+        # that Work Order. This includes untouched downstream Draft Job Cards (Open with zero
+        # completed quantity) and legacy Draft rows whose status was changed to Cancelled without
+        # changing docstatus. Omitting either class leaves ERPNext attempting to delete the Draft
+        # during Work Order cancellation, where immutable Kanban Process Execution links block it.
+        if cint(job.docstatus) != 2:
+            linked_executions = frappe.get_all(
+                "CFG Kanban Process Execution",
+                filters={"job_card": job.name},
+                pluck="name",
+                order_by="creation asc",
+            )
+            details = (
+                "Linked Process Execution(s): " + ", ".join(linked_executions)
+                if linked_executions else
+                "No linked Process Execution"
+            )
             dependencies.append(_dependency(
                 "ERP", "Job Card", job.name, _row_state(job),
-                "Cancel this Job Card through ERPNext as part of Work Order reversal.",
+                "Cancel this Job Card through the controlled production cancellation before "
+                "cancelling its Work Order.",
                 quantity=job.total_completed_qty,
+                details=details,
             ))
         if flt(job.total_completed_qty) > 0:
             evidence.append(f"Job Card {job.name}: {job.total_completed_qty} completed")
