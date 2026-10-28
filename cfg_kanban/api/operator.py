@@ -176,6 +176,9 @@ def _scanner_command_catalog(quantity_steps=None):
         ("Material Quantity", [
             (f"Material Qty {number:g}", f"CFG:QTY:MATERIAL:{number:g}", "")
             for number in normalized_steps
+        ] + [
+            (f"Material +{number:g}", f"CFG:QTY:MATERIAL:+{number:g}", "")
+            for number in normalized_steps
         ]),
         ("Confirmation", [
             ("Reject +1", "CFG:QTY:REJECT:+1", ""),

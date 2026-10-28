@@ -983,7 +983,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			fields: [
 				{ fieldname: "quantity_steps", label: __("Routine Good / Material Quantity Values"),
 					fieldtype: "Data", reqd: 1, default: "1, 5, 10, 50, 100",
-					description: __("Creates Good +quantity and absolute Material Quantity commands. Change this list, then leave the field to refresh the catalogue.") },
+					description: __("Creates Good +quantity plus absolute and additive Material Quantity commands. Change this list, then leave the field to refresh the catalogue.") },
 				{ fieldname: "command_selector", fieldtype: "HTML" },
 			],
 			primary_action_label: __("Print Selected"),
@@ -1772,10 +1772,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			primary_action: () => dialog.hide(),
 		});
 		dialog.cfg_raw_scanner_handler = record_scan;
-		dialog.cfg_quantity_handler = async (qty) => {
-			await dialog.set_value("actual_qty", qty);
-			frappe.show_alert({ message: qty
-				? __("Actual consumption armed: {0}. Scan the Ready WIP Bin.", [qty])
+		dialog.cfg_quantity_handler = async (qty, additive = false) => {
+			const next_qty = additive ? Number(dialog.get_value("actual_qty") || 0) + qty : qty;
+			await dialog.set_value("actual_qty", next_qty);
+			frappe.show_alert({ message: next_qty
+				? __("Actual consumption armed: {0}. Scan the Ready WIP Bin.", [next_qty])
 				: __("Full-bin consumption armed. Scan the Ready WIP Bin."), indicator: "blue" });
 		};
 		dialog.show();
@@ -1870,10 +1871,18 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				if (!row) frappe.throw(__("That Loose WIP material number is not available."));
 				return dialog.set_value("material_choice", option_for(row, index));
 			}
-			if (quantity) return dialog.set_value("qty", Number(quantity[1]));
+			if (quantity) {
+				const instruction = quantity[1];
+				const next_qty = instruction.startsWith("+")
+					? Number(dialog.get_value("qty") || 0) + Number(instruction)
+					: Number(instruction);
+				return dialog.set_value("qty", next_qty);
+			}
 			return load_bin(value);
 		};
-		dialog.cfg_quantity_handler = (qty) => dialog.set_value("qty", qty);
+		dialog.cfg_quantity_handler = (qty, additive = false) => dialog.set_value(
+			"qty", additive ? Number(dialog.get_value("qty") || 0) + qty : qty
+		);
 		dialog.show();
 		refresh_summary();
 		bind_confirmation_scanner(dialog, true);
@@ -2117,7 +2126,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			return window.setTimeout(() => field.set_focus(), 80);
 		}
 		if (material_qty && typeof dialog.cfg_quantity_handler === "function") {
-			await dialog.cfg_quantity_handler(Number(material_qty[1]));
+			const instruction = material_qty[1];
+			await dialog.cfg_quantity_handler(Number(instruction), instruction.startsWith("+"));
 			return window.setTimeout(() => field.set_focus(), 80);
 		}
 		if (material_qty && dialog.cfg_material_rows) {
@@ -2965,7 +2975,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				"Material Consumption for Manufacture";
 			const partial_qty = command.match(/^CFG:QTY:MATERIAL:([+]?(?:\d+\.?\d*|\.\d+))$/);
 			if (partial_qty) {
-				const qty = Number(partial_qty[1]);
+				const instruction = partial_qty[1];
+				const qty = instruction.startsWith("+")
+					? Number(dialog.cfg_pending_wip_qty || dialog.get_value("wip_partial_qty") || 0) + Number(instruction)
+					: Number(instruction);
 				dialog.cfg_pending_wip_qty = qty;
 				const selected = operator_wip_row(pending_wip, dialog.get_value("wip_bin_row"));
 				if (pending_wip.length === 1 || dialog.cfg_wip_row_explicit) {

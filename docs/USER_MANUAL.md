@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.25
+**Guide version:** 2.28
 
 **Updated:** 28 October 2026
 
@@ -2662,7 +2662,10 @@ workstation, separated by commas—for example `1, 10, 50, 100`. The sheet is ge
 different operations may keep different laminated quantity sheets without changing the Kanban Card
 or Master. A scanned absolute command such as `CFG:QTY:GOOD:100` sets the field to 100, while
 `CFG:QTY:GOOD:+100` adds 100 to its current value. The same values also print absolute
-`CFG:QTY:MATERIAL:<value>` labels for material confirmation rows.
+`CFG:QTY:MATERIAL:<value>` labels that set a material quantity and
+`CFG:QTY:MATERIAL:+<value>` labels that add to the currently armed material quantity. For example,
+scan Material `+10`, `+10`, `+1`, then the physical tag/bin to arm an odd quantity of 21 without a
+keypad.
 
 If an error message is open, the operator may immediately scan the next card. The panel closes the
 message and processes that scan. `CFG:CMD:DISMISS` closes the message without loading another card.
@@ -4375,6 +4378,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.28 | 28 October 2026 | Added printable cumulative Material Quantity commands: absolute labels continue to set the quantity, `CFG:QTY:MATERIAL:+n` labels now add consistently across Production Material Trace and WIP usage dialogs, and repeated scans can build odd material quantities before the physical source/bin scan |
 | 2.27 | 28 October 2026 | Corrected Production Material Trace field visibility refresh on Frappe v15 by normalizing Dialog field wrappers before toggling them; quantity → source Stock Tag → Loose WIP Bin now continues through allocation instead of stopping with `wrapper.toggle is not a function` |
 | 2.26 | 28 October 2026 | Prevented silent Loose/Standard WIP material-scan loss by replacing the single pending scan slot with a bounded ordered queue, adding visible queued/rejected scan feedback, replacing the last no-row silent return with an explicit recovery message, and documenting the distinct load, floor-use, and final-posting scan sequences |
 | 2.25 | 28 October 2026 | Implemented Dispatch E3: atomic late lorry claim through a Company-specific Warehouse Operations card, one linked loading Manifest, exact tagged loading scans, explicit untagged physical-pick confirmation, controlled same-Company direct ERP Material Transfer, Loaded feedback closure, and reason-bound pre-posting claim release that preserves E2 reservations; customer fulfilment remains E4 |

@@ -63,6 +63,11 @@ Workstation, role, and Item allow-list agree.
 5. Scan `CFG:QTY:MATERIAL:4`, scan the Oil source when required, then scan the same permanent bin.
 6. Submit the native `Material Transfer for Manufacture`.
 
+Odd-quantity scanner test: for a requirement of 21, scan `CFG:QTY:MATERIAL:+10`, scan it again,
+then scan `CFG:QTY:MATERIAL:+1` before the source tag and Loose WIP Bin. Expected: the armed and
+allocated quantity is 21. Scan `CFG:QTY:MATERIAL:4` first when deliberately replacing/resetting the
+armed quantity rather than adding to it.
+
 Expected:
 
 - two separate WIP Bin Load episodes exist under one permanent bin;

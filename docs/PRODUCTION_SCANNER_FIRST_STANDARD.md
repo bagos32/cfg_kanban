@@ -34,6 +34,8 @@ Every new or adjusted production-floor action must include all of the following 
 - `CFG:CMD:*` performs an operational command.
 - `CFG:SELECT:n` selects a numbered safe candidate only while an appropriate selection dialog is open.
 - `CFG:QTY:GOOD:*`, `CFG:QTY:REJECT:*`, and `CFG:QTY:MATERIAL:*` provide contextual quantities.
+  A Material value without `+` sets the armed quantity; a `+` value adds to it and may be scanned
+  repeatedly before the related physical material identity.
 - `CFG:CMD:CONFIRM`, `CFG:CMD:CANCEL`, and `CFG:CMD:DISMISS` provide consistent completion and escape
   paths.
 - Physical Card, Employee, Handling Unit, Stock Tag, WIP Bin, Station, and location labels identify

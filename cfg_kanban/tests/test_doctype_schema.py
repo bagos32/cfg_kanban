@@ -2259,6 +2259,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Consume Operation Materials", panel)
         self.assertIn("Select Job Card for Material Consumption", panel)
         self.assertIn("CFG:QTY:MATERIAL:", panel)
+        self.assertIn('instruction.startsWith("+")', panel)
+        self.assertIn("dialog.cfg_pending_wip_qty || dialog.get_value", panel)
         self.assertIn("classify_trace_scan", panel)
         self.assertIn("classify_wip_trace_scan", panel)
         self.assertIn("route_classified_wip_scan", panel)
