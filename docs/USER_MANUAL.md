@@ -3473,8 +3473,12 @@ start or finalize it.
 4. Open the created **CFG Kanban Production Cancellation**. Its **ERP and Physical Dependencies**
    (`dependencies`) is a live checklist, not a replacement for ERPNext. Resolve ERP dependencies in
    reverse production order: cancel submitted Manufacture entries first, then material-consumption
-   entries, then material-transfer entries; discard unused Draft Stock Entries; cancel affected Job
-   Cards; finally cancel the Work Order. ERPNext validates whether each cancellation is legal.
+   entries, then material-transfer entries; discard unused Draft Stock Entries. Next use **ERP
+   Reversal → Cancel Linked Job Card** for each active or submitted Job Card. Submitted Job Cards
+   run ERPNext cancellation hooks; Draft Job Cards are retained and marked Cancelled rather than
+   deleted. When no Job Card or Stock Entry blocker remains, use **ERP Reversal → Cancel Work
+   Order**. These manager actions retain the Kanban-to-ERP links for audit, bypass only the circular
+   link check, and still run ERPNext's applicable document cancellation hooks and validations.
 5. Resolve every listed WIP Bin reconciliation and physical Handling Unit balance. Do not merely
    move or relabel material to clear the list—the ERP reversal and actual floor quantity/location
    must agree.

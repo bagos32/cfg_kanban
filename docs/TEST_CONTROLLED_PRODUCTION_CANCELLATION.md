@@ -64,18 +64,25 @@ Expected ERP rows, where present:
 - active/completed Job Card or active timer;
 - Work Order until it is Cancelled.
 
-Reverse only through ERPNext. Use this order:
+Reverse through ERPNext in this order:
 
 1. cancel submitted Manufacture Stock Entry;
 2. cancel submitted material-consumption Stock Entry;
 3. cancel submitted material-transfer Stock Entry;
 4. discard unused Draft Stock Entries after confirming nothing was physically posted;
-5. cancel Job Cards;
-6. cancel Work Order.
+5. in the Controlled Production Cancellation record, select **ERP Reversal → Cancel Linked Job
+   Card** for each active or submitted Job Card, enter reversal evidence, and confirm its Stock
+   Entries are already reversed. Submitted Job Cards run the ERPNext cancellation hooks; Draft Job
+   Cards are retained and marked Cancelled rather than deleted;
+6. after no Job Card or Stock Entry blocker remains, select **ERP Reversal → Cancel Work Order**.
 
-After each action, select **Refresh Assessment**. Expected result: cancelled ERP documents
-disappear from the blocker list; submitted/draft records never disappear merely because a Kanban
-button was pressed.
+The two controlled ERP actions retain the Cycle-to-ERP links as audit evidence while running the
+normal ERPNext document cancellation hooks. They bypass only the circular Kanban link check that
+would otherwise report `Cannot delete or cancel because ... is linked with CFG Kanban Cycle`.
+
+After each Stock Entry action, select **Refresh Assessment**. The controlled Job Card and Work
+Order actions refresh automatically. Expected result: cancelled ERP documents disappear from the
+blocker list, while their documents, Kanban links, and Events remain available for audit.
 
 ## 5. Case D — physical WIP and output reconciliation
 

@@ -32,6 +32,7 @@ frappe.ui.form.on("CFG Kanban Production Cancellation", {
 			});
 			await frm.reload_doc();
 		}).addClass("btn-primary");
+		add_erp_reversal_buttons(frm);
 		if (frm.doc.status === "Ready to Finalize" && !frm.doc.blocking_count) {
 			frm.add_custom_button(__("Finalize and Release Card"), () => {
 				const dialog = new frappe.ui.Dialog({
@@ -66,3 +67,82 @@ frappe.ui.form.on("CFG Kanban Production Cancellation", {
 		}
 	},
 });
+
+function add_erp_reversal_buttons(frm) {
+	const dependencies = frm.doc.dependencies || [];
+	const job_cards = [...new Set(dependencies.filter((row) =>
+		row.blocking && row.reference_doctype === "Job Card"
+	).map((row) => row.reference_name))];
+	if (job_cards.length) {
+		frm.add_custom_button(__("Cancel Linked Job Card"), () => {
+			const dialog = new frappe.ui.Dialog({
+				title: __("Cancel ERP Job Card"),
+				fields: [
+					{ fieldname: "warning", fieldtype: "HTML", options:
+						`<div class="alert alert-warning">${__("Use this only after every related Stock Entry is cancelled or discarded. A submitted Job Card runs ERPNext cancellation hooks; a Draft is retained and marked Cancelled. The Kanban audit link remains.")}</div>` },
+					{ fieldname: "job_card", label: __("Job Card"), fieldtype: "Select", reqd: 1,
+						options: job_cards.join("\n") },
+					{ fieldname: "reversal_notes", label: __("ERP Reversal Evidence"),
+						fieldtype: "Small Text", reqd: 1,
+						description: __("Record why this Job Card is being cancelled and who verified the reversal.") },
+					{ fieldname: "confirmed", label: __("I verified the related Stock Entries are reversed"),
+						fieldtype: "Check", default: 0 },
+				],
+				primary_action_label: __("Cancel Job Card"),
+				primary_action: async (values) => {
+					if (!values.confirmed) {
+						frappe.msgprint(__("Confirm the Stock Entry reversal before continuing."));
+						return;
+					}
+					await frappe.call({
+						method: "cfg_kanban.services.production_cancellation.cancel_production_job_card",
+						args: { cancellation_name: frm.doc.name, job_card_name: values.job_card,
+							reversal_notes: values.reversal_notes },
+						freeze: true, freeze_message: __("Cancelling ERP Job Card..."),
+					});
+					dialog.hide();
+					await frm.reload_doc();
+				},
+			});
+			dialog.show();
+		}, __("ERP Reversal"));
+	}
+
+	const work_order_blocked = dependencies.some((row) =>
+		row.blocking && row.reference_doctype === "Work Order"
+	);
+	const lower_level_blocked = dependencies.some((row) =>
+		row.blocking && ["Job Card", "Stock Entry"].includes(row.reference_doctype)
+	);
+	if (work_order_blocked && !lower_level_blocked) {
+		frm.add_custom_button(__("Cancel Work Order"), () => {
+			const dialog = new frappe.ui.Dialog({
+				title: __("Cancel ERP Work Order"),
+				fields: [
+					{ fieldname: "warning", fieldtype: "HTML", options:
+						`<div class="alert alert-danger">${__("This runs ERPNext Work Order cancellation after all lower-level production records are resolved. Kanban audit links remain preserved.")}</div>` },
+					{ fieldname: "reversal_notes", label: __("ERP Reversal Evidence"),
+						fieldtype: "Small Text", reqd: 1 },
+					{ fieldname: "confirmed", label: __("I verified all Job Cards and Stock Entries are resolved"),
+						fieldtype: "Check", default: 0 },
+				],
+				primary_action_label: __("Cancel Work Order"),
+				primary_action: async (values) => {
+					if (!values.confirmed) {
+						frappe.msgprint(__("Confirm the lower-level ERP reversal before continuing."));
+						return;
+					}
+					await frappe.call({
+						method: "cfg_kanban.services.production_cancellation.cancel_production_work_order",
+						args: { cancellation_name: frm.doc.name,
+							reversal_notes: values.reversal_notes },
+						freeze: true, freeze_message: __("Cancelling ERP Work Order..."),
+					});
+					dialog.hide();
+					await frm.reload_doc();
+				},
+			});
+			dialog.show();
+		}, __("ERP Reversal"));
+	}
+}

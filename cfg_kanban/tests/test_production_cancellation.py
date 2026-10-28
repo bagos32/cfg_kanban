@@ -60,7 +60,12 @@ class TestControlledProductionCancellation(unittest.TestCase):
         self.assertIn("Related Operation Card Released after Production Cancellation", service)
         self.assertIn('"Kanban Scope"', service)
         self.assertNotIn("delete_doc(", service)
-        self.assertNotIn(".cancel()", service)
+        self.assertIn("def cancel_production_job_card(", service)
+        self.assertIn("def cancel_production_work_order(", service)
+        self.assertIn("job_card.flags.ignore_links = True", service)
+        self.assertIn('job_card.db_set({"status": "Cancelled"', service)
+        self.assertIn("work_order.flags.ignore_links = True", service)
+        self.assertIn("_assert_stock_entries_reversed(cycle)", service)
 
     def test_assessment_covers_erp_and_physical_dependencies(self):
         service = (ROOT / "services" / "production_cancellation.py").read_text()
@@ -108,6 +113,8 @@ class TestControlledProductionCancellation(unittest.TestCase):
         self.assertIn("Request Controlled Cancellation", cycle_js)
         self.assertIn("Controlled Production Cancellation", signal_js)
         self.assertIn("Refresh Assessment", control_js)
+        self.assertIn("Cancel Linked Job Card", control_js)
+        self.assertIn("Cancel Work Order", control_js)
         self.assertIn("Finalize and Release Card", control_js)
         self.assertIn("def _production_cancellations", supervisor_api)
         self.assertIn("Controlled Production Cancellation", supervisor_js)

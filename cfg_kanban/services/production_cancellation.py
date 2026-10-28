@@ -211,6 +211,157 @@ def refresh_production_cancellation(cancellation_name):
 
 
 @frappe.whitelist()
+def cancel_production_job_card(cancellation_name, job_card_name, reversal_notes):
+    """Cancel one ERP Job Card through the active controlled-cancellation boundary.
+
+    The Cycle intentionally retains its Job Card link as audit evidence. A normal ERPNext
+    cancellation therefore sees that link as a dependency. This manager-only action bypasses
+    only the circular Kanban audit link while still executing the Job Card controller's normal
+    cancellation hooks.
+    """
+    _require_manager()
+    notes = _required_reversal_notes(reversal_notes)
+    cancellation, cycle = _locked_cancellation_context(cancellation_name)
+    if cancellation.status == "Completed":
+        frappe.throw("This controlled production cancellation is already completed")
+    if not job_card_name:
+        frappe.throw("Select the Job Card to cancel")
+
+    frappe.db.sql("select name from `tabJob Card` where name=%s for update", job_card_name)
+    job_card = frappe.get_doc("Job Card", job_card_name)
+    if job_card.work_order != cancellation.work_order:
+        frappe.throw(
+            f"Job Card {job_card.name} does not belong to controlled Work Order "
+            f"{cancellation.work_order}"
+        )
+    if cint(job_card.docstatus) == 2:
+        _refresh(cancellation, cycle)
+        return _public_result(cancellation, duplicate=True)
+    if cint(job_card.docstatus) not in (0, 1):
+        frappe.throw(
+            f"Job Card {job_card.name} is in an unsupported document state: "
+            f"{_doc_state(job_card)}"
+        )
+
+    _assert_stock_entries_reversed(cycle)
+    open_timers = frappe.db.count(
+        "Job Card Time Log", {"parent": job_card.name, "to_time": ["is", "not set"]}
+    )
+    if open_timers:
+        frappe.throw(
+            f"Job Card {job_card.name} still has {open_timers} open timer(s). "
+            "Pause the timer before cancellation."
+        )
+
+    previous_state = _row_state(job_card)
+    if cint(job_card.docstatus) == 1:
+        job_card.flags.ignore_permissions = True
+        job_card.flags.ignore_links = True
+        job_card.cancel()
+        event_name = "ERP Job Card Cancelled through Production Cancellation"
+    else:
+        # ERPNext v15 does not provide a Cancel transition for a Draft Job Card. Deleting it
+        # would destroy the time/progress evidence, so controlled cancellation retains the
+        # document and makes its abandoned state explicit.
+        job_card.db_set({"status": "Cancelled", "is_paused": 0}, update_modified=True)
+        event_name = "ERP Draft Job Card Voided through Production Cancellation"
+    record(
+        event_name,
+        card=cycle.kanban_card,
+        cycle=cycle.name,
+        previous_state=previous_state,
+        new_state="Cancelled",
+        reference_doctype="Job Card",
+        reference_name=job_card.name,
+        notes=f"{cancellation.name}: {notes}",
+        system_generated=False,
+        ignore_permissions=True,
+    )
+    _refresh(cancellation, cycle)
+    return _public_result(cancellation)
+
+
+@frappe.whitelist()
+def cancel_production_work_order(cancellation_name, reversal_notes):
+    """Cancel the ERP Work Order after its lower-level production records are reversed."""
+    _require_manager()
+    notes = _required_reversal_notes(reversal_notes)
+    cancellation, cycle = _locked_cancellation_context(cancellation_name)
+    if cancellation.status == "Completed":
+        frappe.throw("This controlled production cancellation is already completed")
+    if not cancellation.work_order:
+        frappe.throw("This cancellation has no effective Work Order")
+
+    frappe.db.sql(
+        "select name from `tabWork Order` where name=%s for update", cancellation.work_order
+    )
+    work_order = frappe.get_doc("Work Order", cancellation.work_order)
+    if cint(work_order.docstatus) == 2:
+        _refresh(cancellation, cycle)
+        return _public_result(cancellation, duplicate=True)
+    if cint(work_order.docstatus) != 1:
+        frappe.throw(
+            f"Work Order {work_order.name} is {_doc_state(work_order)} and cannot use ERPNext Cancel"
+        )
+
+    _assert_stock_entries_reversed(cycle)
+    active_jobs = frappe.get_all(
+        "Job Card",
+        filters={"work_order": work_order.name, "docstatus": 1},
+        pluck="name",
+        order_by="creation asc",
+    )
+    if active_jobs:
+        frappe.throw(
+            "Cancel the submitted Job Card(s) before the Work Order: " + ", ".join(active_jobs)
+        )
+    unresolved_drafts = frappe.get_all(
+        "Job Card",
+        filters={
+            "work_order": work_order.name,
+            "docstatus": 0,
+            "status": ["not in", ["Open", "Cancelled"]],
+        },
+        pluck="name",
+        order_by="creation asc",
+    )
+    if unresolved_drafts:
+        frappe.throw(
+            "Resolve the active Draft Job Card(s) before the Work Order: "
+            + ", ".join(unresolved_drafts)
+        )
+
+    previous_state = _doc_state(work_order)
+    work_order.flags.ignore_permissions = True
+    work_order.flags.ignore_links = True
+    work_order.cancel()
+    for draft_job in frappe.get_all(
+        "Job Card",
+        filters={"work_order": work_order.name, "docstatus": 0},
+        pluck="name",
+    ):
+        frappe.db.set_value(
+            "Job Card", draft_job,
+            {"status": "Cancelled", "is_paused": 0},
+            update_modified=True,
+        )
+    record(
+        "ERP Work Order Cancelled through Production Cancellation",
+        card=cycle.kanban_card,
+        cycle=cycle.name,
+        previous_state=previous_state,
+        new_state="Cancelled",
+        reference_doctype="Work Order",
+        reference_name=work_order.name,
+        notes=f"{cancellation.name}: {notes}",
+        system_generated=False,
+        ignore_permissions=True,
+    )
+    _refresh(cancellation, cycle)
+    return _public_result(cancellation)
+
+
+@frappe.whitelist()
 def finalize_production_cancellation(cancellation_name, reconciliation_notes):
     """Finish only after ERPNext and physical control both prove no live production remains."""
     _require_manager()
@@ -421,6 +572,47 @@ def _production_context(cycle_name):
     if not cycle.work_order:
         frappe.throw("This production Cycle has no effective Work Order")
     return cycle, master
+
+
+def _locked_cancellation_context(cancellation_name):
+    if not cancellation_name:
+        frappe.throw("Production Cancellation record was not found")
+    frappe.db.sql(
+        "select name from `tabCFG Kanban Production Cancellation` where name=%s for update",
+        cancellation_name,
+    )
+    cancellation = frappe.get_doc(CANCELLATION_DOCTYPE, cancellation_name)
+    cancellation.check_permission("read")
+    frappe.db.sql(
+        "select name from `tabCFG Kanban Cycle` where name=%s for update",
+        cancellation.kanban_cycle,
+    )
+    cycle = frappe.get_doc("CFG Kanban Cycle", cancellation.kanban_cycle)
+    if cycle.get("production_cancellation") != cancellation.name:
+        frappe.throw("The Kanban Cycle no longer identifies this cancellation control record")
+    return cancellation, cycle
+
+
+def _required_reversal_notes(reversal_notes):
+    notes = (reversal_notes or "").strip()
+    if not notes:
+        frappe.throw("ERP reversal evidence is required")
+    return notes
+
+
+def _assert_stock_entries_reversed(cycle):
+    active_entries = [
+        row for row in _production_stock_entries(cycle) if cint(row.docstatus) != 2
+    ]
+    if not active_entries:
+        return
+    references = ", ".join(
+        f"{row.name} ({_doc_state(row)})" for row in active_entries
+    )
+    frappe.throw(
+        "Reverse or discard every controlled production Stock Entry before cancelling Job "
+        f"Cards or the Work Order: {references}"
+    )
 
 
 def _freeze_executions(cycle, executions, cancellation):
@@ -770,8 +962,8 @@ def _assess(cycle):
                 "Pause the active Job Card timer before ERP cancellation.",
                 details=f"{open_timers} open time log(s)",
             ))
-        if job.docstatus != 2 and (job.status not in ("Open", "Cancelled") or
-                                   flt(job.total_completed_qty) > 0):
+        if (job.docstatus != 2 and job.status != "Cancelled" and
+                (job.status != "Open" or flt(job.total_completed_qty) > 0)):
             dependencies.append(_dependency(
                 "ERP", "Job Card", job.name, _row_state(job),
                 "Cancel this Job Card through ERPNext as part of Work Order reversal.",
@@ -880,7 +1072,7 @@ def _production_stock_entries(cycle):
         select distinct name, purpose, stock_entry_type, docstatus, fg_completed_qty, creation
         from `tabStock Entry`
         where name is not null
-          and (cfg_kanban_cycle=%s or (work_order=%s and cfg_kanban_controlled=1))
+          and (cfg_kanban_cycle=%s or work_order=%s)
         order by creation asc
         """,
         (cycle.name, cycle.work_order),
