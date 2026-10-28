@@ -9,6 +9,13 @@
 
 **Canonical file:** `docs/USER_MANUAL.md`
 
+**2.33 repeated-cycle material transfer:** When a Job Card operation uses more than one Operation
+Card cycle, ERPNext may rebuild the original Job Card material list for each transfer. CFG Kanban
+now removes components already satisfied by an earlier submitted transfer and creates the next
+Draft only from the remaining confirmed rows. For example, after WATER is fully transferred and
+TPJ is only partly loaded in cycle 1, cycle 2 asks only for the remaining TPJ quantity; it does not
+move WATER twice.
+
 **2.32 incremental Loose WIP:** A Loose Multi-Item BOM row can now opt into **Incremental by
 Operation Cycle**. A positive transferred bin balance is sufficient to start; each operation-card
 cycle records its own use. **Operator Complete** may close a positive partial allocation, releases

@@ -40,6 +40,18 @@ class TestIncrementalLooseWIPCycles(TestCase):
         self.assertIn("row.qty = qty / conversion", validation)
         self.assertIn("allocate the complete Stock Entry row", validation)
 
+    def test_later_incremental_transfer_omits_already_satisfied_erp_rows(self):
+        gateway = (ROOT / "integrations" / "erp_gateway.py").read_text()
+        transfer = gateway[gateway.index('def create_production_material_transfer('):]
+        transfer = transfer[:transfer.index('\n\n@handler(', 1)]
+        self.assertIn("prune_unconfirmed=True", transfer)
+
+        mapper = gateway[gateway.index('def _apply_confirmed_production_lines('):]
+        mapper = mapper[:mapper.index('\n\ndef _job_card_result(')]
+        self.assertIn("prune_unconfirmed=False", mapper)
+        self.assertIn("ERPNext's Job Card mapper can rebuild", mapper)
+        self.assertIn('entry.set("items", [row.as_dict() for row in retained_rows])', mapper)
+
     def test_operation_cycle_closure_requires_its_loose_usage(self):
         source = (ROOT / "api" / "operator.py").read_text()
         readiness = source[source.index("def _runtime_close_readiness("):]

@@ -76,6 +76,12 @@ Expected:
 - any source Stock Tag is reduced only after ERP submission; and
 - no child tag was printed or created merely to load the Loose bin.
 
+Repeated-cycle transfer regression: when another ordinary ERP component was fully transferred in
+the first operation-card cycle but the Loose WIP component was only partly transferred, open
+**Prepare Operation Materials** in the second cycle. Expected: the confirmation table contains
+only the remaining Loose WIP quantity. The fully transferred ERP component is absent, the Draft
+contains no duplicate row for it, and ERPNext stock is not moved a second time.
+
 Rapid-scan test: without waiting between devices, scan one Material Quantity, its required source
 tag, and the Loose WIP Bin. Expected: the popup visibly queues scans received while classification
 is running, processes all three in order, creates exactly one correct load, and never closes or
