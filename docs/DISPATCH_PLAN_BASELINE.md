@@ -1,11 +1,12 @@
 # CFG Kanban Dispatch Planning Baseline
 
-**Baseline identifier:** `CFG-DISPATCH-E2`
+**Baseline identifier:** `CFG-DISPATCH-E3`
 **Decision status:** Locked
-**Current status:** E1 and E2 implemented; E3–E5 remain pending
+**Current status:** E1–E3 implemented; E4–E5 remain pending
 **Implementation status:** Dispatch Profiles, permanent Dispatch Operations cards, the read-only
-operator launcher, Dispatch Plans, approval/cancellation, and controlled tagged/untagged reservation
-are implemented. E2 does not assign a vehicle, create a Manifest, move stock, or post ERP documents.
+operator launcher, Dispatch Plans, approval/cancellation, controlled tagged/untagged reservation,
+late lorry claim, physical loading confirmation, Manifest generation and controlled direct Material
+Transfer are implemented. E3 does not yet perform customer fulfilment.
 
 ## 1. Objective
 
@@ -241,12 +242,18 @@ and Customer Site cards already in the architecture.
 - immutable Profile revision snapshot, idempotent creation/reservation and release audit;
 - no staging Stock Entry, vehicle assignment, Manifest, or ERP posting in this package.
 
-### E3 — Vehicle claim and loading
+### E3 — Vehicle claim and loading — implemented
 
 - last-minute lorry assignment;
 - atomic claim;
 - Manifest generation;
 - controlled ERP Material Transfer.
+
+E3 supports Vehicle Delivery through an active same-Company Direct Internal Warehouse Transfer
+route. A Company-specific lorry Warehouse card claims one fully reserved Plan atomically. Tagged
+lines require exact reserved-tag loading scans; untagged lines require explicit physical-pick
+confirmation. Cancellation before ERP posting releases the vehicle claim while retaining the E2
+reservations and audit. Goods in Transit remains E6.
 
 ### E4 — Customer fulfilment
 
@@ -272,6 +279,6 @@ and Customer Site cards already in the architecture.
 When this work is resumed, first audit the current repository against this document and the latest
 `docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md`. Do not rebuild Dispatch Profiles, Dispatch Plans,
 reservation, existing Manifest, Customer Delivery, proof, tag, or reconciliation features. Begin
-E3 only after the E2 acceptance test passes. Keep production execution behaviour separate, add
+E4 only after the E3 acceptance test passes. Keep production execution behaviour separate, add
 regression tests, and stop for user-managed commit/deployment before each later package.
 

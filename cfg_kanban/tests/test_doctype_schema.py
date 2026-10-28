@@ -1406,7 +1406,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("render_dispatch_operations", panel)
         self.assertIn("render_dispatch_operations", panel)
         self.assertIn("Profile policy used by every new Dispatch Plan", panel)
-        self.assertIn("does not assign a vehicle", panel)
+        self.assertIn("E1–E3 dispatch planning and vehicle loading", panel)
         self.assertIn("dialog.onhide = focus_scanner", panel)
         self.assertIn("Source Warehouse must match Dispatch Operations Card", profile_controller)
         self.assertIn("Select at Receipt is valid only for Goods in Transit", profile_controller)
@@ -1439,7 +1439,7 @@ class TestDocTypeSchema(TestCase):
         }.issubset(plan_fields))
         self.assertEqual(
             plan_fields["state"]["options"],
-            "Draft\nAwaiting Approval\nApproved\nPicking\nReady for Vehicle\nCancelled\nException",
+            "Draft\nAwaiting Approval\nApproved\nPicking\nReady for Vehicle\nVehicle Claimed\nLoading\nReady to Dispatch\nDispatch Pending\nLoaded\nCancelled\nException",
         )
         self.assertEqual(plan_fields["lines"]["options"], "CFG Kanban Dispatch Plan Line")
 
@@ -1475,7 +1475,6 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Dispatch Operations Card is inactive or blocked", service)
         self.assertIn('event_type="Reserve"', service)
         self.assertIn('event_type="Unreserve"', service)
-        self.assertNotIn("Stock Entry", service)
         self.assertNotIn("Delivery Note", service)
         self.assertIn("Dispatch Plan Line does not belong", allocation_controller)
         self.assertIn("Untagged ERP stock Allocation cannot carry", allocation_controller)
@@ -1493,6 +1492,71 @@ class TestDocTypeSchema(TestCase):
                                 "cfg_dispatch_control.json").read_text())
         shortcuts = {row["label"]: row["link_to"] for row in workspace["shortcuts"]}
         self.assertEqual(shortcuts["Dispatch Plans"], "CFG Kanban Dispatch Plan")
+
+    def test_dispatch_e3_vehicle_claim_loading_and_transfer_are_controlled(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        plan_fields = {
+            row["fieldname"]: row
+            for row in schemas["CFG Kanban Dispatch Plan"]["fields"]
+        }
+        self.assertTrue({
+            "vehicle_warehouse", "vehicle_reference", "movement_manifest",
+            "claim_key", "claimed_by_operator", "claimed_operator_session",
+            "claimed_on", "loading_confirmed_on", "dispatch_started_on",
+            "loaded_on", "total_loaded_qty",
+        }.issubset(plan_fields))
+        self.assertEqual(plan_fields["claim_key"]["unique"], 1)
+
+        allocation_fields = {
+            row["fieldname"]: row
+            for row in schemas["CFG Kanban Dispatch Allocation"]["fields"]
+        }
+        self.assertTrue({
+            "movement_manifest", "manifest_line", "load_confirmed",
+            "loaded_by_operator", "loaded_operator_session", "loaded_on", "load_key",
+        }.issubset(allocation_fields))
+        self.assertEqual(allocation_fields["load_key"]["unique"], 1)
+
+        manifest_fields = {
+            row["fieldname"]: row
+            for row in schemas["CFG Kanban Movement Manifest"]["fields"]
+        }
+        self.assertTrue({
+            "dispatch_plan", "vehicle_warehouse", "vehicle_reference",
+        }.issubset(manifest_fields))
+        manifest_line_fields = {
+            row["fieldname"]: row
+            for row in schemas["CFG Kanban Manifest Line"]["fields"]
+        }
+        self.assertTrue({
+            "dispatch_allocation", "loading_confirmed", "loading_confirmed_by",
+            "loading_confirmed_on",
+        }.issubset(manifest_line_fields))
+
+        service = (APP_ROOT / "services" / "dispatch_planning.py").read_text()
+        logistics = (APP_ROOT / "api" / "logistics.py").read_text()
+        feedback = (APP_ROOT / "integrations" / "logistics_feedback.py").read_text()
+        manifest_controller = (
+            ROOT / "cfg_kanban_movement_manifest" / "cfg_kanban_movement_manifest.py"
+        ).read_text()
+        panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
+                 "kanban_logistics.js").read_text()
+        self.assertIn("def claim_dispatch_vehicle", service)
+        self.assertIn("def confirm_plan_tag_loaded", service)
+        self.assertIn("def confirm_dispatch_untagged_loaded", service)
+        self.assertIn("def release_vehicle_claim", service)
+        self.assertIn("def validate_plan_manifest_for_prepare", service)
+        self.assertIn("for update", service)
+        self.assertIn("partly reserved", service)
+        self.assertIn("dispatch_plan_loading", logistics)
+        self.assertIn("claimable_dispatch_plans", logistics)
+        self.assertIn("mark_plan_dispatch_pending", logistics)
+        self.assertIn("mark_plan_loaded", feedback)
+        self.assertIn("_apply_dispatch_plan_vehicle_snapshot", manifest_controller)
+        self.assertIn("Scan Lorry Card to Claim", panel)
+        self.assertIn("Confirm Physical Pick", panel)
+        self.assertIn("Confirm Loading / Prepare Dispatch", panel)
+        self.assertIn("claim_dispatch_plan_vehicle", panel)
 
     def test_non_stock_operational_inventory_uses_tag_ledger_without_erp_stock_entry(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

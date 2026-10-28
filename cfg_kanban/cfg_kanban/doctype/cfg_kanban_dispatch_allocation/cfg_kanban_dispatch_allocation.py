@@ -7,7 +7,7 @@ class CFGKanbanDispatchAllocation(Document):
     """Immutable reservation audit created only by the controlled E2 service."""
 
     def validate(self):
-        if self.state not in {"Reserved", "Released", "Cancelled", "Exception"}:
+        if self.state not in {"Reserved", "Loaded", "Released", "Cancelled", "Exception"}:
             frappe.throw(f"Unsupported Dispatch Allocation state {self.state}")
         if self.allocation_kind not in {"Tagged Stock", "Untagged ERP Stock"}:
             frappe.throw(f"Unsupported Dispatch Allocation kind {self.allocation_kind}")
@@ -35,4 +35,12 @@ class CFGKanbanDispatchAllocation(Document):
                 frappe.throw("Tagged Allocation requires its exact active Handling Unit key")
         elif self.handling_unit or self.active_handling_unit_key:
             frappe.throw("Untagged ERP stock Allocation cannot carry a Handling Unit identity")
+        if self.movement_manifest:
+            manifest_plan = frappe.db.get_value(
+                "CFG Kanban Movement Manifest", self.movement_manifest, "dispatch_plan"
+            )
+            if manifest_plan and manifest_plan != self.dispatch_plan:
+                frappe.throw("Loading Manifest belongs to a different Dispatch Plan")
+        if self.load_confirmed and not self.movement_manifest:
+            frappe.throw("Loading confirmation requires a Movement Manifest")
 

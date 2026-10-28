@@ -41,6 +41,38 @@ class CFGKanbanMovementManifest(Document):
         }
         for fieldname, value in values.items():
             self.set(fieldname, value)
+        if self.dispatch_plan:
+            self._apply_dispatch_plan_vehicle_snapshot(route)
+
+    def _apply_dispatch_plan_vehicle_snapshot(self, route):
+        """Lock an E3 vehicle claim into the existing internal-transfer Manifest model."""
+        plan = frappe.get_doc("CFG Kanban Dispatch Plan", self.dispatch_plan)
+        if route.route_type != "Internal Warehouse Transfer":
+            frappe.throw("Vehicle loading requires an Internal Warehouse Transfer route")
+        if (route.source_company != plan.company
+                or route.source_warehouse != plan.source_warehouse):
+            frappe.throw("Vehicle-loading route no longer matches the Dispatch Plan source")
+        if not plan.vehicle_warehouse or not plan.vehicle_reference:
+            frappe.throw("Dispatch Plan must claim a Lorry Warehouse before Manifest creation")
+        self.manifest_type = "Internal Warehouse Transfer"
+        self.source_company = plan.company
+        self.source_warehouse = plan.source_warehouse
+        self.destination_company = plan.company
+        self.destination_warehouse = plan.vehicle_warehouse
+        self.vehicle_warehouse = plan.vehicle_warehouse
+        self.vehicle_reference = plan.vehicle_reference
+        self.transit_warehouse = None
+        self.handover_mode = "Two Confirmation"
+        self.internal_transfer_mode = "Direct Transfer"
+        self.inventory_control_mode = "ERP Stock"
+        self.internal_customer = None
+        self.internal_supplier = None
+        self.selling_price_list = None
+        self.buying_price_list = None
+        self.auto_submit_dispatch_dn = 0
+        self.auto_submit_receipt_pr = 0
+        self.auto_submit_internal_dispatch = plan.auto_submit_stock_transfer
+        self.auto_submit_internal_receipt = 0
 
     def _validate_route_snapshot(self):
         if (self.manifest_type == "Internal Warehouse Transfer"
@@ -65,6 +97,7 @@ class CFGKanbanMovementManifest(Document):
             "internal_transfer_mode", "inventory_control_mode", "auto_submit_dispatch_dn",
             "auto_submit_receipt_pr",
             "auto_submit_internal_dispatch", "auto_submit_internal_receipt",
+            "dispatch_plan", "vehicle_warehouse", "vehicle_reference",
         )
         for fieldname in immutable:
             if before.get(fieldname) != self.get(fieldname):

@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.24
+**Guide version:** 2.25
 
 **Updated:** 28 October 2026
 
@@ -3970,12 +3970,13 @@ Desk audit is available at **CFG Kanban → Existing Stock Adoptions**. The Hand
 **Origin ERP DocType = CFG Kanban Stock Adoption**, and the Event History and quantity ledger retain
 the operator, session, balance snapshot and reason.
 
-### Dispatch Control E1–E2 — Profile launcher, Plans and stock reservation
+### Dispatch Control E1–E3 — Plan, reservation, late lorry claim and loading
 
 The separate **CFG Dispatch Control** workspace contains manager-facing policy, open Dispatch Plans,
 reservation audit and existing logistics execution records. E1 adds the permanent entry card and
-profile launcher. E2 adds controlled planning and picking reservation without replacing any Movement
-Manifest, Customer Delivery Session, proof, reconciliation, or ERPNext stock record.
+profile launcher. E2 adds controlled planning and picking reservation. E3 reuses the existing
+Movement Manifest and ERP gateway for late lorry claim, physical loading confirmation and one
+controlled same-Company direct Material Transfer. Customer fulfilment remains E4.
 
 Manager setup:
 
@@ -4012,15 +4013,40 @@ Operator use:
    reservation changes it to **Picking**.
 7. Use **Release** with a reason to undo one reservation. Use **Cancel Plan** with a reason to release
    every active reservation and preserve all Plan, Allocation, ledger and Event audit records.
+8. For **Vehicle Delivery**, configure the Profile with an active same-Company **Direct Transfer**
+   Internal Warehouse Transfer route. The source must match the Profile source Warehouse. Mark each
+   lorry Warehouse as **Is Vehicle Warehouse**, give it a unique **Vehicle Reference**, and print a
+   **Warehouse Operations** Location Card for that exact Warehouse.
+9. When a Plan is **Ready for Vehicle**, open it and select **Scan Lorry Card to Claim**, then scan
+   the actual lorry card. Alternatively, scan the lorry card first and select the correct entry under
+   **Ready Loads for this Lorry**. The atomic claim creates one linked loading Manifest and locks the
+   lorry Warehouse as destination; it still does not move ERP stock.
+10. Open the loading Manifest. Select **Start Tag Loading Scan** and scan every exact reserved Stock
+    Tag as it enters the lorry. For a reserved untagged line, physically pick/verify it and select
+    **Confirm Physical Pick**. A partly reserved physical tag is rejected; split/repack the exact
+    Plan quantity before vehicle claim.
+11. After all lines show physical loading confirmed, return to safe lookup mode and select
+    **Confirm Loading / Prepare Dispatch**. The Plan becomes **Ready to Dispatch**.
+12. Select **Confirm Dispatch**. The ERP gateway creates the exact Material Transfer. With automatic
+    submission enabled, submitted ERP feedback moves tagged identities to the lorry Warehouse,
+    clears reservations and closes the Plan as **Loaded**. With automatic submission disabled, the
+    Plan remains pending until the controlled Stock Entry is submitted and feedback is received.
+13. Before any ERP document exists, an Override-authorized supervisor may cancel the linked
+    Manifest with a reason. This retains the cancelled Manifest, returns the Plan to **Ready for
+    Vehicle**, resets the active Allocation loading flags and vehicle claim, and preserves the E2
+    stock reservations so another lorry may claim it. The cancelled Manifest retains the earlier
+    loading evidence as audit. After ERP creation/posting, use controlled recovery instead.
 
-E2 reservation does **not** assign a lorry, create a Manifest, move stock, post a Stock Entry, or
-create a Delivery Note. Tagged reservation changes only the Handling Unit reserved balance through
-the immutable quantity ledger. Untagged reservation creates an audit Allocation after deducting
-active tagged balances and other active untagged Plan reservations from the ERPNext balance. E3 owns
-vehicle claim, loading, Manifest generation and controlled stock movement.
+E2 reservation still does **not** move stock. Tagged reservation changes only the Handling Unit
+reserved balance through the immutable quantity ledger. Untagged reservation creates an audit
+Allocation after deducting active tagged balances and other active untagged Plan reservations from
+the ERPNext balance. E3 supports ERP-stock Items and Direct Transfer to a Company-specific lorry
+Warehouse. Goods in Transit remains optional E6, and customer Delivery Note/proof execution remains
+E4.
 
 Run [the E1 launcher test](TEST_DISPATCH_E1_PROFILE_LAUNCHER.md) first, then
-[the E2 Plan and Reservation test](TEST_DISPATCH_E2_PLAN_RESERVATION.md).
+[the E2 Plan and Reservation test](TEST_DISPATCH_E2_PLAN_RESERVATION.md), followed by
+[the E3 Vehicle Claim and Loading test](TEST_DISPATCH_E3_VEHICLE_LOADING.md).
 
 ### Intercompany Movement Manifest — exact operating procedure
 
@@ -4322,6 +4348,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.25 | 28 October 2026 | Implemented Dispatch E3: atomic late lorry claim through a Company-specific Warehouse Operations card, one linked loading Manifest, exact tagged loading scans, explicit untagged physical-pick confirmation, controlled same-Company direct ERP Material Transfer, Loaded feedback closure, and reason-bound pre-posting claim release that preserves E2 reservations; customer fulfilment remains E4 |
 | 2.24 | 28 October 2026 | Implemented Dispatch E2 without stock movement: immutable Profile-snapshot Plans for Customer Order and Open Route Stock, operator submit and Supervisor approval, scan-first tagged and verified untagged/mixed reservations, Ready-for-Vehicle preparation state, reason-bound release/cancellation, quantity-ledger and Allocation audit, safe live refresh, Dispatch workspace visibility, and an independent acceptance test; vehicle claim and Manifest/ERP transfer remain E3 |
 | 2.23 | 28 October 2026 | Implemented Dispatch E1 without stock mutation: manager-controlled revisioned Dispatch Profiles, permanent Dispatch Operations Location Card and A6 print, operator-responsibility filtering, priority ordering, single-choice recommendation, read-only Logistics-panel workflow review, separate CFG Dispatch Control workspace, and an independent acceptance test; Dispatch Plans and reservation remain E2 |
 | 2.22 | 28 October 2026 | Established the mandatory Production scanner-first delivery standard and completed the Loose WIP command entry points: Record Loose WIP Use and Prepare Consolidated Loose WIP Consumption are now globally dispatched, selectable in Print Command Labels, documented in Scanner Help, and protected by the same context and authorization gates as their touch actions |

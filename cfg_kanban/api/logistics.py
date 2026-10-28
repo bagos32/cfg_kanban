@@ -24,6 +24,7 @@ TERMINAL_STATES = {"Received", "Billing Pending", "Partially Billed", "Billed", 
 MANIFEST_LIST_FIELDS = [
     "name", "manifest_type", "internal_transfer_mode", "inventory_control_mode",
     "logistics_route", "state",
+    "dispatch_plan", "vehicle_warehouse", "vehicle_reference",
     "kanban_cycle", "source_signal", "source_company", "source_warehouse",
     "destination_company", "destination_warehouse", "total_quantity",
     "total_received_quantity", "dispatch_delivery_note", "receipt_purchase_receipt",
@@ -164,6 +165,7 @@ def get_logistics_live_revision(operator_session_token, selected_manifest=None):
 
     plan_filters = {"state": ["in", [
         "Draft", "Awaiting Approval", "Approved", "Picking", "Ready for Vehicle",
+        "Vehicle Claimed", "Loading", "Ready to Dispatch", "Dispatch Pending",
     ]]}
     if not _can_view_all(profile):
         if responsibilities:
@@ -318,6 +320,14 @@ def get_warehouse_operations_context(card, profile):
             "destination_warehouse": master.destination_warehouse,
         })
         stock_cards.append(row)
+    warehouse = frappe.db.get_value(
+        "Warehouse", card.current_warehouse,
+        ["cfg_is_vehicle_warehouse", "cfg_vehicle_reference"], as_dict=True,
+    )
+    claimable_plans = []
+    if warehouse and warehouse.cfg_is_vehicle_warehouse and warehouse.cfg_vehicle_reference:
+        from cfg_kanban.services.dispatch_planning import claimable_vehicle_plans
+        claimable_plans = claimable_vehicle_plans(card.current_warehouse, profile)
     return {
         "mode": "warehouse_operations",
         "location_card": card.name,
@@ -339,6 +349,8 @@ def get_warehouse_operations_context(card, profile):
             (view_all or STOCK_ADOPTION_RESPONSIBILITY in responsibilities)
             and cint(profile.get("can_override"))
         ),
+        "vehicle_reference": (warehouse.cfg_vehicle_reference if warehouse else None),
+        "claimable_dispatch_plans": claimable_plans,
     }
 
 
@@ -548,6 +560,11 @@ def get_manifest(manifest_name, operator_session_token):
     result["can_scan_dispatch_tags"] = bool(
         not manifest.kanban_cycle or result["transfer_tag_policy"] != "No Physical Tag"
     )
+    result["dispatch_plan_loading"] = bool(manifest.dispatch_plan)
+    result["loading_confirmed_count"] = sum(
+        1 for row in manifest.lines if row.loading_confirmed
+    )
+    result["loading_required_count"] = len(manifest.lines)
     result["dispatch_retry_available"] = _dispatch_retry_available(manifest)
     result["receipt_retry_available"] = _receipt_retry_available(manifest)
     result["can_use_untagged_stock"] = _can_use_untagged_stock(manifest)
@@ -850,6 +867,11 @@ def scan_dispatch_tag(manifest_name, scan_value, event_token, operator_session_t
     manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
     route = frappe.get_doc("CFG Kanban Logistics Route", manifest.logistics_route)
     _require_route_responsibility(profile, route.dispatch_responsibility, "dispatch")
+    if manifest.dispatch_plan:
+        from cfg_kanban.services.dispatch_planning import confirm_plan_tag_loaded
+        return confirm_plan_tag_loaded(
+            manifest.name, scan_value, event_token, operator_session_token
+        )
     if manifest.state != "Draft":
         frappe.throw("Dispatch tags can only be added while the Manifest is Draft")
     if manifest.kanban_cycle and _transfer_tag_policy(manifest) == "No Physical Tag":
@@ -1039,6 +1061,11 @@ def remove_dispatch_tag(manifest_name, operator_session_token, handling_unit=Non
     """Remove one Draft selection, including ordinary ERP stock without a physical tag."""
     profile, session = require_operator(operator_session_token, "start")
     manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
+    if manifest.dispatch_plan:
+        frappe.throw(
+            "Dispatch Plan stock is controlled by its E2 reservation. Release the vehicle claim "
+            "or return to the Plan instead of removing Manifest rows."
+        )
     route = frappe.get_doc("CFG Kanban Logistics Route", manifest.logistics_route)
     _require_route_responsibility(profile, route.dispatch_responsibility, "dispatch")
     if manifest.state != "Draft":
@@ -1081,6 +1108,26 @@ def prepare_manifest(manifest_name, event_token, operator_session_token):
         return get_manifest(manifest.name, operator_session_token)
     if manifest.state != "Draft" or not manifest.lines:
         frappe.throw("A Draft Manifest with at least one scanned tag is required")
+    if manifest.dispatch_plan:
+        from cfg_kanban.services.dispatch_planning import (
+            mark_plan_manifest_prepared,
+            validate_plan_manifest_for_prepare,
+        )
+        validate_plan_manifest_for_prepare(manifest, profile)
+        _validate_manifest_container_groups(manifest)
+        manifest.db_set({"state": "Prepared", "prepared_on": now_datetime()},
+                        update_modified=True)
+        mark_plan_manifest_prepared(manifest.name)
+        record(
+            "Dispatch Plan Manifest Prepared", movement_manifest=manifest.name,
+            previous_state="Draft", new_state="Prepared", qty=manifest.total_quantity,
+            reference_doctype=manifest.doctype, reference_name=manifest.name,
+            device_id=canonical_key("dispatch-plan-manifest-prepare", manifest.name,
+                                    event_token or ""),
+            operator=profile.employee, operator_session=session.name,
+            terminal_user=session.terminal_user,
+        )
+        return get_manifest(manifest.name, operator_session_token)
     _validate_transfer_manifest_quantity(manifest, require_exact=True)
     _validate_manifest_container_groups(manifest)
     for row in manifest.lines:
@@ -1170,6 +1217,9 @@ def confirm_dispatch(
     payload = (_internal_transfer_payload(manifest, _dispatch_stage(manifest),
                                           required_erp_inputs)
                if internal else _dispatch_payload(manifest, required_erp_inputs))
+    if manifest.dispatch_plan:
+        from cfg_kanban.services.dispatch_planning import mark_plan_dispatch_pending
+        mark_plan_dispatch_pending(manifest.name)
     command, _created = insert_once(frappe.get_doc({
         "doctype": "CFG ERP Command",
         "command_type": ("Create Internal Transfer Dispatch" if internal
@@ -1207,6 +1257,11 @@ def confirm_dispatch(
     try:
         dispatch_document = execute_command(command.name)
     except Exception:
+        if manifest.dispatch_plan:
+            from cfg_kanban.services.dispatch_planning import mark_plan_dispatch_exception
+            mark_plan_dispatch_exception(
+                manifest.name, "Vehicle-loading Material Transfer creation or submission failed"
+            )
         _manifest_exception(manifest, "Dispatch ERP Command Failed",
                             f"{'Stock Entry' if internal else 'Delivery Note'} creation or submission failed",
                             command.name)
@@ -1430,6 +1485,10 @@ def cancel_manifest(manifest_name, reason, operator_session_token, event_token=N
         frappe.throw("Manifest has an ERP document and requires controlled recovery")
     if not reason:
         frappe.throw("Cancellation reason is required")
+    if manifest.dispatch_plan:
+        from cfg_kanban.services.dispatch_planning import release_vehicle_claim
+        release_vehicle_claim(manifest, profile, session, reason, event_token)
+        return get_manifest(manifest.name, operator_session_token)
     if manifest.source_signal:
         from cfg_kanban.services.signal_cancellation import cancel_and_rollback
         cancel_and_rollback(manifest.source_signal, reason)

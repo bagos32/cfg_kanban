@@ -6,7 +6,10 @@ from frappe.model.document import Document
 from frappe.utils import flt
 
 
-ACTIVE_STATES = {"Draft", "Awaiting Approval", "Approved", "Picking", "Ready for Vehicle"}
+ACTIVE_STATES = {
+    "Draft", "Awaiting Approval", "Approved", "Picking", "Ready for Vehicle",
+    "Vehicle Claimed", "Loading", "Ready to Dispatch", "Dispatch Pending", "Loaded",
+}
 
 
 class CFGKanbanDispatchPlan(Document):
@@ -43,6 +46,27 @@ class CFGKanbanDispatchPlan(Document):
         self.total_requested_qty = requested
         if flt(self.total_reserved_qty) > requested + 0.000001:
             frappe.throw("Reserved quantity cannot exceed requested quantity")
+        if flt(self.total_loaded_qty) > requested + 0.000001:
+            frappe.throw("Loaded quantity cannot exceed requested quantity")
+        if self.vehicle_warehouse:
+            vehicle = frappe.db.get_value(
+                "Warehouse", self.vehicle_warehouse,
+                ["company", "disabled", "is_group", "cfg_is_vehicle_warehouse",
+                 "cfg_vehicle_reference"], as_dict=True,
+            )
+            if (not vehicle or vehicle.disabled or vehicle.is_group
+                    or not vehicle.cfg_is_vehicle_warehouse):
+                frappe.throw("Claimed Lorry Warehouse must be an active vehicle Warehouse")
+            if vehicle.company != self.company:
+                frappe.throw("Claimed Lorry Warehouse must belong to the Dispatch Plan Company")
+            if self.vehicle_reference != vehicle.cfg_vehicle_reference:
+                frappe.throw("Physical Vehicle must match the claimed Lorry Warehouse")
+        if self.movement_manifest:
+            manifest_plan = frappe.db.get_value(
+                "CFG Kanban Movement Manifest", self.movement_manifest, "dispatch_plan"
+            )
+            if manifest_plan and manifest_plan != self.name:
+                frappe.throw("Movement Manifest belongs to a different Dispatch Plan")
         if not self.profile_snapshot_json or not self.profile_snapshot_hash:
             frappe.throw("Dispatch Profile snapshot is required")
         try:

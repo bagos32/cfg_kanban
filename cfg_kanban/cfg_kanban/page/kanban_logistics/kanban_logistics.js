@@ -246,8 +246,13 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 					row.name === state.dispatch_plan_line);
 				if (!plan.message.can_reserve || (state.scan_mode === "dispatch-plan-tag" &&
 					(!armed_line || Number(armed_line.reserved_qty || 0) >= Number(armed_line.requested_qty || 0)))) {
+					if (state.scan_mode === "dispatch-plan-tag") {
+						state.scan_mode = "lookup";
+						state.dispatch_plan_line = null;
+					}
+				}
+				if (state.scan_mode === "dispatch-plan-vehicle" && !plan.message.can_claim_vehicle) {
 					state.scan_mode = "lookup";
-					state.dispatch_plan_line = null;
 				}
 				render_lookup();
 			} catch (_plan_error) { /* Keep the last safe view. */ }
@@ -334,6 +339,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			return;
 		}
 		const m = state.manifest; const e = frappe.utils.escape_html;
+		const plan_loading = Boolean(m.dispatch_plan_loading);
 		const receipt_mode = ["Dispatched", "Awaiting Receipt", "Receipt Document Pending"].includes(m.state) || m.receipt_retry_available;
 		const physical_lines = (m.lines || []).filter((row) => row.line_kind !== "ERP Stock without Physical Tag");
 		const receipt_scanned = physical_lines.filter((row) => row.receipt_scanned).length;
@@ -348,7 +354,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				`<div class="alert alert-secondary"><strong>${__("Dispatch and receipt required")}</strong> · ${__("Dispatch moves the tags to the Transit Warehouse. The destination operator must scan and confirm receipt.")}</div>` :
 				`<div class="alert alert-secondary"><strong>${__("Direct transfer")}</strong> · ${__("Dispatch confirmation moves the tags directly to the destination and completes the Manifest.")}</div>`) : "";
 		let mode_notice = `<div class="alert alert-info"><strong>${__("View-only lookup")}</strong> · ${__("Scanning a Stock Tag will show its status and will not change this Manifest.")}</div>`;
-		if (state.scan_mode === "dispatch") mode_notice = `<div class="alert alert-warning"><strong>${__("DISPATCH SCANNING ARMED")}</strong> · ${e(m.name)} · ${__("Scanned tags will be added to this Manifest.")}</div>`;
+		if (state.scan_mode === "dispatch") mode_notice = plan_loading ?
+			`<div class="alert alert-warning"><strong>${__("TAG LOADING SCAN ARMED")}</strong> · ${e(m.name)} · ${__("Scan each already-reserved physical Stock Tag as it is loaded into the claimed lorry.")}</div>` :
+			`<div class="alert alert-warning"><strong>${__("DISPATCH SCANNING ARMED")}</strong> · ${e(m.name)} · ${__("Scanned tags will be added to this Manifest.")}</div>`;
 		if (state.scan_mode === "receipt") mode_notice = `<div class="alert alert-success"><strong>${__("RECEIPT SCANNING ARMED")}</strong> · ${e(m.name)} · ${__("Only tags listed on this Manifest will be accepted.")}</div>`;
 		const rendered_container_actions = new Set();
 		const lines = (m.lines || []).map((row) => {
@@ -359,9 +367,11 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<div><strong>${e(row.visible_code || row.line_kind || __("ERP Stock"))}</strong><small>${e(row.item_code)} · ${e(row.batch_no || __("No Batch"))}</small>
 				${row.container_visible_code ? `<small>${__("Inside container")}: <strong>${e(row.container_visible_code)}</strong></small>` : ""}</div>
 			<div><strong>${format_number(row.dispatch_qty)} ${e(row.stock_uom)}</strong>
-				<small>${row.receipt_scanned ? __("Receipt scan confirmed") : e(row.state)}</small></div>
-				${m.state === "Draft" && state.scan_mode === "dispatch" && row.handling_unit && (!row.container_handling_unit || show_container_remove) ? `<button class="btn btn-xs btn-danger remove-line" data-unit="${e(row.handling_unit)}" data-line="${e(row.name)}">${row.container_visible_code ? __("Remove Container") : __("Remove")}</button>` : ""}
-				${m.state === "Draft" && !row.handling_unit ? `<button class="btn btn-xs btn-danger remove-line" data-line="${e(row.name)}">${__("Remove")}</button>` : ""}
+				<small>${row.receipt_scanned ? __("Receipt scan confirmed") :
+					plan_loading ? (row.loading_confirmed ? __("Physical loading confirmed") : __("Awaiting loading confirmation")) : e(row.state)}</small></div>
+				${plan_loading && m.state === "Draft" && row.line_kind === "ERP Stock without Physical Tag" && !row.loading_confirmed ? `<button class="btn btn-xs btn-primary confirm-plan-untagged" data-line="${e(row.name)}">${__("Confirm Physical Pick")}</button>` : ""}
+				${!plan_loading && m.state === "Draft" && state.scan_mode === "dispatch" && row.handling_unit && (!row.container_handling_unit || show_container_remove) ? `<button class="btn btn-xs btn-danger remove-line" data-unit="${e(row.handling_unit)}" data-line="${e(row.name)}">${row.container_visible_code ? __("Remove Container") : __("Remove")}</button>` : ""}
+				${!plan_loading && m.state === "Draft" && !row.handling_unit ? `<button class="btn btn-xs btn-danger remove-line" data-line="${e(row.name)}">${__("Remove")}</button>` : ""}
 			</div>`;
 		}).join("");
 		$active.html(`<div class="frappe-card cfg-logistics-manifest">
@@ -378,6 +388,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		</div>`);
 		$active.find(".remove-line").on("click", function () {
 			remove_line($(this).data("line"), $(this).data("unit"));
+		});
+		$active.find(".confirm-plan-untagged").on("click", function () {
+			confirm_dispatch_plan_untagged($(this).data("line"));
 		});
 		$active.find(".prepare-manifest").on("click", prepare_manifest);
 		$active.find(".use-untagged-stock").on("click", use_untagged_stock);
@@ -398,14 +411,17 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	function manifest_actions(m) {
 		const buttons = [];
 		const receipt_state = ["Dispatched", "Awaiting Receipt", "Receipt Document Pending"].includes(m.state) || m.receipt_retry_available;
+		const has_unconfirmed_plan_tags = (m.lines || []).some((row) =>
+			row.line_kind === "Tagged Stock" && !row.loading_confirmed);
 		const all_received = Boolean(m.lines.length && m.lines.every((row) =>
 			row.line_kind === "ERP Stock without Physical Tag" || row.receipt_scanned));
-		if (m.can_dispatch && m.state === "Draft" && m.can_scan_dispatch_tags !== false) {
+		if (m.can_dispatch && m.state === "Draft" && m.can_scan_dispatch_tags !== false &&
+			(!m.dispatch_plan_loading || has_unconfirmed_plan_tags || state.scan_mode === "dispatch")) {
 			buttons.push(state.scan_mode === "dispatch" ?
-				`<button class="btn btn-warning stop-scanning">${__("Stop Dispatch Scanning")}</button>` :
-				`<button class="btn btn-primary arm-dispatch">${__("Start Dispatch Scanning")}</button>`);
+				`<button class="btn btn-warning stop-scanning">${m.dispatch_plan_loading ? __("Stop Tag Loading Scan") : __("Stop Dispatch Scanning")}</button>` :
+				`<button class="btn btn-primary arm-dispatch">${m.dispatch_plan_loading ? __("Start Tag Loading Scan") : __("Start Dispatch Scanning")}</button>`);
 		}
-		if (m.can_dispatch && m.can_use_untagged_stock) {
+		if (m.can_dispatch && m.can_use_untagged_stock && !m.dispatch_plan_loading) {
 			buttons.push(`<button class="btn btn-default use-untagged-stock">${__("Use ERP Stock Without Tags")}</button>`);
 		}
 		if (receipt_state && m.can_receive) {
@@ -415,7 +431,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		}
 		if (m.can_dispatch && m.state === "Draft" && m.lines.length) {
 			buttons.push(state.scan_mode === "lookup" ?
-				`<button class="btn btn-primary prepare-manifest">${__("Prepare and Reserve")}</button>` :
+				`<button class="btn btn-primary prepare-manifest">${m.dispatch_plan_loading ? __("Confirm Loading / Prepare Dispatch") : __("Prepare and Reserve")}</button>` :
 				`<button class="btn btn-default" disabled>${__("Stop scanning before preparation")}</button>`);
 		}
 		if (m.can_dispatch && (m.state === "Prepared" || m.dispatch_retry_available)) {
@@ -439,6 +455,21 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (m.receipt_stock_entry) buttons.push(`<button class="btn btn-default open-receipt-se">${__("Open Receipt Stock Entry")}</button>`);
 		buttons.push(`<button class="btn btn-default clear-manifest">${TERMINAL_STATES.has(m.state) ? __("Done — Clear Screen") : __("Clear Viewed Manifest")}</button>`);
 		return buttons.join("");
+	}
+
+	async function confirm_dispatch_plan_untagged(manifest_line) {
+		try {
+			const response = await frappe.call({
+				method: "cfg_kanban.services.dispatch_planning.confirm_dispatch_untagged_loaded",
+				args: { manifest_name: state.manifest.name, manifest_line,
+					event_token: unique_token(), operator_session_token: state.token },
+				freeze: true, freeze_message: __("Confirming physical pick..."),
+			});
+			state.manifest = response.message;
+			render_active(); await refresh_list(); focus_scanner();
+		} catch (error) {
+			scanner_error(server_error_message(error, __("Physical pick could not be confirmed.")));
+		}
 	}
 
 	function render_reconciliation() {
@@ -1177,8 +1208,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<h3>${e(context.location_reference || context.warehouse)}</h3>
 			<strong>${e(context.warehouse)} · ${e(context.company || "-")}</strong></div>
 			<button class="btn btn-default close-lookup">${__("Close")}</button></div>
-			<div class="alert alert-info mt-3"><strong>${__("E2 planning and stock reservation")}</strong><br>
-			${__("Create an approved picking plan and reserve tagged or verified untagged stock. This stage does not assign a vehicle, move stock, create a Manifest, or post an ERPNext document.")}</div>
+			<div class="alert alert-info mt-3"><strong>${__("E1–E3 dispatch planning and vehicle loading")}</strong><br>
+			${__("Create and reserve a picking Plan. When it is Ready for Vehicle, scan the actual Company-specific lorry Warehouse card to claim the load, verify physical loading, and post the controlled Material Transfer.")}</div>
 			${recommendation}<h4>${__("Open Dispatch Plans")}</h4>${plans}
 			<h4 class="mt-4">${__("Authorized Dispatch Workflows")}</h4>${profiles}${hidden}
 		</div>`);
@@ -1319,10 +1350,18 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		</tr>`).join("") || `<tr><td colspan="6" class="text-muted">${__("No stock is reserved yet.")}</td></tr>`;
 		const scan_notice = state.scan_mode === "dispatch-plan-tag" && state.dispatch_plan_line ?
 			`<div class="alert alert-warning"><strong>${__("TAG RESERVATION SCANNING ARMED")}</strong><br>${__("Scan one physical Stock Tag for the selected Item line. The system reserves only up to the remaining Plan quantity.")}</div>` : "";
+		const vehicle_scan_notice = state.scan_mode === "dispatch-plan-vehicle" ?
+			`<div class="alert alert-warning"><strong>${__("LORRY CLAIM SCAN ARMED")}</strong><br>${__("Scan the Warehouse Operations card fixed to the assigned lorry. The Plan and reservations remain unchanged until a valid Company-specific lorry card is accepted.")}</div>` : "";
+		const vehicle_notice = plan.vehicle_warehouse ?
+			`<div class="alert alert-success"><strong>${__("Claimed vehicle")}: ${e(plan.vehicle_reference || plan.vehicle_warehouse)}</strong><br>${e(plan.vehicle_warehouse)}${plan.movement_manifest ? ` · ${__("Loading Manifest")}: ${e(plan.movement_manifest)}` : ""}</div>` :
+			(plan.state === "Ready for Vehicle" ? `<div class="alert alert-info"><strong>${__("Ready for late vehicle assignment")}</strong><br>${__("Scan the actual lorry Warehouse card only when the vehicle is physically available for loading.")}</div>` : "");
 		const actions = [
 			plan.can_submit ? `<button class="btn btn-primary submit-dispatch-plan">${__("Submit Plan")}</button>` : "",
 			plan.can_approve ? `<button class="btn btn-success approve-dispatch-plan">${__("Approve Plan")}</button>` : "",
 			state.scan_mode === "dispatch-plan-tag" ? `<button class="btn btn-default stop-plan-scan">${__("Stop Tag Scanning")}</button>` : "",
+			plan.can_claim_vehicle && state.scan_mode !== "dispatch-plan-vehicle" ? `<button class="btn btn-primary arm-plan-vehicle">${__("Scan Lorry Card to Claim")}</button>` : "",
+			state.scan_mode === "dispatch-plan-vehicle" ? `<button class="btn btn-default stop-plan-vehicle">${__("Stop Lorry Claim Scan")}</button>` : "",
+			plan.movement_manifest ? `<button class="btn btn-success open-plan-manifest">${__("Open Loading Manifest")}</button>` : "",
 			plan.can_cancel ? `<button class="btn btn-danger cancel-dispatch-plan">${__("Cancel Plan")}</button>` : "",
 		].join(" ");
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
@@ -1332,10 +1371,12 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<div class="alert alert-info mt-3"><strong>${e(plan.plan_type)} · ${e(plan.fulfilment_mode)}</strong><br>
 			${e(plan.company)} · ${e(plan.source_warehouse)} · ${e(plan.customer || plan.territory || plan.logistics_route || "-")}<br>
 			${__("Profile snapshot")}: ${e(plan.dispatch_profile)} Rev ${e(plan.profile_revision)} · ${e(plan.tag_policy)} · ${e(plan.stock_rotation_policy)}</div>
-			${scan_notice}<div class="mb-3">${actions}</div>
+			${scan_notice}${vehicle_scan_notice}${vehicle_notice}<div class="mb-3">${actions}</div>
 			<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr><th>${__("Item")}</th><th>${__("Batch")}</th><th>${__("Requested")}</th><th>${__("Reserved")}</th><th>${__("Picking Action")}</th></tr></thead><tbody>${lines}</tbody></table></div>
 			<h4>${__("Reservation Audit")}</h4><div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr><th>${__("Tag / Source")}</th><th>${__("Kind")}</th><th>${__("Item / Batch")}</th><th>${__("Quantity")}</th><th>${__("State")}</th><th></th></tr></thead><tbody>${allocations}</tbody></table></div>
-			<div class="alert alert-light">${__("Reservation does not move stock. Vehicle claim, Manifest creation and ERPNext posting remain disabled until the next controlled package.")}</div>
+			<div class="alert alert-light">${plan.movement_manifest ?
+				__("Use the linked loading Manifest to confirm every physical tag or untagged pick. ERPNext stock moves only after loading is prepared and dispatch is confirmed.") :
+				__("Reservation does not move stock. A valid lorry Warehouse card atomically claims this Plan and creates its controlled loading Manifest.")}</div>
 		</div>`);
 		$lookup.find(".back-dispatch-point").on("click", () => {
 			state.scan_mode = "lookup"; state.dispatch_plan_line = null;
@@ -1352,6 +1393,16 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			state.scan_mode = "lookup"; state.dispatch_plan_line = null;
 			render_dispatch_plan(plan); update_scanner_state(); focus_scanner();
 		});
+		$lookup.find(".arm-plan-vehicle").on("click", () => {
+			state.scan_mode = "dispatch-plan-vehicle";
+			state.dispatch_plan_line = null;
+			render_dispatch_plan(plan); update_scanner_state(); focus_scanner();
+		});
+		$lookup.find(".stop-plan-vehicle").on("click", () => {
+			state.scan_mode = "lookup";
+			render_dispatch_plan(plan); update_scanner_state(); focus_scanner();
+		});
+		$lookup.find(".open-plan-manifest").on("click", () => open_manifest(plan.movement_manifest));
 		$lookup.find(".reserve-plan-untagged").on("click", function () {
 			reserve_dispatch_untagged_dialog(plan, $(this).data("line"), Number($(this).data("remaining") || 0));
 		});
@@ -1359,6 +1410,26 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			release_dispatch_allocation_dialog(plan, $(this).data("name"));
 		});
 		$lookup.find(".cancel-dispatch-plan").on("click", () => cancel_dispatch_plan_dialog(plan));
+	}
+
+	async function claim_dispatch_plan_vehicle(plan, scan_value) {
+		try {
+			const response = await frappe.call({
+				method: "cfg_kanban.services.dispatch_planning.claim_dispatch_vehicle",
+				args: { dispatch_plan: plan.name, scan_value, event_token: unique_token(),
+					operator_session_token: state.token },
+				freeze: true, freeze_message: __("Claiming lorry and creating loading Manifest..."),
+			});
+			state.lookup = { dispatch_plan: response.message };
+			state.scan_mode = "lookup";
+			render_lookup(); update_scanner_state();
+			if (response.message.movement_manifest) {
+				await open_manifest(response.message.movement_manifest, { keep_lookup: true });
+			}
+		} catch (error) {
+			scanner_error(server_error_message(error, __("The lorry could not claim this Dispatch Plan.")));
+		}
+		focus_scanner();
 	}
 
 	async function run_dispatch_plan_action(method, args, freeze_message) {
@@ -1451,6 +1522,13 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	function render_warehouse_operations(context) {
 		const e = frappe.utils.escape_html;
 		const can_override = Boolean(state.operator?.can_override);
+		const claimable_plans = (context.claimable_dispatch_plans || []).map((row) => `<div class="frappe-card cfg-logistics-list-row">
+			<div><strong>${e(row.name)} · ${e(row.business_label)}</strong>
+			<small>${e(row.plan_type)} · ${e(row.customer || row.territory || row.logistics_route || "-")}</small>
+			<small>${__("Reserved")}: ${format_number(row.total_reserved_qty)} · ${__("Required/Trip")}: ${e(row.required_date || row.trip_date || "-")}</small></div>
+			<div><span class="indicator-pill ${row.priority === "Urgent" ? "red" : "blue"}">${e(row.priority)}</span>
+			<button class="btn btn-primary claim-plan-from-lorry" data-plan="${e(row.name)}">${__("Claim This Load")}</button></div>
+		</div>`).join("") || `<div class="alert alert-light">${__("No Ready for Vehicle Dispatch Plans can be claimed by this lorry.")}</div>`;
 		const receipts = (context.pending_orders || []).map((row) => `<div class="frappe-card cfg-logistics-list-row warehouse-receipt-row">
 			<div><strong>${e(row.item_code)}</strong><small>${e(row.supplier)} · ${e(row.purchase_order)}</small>
 			<small>${__("Purchase Card")}: ${e(row.card_number || "-")} · ${e(row.purchase_status)}</small></div>
@@ -1475,6 +1553,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<div>${context.can_adopt_stock ? `<button class="btn btn-primary adopt-existing-stock">${__("Tag Existing ERP Stock")}</button>` : ""}
 			<button class="btn btn-default close-lookup">${__("Close")}</button></div></div>
 			<div class="alert alert-info mt-3">${__("This permanent card is a read-only warehouse access point. Opening a listed transaction does not modify it until the operator explicitly confirms an action.")}</div>
+			${context.vehicle_reference ? `<div class="alert alert-success"><strong>${__("Lorry Warehouse")}: ${e(context.vehicle_reference)}</strong><br>${__("Select only the approved load that this physical vehicle is collecting.")}</div>
+			<h4>${__("Ready Loads for this Lorry")}</h4><div>${claimable_plans}</div>` : ""}
 			<h4>${__("Pending Supplier Receipts")}</h4><div class="cfg-supplier-receipts">${receipts}</div>
 			<h4 class="mt-4">${__("Open Warehouse Movements")}</h4><div>${manifests}</div>
 			<h4 class="mt-4">${__("Transfer and Withdrawal Cards")}</h4><div>${cards}</div>
@@ -1483,6 +1563,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		$lookup.find(".adopt-existing-stock").on("click", () => existing_stock_adoption_dialog(context));
 		$lookup.find(".warehouse-open-manifest").on("click", function () { open_manifest($(this).data("name")); });
 		$lookup.find(".warehouse-open-card").on("click", function () { lookup_tag($(this).data("number")); });
+		$lookup.find(".claim-plan-from-lorry").on("click", function () {
+			const plan = (context.claimable_dispatch_plans || []).find((row) => row.name === $(this).data("plan"));
+			if (plan) claim_dispatch_plan_vehicle(plan, context.location_card);
+		});
 		$lookup.find(".warehouse-receive-order").on("click", function () {
 			const row = (context.pending_orders || []).find((value) => value.cycle === $(this).data("cycle"));
 			if (row) supplier_receipt_dialog(row, true);
@@ -2643,6 +2727,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (!raw) return focus_scanner();
 		const operator = operator_token(raw);
 		if (!state.token || operator) return login_operator(operator || raw);
+		if (state.scan_mode === "dispatch-plan-vehicle" && state.lookup?.dispatch_plan) {
+			return claim_dispatch_plan_vehicle(state.lookup.dispatch_plan, raw);
+		}
 		if (/^KMF-/i.test(raw)) return open_manifest(raw);
 		if (/^KREC-/i.test(raw)) return open_reconciliation(raw);
 		if (/^DPL-/i.test(raw)) return open_dispatch_plan(raw);
@@ -2660,7 +2747,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			}, freeze: true, freeze_message: receipt_mode ? __("Confirming receipt tag...") : __("Adding dispatch tag...") });
 			state.manifest = response.message; render_active(); await refresh_list();
 			$scanner.find(".scanner-message").html(`<small class="text-success">${__("Tag accepted: {0}", [frappe.utils.escape_html(raw)])}</small>`);
-		} catch (error) { scanner_error(__("Tag was not accepted. Read the displayed validation message.")); }
+		} catch (error) {
+			scanner_error(server_error_message(error, __("Tag was not accepted.")));
+		}
 		focus_scanner();
 	}
 
@@ -3010,6 +3099,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (state.scan_mode === "dispatch-plan-tag" && state.lookup?.dispatch_plan) {
 			label = `${__("Dispatch Plan Stock")} → ${state.lookup.dispatch_plan.name}`; colour = "orange";
 		}
+		if (state.scan_mode === "dispatch-plan-vehicle" && state.lookup?.dispatch_plan) {
+			label = `${__("Scan Lorry Card")} → ${state.lookup.dispatch_plan.name}`; colour = "orange";
+		}
 		$scanner.find(".scanner-state").removeClass("orange blue green red").addClass(colour).text(label);
 	}
 
@@ -3049,7 +3141,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	}
 
 	function state_colour(value) {
-		if (["Received", "Closed", "Ready for Vehicle"].includes(value)) return "green";
+		if (["Received", "Closed", "Ready for Vehicle", "Ready to Dispatch", "Loaded"].includes(value)) return "green";
 		if (["Exception", "Hold"].includes(value)) return "red";
 		if (["Awaiting Receipt", "Receipt Document Pending", "Awaiting Approval"].includes(value)) return "orange";
 		if (value === "Cancelled") return "grey";

@@ -18,6 +18,9 @@ from cfg_kanban.services.operator_auth import require_operator
 
 RESERVABLE_STATES = {"Approved", "Picking", "Ready for Vehicle"}
 ACTIVE_ALLOCATION_STATES = {"Reserved"}
+VEHICLE_LOADING_STATES = {
+    "Vehicle Claimed", "Loading", "Ready to Dispatch", "Dispatch Pending",
+}
 PROFILE_SNAPSHOT_FIELDS = (
     "name", "business_label", "revision", "dispatch_point", "company",
     "source_warehouse", "plan_type", "fulfilment_mode", "customer_site", "territory",
@@ -70,6 +73,8 @@ def create_dispatch_plan(dispatch_profile, lines, customer_site=None, sales_orde
         "tag_policy": policy.tag_policy,
         "stock_rotation_policy": policy.stock_rotation_policy,
         "approval_required": policy.approval_required,
+        "allow_supervisor_override": policy.allow_supervisor_override,
+        "auto_submit_stock_transfer": policy.auto_submit_stock_transfer,
         "dispatch_responsibility": policy.dispatch_responsibility,
         "destination_assignment_policy": policy.destination_assignment_policy,
         "destination_warehouse": policy.destination_warehouse,
@@ -403,6 +408,150 @@ def cancel_dispatch_plan(dispatch_plan, reason, event_token=None,
 
 
 @frappe.whitelist()
+def claim_dispatch_vehicle(dispatch_plan, scan_value, event_token=None,
+                           operator_session_token=None):
+    """Atomically claim one ready E2 Plan with a Company-specific lorry Warehouse card."""
+    _require_event_token(event_token)
+    operator, session = require_operator(operator_session_token, "start")
+    plan = _locked_authorized_plan(dispatch_plan, operator)
+    vehicle_warehouse = _vehicle_warehouse_from_scan(scan_value, plan.company)
+    if plan.state in VEHICLE_LOADING_STATES | {"Loaded"}:
+        if plan.vehicle_warehouse != vehicle_warehouse.name:
+            frappe.throw(
+                f"Dispatch Plan {plan.name} is already claimed by vehicle "
+                f"{plan.vehicle_reference or plan.vehicle_warehouse}"
+            )
+        return get_dispatch_plan(plan.name, operator_session_token)
+    if plan.state != "Ready for Vehicle":
+        frappe.throw(f"Dispatch Plan must be Ready for Vehicle; current state is {plan.state}")
+    if plan.fulfilment_mode != "Vehicle Delivery":
+        frappe.throw(
+            f"Vehicle claim is available only for Vehicle Delivery Plans; this Plan uses "
+            f"{plan.fulfilment_mode}"
+        )
+    route = _vehicle_loading_route(plan, vehicle_warehouse.name, operator)
+    _assert_e3_allocations_ready(plan)
+    claim_key = canonical_key(
+        "dispatch-plan-vehicle-claim", plan.name, vehicle_warehouse.name, event_token or ""
+    )
+    existing = frappe.db.get_value(
+        "CFG Kanban Movement Manifest",
+        {"dispatch_plan": plan.name, "state": ["!=", "Cancelled"]}, "name",
+    )
+    if existing:
+        frappe.throw(f"Dispatch Plan already owns Movement Manifest {existing}")
+
+    plan.db_set({
+        "state": "Vehicle Claimed",
+        "vehicle_warehouse": vehicle_warehouse.name,
+        "vehicle_reference": vehicle_warehouse.cfg_vehicle_reference,
+        "claim_key": claim_key,
+        "claimed_by_operator": operator.employee,
+        "claimed_operator_session": session.name,
+        "claimed_on": now_datetime(),
+    }, update_modified=True)
+    plan.reload()
+    manifest = _create_vehicle_manifest(plan, route, operator, session, claim_key)
+    plan.db_set("movement_manifest", manifest.name, update_modified=True)
+    record(
+        "Dispatch Vehicle Claimed", movement_manifest=manifest.name,
+        reference_doctype=plan.doctype, reference_name=plan.name,
+        previous_state="Ready for Vehicle", new_state="Vehicle Claimed",
+        device_id=event_token, operator=operator.employee,
+        operator_session=session.name, terminal_user=session.terminal_user,
+        notes=(f"{vehicle_warehouse.cfg_vehicle_reference}; "
+               f"{vehicle_warehouse.name}; Manifest {manifest.name}"),
+    )
+    return get_dispatch_plan(plan.name, operator_session_token)
+
+
+def confirm_plan_tag_loaded(manifest_name, scan_value, event_token,
+                            operator_session_token):
+    """Bind a physical Stock Tag scan to its already-reserved E2 allocation."""
+    _require_event_token(event_token)
+    operator, session = require_operator(operator_session_token, "start")
+    manifest, plan = _locked_plan_manifest(manifest_name, operator)
+    if manifest.state != "Draft" or plan.state not in {"Vehicle Claimed", "Loading"}:
+        frappe.throw("Tagged loading can be confirmed only while the claimed Manifest is Draft")
+    identity = resolve_logistics_scan(scan_value)
+    if not identity or identity.get("identity_type") != "Handling Unit":
+        frappe.throw("Scan the exact reserved Stock Tag")
+    allocation = frappe.db.get_value(
+        "CFG Kanban Dispatch Allocation",
+        {"dispatch_plan": plan.name, "handling_unit": identity["name"], "state": "Reserved"},
+        ["name", "manifest_line", "allocated_qty", "item_code", "stock_uom",
+         "source_warehouse", "load_confirmed"], as_dict=True,
+    )
+    if not allocation:
+        frappe.throw("This Stock Tag is not reserved for the selected Dispatch Plan")
+    if allocation.load_confirmed:
+        return _manifest_result(manifest.name, operator_session_token)
+    unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
+    if (unit.current_warehouse != plan.source_warehouse or unit.inventory_company != plan.company
+            or unit.item_code != allocation.item_code
+            or unit.stock_uom != allocation.stock_uom):
+        frappe.throw("Reserved Stock Tag no longer matches the Plan source, Item or UOM")
+    if abs(flt(unit.current_qty) - flt(allocation.allocated_qty)) > 0.000001:
+        frappe.throw(
+            "Reserved Stock Tag quantity changed after vehicle claim; split/repack and "
+            "reclaim the exact physical load"
+        )
+    key = canonical_key(
+        "dispatch-plan-tag-loaded", plan.name, allocation.name, event_token or ""
+    )
+    _confirm_allocation_loading(
+        allocation.name, allocation.manifest_line, manifest, plan,
+        operator, session, key,
+    )
+    record(
+        "Dispatch Tagged Stock Loaded", movement_manifest=manifest.name,
+        handling_unit=unit.name, qty=allocation.allocated_qty,
+        reference_doctype="CFG Kanban Dispatch Allocation",
+        reference_name=allocation.name, device_id=event_token,
+        operator=operator.employee, operator_session=session.name,
+        terminal_user=session.terminal_user,
+        notes=f"Vehicle {plan.vehicle_reference}; Plan {plan.name}",
+    )
+    return _manifest_result(manifest.name, operator_session_token)
+
+
+@frappe.whitelist()
+def confirm_dispatch_untagged_loaded(manifest_name, manifest_line, event_token=None,
+                                     operator_session_token=None):
+    """Confirm the physical pick of one reserved untagged ERP-stock allocation."""
+    _require_event_token(event_token)
+    operator, session = require_operator(operator_session_token, "start")
+    manifest, plan = _locked_plan_manifest(manifest_name, operator)
+    if manifest.state != "Draft" or plan.state not in {"Vehicle Claimed", "Loading"}:
+        frappe.throw("Untagged loading can be confirmed only while the claimed Manifest is Draft")
+    line = next((row for row in manifest.lines if row.name == manifest_line), None)
+    if not line or line.line_kind != "ERP Stock without Physical Tag":
+        frappe.throw("Select an untagged ERP-stock Manifest line")
+    allocation = frappe.get_doc("CFG Kanban Dispatch Allocation", line.dispatch_allocation)
+    if allocation.dispatch_plan != plan.name or allocation.state != "Reserved":
+        frappe.throw("Untagged allocation is no longer actively reserved for this Plan")
+    if allocation.load_confirmed:
+        return _manifest_result(manifest.name, operator_session_token)
+    _assert_untagged_allocation_available(allocation)
+    key = canonical_key(
+        "dispatch-plan-untagged-loaded", plan.name, allocation.name, event_token or ""
+    )
+    _confirm_allocation_loading(
+        allocation.name, line.name, manifest, plan, operator, session, key
+    )
+    record(
+        "Dispatch Untagged Stock Loaded", movement_manifest=manifest.name,
+        qty=allocation.allocated_qty,
+        reference_doctype=allocation.doctype, reference_name=allocation.name,
+        device_id=event_token, operator=operator.employee,
+        operator_session=session.name, terminal_user=session.terminal_user,
+        notes=(f"{allocation.item_code}; Batch {allocation.batch_no or 'No Batch'}; "
+               f"vehicle {plan.vehicle_reference}"),
+    )
+    return _manifest_result(manifest.name, operator_session_token)
+
+
+@frappe.whitelist()
 def get_dispatch_plan(dispatch_plan, operator_session_token):
     operator, _session = require_operator(operator_session_token)
     plan = frappe.get_doc("CFG Kanban Dispatch Plan", dispatch_plan)
@@ -415,7 +564,8 @@ def get_dispatch_plan(dispatch_plan, operator_session_token):
             "name", "state", "allocation_kind", "dispatch_plan_line", "handling_unit",
             "visible_code", "item_code", "batch_no", "stock_uom", "allocated_qty",
             "source_warehouse", "reserved_by_operator", "reserved_on", "released_on",
-            "release_reason",
+            "release_reason", "movement_manifest", "manifest_line", "load_confirmed",
+            "loaded_by_operator", "loaded_on",
         ],
         order_by="creation asc", limit_page_length=0,
     )
@@ -424,6 +574,14 @@ def get_dispatch_plan(dispatch_plan, operator_session_token):
         plan.state == "Awaiting Approval" and cint(operator.get("can_override"))
     )
     result["can_reserve"] = bool(plan.state in RESERVABLE_STATES and operator.can_start)
+    result["can_claim_vehicle"] = bool(
+        plan.state == "Ready for Vehicle" and plan.fulfilment_mode == "Vehicle Delivery"
+        and operator.can_start
+    )
+    result["can_release_vehicle_claim"] = bool(
+        plan.state in {"Vehicle Claimed", "Loading", "Ready to Dispatch"}
+        and cint(operator.get("can_override")) and bool(plan.movement_manifest)
+    )
     result["can_cancel"] = bool(
         (plan.state in ("Draft", "Awaiting Approval") and operator.can_start) or
         (plan.state in RESERVABLE_STATES and cint(operator.get("can_override")))
@@ -431,7 +589,8 @@ def get_dispatch_plan(dispatch_plan, operator_session_token):
     result["suggested_tags_by_line"] = {
         row.name: _suggested_tags(plan, row) for row in plan.lines
     } if plan.state in RESERVABLE_STATES and plan.tag_policy in ("Tagged", "Mixed") else {}
-    result["policy_only_reservation"] = 1
+    result["policy_only_reservation"] = int(plan.state in RESERVABLE_STATES)
+    result["vehicle_claim_active"] = int(plan.state in VEHICLE_LOADING_STATES)
     return result
 
 
@@ -447,6 +606,7 @@ def dispatch_point_plans(card, operator):
             "source_warehouse": card.current_warehouse,
             "state": ["in", [
                 "Draft", "Awaiting Approval", "Approved", "Picking", "Ready for Vehicle",
+                "Vehicle Claimed", "Loading", "Ready to Dispatch", "Dispatch Pending",
             ]],
         },
         fields=[
@@ -454,6 +614,7 @@ def dispatch_point_plans(card, operator):
             "fulfilment_mode", "customer_site", "customer", "territory",
             "logistics_route", "required_date", "trip_date", "priority",
             "total_requested_qty", "total_reserved_qty", "dispatch_responsibility",
+            "vehicle_warehouse", "vehicle_reference", "movement_manifest",
             "modified",
         ],
         order_by="required_date asc, creation asc",
@@ -486,6 +647,514 @@ def dispatch_point_plans(card, operator):
         str(row.modified or ""),
     ))
     return rows
+
+
+def claimable_vehicle_plans(vehicle_warehouse, operator):
+    """Return Ready Plans eligible for one scanned Company-specific lorry Warehouse."""
+    vehicle = _vehicle_warehouse(vehicle_warehouse)
+    responsibilities = _responsibilities(operator)
+    view_all = _view_all(operator)
+    rows = frappe.get_all(
+        "CFG Kanban Dispatch Plan",
+        filters={
+            "company": vehicle.company,
+            "state": "Ready for Vehicle",
+            "fulfilment_mode": "Vehicle Delivery",
+        },
+        fields=[
+            "name", "business_label", "plan_type", "customer", "customer_site",
+            "territory", "logistics_route", "required_date", "trip_date", "priority",
+            "total_requested_qty", "total_reserved_qty", "dispatch_responsibility",
+            "destination_assignment_policy", "destination_warehouse",
+        ],
+        order_by="required_date asc, creation asc",
+        limit_page_length=200,
+    )
+    eligible = []
+    for row in rows:
+        if not (view_all or row.dispatch_responsibility in responsibilities):
+            continue
+        if row.destination_assignment_policy == "Fixed" and row.destination_warehouse != vehicle.name:
+            continue
+        eligible.append(row)
+    priority_order = {"Urgent": 0, "High": 1, "Normal": 2, "Low": 3}
+    eligible.sort(key=lambda row: (
+        priority_order.get(row.priority, 2),
+        str(row.required_date or row.trip_date or ""), str(row.name),
+    ))
+    return eligible
+
+
+def mark_plan_manifest_prepared(manifest_name):
+    manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
+    if not manifest.dispatch_plan:
+        return
+    plan = frappe.get_doc("CFG Kanban Dispatch Plan", manifest.dispatch_plan)
+    if plan.state not in {"Vehicle Claimed", "Loading", "Ready to Dispatch"}:
+        frappe.throw(f"Dispatch Plan cannot confirm loading while it is {plan.state}")
+    if any(not row.loading_confirmed for row in manifest.lines):
+        frappe.throw("Confirm every reserved tagged and untagged line before preparing dispatch")
+    plan.db_set({
+        "state": "Ready to Dispatch", "loading_confirmed_on": now_datetime(),
+    }, update_modified=True)
+    for line in plan.lines:
+        frappe.db.set_value(
+            "CFG Kanban Dispatch Plan Line", line.name,
+            "line_state", "Loading Confirmed", update_modified=False,
+        )
+
+
+def mark_plan_dispatch_pending(manifest_name):
+    manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
+    if not manifest.dispatch_plan:
+        return
+    plan = frappe.get_doc("CFG Kanban Dispatch Plan", manifest.dispatch_plan)
+    if plan.state not in {"Ready to Dispatch", "Dispatch Pending", "Exception"}:
+        frappe.throw(f"Dispatch Plan cannot post its Material Transfer while it is {plan.state}")
+    plan.db_set({
+        "state": "Dispatch Pending", "dispatch_started_on": now_datetime(),
+    }, update_modified=True)
+
+
+def mark_plan_loaded(manifest_name, stock_entry_name):
+    """Close the E3 claim only after ERPNext submits the controlled Material Transfer."""
+    manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
+    if not manifest.dispatch_plan:
+        return
+    plan = frappe.get_doc("CFG Kanban Dispatch Plan", manifest.dispatch_plan)
+    loaded_total = 0
+    by_line = {}
+    allocations = frappe.get_all(
+        "CFG Kanban Dispatch Allocation",
+        filters={"dispatch_plan": plan.name, "movement_manifest": manifest.name},
+        fields=[
+            "name", "dispatch_plan_line", "allocated_qty", "state",
+            "load_confirmed",
+        ],
+        limit_page_length=0,
+    )
+    if not allocations:
+        frappe.throw("Dispatch Plan has no loading allocations for this Manifest")
+    for allocation in allocations:
+        if allocation.state not in ("Reserved", "Loaded"):
+            frappe.throw(
+                f"Dispatch allocation {allocation.name} is {allocation.state}; loading cannot close"
+            )
+        if not allocation.load_confirmed:
+            frappe.throw(
+                f"Dispatch allocation {allocation.name} was not physically confirmed as loaded"
+            )
+        loaded_total += flt(allocation.allocated_qty)
+        by_line[allocation.dispatch_plan_line] = (
+            by_line.get(allocation.dispatch_plan_line, 0) + flt(allocation.allocated_qty)
+        )
+        frappe.db.set_value(
+            "CFG Kanban Dispatch Allocation", allocation.name,
+            {"state": "Loaded", "active_handling_unit_key": None},
+            update_modified=False,
+        )
+    for line in plan.lines:
+        qty = by_line.get(line.name, 0)
+        frappe.db.set_value(
+            "CFG Kanban Dispatch Plan Line", line.name,
+            {"reserved_qty": 0, "loaded_qty": qty, "line_state": "Loaded"},
+            update_modified=False,
+        )
+    plan.db_set({
+        "state": "Loaded", "total_reserved_qty": 0,
+        "total_loaded_qty": loaded_total, "loaded_on": now_datetime(),
+    }, update_modified=True)
+    record(
+        "Dispatch Plan Loaded", movement_manifest=manifest.name,
+        reference_doctype="Stock Entry", reference_name=stock_entry_name,
+        previous_state="Dispatch Pending", new_state="Loaded", qty=loaded_total,
+        notes=f"Vehicle {plan.vehicle_reference}; Warehouse {plan.vehicle_warehouse}",
+    )
+
+
+def mark_plan_dispatch_exception(manifest_name, reason):
+    manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
+    if not manifest.dispatch_plan:
+        return
+    plan = frappe.get_doc("CFG Kanban Dispatch Plan", manifest.dispatch_plan)
+    previous = plan.state
+    plan.db_set("state", "Exception", update_modified=True)
+    record(
+        "Dispatch Plan Exception", movement_manifest=manifest.name,
+        reference_doctype=plan.doctype, reference_name=plan.name,
+        previous_state=previous, new_state="Exception", notes=reason,
+    )
+
+
+def release_vehicle_claim(manifest, operator, session, reason, event_token=None):
+    """Cancel an unposted E3 Manifest while preserving the approved E2 reservations."""
+    plan = _locked_authorized_plan(manifest.dispatch_plan, operator)
+    if plan.movement_manifest != manifest.name:
+        frappe.throw("Dispatch Plan no longer identifies this Movement Manifest")
+    if plan.state not in {"Vehicle Claimed", "Loading", "Ready to Dispatch"}:
+        frappe.throw(f"Vehicle claim cannot be released while Plan is {plan.state}")
+    if any((manifest.dispatch_stock_entry, manifest.dispatch_delivery_note,
+            manifest.receipt_stock_entry, manifest.receipt_purchase_receipt)):
+        frappe.throw("Vehicle claim has an ERP document and requires controlled recovery")
+    for allocation in frappe.get_all(
+            "CFG Kanban Dispatch Allocation",
+            filters={"dispatch_plan": plan.name, "movement_manifest": manifest.name},
+            pluck="name", limit_page_length=0):
+        frappe.db.set_value(
+            "CFG Kanban Dispatch Allocation", allocation,
+            {"movement_manifest": None, "manifest_line": None, "load_confirmed": 0,
+             "loaded_by_operator": None, "loaded_operator_session": None,
+             "loaded_on": None, "load_key": None}, update_modified=False,
+        )
+    previous = plan.state
+    plan.db_set({
+        "state": "Ready for Vehicle", "vehicle_warehouse": None,
+        "vehicle_reference": None, "movement_manifest": None, "claim_key": None,
+        "claimed_by_operator": None, "claimed_operator_session": None,
+        "claimed_on": None, "loading_confirmed_on": None,
+        "dispatch_started_on": None, "total_loaded_qty": 0, "loaded_on": None,
+    }, update_modified=True)
+    for line in plan.lines:
+        frappe.db.set_value(
+            "CFG Kanban Dispatch Plan Line", line.name,
+            "line_state", "Reserved", update_modified=False,
+        )
+    manifest.db_set({
+        "state": "Cancelled", "cancelled_by": operator.employee,
+        "cancelled_on": now_datetime(), "cancellation_reason": reason,
+    }, update_modified=True)
+    frappe.db.set_value(
+        "CFG Kanban Manifest Line", {"parent": manifest.name},
+        "state", "Cancelled", update_modified=False,
+    )
+    record(
+        "Dispatch Vehicle Claim Released", movement_manifest=manifest.name,
+        reference_doctype=plan.doctype, reference_name=plan.name,
+        previous_state=previous, new_state="Ready for Vehicle",
+        device_id=event_token, operator=operator.employee,
+        operator_session=session.name, terminal_user=session.terminal_user,
+        notes=reason,
+    )
+
+
+def validate_plan_manifest_for_prepare(manifest, operator):
+    """Validate E3 physical loading without creating a second reservation."""
+    plan = frappe.get_doc("CFG Kanban Dispatch Plan", manifest.dispatch_plan)
+    _assert_plan_authorized(plan, operator)
+    if plan.movement_manifest != manifest.name:
+        frappe.throw("Dispatch Plan does not identify this Movement Manifest")
+    if plan.state not in {"Vehicle Claimed", "Loading", "Ready to Dispatch"}:
+        frappe.throw(f"Dispatch Plan cannot prepare loading while it is {plan.state}")
+    if not manifest.lines:
+        frappe.throw("Vehicle-loading Manifest has no reserved stock lines")
+    for row in manifest.lines:
+        allocation = frappe.get_doc(
+            "CFG Kanban Dispatch Allocation", row.dispatch_allocation
+        )
+        if (allocation.dispatch_plan != plan.name
+                or allocation.movement_manifest != manifest.name
+                or allocation.manifest_line != row.name
+                or allocation.state != "Reserved"):
+            frappe.throw(f"Manifest line {row.name} is not backed by an active Plan reservation")
+        if not row.loading_confirmed or not allocation.load_confirmed:
+            frappe.throw(
+                f"Confirm physical loading for {row.visible_code or row.item_code} first"
+            )
+        if abs(flt(row.dispatch_qty) - flt(allocation.allocated_qty)) > 0.000001:
+            frappe.throw(f"Manifest line {row.name} quantity no longer matches its reservation")
+        if row.line_kind == "Tagged Stock":
+            unit = frappe.get_doc("CFG Kanban Handling Unit", row.handling_unit)
+            if (unit.current_warehouse != plan.source_warehouse
+                    or unit.inventory_company != plan.company
+                    or abs(flt(unit.current_qty) - flt(row.dispatch_qty)) > 0.000001
+                    or flt(unit.reserved_qty) + 0.000001 < flt(row.dispatch_qty)):
+                frappe.throw(
+                    f"Reserved Stock Tag {row.visible_code} changed after loading confirmation"
+                )
+            assert_erp_stock(unit, plan.source_warehouse, row.dispatch_qty)
+        else:
+            _assert_untagged_allocation_available(allocation)
+    return plan
+
+
+def _vehicle_warehouse_from_scan(scan_value, company):
+    value = str(scan_value or "").strip()
+    if not value:
+        frappe.throw("Scan the Company-specific lorry Warehouse card")
+    card_name = None
+    for fieldname in ("qr_code", "uuid", "card_number", "name"):
+        card_name = frappe.db.get_value("CFG Kanban Card", {fieldname: value}, "name")
+        if card_name:
+            break
+    if not card_name:
+        frappe.throw("Lorry Warehouse card was not found")
+    card = frappe.db.get_value(
+        "CFG Kanban Card", card_name,
+        ["active", "blocked", "card_type", "location_purpose", "company",
+         "current_warehouse"], as_dict=True,
+    )
+    if (not card or not card.active or card.blocked or card.card_type != "Location Card"
+            or card.location_purpose != "Warehouse Operations" or not card.current_warehouse):
+        frappe.throw(
+            "Vehicle claim requires an active Warehouse Operations Location Card"
+        )
+    if card.company and card.company != company:
+        frappe.throw(f"Lorry Warehouse card belongs to {card.company}, not {company}")
+    return _vehicle_warehouse(card.current_warehouse, company)
+
+
+def _vehicle_warehouse(warehouse, company=None):
+    row = frappe.db.get_value(
+        "Warehouse", warehouse,
+        ["name", "company", "disabled", "is_group", "cfg_is_vehicle_warehouse",
+         "cfg_vehicle_reference"], as_dict=True,
+    )
+    if (not row or row.disabled or row.is_group or not row.cfg_is_vehicle_warehouse
+            or not row.cfg_vehicle_reference):
+        frappe.throw("Scanned location is not an active Company-specific lorry Warehouse")
+    if company and row.company != company:
+        frappe.throw(f"Lorry Warehouse belongs to {row.company}, not {company}")
+    return row
+
+
+def _vehicle_loading_route(plan, vehicle_warehouse, operator=None):
+    if not plan.logistics_route:
+        frappe.throw(
+            "Vehicle Delivery Dispatch Profile requires an Internal Warehouse Transfer route"
+        )
+    route = frappe.get_doc("CFG Kanban Logistics Route", plan.logistics_route)
+    if (not route.active or route.route_type != "Internal Warehouse Transfer"
+            or route.internal_transfer_mode != "Direct Transfer"):
+        frappe.throw(
+            "E3 vehicle loading requires an active Direct Internal Warehouse Transfer route"
+        )
+    if (route.source_company != plan.company or route.destination_company != plan.company
+            or route.source_warehouse != plan.source_warehouse):
+        frappe.throw("Vehicle-loading route does not match the Dispatch Plan source Company/Warehouse")
+    if operator and not (_view_all(operator)
+                         or route.dispatch_responsibility in _responsibilities(operator)):
+        frappe.throw("Operator is not assigned to the vehicle-loading route responsibility",
+                     frappe.PermissionError)
+    if (plan.destination_assignment_policy == "Fixed"
+            and plan.destination_warehouse != vehicle_warehouse):
+        frappe.throw(
+            f"Dispatch Plan is fixed to {plan.destination_warehouse}; scan that lorry Warehouse"
+        )
+    if plan.destination_assignment_policy == "Select at Receipt":
+        frappe.throw("Select at Receipt belongs to the optional Goods-in-Transit package")
+    return route
+
+
+def _assert_e3_allocations_ready(plan):
+    allocations = frappe.get_all(
+        "CFG Kanban Dispatch Allocation",
+        filters={"dispatch_plan": plan.name, "state": "Reserved"},
+        fields=[
+            "name", "allocation_kind", "handling_unit", "allocated_qty", "item_code",
+            "batch_no", "stock_uom", "source_company", "source_warehouse",
+        ],
+        order_by="creation asc", limit_page_length=0,
+    )
+    if not allocations:
+        frappe.throw("Dispatch Plan has no active stock reservations")
+    if abs(sum(flt(row.allocated_qty) for row in allocations)
+           - flt(plan.total_requested_qty)) > 0.000001:
+        frappe.throw("Dispatch Plan must be fully reserved before vehicle claim")
+    for allocation in allocations:
+        if not cint(frappe.db.get_value("Item", allocation.item_code, "is_stock_item")):
+            frappe.throw(
+                f"Item {allocation.item_code} does not maintain ERPNext stock and cannot use "
+                "the E3 Material Transfer workflow"
+            )
+        if allocation.source_company != plan.company or allocation.source_warehouse != plan.source_warehouse:
+            frappe.throw(f"Allocation {allocation.name} no longer matches the Plan source")
+        if allocation.allocation_kind == "Tagged Stock":
+            unit = frappe.get_doc("CFG Kanban Handling Unit", allocation.handling_unit)
+            if abs(flt(allocation.allocated_qty) - flt(unit.current_qty)) > 0.000001:
+                frappe.throw(
+                    f"Stock Tag {unit.handling_unit_id} is only partly reserved. A physical tag "
+                    "cannot remain in two Warehouses; split/repack the exact Plan quantity first."
+                )
+            if flt(unit.reserved_qty) + 0.000001 < flt(allocation.allocated_qty):
+                frappe.throw(f"Stock Tag {unit.handling_unit_id} reservation is no longer complete")
+            assert_erp_stock(unit, plan.source_warehouse, allocation.allocated_qty)
+        else:
+            _assert_untagged_allocation_available(allocation)
+
+
+def _create_vehicle_manifest(plan, route, operator, session, claim_key):
+    preparation_key = canonical_key(
+        "dispatch-plan-manifest", plan.name, claim_key
+    )
+    manifest = frappe.get_doc({
+        "doctype": "CFG Kanban Movement Manifest",
+        "dispatch_plan": plan.name,
+        "logistics_route": route.name,
+        "state": "Draft",
+        "preparation_key": preparation_key,
+        "created_by_operator": operator.employee,
+        "created_operator_session": session.name,
+    })
+    allocations = frappe.get_all(
+        "CFG Kanban Dispatch Allocation",
+        filters={"dispatch_plan": plan.name, "state": "Reserved"},
+        fields=[
+            "name", "allocation_kind", "handling_unit", "visible_code", "item_code",
+            "batch_no", "stock_uom", "allocated_qty", "source_company",
+            "source_warehouse",
+        ],
+        order_by="creation asc", limit_page_length=0,
+    )
+    for allocation in allocations:
+        manifest.append("lines", {
+            "line_kind": (
+                "Tagged Stock" if allocation.allocation_kind == "Tagged Stock"
+                else "ERP Stock without Physical Tag"
+            ),
+            "dispatch_allocation": allocation.name,
+            "handling_unit": allocation.handling_unit,
+            "visible_code": allocation.visible_code,
+            "tag_kind": (frappe.db.get_value(
+                "CFG Kanban Handling Unit", allocation.handling_unit, "tag_kind"
+            ) if allocation.handling_unit else None),
+            "item_code": allocation.item_code,
+            "batch_no": allocation.batch_no,
+            "stock_uom": allocation.stock_uom,
+            "available_qty_at_scan": allocation.allocated_qty,
+            "dispatch_qty": allocation.allocated_qty,
+            "received_qty": 0,
+            "loading_confirmed": 0,
+            "source_company": plan.company,
+            "source_warehouse": plan.source_warehouse,
+            "destination_company": plan.company,
+            "destination_warehouse": plan.vehicle_warehouse,
+            "state": "Prepared",
+        })
+    try:
+        manifest.insert(ignore_permissions=True)
+    except frappe.DuplicateEntryError:
+        existing = frappe.db.get_value(
+            "CFG Kanban Movement Manifest",
+            {"preparation_key": preparation_key}, "name",
+        )
+        if existing:
+            return frappe.get_doc("CFG Kanban Movement Manifest", existing)
+        raise
+    for line in manifest.lines:
+        frappe.db.set_value(
+            "CFG Kanban Dispatch Allocation", line.dispatch_allocation,
+            {"movement_manifest": manifest.name, "manifest_line": line.name},
+            update_modified=False,
+        )
+    return manifest
+
+
+def _locked_plan_manifest(manifest_name, operator):
+    frappe.db.sql(
+        "select name from `tabCFG Kanban Movement Manifest` where name=%s for update",
+        manifest_name,
+    )
+    manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
+    if not manifest.dispatch_plan:
+        frappe.throw("Movement Manifest is not linked to a Dispatch Plan")
+    plan = _locked_authorized_plan(manifest.dispatch_plan, operator)
+    if plan.movement_manifest != manifest.name:
+        frappe.throw("Dispatch Plan no longer identifies this Movement Manifest")
+    return manifest, plan
+
+
+def _confirm_allocation_loading(allocation_name, manifest_line, manifest, plan,
+                                operator, session, key):
+    frappe.db.set_value(
+        "CFG Kanban Dispatch Allocation", allocation_name,
+        {"load_confirmed": 1, "loaded_by_operator": operator.employee,
+         "loaded_operator_session": session.name, "loaded_on": now_datetime(),
+         "load_key": key}, update_modified=True,
+    )
+    frappe.db.set_value(
+        "CFG Kanban Manifest Line", manifest_line,
+        {"loading_confirmed": 1, "loading_confirmed_by": operator.employee,
+         "loading_confirmed_on": now_datetime()}, update_modified=False,
+    )
+    remaining = frappe.db.count(
+        "CFG Kanban Dispatch Allocation",
+        {"dispatch_plan": plan.name, "state": "Reserved", "load_confirmed": 0},
+    )
+    plan.db_set("state", "Loading", update_modified=True)
+    for line in plan.lines:
+        line_allocations = frappe.get_all(
+            "CFG Kanban Dispatch Allocation",
+            filters={"dispatch_plan_line": line.name, "state": "Reserved"},
+            fields=["load_confirmed"], limit_page_length=0,
+        )
+        state = (
+            "Loading Confirmed" if line_allocations and all(row.load_confirmed for row in line_allocations)
+            else "Loading"
+        )
+        frappe.db.set_value(
+            "CFG Kanban Dispatch Plan Line", line.name, "line_state", state,
+            update_modified=False,
+        )
+    if not remaining:
+        record(
+            "Dispatch Physical Loading Complete", movement_manifest=manifest.name,
+            reference_doctype=plan.doctype, reference_name=plan.name,
+            previous_state="Loading", new_state="Loading",
+            operator=operator.employee, operator_session=session.name,
+            terminal_user=session.terminal_user,
+            notes="Every reserved line physically confirmed; awaiting Manifest preparation",
+        )
+
+
+def _assert_untagged_allocation_available(allocation):
+    if allocation.batch_no:
+        from erpnext.stock.doctype.batch.batch import get_batch_qty
+        erp_balance = flt(get_batch_qty(
+            batch_no=allocation.batch_no, warehouse=allocation.source_warehouse,
+            item_code=allocation.item_code, posting_date=today(),
+            for_stock_levels=True, ignore_reserved_stock=True,
+        ))
+        batch_condition = "and batch_no=%(batch)s"
+    else:
+        from erpnext.stock.utils import get_stock_balance
+        erp_balance = flt(get_stock_balance(
+            allocation.item_code, allocation.source_warehouse, posting_date=today()
+        ))
+        batch_condition = "and (batch_no is null or batch_no='')"
+    params = {
+        "company": allocation.source_company,
+        "warehouse": allocation.source_warehouse,
+        "item": allocation.item_code,
+        "batch": allocation.batch_no,
+    }
+    tagged = flt(frappe.db.sql(
+        f"""
+        select coalesce(sum(current_qty), 0)
+        from `tabCFG Kanban Handling Unit`
+        where inventory_company=%(company)s and current_warehouse=%(warehouse)s
+          and item_code=%(item)s and identity_state='Active' and current_qty>0
+          {batch_condition}
+        """, params,
+    )[0][0])
+    untagged_reserved = flt(frappe.db.sql(
+        f"""
+        select coalesce(sum(allocated_qty), 0)
+        from `tabCFG Kanban Dispatch Allocation`
+        where allocation_kind='Untagged ERP Stock' and state='Reserved'
+          and source_company=%(company)s and source_warehouse=%(warehouse)s
+          and item_code=%(item)s {batch_condition}
+        """, params,
+    )[0][0])
+    if erp_balance + 0.000001 < tagged + untagged_reserved:
+        frappe.throw(
+            f"ERPNext stock for {allocation.item_code} is now {erp_balance}; active tagged "
+            f"stock plus untagged Dispatch reservations require {tagged + untagged_reserved}"
+        )
+
+
+def _manifest_result(manifest_name, operator_session_token):
+    from cfg_kanban.api.logistics import get_manifest
+    return get_manifest(manifest_name, operator_session_token)
 
 
 def _normalize_lines(lines, sales_order=None):

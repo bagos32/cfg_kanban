@@ -36,6 +36,8 @@ The policy-only foundation for the approved one-card dispatch launcher is
 [Dispatch E1 Profile Launcher Acceptance Test](docs/TEST_DISPATCH_E1_PROFILE_LAUNCHER.md).
 The approved picking-plan and reservation continuation is
 [Dispatch E2 Plan and Reservation Acceptance Test](docs/TEST_DISPATCH_E2_PLAN_RESERVATION.md).
+The late lorry claim, physical loading and controlled Material Transfer continuation is
+[Dispatch E3 Vehicle Claim and Loading Acceptance Test](docs/TEST_DISPATCH_E3_VEHICLE_LOADING.md).
 The controlled consumable/indirect-stock issue continuation is
 [Package L2 Withdrawal Kanban System Test](docs/TEST_PACKAGE_L2_WITHDRAWAL_KANBAN.md).
 The production material-transfer, two-operation execution, Manufacture receipt, finished-output

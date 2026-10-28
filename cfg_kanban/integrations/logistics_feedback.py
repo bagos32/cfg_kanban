@@ -293,6 +293,9 @@ def _post_internal_direct(manifest, doc):
         "dispatch_stock_entry": doc.name, "state": "Received",
         "total_received_quantity": manifest.total_quantity,
     }, update_modified=True)
+    if manifest.dispatch_plan:
+        from cfg_kanban.services.dispatch_planning import mark_plan_loaded
+        mark_plan_loaded(manifest.name, doc.name)
     if manifest.kanban_cycle:
         frappe.db.set_value("CFG Kanban Cycle", manifest.kanban_cycle, {
             "transfer_dispatch_stock_entry": doc.name,
