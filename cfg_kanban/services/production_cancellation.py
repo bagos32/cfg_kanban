@@ -260,11 +260,9 @@ def cancel_production_job_card(cancellation_name, job_card_name, reversal_notes)
         job_card.cancel()
         event_name = "ERP Job Card Cancelled through Production Cancellation"
     else:
-        # ERPNext v15 does not provide a Cancel transition for a Draft Job Card. Deleting it
-        # would destroy the time/progress evidence, so controlled cancellation retains the
-        # document and makes its abandoned state explicit.
-        job_card.db_set(_cancelled_job_card_values(), update_modified=True)
-        event_name = "ERP Draft Job Card Voided through Production Cancellation"
+        _void_draft_job_card(job_card, cancellation, cycle, notes)
+        _refresh(cancellation, cycle)
+        return _public_result(cancellation)
     record(
         event_name,
         card=cycle.kanban_card,
@@ -331,20 +329,22 @@ def cancel_production_work_order(cancellation_name, reversal_notes):
             + ", ".join(unresolved_drafts)
         )
 
+    # ERPNext 15 may delete remaining Draft Job Cards from Work Order.on_cancel. Convert those
+    # Drafts into retained cancelled audit records first, including already status-Cancelled
+    # records created by the earlier compatibility path.
+    for draft_job_name in frappe.get_all(
+        "Job Card",
+        filters={"work_order": work_order.name, "docstatus": 0},
+        pluck="name",
+        order_by="creation asc",
+    ):
+        draft_job = frappe.get_doc("Job Card", draft_job_name)
+        _void_draft_job_card(draft_job, cancellation, cycle, notes)
+
     previous_state = _doc_state(work_order)
     work_order.flags.ignore_permissions = True
     work_order.flags.ignore_links = True
     work_order.cancel()
-    for draft_job in frappe.get_all(
-        "Job Card",
-        filters={"work_order": work_order.name, "docstatus": 0},
-        pluck="name",
-    ):
-        frappe.db.set_value(
-            "Job Card", draft_job,
-            _cancelled_job_card_values(),
-            update_modified=True,
-        )
     record(
         "ERP Work Order Cancelled through Production Cancellation",
         card=cycle.kanban_card,
@@ -607,6 +607,53 @@ def _cancelled_job_card_values():
     if frappe.get_meta("Job Card").has_field("is_paused"):
         values["is_paused"] = 0
     return values
+
+
+def _void_draft_job_card(job_card, cancellation, cycle, notes):
+    """Retain a Draft Job Card as cancelled audit evidence instead of deleting it.
+
+    Frappe 15 does not allow the normal Draft (0) -> Cancelled (2) Document transition. At this
+    point every linked Stock Entry is already reversed and every timer must be closed, so no ERP
+    posting hook remains to reverse. Parent and child docstatus values are closed together.
+    """
+    if cint(job_card.docstatus) == 2:
+        return
+    if cint(job_card.docstatus) != 0:
+        frappe.throw(f"Job Card {job_card.name} is not a Draft Job Card")
+    open_timers = frappe.db.count(
+        "Job Card Time Log", {"parent": job_card.name, "to_time": ["is", "not set"]}
+    )
+    if open_timers:
+        frappe.throw(
+            f"Job Card {job_card.name} still has {open_timers} open timer(s). "
+            "Pause the timer before cancelling its Work Order."
+        )
+
+    previous_state = _row_state(job_card)
+    values = _cancelled_job_card_values()
+    values["docstatus"] = 2
+    frappe.db.set_value("Job Card", job_card.name, values, update_modified=True)
+    for table_field in frappe.get_meta("Job Card").get_table_fields():
+        frappe.db.set_value(
+            table_field.options,
+            {"parent": job_card.name, "parenttype": "Job Card"},
+            "docstatus",
+            2,
+            update_modified=False,
+        )
+    frappe.clear_document_cache("Job Card", job_card.name)
+    record(
+        "ERP Draft Job Card Voided through Production Cancellation",
+        card=cycle.kanban_card,
+        cycle=cycle.name,
+        previous_state=previous_state,
+        new_state="Cancelled",
+        reference_doctype="Job Card",
+        reference_name=job_card.name,
+        notes=f"{cancellation.name}: {notes}",
+        system_generated=False,
+        ignore_permissions=True,
+    )
 
 
 def _assert_stock_entries_reversed(cycle):

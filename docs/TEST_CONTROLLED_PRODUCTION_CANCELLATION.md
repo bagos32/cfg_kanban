@@ -73,7 +73,7 @@ Reverse through ERPNext in this order:
 5. in the Controlled Production Cancellation record, select **ERP Reversal → Cancel Linked Job
    Card** for each active or submitted Job Card, enter reversal evidence, and confirm its Stock
    Entries are already reversed. Submitted Job Cards run the ERPNext cancellation hooks; Draft Job
-   Cards are retained and marked Cancelled rather than deleted;
+   Cards and their child rows are retained as Cancelled audit records rather than deleted;
 6. after no Job Card or Stock Entry blocker remains, select **ERP Reversal → Cancel Work Order**.
 
 The two controlled ERP actions retain the Cycle-to-ERP links as audit evidence while running the

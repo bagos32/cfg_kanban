@@ -3475,8 +3475,8 @@ start or finalize it.
    reverse production order: cancel submitted Manufacture entries first, then material-consumption
    entries, then material-transfer entries; discard unused Draft Stock Entries. Next use **ERP
    Reversal → Cancel Linked Job Card** for each active or submitted Job Card. Submitted Job Cards
-   run ERPNext cancellation hooks; Draft Job Cards are retained and marked Cancelled rather than
-   deleted. When no Job Card or Stock Entry blocker remains, use **ERP Reversal → Cancel Work
+   run ERPNext cancellation hooks; Draft Job Cards and their child rows are retained as Cancelled
+   audit records rather than deleted. When no Job Card or Stock Entry blocker remains, use **ERP Reversal → Cancel Work
    Order**. These manager actions retain the Kanban-to-ERP links for audit, bypass only the circular
    link check, and still run ERPNext's applicable document cancellation hooks and validations.
 5. Resolve every listed WIP Bin reconciliation and physical Handling Unit balance. Do not merely
