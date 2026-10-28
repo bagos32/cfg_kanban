@@ -364,6 +364,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			GO_TO_CURRENT_WORK: go_to_current_work,
 			CLOSE_CYCLE: close_context_runtime_cycle,
 			PREPARE_MATERIALS: open_scanner_material_preparation,
+			RECORD_LOOSE_WIP_USE: open_scanner_loose_wip_usage,
+			PREPARE_LOOSE_WIP_CONSUMPTION: open_scanner_loose_wip_consumption,
 			PREPARE_RECEIPT: open_scanner_manufacture_receipt,
 			SCAN_MATERIALS: open_scanner_material_trace,
 			SUBMIT_MATERIALS: submit_scanner_material_entry,
@@ -949,7 +951,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<tr><td>F8</td><td><code>CFG:CMD:END_SESSION</code></td><td>${__("End operator session after confirmation")}</td></tr>
 			</tbody></table>
 			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:ACCEPT_OWNER</code>, <code>CFG:CMD:TRANSFER_OWNER</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
-			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
+			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:RECORD_LOOSE_WIP_USE</code>, <code>CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
 			<p><strong>${__("Progress dialog commands")}</strong>: <code>CFG:QTY:GOOD:+1</code>, <code>CFG:QTY:REJECT:+1</code>, <code>CFG:CMD:CONFIRM</code>, <code>CFG:CMD:CANCEL</code>.</p>
 			<p><strong>${__("Message control")}</strong>: scan the next card to close an error and continue, or scan <code>CFG:CMD:DISMISS</code> to close it.</p>
 			<div class="alert alert-warning">${__("A web page cannot receive scanner keys while the browser address bar is selected. Use full-screen/kiosk mode and configure the scanner to append Enter.")}</div>
@@ -2184,6 +2186,49 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		dialog.show();
 		bind_confirmation_scanner(dialog, true, options.map((row) => row.value), "selected_value");
 		return dialog;
+	}
+
+	function open_scanner_loose_wip_usage() {
+		const flow = state.context && state.context.production_material_flow;
+		if (!flow || !state.operator.permissions.material_transfer) {
+			return scanner_command_message(__("No authorized Loose WIP use is available on this card."));
+		}
+		if (flow.work_order_docstatus !== 1) {
+			return scanner_command_message(__("Submit the Work Order before recording Loose WIP use."));
+		}
+		if (flow.loose_wip_consumption_draft) {
+			return scanner_command_message(__("The consolidated Loose WIP consumption Draft is already open."));
+		}
+		const eligible = (flow.jobs || []).filter((job) =>
+			job.has_loose_wip && (job.loose_wip_active_bins || []).length);
+		if (!eligible.length) {
+			return scanner_command_message(__("No active Loose WIP Bin is available for this production card."));
+		}
+		if (eligible.length > 1) return scanner_selection_dialog(
+			__("Select Job Card for Loose WIP Use"),
+			eligible.map((job) => ({ value: job.name,
+				label: `${job.operation || __("Operation")} · ${job.name}`, job })),
+			__("Record Selected Loose WIP Use"),
+			(choice) => record_loose_wip_usage_dialog(flow, choice.job),
+		);
+		return record_loose_wip_usage_dialog(flow, eligible[0]);
+	}
+
+	function open_scanner_loose_wip_consumption() {
+		const flow = state.context && state.context.production_material_flow;
+		if (!flow || !state.operator.permissions.material_transfer) {
+			return scanner_command_message(__("No authorized consolidated Loose WIP consumption is available on this card."));
+		}
+		if (flow.loose_wip_consumption_draft) {
+			return scanner_command_message(__("The consolidated Loose WIP consumption Draft is already open."));
+		}
+		if (!flow.all_job_cards_completed) {
+			return scanner_command_message(__("Complete all Job Cards before preparing consolidated Loose WIP consumption."));
+		}
+		if (!flow.loose_wip_recorded_count) {
+			return scanner_command_message(__("No recorded Loose WIP use is waiting for ERP consumption."));
+		}
+		return prepare_consolidated_loose_wip_consumption_dialog(flow);
 	}
 
 	function open_scanner_material_preparation() {

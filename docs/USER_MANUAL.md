@@ -1,9 +1,9 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.19
+**Guide version:** 2.22
 
-**Updated:** 27 October 2026
+**Updated:** 28 October 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
@@ -2623,6 +2623,11 @@ Operational command labels have no function-key equivalent:
   `CFG:CMD:CANCEL` to return. The server rechecks operator permission, full allocated quantity,
   Process Task gate, Work Order state, Job Card state, and ERP-completed quantity before closure.
 - `CFG:CMD:PREPARE_MATERIALS` prepares the WIP or operation material transfer.
+- `CFG:CMD:RECORD_LOOSE_WIP_USE` opens the eligible Job Card's cumulative Loose WIP use dialog. If
+  several Job Cards are eligible, scan a numbered Select label and Confirm before scanning the bin,
+  material choice, quantity, and Confirm.
+- `CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION` opens the final consolidated Loose WIP consumption
+  confirmation after all Job Cards are complete and recorded use is waiting for ERP posting.
 - `CFG:CMD:PREPARE_RECEIPT` prepares final manufacture receipt/direct consumption when ready.
 - `CFG:CMD:SCAN_MATERIALS` opens the eligible Draft Stock Entry for raw-material tag scans.
 - `CFG:CMD:SUBMIT_MATERIALS` submits the selected Draft production material entry.
@@ -2709,6 +2714,15 @@ Task action appropriate to its status. The Service Task scanner recognises perma
 
 The server scan APIs support stable event tokens for retry/idempotency. Custom scanner clients
 must retain the same event token when retrying the same physical scan.
+
+### Production scanner-first development standard
+
+Every new or adjusted Production Kanban floor action must include its scanner path in the same
+development package. This includes a stable printable `CFG:CMD:*` label, global command dispatch,
+context and authorization validation, numbered ambiguity resolution, scanner-operable dialog inputs,
+Confirm/Cancel handling, focus restoration, Scanner Help, documentation, and automated contract
+coverage. A production action that exists only as a screen button is incomplete. The complete
+engineering and acceptance checklist is in `docs/PRODUCTION_SCANNER_FIRST_STANDARD.md`.
 
 ## 13. Production dashboard and dispatch sequence
 
@@ -4255,6 +4269,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.22 | 28 October 2026 | Established the mandatory Production scanner-first delivery standard and completed the Loose WIP command entry points: Record Loose WIP Use and Prepare Consolidated Loose WIP Consumption are now globally dispatched, selectable in Print Command Labels, documented in Scanner Help, and protected by the same context and authorization gates as their touch actions |
 | 2.21 | 27 October 2026 | Added typed mixed-mode Production Material Trace routing: physical Stock Tags, Standard WIP Bins, and Loose WIP Bins now select compatible pending rows from live role/Pool/Workstation/Item/Company/Warehouse/UOM/Batch context; quantity-first scans are held until identity resolution, bin-first optional/required source flows are preserved safely, and ambiguous matches continue through numbered scanner selection without rescanning |
 | 2.20 | 27 October 2026 | Added Loose Multi-Item WIP Bins: permanent allow-listed multi-Item bins, variable no-capacity Job Card transfer loads without child-tag splitting, repeatable operation-card usage accumulation, immutable per-cycle use evidence, final Work Order-level consolidated ERP consumption, controlled unused-material returns, supervisor report visibility, print identity, and a complete acceptance guide while preserving Standard WIP behavior |
 | 2.19 | 27 October 2026 | Added Logistics Quantity Bins: a permanent lorry/bin QR receives a controlled partial Item/Batch quantity from a physical source Stock Tag without printing a child tag, preserves an internal audited fill identity and exact source genealogy, supports matching top-ups and controlled return-to-source, and moves through ordinary Manifest/ERP confirmation controls |

@@ -24,6 +24,16 @@
 - Preserve audit records. Prefer controlled cancellation, reconciliation, and recovery workflows over deleting transactional Kanban history.
 - Keep workstation/execution behaviour changes separate from Production Control Dashboard work when they are being developed in different worktrees.
 
+## Production scanner-first standard
+
+- Every new or changed Production Kanban floor action must be operable by fixed keyboard-wedge scanner as well as by touch/click. A screen-only production action is incomplete.
+- Each production action must ship together with: a stable `CFG:CMD:*` payload, global scanner dispatch, a selectable printable command-label catalogue entry, Scanner Help and User Manual guidance, correct focus restoration after success/error/cancel, and automated contract coverage.
+- Dialogs opened by a scanner command must remain scanner-operable through completion. Provide scanner commands for confirmation, cancellation, quantities, numbered choices, and physical tag/bin identity wherever those inputs apply.
+- When several safe targets are eligible, use the standard numbered `CFG:SELECT:1` through `CFG:SELECT:10` flow. Never silently choose an ambiguous Work Order, Job Card, material row, bin, or operation.
+- Physical Card, Employee, Handling Unit, Stock Tag, WIP Bin, Station, and location identities remain their own printable operational labels; do not disguise identity scans as command labels.
+- Controlled reversal, correction, or exceptional approval may require a reason and Supervisor authority, but the routine floor path and its safe cancel path must still be scanner-accessible.
+- Acceptance is not complete until the action is verified in kiosk/full-screen mode without mouse, touch, or keyboard use beyond the scanner itself.
+
 ## Version roadmap and TrackQMS boundary
 
 - V1 is the reliable execution foundation: cards, signals, cycles, ERPNext feedback, WIP, operator authorization, tasks, audit, closure, and recovery.

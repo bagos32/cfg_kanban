@@ -47,6 +47,10 @@ Company, Warehouse, UOM, Batch, production Cycle, and Job Card as applicable.
 
 Use these hands-free sequences:
 
+- Scan `CFG:CMD:RECORD_LOOSE_WIP_USE` to open the eligible Job Card's Loose WIP usage workflow.
+  When several Job Cards are eligible, select the numbered operation and scan Confirm.
+- Scan `CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION` after all Job Cards are complete to open the final
+  consolidated ERP consumption confirmation.
 - Loose WIP with ERP-only source: `Material Quantity → Loose WIP Bin`;
 - Loose WIP with a physical source: `Material Quantity → Source Stock Tag → Loose WIP Bin`;
 - full Standard WIP: `Source Stock Tag when required → Standard WIP Bin` (the physical bin

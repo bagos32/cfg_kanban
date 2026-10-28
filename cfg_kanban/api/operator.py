@@ -142,6 +142,8 @@ def _scanner_command_catalog(quantity_steps=None):
         ]),
         ("Production Material and WIP", [
             ("Prepare Transfer / Consumption", "CFG:CMD:PREPARE_MATERIALS", ""),
+            ("Record Loose WIP Use", "CFG:CMD:RECORD_LOOSE_WIP_USE", ""),
+            ("Prepare Consolidated Loose WIP Consumption", "CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION", ""),
             ("Prepare Manufacture Receipt", "CFG:CMD:PREPARE_RECEIPT", ""),
             ("Scan Material Tags", "CFG:CMD:SCAN_MATERIALS", ""),
             ("WIP Bin: Use ERP-only Source", "CFG:CMD:NO_SOURCE", ""),
