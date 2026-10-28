@@ -53,6 +53,9 @@ Expected:
 
 - the reusable operation card becomes Available;
 - the Work Order, Job Card, and main production Cycle remain open;
+- the Cycle may close at its full allocation or at any positive partial quantity when its
+  completion rule is `Operator Complete`, provided that Cycle's progress is linked to the ERPNext
+  Job Card time log;
 - the Runtime Allocation records Completion Rule `Operator Complete`;
 - the allocation records its processed/good/reject quantities and unfulfilled quantity;
 - the remaining Job Card demand returns to the operation-card queue; and

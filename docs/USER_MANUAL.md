@@ -15,7 +15,9 @@ cycle records its own use. **Operator Complete** may close a positive partial al
 the reusable card, and returns unfulfilled demand to the same Job Card queue. Accumulated Loose WIP
 is posted when its owning Job Card completes, without waiting for downstream Job Cards. A partial
 WIP transfer submits only the scanned Loose-bin quantity; the unallocated ERP row balance remains
-pending for later cycles.
+pending for later cycles. Operation closure verifies only the ERPNext time-log evidence created by
+that exact reusable-card Cycle, so other completed or pending allocations on the shared Job Card do
+not incorrectly block an `Operator Complete` closure.
 
 **2.31 scanner control:** Standard Quantity WIP Bin floor-use reporting now has the dedicated,
 printable `CFG:CMD:RECORD_WIP_BIN_USE` command. It opens the same authorized **Record WIP Bin Use**

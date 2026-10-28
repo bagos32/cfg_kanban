@@ -56,6 +56,11 @@ class TestIncrementalLooseWIPCycles(TestCase):
         self.assertIn("accounted_completed = max", selector)
         self.assertIn("row.remaining_qty = max", selector)
 
+        readiness = source[source.index("def _runtime_close_readiness("):]
+        readiness = readiness[:readiness.index("\ndef _execution_completion_rule(")]
+        self.assertIn("required_erp_qty = flt(execution.good_qty)", readiness)
+        self.assertIn("_runtime_execution_erp_progress_qty", readiness)
+
     def test_loose_wip_erp_posting_can_be_scoped_to_completed_job_card(self):
         service = (ROOT / "services" / "production_material_flow.py").read_text()
         prepare = service[service.index("def prepare_consolidated_loose_wip_consumption("):]

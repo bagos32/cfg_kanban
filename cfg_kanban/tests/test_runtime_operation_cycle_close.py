@@ -15,7 +15,17 @@ class TestRuntimeOperationCycleCloseContract(TestCase):
         self.assertIn('work_order.status in ("Stopped", "Cancelled")', readiness)
         self.assertNotIn("work_order_started", readiness)
         self.assertNotIn('work_order.status == "Not Started"', readiness)
-        self.assertIn("cumulative Kanban good", readiness)
+        self.assertIn("_runtime_execution_erp_progress_qty", readiness)
+
+    def test_close_uses_current_operation_cycle_erp_evidence(self):
+        source = (ROOT / "api" / "operator.py").read_text()
+        readiness = source[source.index("def _runtime_close_readiness("):]
+        readiness = readiness[:readiness.index("\ndef _execution_completion_rule(")]
+
+        self.assertIn("required_erp_qty = flt(execution.good_qty)", readiness)
+        self.assertIn("progress.process_execution=%s", readiness)
+        self.assertIn("jctl.cfg_kanban_progress", readiness)
+        self.assertNotIn("prior_good", readiness)
 
     def test_operation_close_releases_only_reusable_operation_card(self):
         source = (ROOT / "api" / "operator.py").read_text()

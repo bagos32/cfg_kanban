@@ -1334,17 +1334,19 @@ def _runtime_close_readiness(execution, work_order, job_card):
             f"Cannot close the final Operation Cycle while ERPNext Job Card {job_card.name} is still Draft. "
             "Use Complete Job Card first, or enable Auto-submit Job Card at Target in Kanban Settings."
         )}
-    prior_good = flt(frappe.db.sql("""
-        select coalesce(sum(good_qty), 0)
-        from `tabCFG Kanban Runtime Allocation`
-        where job_card=%s and status='Completed' and name != %s
-    """, (execution.job_card, execution.runtime_allocation))[0][0])
-    required_erp_qty = prior_good + flt(execution.good_qty)
-    erp_qty = flt(job_card.total_completed_qty)
+    # One ERP Job Card can be served by several reusable operation-card Cycles. Verify the
+    # ERP time-log evidence created by this execution instead of rebuilding a cumulative total
+    # from earlier Runtime Allocations. The latter double-counts or misattributes progress when
+    # Operator Complete closes a smaller allocation and the same Job Card is selected again.
+    required_erp_qty = flt(execution.good_qty)
+    erp_qty = _runtime_execution_erp_progress_qty(execution.name, job_card.name)
     if erp_qty + 0.000001 < required_erp_qty:
-        return {"ready": False, "reason": (f"Cannot close the Operation Cycle: cumulative Kanban good "
-                f"quantity is {required_erp_qty}, but ERPNext Job Card completed quantity is only {erp_qty}. "
-                "Update the Job Card time log, save it, and reload the Operator panel.")}
+        return {"ready": False, "reason": (
+            f"Cannot close this Operation Cycle: its Kanban good quantity is "
+            f"{required_erp_qty}, but only {erp_qty} is linked to ERPNext Job Card "
+            f"{job_card.name}. Retry or correct this Cycle's ERP Job Card progress, then "
+            "reload the Operator panel."
+        )}
     return {
         "ready": True,
         "reason": wip_bin_readiness.get("reason"),
@@ -1353,6 +1355,19 @@ def _runtime_close_readiness(execution, work_order, job_card):
         "wip_bin_pending_stock_entries": pending_wip_stock_entries,
         "wip_bin_pending_loads": pending_wip_loads,
     }
+
+
+def _runtime_execution_erp_progress_qty(execution_name, job_card_name):
+    """Return Job Card time-log quantity traceable to one runtime execution."""
+    return flt(frappe.db.sql("""
+        select coalesce(sum(jctl.completed_qty), 0)
+          from `tabJob Card Time Log` jctl
+          inner join `tabCFG Kanban Operation Progress` progress
+                  on progress.name = jctl.cfg_kanban_progress
+         where jctl.parent=%s
+           and progress.process_execution=%s
+           and ifnull(progress.cancelled, 0)=0
+    """, (job_card_name, execution_name))[0][0])
 
 
 def _execution_completion_rule(execution):
