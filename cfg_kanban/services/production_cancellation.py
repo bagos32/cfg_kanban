@@ -263,7 +263,7 @@ def cancel_production_job_card(cancellation_name, job_card_name, reversal_notes)
         # ERPNext v15 does not provide a Cancel transition for a Draft Job Card. Deleting it
         # would destroy the time/progress evidence, so controlled cancellation retains the
         # document and makes its abandoned state explicit.
-        job_card.db_set({"status": "Cancelled", "is_paused": 0}, update_modified=True)
+        job_card.db_set(_cancelled_job_card_values(), update_modified=True)
         event_name = "ERP Draft Job Card Voided through Production Cancellation"
     record(
         event_name,
@@ -342,7 +342,7 @@ def cancel_production_work_order(cancellation_name, reversal_notes):
     ):
         frappe.db.set_value(
             "Job Card", draft_job,
-            {"status": "Cancelled", "is_paused": 0},
+            _cancelled_job_card_values(),
             update_modified=True,
         )
     record(
@@ -598,6 +598,15 @@ def _required_reversal_notes(reversal_notes):
     if not notes:
         frappe.throw("ERP reversal evidence is required")
     return notes
+
+
+def _cancelled_job_card_values():
+    values = {"status": "Cancelled"}
+    # is_paused exists in newer ERPNext Job Card schemas but is absent from ERPNext 15.65.
+    # Never send an unavailable column to db_set/set_value.
+    if frappe.get_meta("Job Card").has_field("is_paused"):
+        values["is_paused"] = 0
+    return values
 
 
 def _assert_stock_entries_reversed(cycle):

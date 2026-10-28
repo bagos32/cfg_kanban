@@ -63,7 +63,8 @@ class TestControlledProductionCancellation(unittest.TestCase):
         self.assertIn("def cancel_production_job_card(", service)
         self.assertIn("def cancel_production_work_order(", service)
         self.assertIn("job_card.flags.ignore_links = True", service)
-        self.assertIn('job_card.db_set({"status": "Cancelled"', service)
+        self.assertIn("job_card.db_set(_cancelled_job_card_values()", service)
+        self.assertIn('frappe.get_meta("Job Card").has_field("is_paused")', service)
         self.assertIn("work_order.flags.ignore_links = True", service)
         self.assertIn("_assert_stock_entries_reversed(cycle)", service)
 
