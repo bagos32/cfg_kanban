@@ -1,13 +1,18 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.29
+**Guide version:** 2.30
 
 **Updated:** 28 October 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
 **Canonical file:** `docs/USER_MANUAL.md`
+
+**2.30 correction:** A Production Material Trace popup now submits the exact Draft Stock Entry
+shown in that popup instead of relying on a possibly older Card-context list. The popup exposes a
+truthful tag/WIP staging-ready state and remains open when an ERPNext or Kanban submission gate
+rejects the transaction.
 
 ## 1. Purpose of this manual
 

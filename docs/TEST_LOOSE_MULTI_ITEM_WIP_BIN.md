@@ -136,6 +136,13 @@ to be submitted stock.
 5. Submit it using **Submit ERP Entry**.
 6. Inspect the automatically prepared unused-material return Drafts.
 
+Scanner-submit regression: close the contributing operation-card cycles, reopen the consolidated
+consumption Draft in **Production Material Trace**, and scan `CFG:CMD:SUBMIT_MATERIALS`. Expected:
+the command submits the exact Draft named at the top of the popup even when the refreshed main
+Card no longer lists that Draft as a current operation entry. A rejected ERPNext submission keeps
+the popup open and displays the real server gate; it must not incorrectly say `No Draft production
+entry is ready to submit` for a fully traced visible Draft.
+
 Expected: Flour 2 Kg and Oil 1 Kg are returned from WIP to their original source Warehouses. The
 bin remains unavailable until every return submits.
 

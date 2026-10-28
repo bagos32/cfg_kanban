@@ -2342,11 +2342,16 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	}
 
 	async function submit_scanner_material_entry(selected_stock_entry = null) {
-		const active_entry = state.active_material_trace_dialog &&
-			state.active_material_trace_dialog.stock_entry;
+		const active_dialog = state.active_material_trace_dialog?.dialog;
+		// The open trace plan is live and authoritative for scanner submission.  The
+		// card context can be older than the popup after an operation cycle closes,
+		// so it must not hide a Draft which the operator has just finished tracing.
+		const active_entry = active_dialog?.cfg_trace_plan?.stock_entry ||
+			state.active_material_trace_dialog?.stock_entry;
+		const explicit_entry = selected_stock_entry || active_entry;
+		if (explicit_entry) return submit_exact_production_stock_entry(explicit_entry, active_dialog);
 		const candidates = (state.context && state.context.production_stock_entries || [])
-			.filter((row) => row.can_submit &&
-				(selected_stock_entry ? row.name === selected_stock_entry : (active_entry ? row.name === active_entry : true)));
+			.filter((row) => row.can_submit);
 		if (candidates.length > 1) return scanner_selection_dialog(
 			__("Select Material Entry to Submit"),
 			candidates.map((row) => ({ value: row.name,
@@ -2355,14 +2360,19 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			(choice) => submit_scanner_material_entry(choice.value),
 		);
 		if (!candidates.length) return scanner_command_message(__("No Draft production entry is ready to submit."));
-		const stock_entry = candidates[0].name;
-		if (state.active_material_trace_dialog?.dialog) {
-			close_operator_material_trace_dialog(state.active_material_trace_dialog.dialog);
-		}
+		return submit_exact_production_stock_entry(candidates[0].name, null);
+	}
+
+	async function submit_exact_production_stock_entry(stock_entry, trace_dialog = null) {
 		await frappe.call({ method: "cfg_kanban.services.production_material_flow.submit_production_stock_entry", args: {
 			stock_entry, event_token: frappe.utils.get_random(24),
 			operator_session_token: state.session_token,
 		}, freeze: true, freeze_message: __("Submitting ERPNext stock entry...") });
+		// Keep the trace visible when ERPNext or a Kanban gate rejects submission.
+		// Only close it after the server confirms the exact Stock Entry was posted.
+		if (trace_dialog && state.active_material_trace_dialog?.dialog === trace_dialog) {
+			close_operator_material_trace_dialog(trace_dialog);
+		}
 		frappe.show_alert({ message: __("Production material entry submitted"), indicator: "green" });
 		await load_card(state.context.card.qr_code || state.context.card.card_number);
 	}
@@ -2838,7 +2848,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			const direct_scan_value = String(event.currentTarget.value || "").trim();
 			await dialog.set_value(scan_field, direct_scan_value);
 			const value = direct_scan_value.toUpperCase();
-			if (value === "CFG:CMD:SUBMIT_MATERIALS") return submit_scanner_material_entry();
+			if (value === "CFG:CMD:SUBMIT_MATERIALS") {
+				return submit_scanner_material_entry(dialog.cfg_trace_plan?.stock_entry);
+			}
 			if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(value)) {
 				return close_operator_material_trace_dialog(dialog);
 			}
@@ -2944,7 +2956,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		await dialog.set_value("trace_scan", "");
 		if (!value) return dialog.get_field("trace_scan").set_focus();
 		if (command === "CFG:CMD:SUBMIT_MATERIALS" || command === "CFG:CMD:CONFIRM") {
-			return submit_scanner_material_entry();
+			return submit_scanner_material_entry(dialog.cfg_trace_plan?.stock_entry);
 		}
 		if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(command)) {
 			return close_operator_material_trace_dialog(dialog);

@@ -1070,6 +1070,15 @@ def _trace_plan(doc, trace, operator_actor=None):
         "serial_count": line.serial_count,
         "can_cancel": doc.docstatus == 0 and line.status in ("Reserved", "Pending"),
     } for line in trace.lines]
+    can_submit = doc.docstatus == 0 and all(
+        not (
+            (row.get("wip_bin_required")
+             and flt(row.get("wip_bin_remaining_qty")) > TOLERANCE)
+            or (row.get("tag_required")
+                and flt(row.get("remaining_qty")) > TOLERANCE)
+        )
+        for row in rows
+    )
     return {
         "stock_entry": doc.name,
         "docstatus": doc.docstatus,
@@ -1080,6 +1089,7 @@ def _trace_plan(doc, trace, operator_actor=None):
         "trace": trace.name if trace else None,
         "trace_status": trace.status if trace else "Not Started",
         "can_edit": doc.docstatus == 0,
+        "can_submit": can_submit,
         "can_approve_partial_wip_bin": _can_approve_partial_wip_bin(operator_actor),
         "can_abandon": bool(trace and trace.status == "Draft" and doc.docstatus == 0),
         "rows": rows,
