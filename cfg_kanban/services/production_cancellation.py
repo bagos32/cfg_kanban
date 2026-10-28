@@ -378,7 +378,7 @@ def finalize_production_cancellation(cancellation_name, reconciliation_notes):
     )
     cancellation = frappe.get_doc(CANCELLATION_DOCTYPE, cancellation_name)
     if cancellation.status == "Completed":
-        return _public_result(cancellation, duplicate=True)
+        return _repair_completed_cancellation_release(cancellation, notes)
     cycle = frappe.get_doc("CFG Kanban Cycle", cancellation.kanban_cycle)
     card = None
     if cycle.kanban_card:
@@ -538,6 +538,203 @@ def finalize_production_cancellation(cancellation_name, reconciliation_notes):
     )
     cancellation.reload()
     return _public_result(cancellation)
+
+
+def _repair_completed_cancellation_release(cancellation, notes):
+    """Idempotently restore projections left open by an interrupted legacy finalization.
+
+    A Completed control record is the retained authorization/evidence that ERP and physical
+    reconciliation already passed.  This recovery changes only Kanban projections belonging to
+    that exact cancellation; it never cancels ERP documents or releases a Card that has since
+    been assigned to another Cycle.
+    """
+    cycle_names = [cancellation.kanban_cycle]
+    cycle_names.extend(frappe.get_all(
+        "CFG Kanban Cycle",
+        filters={
+            "production_cancellation": cancellation.name,
+            "name": ["!=", cancellation.kanban_cycle],
+        },
+        pluck="name",
+        order_by="name asc",
+    ))
+    repaired = []
+    for cycle_name in cycle_names:
+        if _repair_cancelled_cycle_projection(cycle_name, cancellation, notes):
+            repaired.append(cycle_name)
+
+    if repaired:
+        record(
+            "Completed Production Cancellation Release Reconciled",
+            card=frappe.db.get_value(
+                "CFG Kanban Cycle", cancellation.kanban_cycle, "kanban_card"
+            ),
+            cycle=cancellation.kanban_cycle,
+            previous_state="Completed with inconsistent Kanban projection",
+            new_state="Cancelled and Card Available",
+            reference_doctype=CANCELLATION_DOCTYPE,
+            reference_name=cancellation.name,
+            notes=f"{notes}\nRepaired Cycles: {', '.join(repaired)}",
+            system_generated=False,
+            ignore_permissions=True,
+        )
+        cancellation.db_set(
+            "assessment_summary",
+            "Completed cancellation verified; stale Kanban runtime projections were reconciled.",
+            update_modified=True,
+        )
+    result = _public_result(cancellation, duplicate=not bool(repaired))
+    result["repaired_cycles"] = repaired
+    return result
+
+
+def _repair_cancelled_cycle_projection(cycle_name, cancellation, notes):
+    frappe.db.sql(
+        "select name from `tabCFG Kanban Cycle` where name=%s for update", cycle_name
+    )
+    cycle = frappe.get_doc("CFG Kanban Cycle", cycle_name)
+    if cycle.get("production_cancellation") != cancellation.name:
+        frappe.throw(
+            f"Cycle {cycle.name} no longer belongs to Production Cancellation "
+            f"{cancellation.name}"
+        )
+
+    card = None
+    if cycle.kanban_card:
+        frappe.db.sql(
+            "select name from `tabCFG Kanban Card` where name=%s for update",
+            cycle.kanban_card,
+        )
+        card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card)
+        if card.active_cycle not in (None, "", cycle.name):
+            frappe.throw(
+                f"Card {card.name} is now assigned to Cycle {card.active_cycle}; "
+                f"completed cancellation {cancellation.name} cannot release it."
+            )
+
+    changed = cycle.status != "Cancelled" or cint(cycle.blocked)
+    executions = frappe.get_all(
+        "CFG Kanban Process Execution",
+        filters={"kanban_cycle": cycle.name},
+        fields=["name", "status", "blocked"],
+    )
+    for execution in executions:
+        changed = changed or execution.status != "Cancelled" or cint(execution.blocked)
+        frappe.db.set_value(
+            "CFG Kanban Process Execution",
+            execution.name,
+            {"status": "Cancelled", "blocked": 0},
+            update_modified=True,
+        )
+        if frappe.db.table_exists("CFG Kanban Dispatch Queue"):
+            queue_name = frappe.db.get_value(
+                "CFG Kanban Dispatch Queue",
+                {"process_execution": execution.name},
+                "name",
+            )
+            if queue_name:
+                frappe.db.set_value(
+                    "CFG Kanban Dispatch Queue",
+                    queue_name,
+                    {
+                        "dispatch_status": "Cancelled",
+                        "readiness": "Controlled Production Cancellation completed",
+                    },
+                    update_modified=True,
+                )
+        from cfg_kanban.services.job_participation import close_execution_participation
+        close_execution_participation(
+            execution.name,
+            source_event="Completed Production Cancellation Reconciliation",
+            reason=notes,
+        )
+
+    for summary in frappe.get_all(
+        "CFG Kanban Operation Summary",
+        filters={"kanban_cycle": cycle.name},
+        fields=["name", "status"],
+    ):
+        changed = changed or summary.status != "Cancelled"
+        frappe.db.set_value(
+            "CFG Kanban Operation Summary", summary.name, "status", "Cancelled",
+            update_modified=False,
+        )
+    for allocation in frappe.get_all(
+        "CFG Kanban Runtime Allocation",
+        filters={"kanban_cycle": cycle.name},
+        fields=["name", "status"],
+    ):
+        changed = changed or allocation.status != "Cancelled"
+        frappe.db.set_value(
+            "CFG Kanban Runtime Allocation",
+            allocation.name,
+            {"status": "Cancelled", "completed_on": now_datetime(), "notes": notes},
+            update_modified=False,
+        )
+    for task in frappe.get_all(
+        "CFG Kanban Process Task",
+        filters={"kanban_cycle": cycle.name},
+        fields=["name", "status"],
+    ):
+        if task.status in ("Completed", "Cancelled", "Expired"):
+            continue
+        changed = True
+        frappe.db.set_value(
+            "CFG Kanban Process Task", task.name,
+            {"status": "Cancelled", "blocked": 0}, update_modified=False,
+        )
+
+    from cfg_kanban.services.job_ownership import close_cycle_ownership
+    from cfg_kanban.services.runtime_roles import close_cycle_role_assignments
+    close_cycle_ownership(cycle, "Completed production cancellation reconciled")
+    close_cycle_role_assignments(cycle, "Completed production cancellation reconciled")
+    remarks = (cycle.remarks or "").strip()
+    repair_note = f"Cancellation release reconciled: {notes}"
+    if repair_note not in remarks:
+        remarks = f"{remarks}\n{repair_note}".strip()
+    cycle.db_set({
+        "status": "Cancelled",
+        "blocked": 0,
+        "completed_on": cycle.completed_on or now_datetime(),
+        "remarks": remarks,
+    }, update_modified=True)
+    if cycle.signal:
+        frappe.db.set_value("CFG Kanban Signal", cycle.signal, {
+            "status": "Cancelled",
+            "cancelled_on": now_datetime(),
+            "cancelled_by": frappe.session.user,
+            "cancellation_reason": cancellation.reason,
+            "error_message": None,
+        }, update_modified=True)
+    if card:
+        card_changed = (
+            card.active_cycle == cycle.name
+            or card.current_state != "Available"
+            or cint(card.blocked)
+        )
+        changed = changed or card_changed
+        if card_changed:
+            previous_card_state = card.current_state
+            card.db_set({
+                "current_state": "Available",
+                "active_cycle": None,
+                "blocked": 0,
+                "blocked_reason": None,
+            }, update_modified=True)
+            event = record(
+                "Card Release Repaired after Completed Production Cancellation",
+                card=card.name,
+                cycle=cycle.name,
+                previous_state=previous_card_state,
+                new_state="Available",
+                reference_doctype=CANCELLATION_DOCTYPE,
+                reference_name=cancellation.name,
+                notes=notes,
+                system_generated=False,
+                ignore_permissions=True,
+            )
+            card.db_set("last_event", event.name, update_modified=False)
+    return bool(changed)
 
 
 def assert_cycle_not_under_cancellation(cycle_name):

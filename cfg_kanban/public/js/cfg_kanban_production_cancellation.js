@@ -15,6 +15,45 @@ frappe.ui.form.on("CFG Kanban Production Cancellation", {
 				__("Cancellation completed. ERP evidence is preserved and the reusable Card has been released."),
 				"green"
 			);
+			if (["Manufacturing Manager", "System Manager"].some((role) => frappe.user_roles.includes(role))) {
+				frm.add_custom_button(__("Verify / Repair Card Release"), () => {
+					const dialog = new frappe.ui.Dialog({
+						title: __("Reconcile Completed Cancellation"),
+						fields: [
+							{ fieldname: "warning", fieldtype: "HTML", options:
+								`<div class="alert alert-warning">${__("Use this only when the completed cancellation still shows an active Card, Ready/Not Ready process, blocked runtime, or unreleased related operation Card. It does not alter ERPNext documents.")}</div>` },
+							{ fieldname: "reconciliation_notes", label: __("Recovery Evidence"),
+								fieldtype: "Small Text", reqd: 1,
+								description: __("Record the observed stale state and who verified the cancelled Work Order and floor material state.") },
+							{ fieldname: "confirmed", label: __("I verified this cancellation is already completed"),
+								fieldtype: "Check", default: 0 },
+						],
+						primary_action_label: __("Verify and Repair Release"),
+						primary_action: async (values) => {
+							if (!values.confirmed) {
+								frappe.msgprint(__("Confirm the completed cancellation before reconciliation."));
+								return;
+							}
+							const response = await frappe.call({
+								method: "cfg_kanban.services.production_cancellation.finalize_production_cancellation",
+								args: { cancellation_name: frm.doc.name,
+									reconciliation_notes: values.reconciliation_notes },
+								freeze: true, freeze_message: __("Reconciling completed cancellation release..."),
+							});
+							dialog.hide();
+							await frm.reload_doc();
+							const repaired = response.message?.repaired_cycles || [];
+							frappe.show_alert({
+								message: repaired.length
+									? __("Repaired cancelled Cycle(s): {0}", [repaired.join(", ")])
+									: __("Cancellation release is already consistent."),
+								indicator: repaired.length ? "green" : "blue",
+							}, 7);
+						},
+					});
+					dialog.show();
+				}, __("Recovery"));
+			}
 			return;
 		}
 		frm.dashboard.set_headline_alert(

@@ -51,6 +51,9 @@ class TestControlledProductionCancellation(unittest.TestCase):
         self.assertIn('"Awaiting Physical Reconciliation"', service)
         self.assertIn('"Ready to Finalize"', service)
         self.assertIn("def finalize_production_cancellation(", service)
+        self.assertIn("def _repair_completed_cancellation_release(", service)
+        self.assertIn("def _repair_cancelled_cycle_projection(", service)
+        self.assertIn("Card Release Repaired after Completed Production Cancellation", service)
         self.assertIn('if cancellation.status != "Ready to Finalize"', service)
         self.assertIn('"current_state": "Available"', service)
         self.assertIn('"active_cycle": None', service)
@@ -127,6 +130,7 @@ class TestControlledProductionCancellation(unittest.TestCase):
         self.assertIn("Cancel Linked Job Card", control_js)
         self.assertIn("Cancel Work Order", control_js)
         self.assertIn("Finalize and Release Card", control_js)
+        self.assertIn("Verify / Repair Card Release", control_js)
         self.assertIn("def _production_cancellations", supervisor_api)
         self.assertIn("Controlled Production Cancellation", supervisor_js)
 

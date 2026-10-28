@@ -123,6 +123,12 @@ Expected result:
   Cycles/allocations are Cancelled;
 - original Operation Progress, WIP Ledger, ERP documents, cancellation dependencies, and Events are
   still available for audit;
+
+If a legacy or interrupted record already shows **Completed** but scanning the Card still shows an
+active cancelled Cycle, Ready/Not Ready processes, or an unreleased related operation Card, open the
+completed cancellation and select **Recovery → Verify / Repair Card Release**. Record the observed
+stale state and verifier. The recovery is idempotent, changes only Kanban runtime projections owned
+by that exact completed cancellation, and refuses to release any Card assigned to a newer Cycle.
 - scanning the Card can create a fresh Cycle normally.
 
 ## 7. Negative and idempotency tests

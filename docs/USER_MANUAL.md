@@ -3495,6 +3495,12 @@ start or finalize it.
    main Card plus its related Process/Station Cards to Available. Original progress, Stock Entries,
    WIP ledgers, and Events remain as audit evidence.
 
+If an older or interrupted cancellation already says **Completed** but its Card still opens the
+cancelled Cycle or its operations remain Ready/Not Ready, open that cancellation and use
+**Recovery → Verify / Repair Card Release**. Enter the observed mismatch and verifier. This recovery
+does not alter ERPNext documents; it reconciles only the cancelled Kanban projections and refuses
+to release a Card that has already been assigned to a different Cycle.
+
 An active request is visible in **Production Supervisor Action Center → Controlled Production
 Cancellation** and under **CFG Kanban → Production Records → Controlled Production Cancellations**.
 Repeating the request opens the same control record; it cannot create a second cancellation for the
