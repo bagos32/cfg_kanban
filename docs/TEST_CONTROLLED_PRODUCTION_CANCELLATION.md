@@ -83,6 +83,9 @@ Reverse through ERPNext in this order:
 The two controlled ERP actions retain the Cycle-to-ERP links as audit evidence while running the
 normal ERPNext document cancellation hooks. They bypass only the circular Kanban link check that
 would otherwise report `Cannot delete or cancel because ... is linked with CFG Kanban Cycle`.
+During the controlled Work Order action, cancelled Job Cards are protected from linked-document
+cleanup and remain connected to their original Process Executions and cancelled Work Order after
+the transaction. Verify that no Job Card has disappeared and that its **Work Order** link remains.
 
 After each Stock Entry action, select **Refresh Assessment**. The controlled Job Card and Work
 Order actions refresh automatically. Expected result: cancelled ERP documents disappear from the

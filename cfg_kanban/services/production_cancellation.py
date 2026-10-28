@@ -342,9 +342,7 @@ def cancel_production_work_order(cancellation_name, reversal_notes):
         _void_draft_job_card(draft_job, cancellation, cycle, notes)
 
     previous_state = _doc_state(work_order)
-    work_order.flags.ignore_permissions = True
-    work_order.flags.ignore_links = True
-    work_order.cancel()
+    _cancel_work_order_preserving_job_card_audit(work_order)
     record(
         "ERP Work Order Cancelled through Production Cancellation",
         card=cycle.kanban_card,
@@ -669,6 +667,64 @@ def _assert_stock_entries_reversed(cycle):
         "Reverse or discard every controlled production Stock Entry before cancelling Job "
         f"Cards or the Work Order: {references}"
     )
+
+
+def _cancel_work_order_preserving_job_card_audit(work_order):
+    """Cancel a Work Order without allowing linked-document cleanup to delete Job Cards.
+
+    Some Frappe/ERPNext cancellation paths discover Job Cards through their ``work_order`` Link
+    and try to remove them as dependent documents. That is unsafe for CFG Kanban because immutable
+    Process Executions retain the Job Card identity as audit evidence. At this point every Job Card
+    has already been formally cancelled and every Stock Entry has been reversed. Temporarily hide
+    only the Work Order lookup, run the normal ERPNext Work Order cancellation hooks, then restore
+    the exact links before returning. The Process Execution links are never changed.
+    """
+    job_cards = frappe.get_all(
+        "Job Card",
+        filters={"work_order": work_order.name},
+        fields=["name", "docstatus"],
+        order_by="creation asc",
+    )
+    unresolved = [row.name for row in job_cards if cint(row.docstatus) != 2]
+    if unresolved:
+        frappe.throw(
+            "Every Job Card must be formally cancelled before the Work Order: "
+            + ", ".join(unresolved)
+        )
+
+    for row in job_cards:
+        frappe.db.set_value(
+            "Job Card", row.name, "work_order", None,
+            update_modified=False,
+        )
+        frappe.clear_document_cache("Job Card", row.name)
+
+    cancellation_error = None
+    try:
+        work_order.flags.ignore_permissions = True
+        work_order.flags.ignore_links = True
+        work_order.cancel()
+    except Exception as exc:
+        cancellation_error = exc
+    finally:
+        missing = []
+        for row in job_cards:
+            if not frappe.db.exists("Job Card", row.name):
+                missing.append(row.name)
+                continue
+            frappe.db.set_value(
+                "Job Card", row.name, "work_order", work_order.name,
+                update_modified=False,
+            )
+            frappe.clear_document_cache("Job Card", row.name)
+        if missing:
+            frappe.throw(
+                "ERPNext attempted to delete cancelled Job Card audit records while cancelling "
+                f"Work Order {work_order.name}: {', '.join(missing)}. The transaction was stopped."
+            )
+
+    if cancellation_error:
+        raise cancellation_error
 
 
 def _freeze_executions(cycle, executions, cancellation):

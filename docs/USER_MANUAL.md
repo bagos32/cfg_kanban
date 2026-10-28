@@ -3482,6 +3482,8 @@ start or finalize it.
    remains, use **ERP Reversal → Cancel Work Order**. These manager actions retain the
    Kanban-to-ERP links for audit, bypass only the circular
    link check, and still run ERPNext's applicable document cancellation hooks and validations.
+   The controlled Work Order action also protects already-cancelled Job Cards from linked-document
+   cleanup, then confirms their Work Order and Process Execution audit links remain intact.
 5. Resolve every listed WIP Bin reconciliation and physical Handling Unit balance. Do not merely
    move or relabel material to clear the list—the ERP reversal and actual floor quantity/location
    must agree.
