@@ -10,7 +10,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		delivery_sessions: [], return_cases: [], vehicle_warehouses: [], open_reconciliations: [],
 		recent_reconciliations: [], can_reconcile: false, reconciliation: null,
 		lookup: null, scan_mode: "lookup", live_timer: null, live_revision: null,
-		live_request: false, interaction_epoch: 0 };
+		dispatch_plan_line: null, live_request: false, interaction_epoch: 0 };
 	const $sticky = $("<div class='cfg-logistics-sticky'></div>").appendTo(page.main);
 	const $scanner = $(`<div class="frappe-card cfg-logistics-scanner">
 		<div class="cfg-logistics-scanner-head"><div><strong>${__("Logistics Scanner")}</strong>
@@ -18,7 +18,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<span class="indicator-pill orange scanner-state">${__("Operator required")}</span></div>
 		<div class="cfg-logistics-scan-row">
 			<input class="form-control logistics-scan-input" autocomplete="off" spellcheck="false"
-				placeholder="${__("Scan Kanban Card, Stock Tag, or KMF number")}">
+				placeholder="${__("Scan Kanban Card, Stock Tag, DPL, or KMF number")}">
 			<button class="btn btn-primary camera-scan">${__("Scan with Camera")}</button>
 		</div><div class="cfg-logistics-scanner-footer">
 			<div class="scanner-message text-muted"><small>${__("Ready")}</small></div>
@@ -122,6 +122,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.manifest = null;
 		state.lookup = null;
 		state.scan_mode = "lookup";
+		state.dispatch_plan_line = null;
 		state.live_revision = null;
 		return true;
 	}
@@ -232,6 +233,24 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				state.lookup = { delivery_session: delivery.message };
 				render_lookup();
 			} catch (_delivery_error) { /* Keep the last safe view. */ }
+		} else if (state.lookup?.dispatch_plan?.name) {
+			try {
+				const plan = await frappe.call({
+					method: "cfg_kanban.services.dispatch_planning.get_dispatch_plan",
+					args: { dispatch_plan: state.lookup.dispatch_plan.name,
+						operator_session_token: state.token }, error: () => {},
+				});
+				if (!apply_guard()) return false;
+				state.lookup = { dispatch_plan: plan.message };
+				const armed_line = (plan.message.lines || []).find((row) =>
+					row.name === state.dispatch_plan_line);
+				if (!plan.message.can_reserve || (state.scan_mode === "dispatch-plan-tag" &&
+					(!armed_line || Number(armed_line.reserved_qty || 0) >= Number(armed_line.requested_qty || 0)))) {
+					state.scan_mode = "lookup";
+					state.dispatch_plan_line = null;
+				}
+				render_lookup();
+			} catch (_plan_error) { /* Keep the last safe view. */ }
 		} else if (state.lookup?.return_case?.name) {
 			try {
 				const return_case = await frappe.call({
@@ -809,6 +828,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			render_dispatch_operations(state.lookup.dispatch_operations);
 			return;
 		}
+		if (state.lookup.dispatch_plan) {
+			render_dispatch_plan(state.lookup.dispatch_plan);
+			return;
+		}
 		if (state.lookup.warehouse_operations) {
 			render_warehouse_operations(state.lookup.warehouse_operations);
 			return;
@@ -1090,7 +1113,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	function render_supplier_receiving(context) {
 		const e = frappe.utils.escape_html;
 		const direct = context.mode === "purchase_card";
-		const can_override = Boolean(state.operator?.permissions?.override);
+		const can_override = Boolean(state.operator?.can_override);
 		const rows = (context.pending_orders || []).map((row) => `<div class="frappe-card cfg-logistics-list-row supplier-receipt-row">
 			<div><strong>${e(row.item_code)}</strong><small>${e(row.supplier)} · ${e(row.purchase_order)}</small>
 			<small>${__("Purchase Card")}: ${e(row.card_number || "-")} · ${e(row.priority || "Normal")}</small></div>
@@ -1116,6 +1139,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 
 	function render_dispatch_operations(context) {
 		const e = frappe.utils.escape_html;
+		const can_create = Boolean(state.operator?.can_start);
 		const colour = {
 			Blue: "#1d4ed8", Green: "#15803d", Orange: "#c2410c",
 			Red: "#b91c1c", Purple: "#7e22ce", Grey: "#4b5563",
@@ -1132,9 +1156,18 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				<small>${e(profile.instructions)}</small></div>
 				<div><span class="indicator-pill blue">${__("Priority")} ${e(profile.priority)}</span>
 				<small>${e(profile.tag_policy)} · ${e(profile.stock_rotation_policy)} · ${__("Rev")} ${e(profile.revision)}</small>
-				<button class="btn btn-primary review-dispatch-profile" data-name="${e(profile.name)}">${__("Review Workflow")}</button></div>
+				<div><button class="btn btn-default review-dispatch-profile" data-name="${e(profile.name)}">${__("Review")}</button>
+				${can_create ? `<button class="btn btn-primary create-dispatch-plan" data-name="${e(profile.name)}">${__("Create Dispatch Plan")}</button>` : ""}</div></div>
 			</div>`;
 		}).join("") || `<div class="alert alert-warning">${__("No active Dispatch Profile is assigned to this operator at this Dispatch Point. Ask a manager to check the Profile responsibility and Operator Profile responsibilities.")}</div>`;
+		const plans = (context.plans || []).map((plan) => `<div class="frappe-card cfg-logistics-list-row">
+			<div><strong>${e(plan.name)} · ${e(plan.business_label)}</strong>
+			<small>${e(plan.plan_type)} · ${e(plan.customer || plan.territory || plan.logistics_route || "-")}</small>
+			<small>${__("Reserved / Requested")}: ${e(plan.quantity_summary || "-")}</small></div>
+			<div><span class="indicator-pill ${state_colour(plan.state)}">${e(plan.state)}</span>
+			<span class="indicator-pill ${plan.priority === "Urgent" ? "red" : "blue"}">${e(plan.priority)}</span>
+			<button class="btn btn-primary open-dispatch-plan" data-name="${e(plan.name)}">${__("Open")}</button></div>
+		</div>`).join("") || `<div class="alert alert-light">${__("No open Dispatch Plans at this point.")}</div>`;
 		const recommendation = context.auto_selected_profile ?
 			`<div class="alert alert-success"><strong>${__("Recommended workflow")}</strong>: ${e((context.profiles || [])[0]?.business_label || context.auto_selected_profile)}. ${__("It is the only authorized Profile at this point; review it before continuing.")}</div>` : "";
 		const hidden = context.unauthorized_profile_count ?
@@ -1144,14 +1177,22 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<h3>${e(context.location_reference || context.warehouse)}</h3>
 			<strong>${e(context.warehouse)} · ${e(context.company || "-")}</strong></div>
 			<button class="btn btn-default close-lookup">${__("Close")}</button></div>
-			<div class="alert alert-info mt-3"><strong>${__("E1 policy launcher")}</strong><br>
-			${__("Reviewing a workflow here does not create a Dispatch Plan, reserve stock, assign a vehicle, move stock, or post an ERPNext document.")}</div>
-			${recommendation}<h4>${__("Authorized Dispatch Workflows")}</h4>${profiles}${hidden}
+			<div class="alert alert-info mt-3"><strong>${__("E2 planning and stock reservation")}</strong><br>
+			${__("Create an approved picking plan and reserve tagged or verified untagged stock. This stage does not assign a vehicle, move stock, create a Manifest, or post an ERPNext document.")}</div>
+			${recommendation}<h4>${__("Open Dispatch Plans")}</h4>${plans}
+			<h4 class="mt-4">${__("Authorized Dispatch Workflows")}</h4>${profiles}${hidden}
 		</div>`);
 		$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
 		$lookup.find(".review-dispatch-profile").on("click", function () {
 			const profile = (context.profiles || []).find((row) => row.name === $(this).data("name"));
 			if (profile) review_dispatch_profile(profile);
+		});
+		$lookup.find(".create-dispatch-plan").on("click", function () {
+			const profile = (context.profiles || []).find((row) => row.name === $(this).data("name"));
+			if (profile) create_dispatch_plan_dialog(profile);
+		});
+		$lookup.find(".open-dispatch-plan").on("click", function () {
+			open_dispatch_plan($(this).data("name"));
 		});
 	}
 
@@ -1161,8 +1202,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const dialog = new frappe.ui.Dialog({
 			title: profile.business_label,
 			size: "large",
-			fields: [{ fieldname: "policy", fieldtype: "HTML", options: `<div class="alert alert-warning">
-				<strong>${__("Review only — no stock action occurs in E1")}</strong><br>
+			fields: [{ fieldname: "policy", fieldtype: "HTML", options: `<div class="alert alert-info">
+				<strong>${__("Profile policy used by every new Dispatch Plan")}</strong><br>
 				${e(profile.instructions)}</div>
 				<div class="table-responsive"><table class="table table-bordered">
 				<tr><th>${__("Plan Type")}</th><td>${e(profile.plan_type)}</td><th>${__("Fulfilment")}</th><td>${e(profile.fulfilment_mode)}</td></tr>
@@ -1171,15 +1212,245 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				<tr><th>${__("Approval Required")}</th><td>${yes_no(profile.approval_required)}</td><th>${__("Proof Policy")}</th><td>${e(profile.proof_policy)}</td></tr>
 				<tr><th>${__("Responsibility")}</th><td>${e(profile.dispatch_responsibility)}</td><th>${__("Profile Revision")}</th><td>${e(profile.revision)}</td></tr>
 				</table></div>
-				<p class="text-muted">${__("Dispatch Plan activation and controlled stock reservation are delivered in E2. Close this review and continue with an existing logistics workflow for now.")}</p>` }],
+				<p class="text-muted">${__("Creating a Plan snapshots this revision. Later Profile edits do not rewrite an existing Plan.")}</p>` }],
 		});
 		dialog.onhide = focus_scanner;
 		dialog.show();
 	}
 
+	function create_dispatch_plan_dialog(profile) {
+		const customer_order = profile.plan_type === "Customer Order";
+		const open_route = profile.plan_type === "Open Route Stock";
+		const fields = [
+			{ fieldname: "workflow", fieldtype: "HTML", options: `<div class="alert alert-info">
+				<strong>${frappe.utils.escape_html(profile.business_label)}</strong><br>
+				${__("Source")}: ${frappe.utils.escape_html(profile.source_warehouse)} · ${__("Policy")}: ${frappe.utils.escape_html(profile.tag_policy)}
+			</div>` },
+			{ fieldname: "customer_site", label: __("Customer Site"), fieldtype: "Link",
+				options: "CFG Kanban Customer Scan Point", reqd: customer_order ? 1 : 0,
+				hidden: customer_order ? 0 : 1, default: profile.customer_site || "" },
+			{ fieldname: "sales_order", label: __("Optional Submitted Sales Order"),
+				fieldtype: "Link", options: "Sales Order", hidden: customer_order ? 0 : 1 },
+			{ fieldname: "required_date", label: __("Required Date"), fieldtype: "Date",
+				hidden: customer_order ? 0 : 1, default: frappe.datetime.get_today() },
+			{ fieldname: "logistics_route", label: __("Logistics Route"), fieldtype: "Link",
+				options: "CFG Kanban Logistics Route", hidden: open_route ? 0 : 1,
+				default: profile.logistics_route || "" },
+			{ fieldname: "territory", label: __("Territory"), fieldtype: "Link",
+				options: "Territory", hidden: open_route ? 0 : 1, default: profile.territory || "" },
+			{ fieldname: "trip_date", label: __("Trip Date"), fieldtype: "Date",
+				reqd: open_route ? 1 : 0, hidden: open_route ? 0 : 1,
+				default: frappe.datetime.get_today() },
+			{ fieldname: "priority", label: __("Priority"), fieldtype: "Select",
+				options: "Low\nNormal\nHigh\nUrgent", default: "Normal", reqd: 1 },
+			{ fieldname: "items", label: __("Required Stock"), fieldtype: "Table",
+				in_place_edit: true, reqd: 1, fields: [
+					{ fieldname: "item_code", label: __("Item"), fieldtype: "Link", options: "Item",
+						reqd: 1, in_list_view: 1, columns: 4 },
+					{ fieldname: "batch_no", label: __("Optional Batch"), fieldtype: "Link", options: "Batch",
+						in_list_view: 1, columns: 4 },
+					{ fieldname: "requested_qty", label: __("Requested Qty"), fieldtype: "Float",
+						reqd: 1, in_list_view: 1, columns: 4 },
+				] },
+		];
+		const dialog = new frappe.ui.Dialog({
+			title: __("Create Dispatch Plan"), size: "extra-large", fields,
+			primary_action_label: __("Create Draft Plan"), primary_action: async (values) => {
+				const response = await frappe.call({
+					method: "cfg_kanban.services.dispatch_planning.create_dispatch_plan",
+					args: {
+						dispatch_profile: profile.name, lines: JSON.stringify(values.items || []),
+						customer_site: values.customer_site, sales_order: values.sales_order,
+						logistics_route: values.logistics_route, territory: values.territory,
+						required_date: values.required_date, trip_date: values.trip_date,
+						priority: values.priority, event_token: unique_token(),
+						operator_session_token: state.token,
+					}, freeze: true, freeze_message: __("Creating Dispatch Plan..."),
+				});
+				dialog.hide();
+				state.lookup = { dispatch_plan: response.message };
+				state.scan_mode = "lookup";
+				render_lookup();
+				focus_scanner();
+			},
+		});
+		dialog.onhide = focus_scanner;
+		dialog.show();
+	}
+
+	async function open_dispatch_plan(name) {
+		try {
+			const response = await frappe.call({
+				method: "cfg_kanban.services.dispatch_planning.get_dispatch_plan",
+				args: { dispatch_plan: name, operator_session_token: state.token },
+				freeze: true, freeze_message: __("Opening Dispatch Plan..."),
+			});
+			state.lookup = { dispatch_plan: response.message };
+			state.scan_mode = "lookup";
+			state.dispatch_plan_line = null;
+			render_lookup();
+			focus_scanner();
+		} catch (error) {
+			scanner_error(server_error_message(error, __("Dispatch Plan could not be opened.")));
+		}
+	}
+
+	function render_dispatch_plan(plan) {
+		const e = frappe.utils.escape_html;
+		const can_tag = ["Tagged", "Mixed"].includes(plan.tag_policy);
+		const can_untagged = ["Untagged", "Mixed"].includes(plan.tag_policy);
+		const lines = (plan.lines || []).map((line) => {
+			const remaining = Math.max(Number(line.requested_qty || 0) - Number(line.reserved_qty || 0), 0);
+			const suggestions = (plan.suggested_tags_by_line?.[line.name] || []).map((tag) =>
+				`${e(tag.handling_unit_id)} (${format_number(tag.available_qty)} ${e(tag.stock_uom)}${tag.expiry_date ? ` · ${e(tag.expiry_date)}` : ""})`
+			).join("<br>");
+			return `<tr><td><strong>${e(line.item_code)}</strong><br><small>${e(line.item_name || "")}</small>
+				${suggestions ? `<br><small class="text-muted"><strong>${e(plan.stock_rotation_policy)} ${__("suggestion")}:</strong><br>${suggestions}</small>` : ""}</td>
+				<td>${e(line.batch_no || "-")}</td><td>${format_number(line.requested_qty)} ${e(line.stock_uom)}</td>
+				<td>${format_number(line.reserved_qty)} · ${e(line.line_state)}</td><td>
+				${plan.can_reserve && can_tag && remaining > 0 ? `<button class="btn btn-xs btn-primary arm-plan-tag" data-line="${e(line.name)}">${__("Scan Tagged Stock")}</button>` : ""}
+				${plan.can_reserve && can_untagged && remaining > 0 ? `<button class="btn btn-xs btn-default reserve-plan-untagged" data-line="${e(line.name)}" data-remaining="${remaining}">${__("Reserve Untagged")}</button>` : ""}
+			</td></tr>`;
+		}).join("");
+		const allocations = (plan.allocations || []).map((row) => `<tr>
+			<td>${e(row.visible_code || row.handling_unit || "ERP STOCK")}</td><td>${e(row.allocation_kind)}</td>
+			<td>${e(row.item_code)} / ${e(row.batch_no || "-")}</td><td>${format_number(row.allocated_qty)} ${e(row.stock_uom)}</td>
+			<td>${e(row.state)}</td><td>${row.state === "Reserved" && plan.can_reserve ? `<button class="btn btn-xs btn-danger release-plan-allocation" data-name="${e(row.name)}">${__("Release")}</button>` : ""}</td>
+		</tr>`).join("") || `<tr><td colspan="6" class="text-muted">${__("No stock is reserved yet.")}</td></tr>`;
+		const scan_notice = state.scan_mode === "dispatch-plan-tag" && state.dispatch_plan_line ?
+			`<div class="alert alert-warning"><strong>${__("TAG RESERVATION SCANNING ARMED")}</strong><br>${__("Scan one physical Stock Tag for the selected Item line. The system reserves only up to the remaining Plan quantity.")}</div>` : "";
+		const actions = [
+			plan.can_submit ? `<button class="btn btn-primary submit-dispatch-plan">${__("Submit Plan")}</button>` : "",
+			plan.can_approve ? `<button class="btn btn-success approve-dispatch-plan">${__("Approve Plan")}</button>` : "",
+			state.scan_mode === "dispatch-plan-tag" ? `<button class="btn btn-default stop-plan-scan">${__("Stop Tag Scanning")}</button>` : "",
+			plan.can_cancel ? `<button class="btn btn-danger cancel-dispatch-plan">${__("Cancel Plan")}</button>` : "",
+		].join(" ");
+		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
+			<div class="cfg-logistics-tag-head"><div><small>${__("Dispatch Plan")}</small><h3>${e(plan.name)}</h3>
+			<strong>${e(plan.business_label)} · ${e(plan.state)}</strong></div><div>
+			<button class="btn btn-default back-dispatch-point">${__("Back to Dispatch Point")}</button></div></div>
+			<div class="alert alert-info mt-3"><strong>${e(plan.plan_type)} · ${e(plan.fulfilment_mode)}</strong><br>
+			${e(plan.company)} · ${e(plan.source_warehouse)} · ${e(plan.customer || plan.territory || plan.logistics_route || "-")}<br>
+			${__("Profile snapshot")}: ${e(plan.dispatch_profile)} Rev ${e(plan.profile_revision)} · ${e(plan.tag_policy)} · ${e(plan.stock_rotation_policy)}</div>
+			${scan_notice}<div class="mb-3">${actions}</div>
+			<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr><th>${__("Item")}</th><th>${__("Batch")}</th><th>${__("Requested")}</th><th>${__("Reserved")}</th><th>${__("Picking Action")}</th></tr></thead><tbody>${lines}</tbody></table></div>
+			<h4>${__("Reservation Audit")}</h4><div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr><th>${__("Tag / Source")}</th><th>${__("Kind")}</th><th>${__("Item / Batch")}</th><th>${__("Quantity")}</th><th>${__("State")}</th><th></th></tr></thead><tbody>${allocations}</tbody></table></div>
+			<div class="alert alert-light">${__("Reservation does not move stock. Vehicle claim, Manifest creation and ERPNext posting remain disabled until the next controlled package.")}</div>
+		</div>`);
+		$lookup.find(".back-dispatch-point").on("click", () => {
+			state.scan_mode = "lookup"; state.dispatch_plan_line = null;
+			update_scanner_state(); lookup_tag(plan.dispatch_point);
+		});
+		$lookup.find(".submit-dispatch-plan").on("click", () => run_dispatch_plan_action("submit_dispatch_plan", { dispatch_plan: plan.name }, __("Submitting Dispatch Plan...")));
+		$lookup.find(".approve-dispatch-plan").on("click", () => run_dispatch_plan_action("approve_dispatch_plan", { dispatch_plan: plan.name }, __("Approving Dispatch Plan...")));
+		$lookup.find(".arm-plan-tag").on("click", function () {
+			state.dispatch_plan_line = $(this).data("line");
+			state.scan_mode = "dispatch-plan-tag";
+			render_dispatch_plan(plan); update_scanner_state(); focus_scanner();
+		});
+		$lookup.find(".stop-plan-scan").on("click", () => {
+			state.scan_mode = "lookup"; state.dispatch_plan_line = null;
+			render_dispatch_plan(plan); update_scanner_state(); focus_scanner();
+		});
+		$lookup.find(".reserve-plan-untagged").on("click", function () {
+			reserve_dispatch_untagged_dialog(plan, $(this).data("line"), Number($(this).data("remaining") || 0));
+		});
+		$lookup.find(".release-plan-allocation").on("click", function () {
+			release_dispatch_allocation_dialog(plan, $(this).data("name"));
+		});
+		$lookup.find(".cancel-dispatch-plan").on("click", () => cancel_dispatch_plan_dialog(plan));
+	}
+
+	async function run_dispatch_plan_action(method, args, freeze_message) {
+		const response = await frappe.call({
+			method: `cfg_kanban.services.dispatch_planning.${method}`,
+			args: { ...args, event_token: unique_token(), operator_session_token: state.token },
+			freeze: true, freeze_message,
+		});
+		state.lookup = { dispatch_plan: response.message };
+		state.scan_mode = "lookup"; state.dispatch_plan_line = null;
+		render_lookup(); update_scanner_state(); focus_scanner();
+	}
+
+	async function reserve_dispatch_plan_tag(raw) {
+		const plan = state.lookup?.dispatch_plan;
+		if (!plan || !state.dispatch_plan_line) {
+			state.scan_mode = "lookup";
+			return scanner_error(__("Select a Dispatch Plan Item before scanning stock."));
+		}
+		try {
+			const response = await frappe.call({
+				method: "cfg_kanban.services.dispatch_planning.reserve_dispatch_tag",
+				args: { dispatch_plan: plan.name, dispatch_plan_line: state.dispatch_plan_line,
+					scan_value: raw, qty: 0, event_token: unique_token(),
+					operator_session_token: state.token },
+				freeze: true, freeze_message: __("Reserving tagged stock..."),
+			});
+			state.lookup = { dispatch_plan: response.message };
+			state.scan_mode = "lookup"; state.dispatch_plan_line = null;
+			render_lookup(); update_scanner_state();
+			$scanner.find(".scanner-message").html(`<small class="text-success">${__("Stock Tag reserved: {0}", [frappe.utils.escape_html(raw)])}</small>`);
+		} catch (error) {
+			scanner_error(server_error_message(error, __("Stock Tag could not be reserved.")));
+		}
+		focus_scanner();
+	}
+
+	function reserve_dispatch_untagged_dialog(plan, line_name, remaining) {
+		const line = (plan.lines || []).find((row) => row.name === line_name);
+		if (!line) return;
+		const dialog = new frappe.ui.Dialog({ title: __("Reserve Verified Untagged ERP Stock"), fields: [
+			{ fieldname: "notice", fieldtype: "HTML", options: `<div class="alert alert-warning">${__("ERPNext remains stock authority. This action records a picking reservation only and does not move stock.")}</div>` },
+			{ fieldname: "item", label: __("Item"), fieldtype: "Data", read_only: 1, default: line.item_code },
+			{ fieldname: "batch_no", label: __("Batch"), fieldtype: "Link", options: "Batch", default: line.batch_no || "", read_only: line.batch_no ? 1 : 0 },
+			{ fieldname: "qty", label: __("Quantity"), fieldtype: "Float", reqd: 1, default: remaining,
+				description: __("Remaining Plan quantity: {0} {1}", [format_number(remaining), line.stock_uom]) },
+		], primary_action_label: __("Reserve Untagged Stock"), primary_action: async (values) => {
+			const response = await frappe.call({
+				method: "cfg_kanban.services.dispatch_planning.reserve_dispatch_untagged",
+				args: { dispatch_plan: plan.name, dispatch_plan_line: line.name, qty: values.qty,
+					batch_no: values.batch_no, event_token: unique_token(), operator_session_token: state.token },
+				freeze: true, freeze_message: __("Checking ERPNext stock and reserving..."),
+			});
+			dialog.hide(); state.lookup = { dispatch_plan: response.message }; render_lookup(); focus_scanner();
+		} });
+		dialog.onhide = focus_scanner; dialog.show();
+	}
+
+	function release_dispatch_allocation_dialog(plan, allocation_name) {
+		const dialog = new frappe.ui.Dialog({ title: __("Release Stock Reservation"), fields: [
+			{ fieldname: "reason", label: __("Release Reason"), fieldtype: "Small Text", reqd: 1 },
+		], primary_action_label: __("Release Reservation"), primary_action: async (values) => {
+			const response = await frappe.call({
+				method: "cfg_kanban.services.dispatch_planning.release_dispatch_allocation",
+				args: { allocation_name, reason: values.reason, event_token: unique_token(),
+					operator_session_token: state.token }, freeze: true,
+				freeze_message: __("Releasing stock reservation..."),
+			});
+			dialog.hide(); state.lookup = { dispatch_plan: response.message }; render_lookup(); focus_scanner();
+		} }); dialog.onhide = focus_scanner; dialog.show();
+	}
+
+	function cancel_dispatch_plan_dialog(plan) {
+		const dialog = new frappe.ui.Dialog({ title: __("Cancel Dispatch Plan"), fields: [
+			{ fieldname: "warning", fieldtype: "HTML", options: `<div class="alert alert-danger">${__("All active tagged and untagged reservations will be released. The audit records are retained.")}</div>` },
+			{ fieldname: "reason", label: __("Cancellation Reason"), fieldtype: "Small Text", reqd: 1 },
+		], primary_action_label: __("Cancel and Release Reservations"), primary_action: async (values) => {
+			const response = await frappe.call({
+				method: "cfg_kanban.services.dispatch_planning.cancel_dispatch_plan",
+				args: { dispatch_plan: plan.name, reason: values.reason, event_token: unique_token(),
+					operator_session_token: state.token }, freeze: true,
+				freeze_message: __("Cancelling Plan and releasing reservations..."),
+			});
+			dialog.hide(); state.lookup = { dispatch_plan: response.message };
+			state.scan_mode = "lookup"; state.dispatch_plan_line = null;
+			render_lookup(); update_scanner_state(); focus_scanner();
+		} }); dialog.onhide = focus_scanner; dialog.show();
+	}
+
 	function render_warehouse_operations(context) {
 		const e = frappe.utils.escape_html;
-		const can_override = Boolean(state.operator?.permissions?.override);
+		const can_override = Boolean(state.operator?.can_override);
 		const receipts = (context.pending_orders || []).map((row) => `<div class="frappe-card cfg-logistics-list-row warehouse-receipt-row">
 			<div><strong>${e(row.item_code)}</strong><small>${e(row.supplier)} · ${e(row.purchase_order)}</small>
 			<small>${__("Purchase Card")}: ${e(row.card_number || "-")} · ${e(row.purchase_status)}</small></div>
@@ -2374,8 +2645,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (!state.token || operator) return login_operator(operator || raw);
 		if (/^KMF-/i.test(raw)) return open_manifest(raw);
 		if (/^KREC-/i.test(raw)) return open_reconciliation(raw);
+		if (/^DPL-/i.test(raw)) return open_dispatch_plan(raw);
 		if (state.scan_mode === "delivery") return delivery_allocation_scan(raw);
 		if (state.scan_mode === "reconciliation") return reconciliation_scan(raw);
+		if (state.scan_mode === "dispatch-plan-tag") return reserve_dispatch_plan_tag(raw);
 		if (state.scan_mode === "lookup") return lookup_tag(raw);
 		if (!state.manifest) return scanner_error(__("No Manifest is armed for transaction scanning."));
 		const receipt_mode = state.scan_mode === "receipt";
@@ -2403,10 +2676,11 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			if (state.lookup.transfer_manifest?.name) await open_manifest(state.lookup.transfer_manifest.name, { keep_lookup: true });
 			else if (state.lookup.preferred_manifest) await open_manifest(state.lookup.preferred_manifest, { keep_lookup: true });
 			else clear_manifest_view({ keep_lookup: true });
-			if (state.lookup.dispatch_operations?.auto_selected_profile) {
+			if (state.lookup.dispatch_operations?.auto_selected_profile &&
+				!(state.lookup.dispatch_operations.plans || []).length && state.operator?.can_start) {
 				const selected = (state.lookup.dispatch_operations.profiles || []).find((profile) =>
 					profile.name === state.lookup.dispatch_operations.auto_selected_profile);
-				if (selected) window.setTimeout(() => review_dispatch_profile(selected), 0);
+				if (selected) window.setTimeout(() => create_dispatch_plan_dialog(selected), 0);
 			}
 			$scanner.find(".scanner-message").html(`<small class="text-success">${__("Status loaded: {0}", [frappe.utils.escape_html(raw)])}</small>`);
 		} catch (error) {
@@ -2488,7 +2762,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	}
 
 	function clear_manifest_view(options) {
-		state.scan_mode = "lookup"; state.manifest = null;
+		state.scan_mode = "lookup"; state.manifest = null; state.dispatch_plan_line = null;
 		localStorage.removeItem(last_manifest_key);
 		if (!options?.keep_lookup) { state.lookup = null; render_lookup(); }
 		render_active(); prime_live_revision(); focus_scanner();
@@ -2686,7 +2960,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			}, freeze: true, freeze_message: __("Identifying operator...") });
 			state.token = response.message.session_token; localStorage.setItem(session_key, state.token);
 			if (station) localStorage.setItem("cfg_kanban_station", station);
-			state.manifest = null; state.reconciliation = null; state.lookup = null; state.scan_mode = "lookup"; await load();
+			state.manifest = null; state.reconciliation = null; state.lookup = null;
+			state.scan_mode = "lookup"; state.dispatch_plan_line = null; await load();
 		} catch (error) { scanner_error(__("Operator identification failed.")); }
 	}
 
@@ -2704,7 +2979,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.delivery_sessions = []; state.return_cases = [];
 		state.vehicle_warehouses = []; state.open_reconciliations = []; state.recent_reconciliations = [];
 		state.can_reconcile = false; state.manifest = null; state.reconciliation = null;
-		state.lookup = null; state.scan_mode = "lookup";
+		state.lookup = null; state.scan_mode = "lookup"; state.dispatch_plan_line = null;
 		state.live_revision = null;
 	}
 
@@ -2732,6 +3007,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (state.scan_mode === "receipt" && state.manifest) { label = `${__("Receipt")} → ${state.manifest.name}`; colour = "green"; }
 		if (state.scan_mode === "delivery" && state.lookup?.delivery_session) { label = `${__("Customer Allocation")} → ${state.lookup.delivery_session.name}`; colour = "orange"; }
 		if (state.scan_mode === "reconciliation" && state.reconciliation) { label = `${__("Route Count")} → ${state.reconciliation.name}`; colour = "orange"; }
+		if (state.scan_mode === "dispatch-plan-tag" && state.lookup?.dispatch_plan) {
+			label = `${__("Dispatch Plan Stock")} → ${state.lookup.dispatch_plan.name}`; colour = "orange";
+		}
 		$scanner.find(".scanner-state").removeClass("orange blue green red").addClass(colour).text(label);
 	}
 
@@ -2771,9 +3049,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	}
 
 	function state_colour(value) {
-		if (["Received", "Closed"].includes(value)) return "green";
+		if (["Received", "Closed", "Ready for Vehicle"].includes(value)) return "green";
 		if (["Exception", "Hold"].includes(value)) return "red";
-		if (["Awaiting Receipt", "Receipt Document Pending"].includes(value)) return "orange";
+		if (["Awaiting Receipt", "Receipt Document Pending", "Awaiting Approval"].includes(value)) return "orange";
+		if (value === "Cancelled") return "grey";
 		return "blue";
 	}
 

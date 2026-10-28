@@ -4,7 +4,7 @@ from frappe.utils import cint
 
 
 class CFGKanbanDispatchProfile(Document):
-    """Manager-controlled E1 policy resolved by one permanent Dispatch Point card."""
+    """Manager policy resolved at a permanent Dispatch Point and snapshotted into E2 Plans."""
 
     def validate(self):
         self._validate_priority_and_revision()

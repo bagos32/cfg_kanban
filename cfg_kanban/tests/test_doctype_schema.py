@@ -1404,9 +1404,9 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('result["dispatch_operations"]', logistics)
         self.assertIn("_responsibilities(profile)", logistics)
         self.assertIn("render_dispatch_operations", panel)
-        self.assertIn("dispatch_operations?.auto_selected_profile", panel)
-        self.assertIn("Review only — no stock action occurs in E1", panel)
-        self.assertIn("does not create a Dispatch Plan", panel)
+        self.assertIn("render_dispatch_operations", panel)
+        self.assertIn("Profile policy used by every new Dispatch Plan", panel)
+        self.assertIn("does not assign a vehicle", panel)
         self.assertIn("dialog.onhide = focus_scanner", panel)
         self.assertIn("Source Warehouse must match Dispatch Operations Card", profile_controller)
         self.assertIn("Select at Receipt is valid only for Goods in Transit", profile_controller)
@@ -1426,6 +1426,73 @@ class TestDocTypeSchema(TestCase):
         shortcuts = {row["label"]: row["link_to"] for row in workspace["shortcuts"]}
         self.assertEqual(shortcuts["Logistics Operator Panel"], "kanban-logistics")
         self.assertEqual(shortcuts["Dispatch Profiles"], "CFG Kanban Dispatch Profile")
+
+    def test_dispatch_e2_plan_reservation_is_audited_without_stock_movement(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        plan = schemas["CFG Kanban Dispatch Plan"]
+        plan_fields = {row["fieldname"]: row for row in plan["fields"]}
+        self.assertTrue({
+            "state", "dispatch_profile", "profile_revision", "profile_snapshot_json",
+            "profile_snapshot_hash", "dispatch_point", "company", "source_warehouse",
+            "plan_type", "tag_policy", "customer_site", "logistics_route", "lines",
+            "total_requested_qty", "total_reserved_qty", "idempotency_key",
+        }.issubset(plan_fields))
+        self.assertEqual(
+            plan_fields["state"]["options"],
+            "Draft\nAwaiting Approval\nApproved\nPicking\nReady for Vehicle\nCancelled\nException",
+        )
+        self.assertEqual(plan_fields["lines"]["options"], "CFG Kanban Dispatch Plan Line")
+
+        allocation = schemas["CFG Kanban Dispatch Allocation"]
+        allocation_fields = {row["fieldname"]: row for row in allocation["fields"]}
+        self.assertTrue({
+            "allocation_kind", "dispatch_plan", "dispatch_plan_line", "handling_unit",
+            "allocated_qty", "reservation_ledger", "reservation_key",
+            "active_handling_unit_key", "release_ledger", "release_key",
+        }.issubset(allocation_fields))
+        self.assertEqual(
+            allocation_fields["allocation_kind"]["options"],
+            "Tagged Stock\nUntagged ERP Stock",
+        )
+        self.assertEqual(allocation_fields["reservation_key"]["unique"], 1)
+        self.assertEqual(allocation_fields["active_handling_unit_key"]["unique"], 1)
+
+        service = (APP_ROOT / "services" / "dispatch_planning.py").read_text()
+        allocation_controller = (ROOT / "cfg_kanban_dispatch_allocation" /
+                                 "cfg_kanban_dispatch_allocation.py").read_text()
+        logistics = (APP_ROOT / "api" / "logistics.py").read_text()
+        panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
+                 "kanban_logistics.js").read_text()
+        self.assertIn("def create_dispatch_plan", service)
+        self.assertIn("def approve_dispatch_plan", service)
+        self.assertIn("def reserve_dispatch_tag", service)
+        self.assertIn("def reserve_dispatch_untagged", service)
+        self.assertIn("def release_dispatch_allocation", service)
+        self.assertIn("def cancel_dispatch_plan", service)
+        self.assertIn("def _suggested_tags", service)
+        self.assertIn('result["suggested_tags_by_line"]', service)
+        self.assertIn("assert_erp_stock(unit, plan.source_warehouse, requested)", service)
+        self.assertIn("Dispatch Operations Card is inactive or blocked", service)
+        self.assertIn('event_type="Reserve"', service)
+        self.assertIn('event_type="Unreserve"', service)
+        self.assertNotIn("Stock Entry", service)
+        self.assertNotIn("Delivery Note", service)
+        self.assertIn("Dispatch Plan Line does not belong", allocation_controller)
+        self.assertIn("Untagged ERP stock Allocation cannot carry", allocation_controller)
+        self.assertIn('"plans": dispatch_point_plans(card, profile)', logistics)
+        self.assertIn('"CFG Kanban Dispatch Plan"', logistics)
+        self.assertIn('"can_start": bool(profile.can_start)', logistics)
+        self.assertIn("create_dispatch_plan_dialog", panel)
+        self.assertIn("render_dispatch_plan", panel)
+        self.assertIn("reserve_dispatch_plan_tag", panel)
+        self.assertIn("Reserve Verified Untagged ERP Stock", panel)
+        self.assertIn("Reservation does not move stock", panel)
+
+        workspace = json.loads((APP_ROOT / "cfg_kanban" / "workspace" /
+                                "cfg_dispatch_control" /
+                                "cfg_dispatch_control.json").read_text())
+        shortcuts = {row["label"]: row["link_to"] for row in workspace["shortcuts"]}
+        self.assertEqual(shortcuts["Dispatch Plans"], "CFG Kanban Dispatch Plan")
 
     def test_non_stock_operational_inventory_uses_tag_ledger_without_erp_stock_entry(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}

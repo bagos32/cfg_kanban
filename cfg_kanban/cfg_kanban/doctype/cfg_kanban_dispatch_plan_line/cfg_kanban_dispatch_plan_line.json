@@ -1,0 +1,17 @@
+{
+ "doctype":"DocType",
+ "name":"CFG Kanban Dispatch Plan Line",
+ "module":"CFG Kanban",
+ "istable":1,
+ "field_order":["item_code","item_name","batch_no","stock_uom","requested_qty","reserved_qty","line_state","sales_order_item"],
+ "fields":[
+  {"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item","reqd":1,"in_list_view":1},
+  {"fieldname":"item_name","label":"Item Name","fieldtype":"Data","read_only":1},
+  {"fieldname":"batch_no","label":"Optional Batch","fieldtype":"Link","options":"Batch","in_list_view":1},
+  {"fieldname":"stock_uom","label":"Stock UOM","fieldtype":"Link","options":"UOM","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"requested_qty","label":"Requested Qty","fieldtype":"Float","reqd":1,"in_list_view":1},
+  {"fieldname":"reserved_qty","label":"Reserved Qty","fieldtype":"Float","default":"0","read_only":1,"in_list_view":1},
+  {"fieldname":"line_state","label":"Line State","fieldtype":"Select","options":"Open\nPartially Reserved\nReserved\nReleased\nCancelled","default":"Open","read_only":1,"in_list_view":1},
+  {"fieldname":"sales_order_item","label":"Sales Order Item Row","fieldtype":"Data","read_only":1}
+ ]
+}

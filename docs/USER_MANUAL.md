@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.23
+**Guide version:** 2.24
 
 **Updated:** 28 October 2026
 
@@ -3970,11 +3970,12 @@ Desk audit is available at **CFG Kanban → Existing Stock Adoptions**. The Hand
 **Origin ERP DocType = CFG Kanban Stock Adoption**, and the Event History and quantity ledger retain
 the operator, session, balance snapshot and reason.
 
-### Dispatch Control E1 — Profile launcher only
+### Dispatch Control E1–E2 — Profile launcher, Plans and stock reservation
 
-The separate **CFG Dispatch Control** workspace contains manager-facing configuration and existing
-logistics execution records. E1 adds one permanent entry card and does not replace any Movement
-Manifest, Customer Delivery Session, proof, reconciliation, or ERPNext record.
+The separate **CFG Dispatch Control** workspace contains manager-facing policy, open Dispatch Plans,
+reservation audit and existing logistics execution records. E1 adds the permanent entry card and
+profile launcher. E2 adds controlled planning and picking reservation without replacing any Movement
+Manifest, Customer Delivery Session, proof, reconciliation, or ERPNext stock record.
 
 Manager setup:
 
@@ -3991,17 +3992,35 @@ Operator use:
 
 1. Identify the operator in **Logistics Operator Panel**.
 2. Scan the permanent Dispatch Operations card.
-3. The panel shows only active Profiles for that exact card, Company, Warehouse, and one of the
-   operator's Responsibilities. If exactly one is eligible it is marked **Recommended workflow**
-   and its read-only review opens automatically; otherwise the operator chooses the correct
-   business-language workflow.
-4. Select **Review Workflow** to inspect the policy snapshot. Close the review and continue through
-   an already implemented logistics workflow.
+3. The panel shows only active Profiles and open Plans for that exact card, Company, Warehouse, and
+   one of the operator's Responsibilities. If exactly one Profile is eligible it is marked
+   **Recommended workflow**. When no open Plan is waiting, its Plan form opens automatically; the
+   operator must still enter and deliberately submit the request. Existing open Plans remain the
+   first choice. With multiple eligible Profiles, select **Create Dispatch Plan** on the correct
+   business-language choice.
+4. Select **Review** to inspect policy or **Create Dispatch Plan**. For **Customer Order**, select
+   the Customer Site, optional submitted Sales Order, required date, priority and Item quantities.
+   For **Open Route Stock**, select route or territory, trip date, priority and Item quantities.
+5. Submit the Draft. A Profile with **Supervisor Approval Required** enters **Awaiting Approval**;
+   a scanned operator with Override authority selects **Approve Plan**. Otherwise it becomes
+   **Approved** immediately.
+6. For each line, select **Scan Tagged Stock** and scan an active released Stock Tag in the exact
+   Company/Warehouse/Item/UOM and optional Batch. Or select **Reserve Untagged** and enter a quantity
+   verified against ERPNext stock. The line shows up to five FIFO/FEFO tag suggestions from the
+   snapshotted Profile policy; these guide picking but do not bypass exact scan validation. A Mixed
+   Profile accepts both. Full reservation changes the Plan to **Ready for Vehicle**; partial
+   reservation changes it to **Picking**.
+7. Use **Release** with a reason to undo one reservation. Use **Cancel Plan** with a reason to release
+   every active reservation and preserve all Plan, Allocation, ledger and Event audit records.
 
-E1 is intentionally read-only. Scanning the card or reviewing a Profile does **not** create a
-Dispatch Plan, reserve stock, assign a lorry, create a Manifest, change a Handling Unit, post a Stock
-Entry, or create a Delivery Note. Dispatch Plan activation and controlled reservation belong to E2.
-Use [the E1 acceptance test](TEST_DISPATCH_E1_PROFILE_LAUNCHER.md) before beginning E2.
+E2 reservation does **not** assign a lorry, create a Manifest, move stock, post a Stock Entry, or
+create a Delivery Note. Tagged reservation changes only the Handling Unit reserved balance through
+the immutable quantity ledger. Untagged reservation creates an audit Allocation after deducting
+active tagged balances and other active untagged Plan reservations from the ERPNext balance. E3 owns
+vehicle claim, loading, Manifest generation and controlled stock movement.
+
+Run [the E1 launcher test](TEST_DISPATCH_E1_PROFILE_LAUNCHER.md) first, then
+[the E2 Plan and Reservation test](TEST_DISPATCH_E2_PLAN_RESERVATION.md).
 
 ### Intercompany Movement Manifest — exact operating procedure
 
@@ -4303,6 +4322,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.24 | 28 October 2026 | Implemented Dispatch E2 without stock movement: immutable Profile-snapshot Plans for Customer Order and Open Route Stock, operator submit and Supervisor approval, scan-first tagged and verified untagged/mixed reservations, Ready-for-Vehicle preparation state, reason-bound release/cancellation, quantity-ledger and Allocation audit, safe live refresh, Dispatch workspace visibility, and an independent acceptance test; vehicle claim and Manifest/ERP transfer remain E3 |
 | 2.23 | 28 October 2026 | Implemented Dispatch E1 without stock mutation: manager-controlled revisioned Dispatch Profiles, permanent Dispatch Operations Location Card and A6 print, operator-responsibility filtering, priority ordering, single-choice recommendation, read-only Logistics-panel workflow review, separate CFG Dispatch Control workspace, and an independent acceptance test; Dispatch Plans and reservation remain E2 |
 | 2.22 | 28 October 2026 | Established the mandatory Production scanner-first delivery standard and completed the Loose WIP command entry points: Record Loose WIP Use and Prepare Consolidated Loose WIP Consumption are now globally dispatched, selectable in Print Command Labels, documented in Scanner Help, and protected by the same context and authorization gates as their touch actions |
 | 2.21 | 27 October 2026 | Added typed mixed-mode Production Material Trace routing: physical Stock Tags, Standard WIP Bins, and Loose WIP Bins now select compatible pending rows from live role/Pool/Workstation/Item/Company/Warehouse/UOM/Batch context; quantity-first scans are held until identity resolution, bin-first optional/required source flows are preserved safely, and ambiguous matches continue through numbered scanner selection without rescanning |

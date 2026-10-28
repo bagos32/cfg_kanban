@@ -143,6 +143,7 @@ def get_logistics_live_revision(operator_session_token, selected_manifest=None):
     """Return a lightweight opaque revision for Logistics panel background checks."""
     profile, _session = require_operator(operator_session_token, touch_activity=False)
     route_names = _authorized_route_names(profile)
+    responsibilities = _responsibilities(profile)
     markers = []
     if route_names:
         manifest_filters = {"logistics_route": ["in", list(route_names)]}
@@ -160,6 +161,29 @@ def get_logistics_live_revision(operator_session_token, selected_manifest=None):
     ):
         modified = frappe.db.get_value(doctype, filters, "max(modified)")
         markers.append(f"{doctype}:{modified or ''}")
+
+    plan_filters = {"state": ["in", [
+        "Draft", "Awaiting Approval", "Approved", "Picking", "Ready for Vehicle",
+    ]]}
+    if not _can_view_all(profile):
+        if responsibilities:
+            plan_filters["dispatch_responsibility"] = ["in", list(responsibilities)]
+        else:
+            plan_filters["dispatch_responsibility"] = "__NO_AUTHORIZED_RESPONSIBILITY__"
+    plan_modified = frappe.db.get_value(
+        "CFG Kanban Dispatch Plan", plan_filters, "max(modified)"
+    )
+    markers.append(f"CFG Kanban Dispatch Plan:{plan_modified or ''}")
+    plan_names = frappe.get_all(
+        "CFG Kanban Dispatch Plan", filters=plan_filters, pluck="name", limit_page_length=0
+    )
+    allocation_modified = ""
+    if plan_names:
+        allocation_modified = frappe.db.get_value(
+            "CFG Kanban Dispatch Allocation",
+            {"dispatch_plan": ["in", plan_names]}, "max(modified)",
+        )
+    markers.append(f"CFG Kanban Dispatch Allocation:{allocation_modified or ''}")
 
     if selected_manifest and route_names:
         manifest = frappe.db.get_value(
@@ -354,6 +378,7 @@ def get_dispatch_operations_context(card, profile):
         row for row in profiles
         if view_all or row.dispatch_responsibility in responsibilities
     ]
+    from cfg_kanban.services.dispatch_planning import dispatch_point_plans
     return {
         "mode": "dispatch_operations",
         "location_card": card.name,
@@ -361,9 +386,10 @@ def get_dispatch_operations_context(card, profile):
         "company": card.company,
         "warehouse": card.current_warehouse,
         "profiles": eligible,
+        "plans": dispatch_point_plans(card, profile),
         "auto_selected_profile": eligible[0].name if len(eligible) == 1 else None,
         "unauthorized_profile_count": len(profiles) - len(eligible),
-        "policy_only": 1,
+        "reservation_only": 1,
     }
 
 
@@ -2038,6 +2064,7 @@ def _operator_summary(profile, session):
         "kanban_role": profile.kanban_role,
         "responsibilities": sorted(_responsibilities(profile)),
         "view_all_responsibilities": bool(_can_view_all(profile)),
+        "can_start": bool(profile.can_start),
         "can_override": bool(profile.can_override),
         "can_retag": bool(can_stock_retag(profile) and profile.can_start),
         "session": session.name,

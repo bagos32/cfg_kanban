@@ -8,7 +8,7 @@
  "track_changes":1,
  "field_order":["identity_section","profile_name","business_label","active","display_colour","priority","instructions","dispatch_context_section","dispatch_point","company","source_warehouse","plan_type","fulfilment_mode","scope_section","customer_site","territory","logistics_route","destination_assignment_policy","destination_warehouse","staging_warehouse","transit_warehouse","policy_section","tag_policy","stock_rotation_policy","approval_required","allow_supervisor_override","auto_submit_stock_transfer","auto_submit_delivery_note","proof_policy","dispatch_responsibility","revision","notes"],
  "fields":[
-  {"fieldname":"identity_section","label":"Operator-facing Dispatch Workflow","fieldtype":"Section Break","description":"E1 policy only. A Dispatch Profile identifies and explains the intended workflow; it does not reserve or move stock."},
+  {"fieldname":"identity_section","label":"Operator-facing Dispatch Workflow","fieldtype":"Section Break","description":"A Dispatch Profile identifies the intended workflow and is snapshotted into every E2 Dispatch Plan. The Profile itself never reserves or moves stock."},
   {"fieldname":"profile_name","label":"Profile Code","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1,"description":"Stable manager-controlled code, for example DSP-FZD-OPEN-ROUTE."},
   {"fieldname":"business_label","label":"Operator Label","fieldtype":"Data","reqd":1,"in_list_view":1,"description":"Plain-language work choice shown in the Logistics panel."},
   {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1},

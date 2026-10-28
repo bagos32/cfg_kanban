@@ -1,11 +1,11 @@
 # CFG Kanban Dispatch Planning Baseline
 
-**Baseline identifier:** `CFG-DISPATCH-E1`  
+**Baseline identifier:** `CFG-DISPATCH-E2`
 **Decision status:** Locked
-**Current status:** E1 implementation prepared; E2–E5 remain pending
+**Current status:** E1 and E2 implemented; E3–E5 remain pending
 **Implementation status:** Dispatch Profiles, permanent Dispatch Operations cards, the read-only
-operator launcher, and the separate Dispatch Control workspace are implemented. No Dispatch Plan,
-reservation, vehicle claim, stock movement, or ERP posting is implemented from this baseline yet.
+operator launcher, Dispatch Plans, approval/cancellation, and controlled tagged/untagged reservation
+are implemented. E2 does not assign a vehicle, create a Manifest, move stock, or post ERP documents.
 
 ## 1. Objective
 
@@ -232,12 +232,14 @@ and Customer Site cards already in the architecture.
 - prioritised queue and automatic Profile resolution;
 - no stock movement in this package.
 
-### E2 — Plans and preparation
+### E2 — Plans and preparation — implemented
 
 - Customer Order and Open Route Stock Plans;
 - approval/cancellation;
 - tagged, untagged, and mixed reservations;
-- preparation and optional staging.
+- preparation state through Ready for Vehicle;
+- immutable Profile revision snapshot, idempotent creation/reservation and release audit;
+- no staging Stock Entry, vehicle assignment, Manifest, or ERP posting in this package.
 
 ### E3 — Vehicle claim and loading
 
@@ -268,7 +270,8 @@ and Customer Site cards already in the architecture.
 ## 13. Resume instructions
 
 When this work is resumed, first audit the current repository against this document and the latest
-`docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md`. Do not rebuild existing Manifest, Customer Delivery,
-proof, tag, or reconciliation features. Begin with E1 only, keep production execution behaviour
-separate, add regression tests, and stop for user-managed commit/deployment before E2.
+`docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md`. Do not rebuild Dispatch Profiles, Dispatch Plans,
+reservation, existing Manifest, Customer Delivery, proof, tag, or reconciliation features. Begin
+E3 only after the E2 acceptance test passes. Keep production execution behaviour separate, add
+regression tests, and stop for user-managed commit/deployment before each later package.
 
