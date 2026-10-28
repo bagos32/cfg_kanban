@@ -77,6 +77,11 @@ is running, processes all three in order, creates exactly one correct load, and 
 silently loses the source/bin identity. Scan an unrelated tag next. Expected: a red rejection names
 the rejected scan, the popup remains open, and Scanner Ready is restored.
 
+Visibility-refresh regression test: after Material Quantity is armed, scan the source Stock Tag.
+Expected: the source field fills, the Loose WIP quantity controls remain visible, and the scanner
+asks for the Loose WIP Bin without any `wrapper.toggle is not a function` error. Scan the Loose bin.
+Expected: the load is allocated and the popup refreshes with the remaining ERP quantity.
+
 Mixed-mode routing test: add one Standard Quantity WIP component and one ordinary tagged component
 to the same test production. Scan each physical identity without first changing the ERP-row
 dropdown. Expected: the Standard bin selects only its Standard row, the Loose bin selects an

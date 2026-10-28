@@ -2633,11 +2633,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			`<div class="alert alert-success py-2"><strong>${__("Scanner Ready")}</strong><br>${scanner_instruction}</div>`
 		);
 		["input_section", "input_row", "input_scan", "input_camera", "input_qty", "allocate_input"]
-			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(input_visible)));
+			.forEach((name) => toggle_dialog_field(dialog, name, input_visible));
 		["wip_bin_section", "wip_bin_scan", "allocate_wip_bin"]
-			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(wip_visible)));
-		dialog.get_field("wip_bin_row").wrapper.toggle(Boolean(wip_visible && !wip_consumption));
-		dialog.get_field("wip_source_scan").wrapper.toggle(Boolean(wip_visible && !wip_consumption));
+			.forEach((name) => toggle_dialog_field(dialog, name, wip_visible));
+		toggle_dialog_field(dialog, "wip_bin_row", wip_visible && !wip_consumption);
+		toggle_dialog_field(dialog, "wip_source_scan", wip_visible && !wip_consumption);
 		dialog.set_df_property("wip_bin_section", "label", wip_consumption
 			? __("Consume Ready Standard Quantity WIP Bin")
 			: loose_wip ? __("Load Loose Multi-Item WIP Bin")
@@ -2650,7 +2650,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				? __("Load Remaining Quantity") : __("Allocate Full WIP Bin"));
 		["output_section", "output_row", "output_scan", "output_camera", "output_qty",
 			"output_serial_numbers", "handling_unit_type", "stage_output"]
-			.forEach((name) => dialog.get_field(name).wrapper.toggle(Boolean(output_visible)));
+			.forEach((name) => toggle_dialog_field(dialog, name, output_visible));
 		if (input_visible) {
 			const selected = input_options.includes(dialog.get_value("input_row")) ?
 				dialog.get_value("input_row") : input_options[0];
@@ -2772,9 +2772,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				Boolean(dialog.cfg_trace_plan?.can_approve_partial_wip_bin)))
 			: configured && Boolean(dialog.cfg_trace_plan?.can_approve_partial_wip_bin));
 		["wip_partial_qty", "wip_partial_reason", "allocate_partial_wip_bin"]
-			.forEach((name) => dialog.get_field(name).wrapper.toggle(authorized));
+			.forEach((name) => toggle_dialog_field(dialog, name, authorized));
 		const notice = dialog.get_field("wip_partial_notice");
-		notice.wrapper.toggle(Boolean(row));
+		toggle_dialog_field(dialog, "wip_partial_notice", Boolean(row));
 		dialog.set_df_property("wip_partial_qty", "label", consumption
 			? __("Actual Quantity Consumed") : loose
 				? __("Loose WIP Load Quantity") : __("Approved Partial-bin Quantity"));
@@ -2808,9 +2808,16 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	async function update_operator_output_serial_field(dialog, row) {
 		const visible = Boolean(row && row.serial_controlled);
-		dialog.get_field("output_serial_numbers").wrapper.toggle(visible);
+		toggle_dialog_field(dialog, "output_serial_numbers", visible);
 		await dialog.set_value("output_serial_numbers",
 			visible ? (row.available_serial_numbers || []).join("\n") : "");
+	}
+
+	function toggle_dialog_field(dialog, fieldname, visible) {
+		const field = dialog.get_field(fieldname);
+		const wrapper = field?.$wrapper || field?.wrapper;
+		if (!wrapper) return;
+		$(wrapper).toggle(Boolean(visible));
 	}
 
 	function bind_operator_trace_enter(dialog, scan_field, action_field) {
