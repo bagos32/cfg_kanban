@@ -1,5 +1,11 @@
 # Package L1 — Transfer Kanban System Test
 
+> **Acceptance status — 28 October 2026:** Partially tested under development time constraints.
+> Development of the remaining package may continue, but Package L1 is **not yet a completed
+> production acceptance**. Before production mode/go-live, execute every unfinished section in this
+> document, capture the deployed Git revision and evidence, and record every accepted exception or
+> deferred risk. Implementation status alone does not close this gate.
+
 ## 1. Purpose
 
 This procedure verifies same-company warehouse replenishment from a reusable **Transfer** Kanban
@@ -107,7 +113,7 @@ and the Card can be printed without replacing its identity.
 2. Scan or type `MOVE-RAW-20` and select **Find**.
 3. Verify the result explicitly says **Transfer Card**, shows the Item, `20 Nos`, source Warehouse,
    destination Warehouse, and route.
-4. Select **Trigger Transfer**.
+4. Select **Trigger Transfer Card**.
 5. If Approval is configured, approve the Signal in the Supervisor panel, then return to Logistics
    and scan the Card again.
 6. Open the linked Movement Manifest.
@@ -138,6 +144,23 @@ Expected draft-mode result when auto-submit is disabled:
 - Card does not recycle and no stock balance changes;
 - after an authorized ERP user submits that same Stock Entry, the feedback hook completes the
   Manifest/Cycle/Card exactly once.
+
+If **Trigger Transfer Card** is not visible, do not create another Card. Check the scanned Card and
+operator context in this order:
+
+1. **Active** is enabled on the Card.
+2. **Blocked** is not enabled and **Blocked Reason** is empty.
+3. **Active Cycle** is empty. If it is populated, the Card has already been triggered:
+   - **waiting for supervisor approval** means release the Signal from **Production Supervisor
+     Action Center** using **Release Internal Transfer**, then scan the same Card again; or
+   - **Open Movement Manifest** means continue the existing Manifest instead of triggering again.
+4. The logged-in **CFG Kanban Operator Profile** has **Start** permission.
+5. Under **Responsible Roles**, the Operator Profile contains the exact Responsibility selected in
+   the Route's **Dispatch Responsibility**. A Supervisor may instead use **View All Service Tasks**
+   only when the profile's Kanban Role is Supervisor; this switch is also the route-wide logistics
+   responsibility override despite its legacy label.
+6. After changing the Operator Profile, select **Refresh** in Kanban Logistics or switch/end and
+   rescan the operator credential before scanning the Transfer Card again.
 
 Cancellation recovery test:
 

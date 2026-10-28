@@ -318,6 +318,55 @@ def get_warehouse_operations_context(card, profile):
     }
 
 
+def get_dispatch_operations_context(card, profile):
+    """Return operator-authorized E1 dispatch policies without changing operational state."""
+    if (card.card_type != "Location Card" or
+            card.get("location_purpose") != "Dispatch Operations" or
+            not card.current_warehouse):
+        frappe.throw("This Location Card is not configured as a Dispatch Operations point")
+    if not card.active or card.blocked:
+        frappe.throw("Dispatch Operations Card is inactive or blocked")
+
+    responsibilities = _responsibilities(profile)
+    view_all = _can_view_all(profile)
+    profiles = frappe.get_all(
+        "CFG Kanban Dispatch Profile",
+        filters={
+            "active": 1,
+            "dispatch_point": card.name,
+            "company": card.company,
+            "source_warehouse": card.current_warehouse,
+        },
+        fields=[
+            "name", "profile_name", "business_label", "display_colour", "priority",
+            "instructions", "company", "source_warehouse", "plan_type",
+            "fulfilment_mode", "customer_site", "territory", "logistics_route",
+            "destination_assignment_policy", "destination_warehouse",
+            "staging_warehouse", "transit_warehouse", "tag_policy",
+            "stock_rotation_policy", "approval_required", "allow_supervisor_override",
+            "auto_submit_stock_transfer", "auto_submit_delivery_note", "proof_policy",
+            "dispatch_responsibility", "revision",
+        ],
+        order_by="priority asc, business_label asc",
+        limit_page_length=200,
+    )
+    eligible = [
+        row for row in profiles
+        if view_all or row.dispatch_responsibility in responsibilities
+    ]
+    return {
+        "mode": "dispatch_operations",
+        "location_card": card.name,
+        "location_reference": card.location_reference,
+        "company": card.company,
+        "warehouse": card.current_warehouse,
+        "profiles": eligible,
+        "auto_selected_profile": eligible[0].name if len(eligible) == 1 else None,
+        "unauthorized_profile_count": len(profiles) - len(eligible),
+        "policy_only": 1,
+    }
+
+
 @frappe.whitelist()
 def receive_supplier_purchase(cycle_name, delivered_qty, accepted_qty, rejected_qty=0,
                               supplier_delivery_note=None, event_token=None,
@@ -543,6 +592,10 @@ def lookup_logistics_tag(scan_value, operator_session_token):
         if (card.card_type == "Location Card" and
                 card.get("location_purpose") == "Warehouse Operations"):
             result["warehouse_operations"] = get_warehouse_operations_context(card, profile)
+            return result
+        if (card.card_type == "Location Card" and
+                card.get("location_purpose") == "Dispatch Operations"):
+            result["dispatch_operations"] = get_dispatch_operations_context(card, profile)
             return result
         if master and master.control_type == "Transfer":
             route = frappe.get_doc("CFG Kanban Logistics Route", master.logistics_route)

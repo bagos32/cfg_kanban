@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.22
+**Guide version:** 2.23
 
 **Updated:** 28 October 2026
 
@@ -1343,8 +1343,8 @@ Complete:
 | DocType Action Profile (`doctype_action_profile`) | Required only for DocType Action Card; the profile must be enabled, Valid, and backed by an approved target policy |
 | Queue Company (`queue_company`) | Required only for Workstation Queue Card |
 | Current Station (`current_station`) | Required only for Workstation Queue Card |
-| Location Purpose (`location_purpose`) | General Service Point, Supplier Receiving, or Warehouse Operations |
-| Current Warehouse (`current_warehouse`) | Required for Supplier Receiving and Warehouse Operations Location Cards |
+| Location Purpose (`location_purpose`) | General Service Point, Supplier Receiving, Warehouse Operations, or Dispatch Operations |
+| Current Warehouse (`current_warehouse`) | Required for Supplier Receiving, Warehouse Operations, and Dispatch Operations Location Cards |
 | Active (`active`) | Yes |
 | Revision (`revision`) | Start with 1 |
 
@@ -1380,6 +1380,7 @@ For permanent access cards use their specific saved-card print action:
 - **General Service Point Location Card:** Print Kanban → Print General Service Location Card.
 - **Supplier Receiving Location Card:** Print Kanban → Print Supplier Receiving Location Card.
 - **Warehouse Operations Location Card:** Print Kanban → Print Warehouse Operations Card.
+- **Dispatch Operations Location Card:** Print Kanban → Print Dispatch Operations Card.
 - **DocType Action Card:** Print Kanban → Print DocType Action Card (CR80 horizontal).
 
 Only **System Manager** or **CFG Kanban System Maintenance** may issue a new DocType Action Card.
@@ -3969,6 +3970,39 @@ Desk audit is available at **CFG Kanban → Existing Stock Adoptions**. The Hand
 **Origin ERP DocType = CFG Kanban Stock Adoption**, and the Event History and quantity ledger retain
 the operator, session, balance snapshot and reason.
 
+### Dispatch Control E1 — Profile launcher only
+
+The separate **CFG Dispatch Control** workspace contains manager-facing configuration and existing
+logistics execution records. E1 adds one permanent entry card and does not replace any Movement
+Manifest, Customer Delivery Session, proof, reconciliation, or ERPNext record.
+
+Manager setup:
+
+1. Create a **CFG Kanban Card** with **Card Type** = `Location Card`, **Location Purpose** =
+   `Dispatch Operations`, the exact **Current Warehouse**, and a human-readable **Location
+   Reference**. Save and print **CFG Dispatch Operations Card** from **Print Kanban**.
+2. Create an active **CFG Kanban Dispatch Profile**. Set the permanent card, matching Company and
+   Source Warehouse, operator-facing label/instructions, Plan Type, Fulfilment Mode, destination,
+   tag/FIFO policy, approval/proof policies, and an active Dispatch Responsibility.
+3. Assign that Responsibility to the applicable Operator Profiles. Lower **Launcher Priority**
+   values appear first. A Profile revision increases when its controlled policy changes.
+
+Operator use:
+
+1. Identify the operator in **Logistics Operator Panel**.
+2. Scan the permanent Dispatch Operations card.
+3. The panel shows only active Profiles for that exact card, Company, Warehouse, and one of the
+   operator's Responsibilities. If exactly one is eligible it is marked **Recommended workflow**
+   and its read-only review opens automatically; otherwise the operator chooses the correct
+   business-language workflow.
+4. Select **Review Workflow** to inspect the policy snapshot. Close the review and continue through
+   an already implemented logistics workflow.
+
+E1 is intentionally read-only. Scanning the card or reviewing a Profile does **not** create a
+Dispatch Plan, reserve stock, assign a lorry, create a Manifest, change a Handling Unit, post a Stock
+Entry, or create a Delivery Note. Dispatch Plan activation and controlled reservation belong to E2.
+Use [the E1 acceptance test](TEST_DISPATCH_E1_PROFILE_LAUNCHER.md) before beginning E2.
+
 ### Intercompany Movement Manifest — exact operating procedure
 
 The dedicated page is **CFG Kanban → Logistics Operator Panel** (`/app/kanban-logistics`). It accepts
@@ -4269,6 +4303,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.23 | 28 October 2026 | Implemented Dispatch E1 without stock mutation: manager-controlled revisioned Dispatch Profiles, permanent Dispatch Operations Location Card and A6 print, operator-responsibility filtering, priority ordering, single-choice recommendation, read-only Logistics-panel workflow review, separate CFG Dispatch Control workspace, and an independent acceptance test; Dispatch Plans and reservation remain E2 |
 | 2.22 | 28 October 2026 | Established the mandatory Production scanner-first delivery standard and completed the Loose WIP command entry points: Record Loose WIP Use and Prepare Consolidated Loose WIP Consumption are now globally dispatched, selectable in Print Command Labels, documented in Scanner Help, and protected by the same context and authorization gates as their touch actions |
 | 2.21 | 27 October 2026 | Added typed mixed-mode Production Material Trace routing: physical Stock Tags, Standard WIP Bins, and Loose WIP Bins now select compatible pending rows from live role/Pool/Workstation/Item/Company/Warehouse/UOM/Batch context; quantity-first scans are held until identity resolution, bin-first optional/required source flows are preserved safely, and ambiguous matches continue through numbered scanner selection without rescanning |
 | 2.20 | 27 October 2026 | Added Loose Multi-Item WIP Bins: permanent allow-listed multi-Item bins, variable no-capacity Job Card transfer loads without child-tag splitting, repeatable operation-card usage accumulation, immutable per-cycle use evidence, final Work Order-level consolidated ERP consumption, controlled unused-material returns, supervisor report visibility, print identity, and a complete acceptance guide while preserving Standard WIP behavior |

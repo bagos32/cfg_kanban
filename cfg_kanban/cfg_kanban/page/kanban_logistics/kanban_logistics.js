@@ -805,6 +805,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			render_supplier_receiving(state.lookup.supplier_receiving);
 			return;
 		}
+		if (state.lookup.dispatch_operations) {
+			render_dispatch_operations(state.lookup.dispatch_operations);
+			return;
+		}
 		if (state.lookup.warehouse_operations) {
 			render_warehouse_operations(state.lookup.warehouse_operations);
 			return;
@@ -1108,6 +1112,69 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			const row = (context.pending_orders || []).find((value) => value.cycle === $(this).data("cycle"));
 			if (row) supplier_receipt_dialog(row, !direct);
 		});
+	}
+
+	function render_dispatch_operations(context) {
+		const e = frappe.utils.escape_html;
+		const colour = {
+			Blue: "#1d4ed8", Green: "#15803d", Orange: "#c2410c",
+			Red: "#b91c1c", Purple: "#7e22ce", Grey: "#4b5563",
+		};
+		const profiles = (context.profiles || []).map((profile) => {
+			const scope = profile.customer_site || profile.territory || profile.logistics_route || __("General");
+			const destination = profile.destination_warehouse || profile.transit_warehouse ||
+				profile.destination_assignment_policy;
+			return `<div class="frappe-card cfg-logistics-list-row dispatch-profile-row"
+				style="border-left:6px solid ${colour[profile.display_colour] || colour.Blue}">
+				<div><strong>${e(profile.business_label)}</strong>
+				<small>${e(profile.plan_type)} · ${e(profile.fulfilment_mode)}</small>
+				<small>${__("Scope")}: ${e(scope)} · ${__("Destination")}: ${e(destination || "-")}</small>
+				<small>${e(profile.instructions)}</small></div>
+				<div><span class="indicator-pill blue">${__("Priority")} ${e(profile.priority)}</span>
+				<small>${e(profile.tag_policy)} · ${e(profile.stock_rotation_policy)} · ${__("Rev")} ${e(profile.revision)}</small>
+				<button class="btn btn-primary review-dispatch-profile" data-name="${e(profile.name)}">${__("Review Workflow")}</button></div>
+			</div>`;
+		}).join("") || `<div class="alert alert-warning">${__("No active Dispatch Profile is assigned to this operator at this Dispatch Point. Ask a manager to check the Profile responsibility and Operator Profile responsibilities.")}</div>`;
+		const recommendation = context.auto_selected_profile ?
+			`<div class="alert alert-success"><strong>${__("Recommended workflow")}</strong>: ${e((context.profiles || [])[0]?.business_label || context.auto_selected_profile)}. ${__("It is the only authorized Profile at this point; review it before continuing.")}</div>` : "";
+		const hidden = context.unauthorized_profile_count ?
+			`<p class="text-muted">${__("{0} active workflow(s) are hidden because they are outside this operator's responsibilities.", [context.unauthorized_profile_count])}</p>` : "";
+		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
+			<div class="cfg-logistics-tag-head"><div><small>${__("Dispatch Operations Point")}</small>
+			<h3>${e(context.location_reference || context.warehouse)}</h3>
+			<strong>${e(context.warehouse)} · ${e(context.company || "-")}</strong></div>
+			<button class="btn btn-default close-lookup">${__("Close")}</button></div>
+			<div class="alert alert-info mt-3"><strong>${__("E1 policy launcher")}</strong><br>
+			${__("Reviewing a workflow here does not create a Dispatch Plan, reserve stock, assign a vehicle, move stock, or post an ERPNext document.")}</div>
+			${recommendation}<h4>${__("Authorized Dispatch Workflows")}</h4>${profiles}${hidden}
+		</div>`);
+		$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
+		$lookup.find(".review-dispatch-profile").on("click", function () {
+			const profile = (context.profiles || []).find((row) => row.name === $(this).data("name"));
+			if (profile) review_dispatch_profile(profile);
+		});
+	}
+
+	function review_dispatch_profile(profile) {
+		const e = frappe.utils.escape_html;
+		const yes_no = (value) => value ? __("Yes") : __("No");
+		const dialog = new frappe.ui.Dialog({
+			title: profile.business_label,
+			size: "large",
+			fields: [{ fieldname: "policy", fieldtype: "HTML", options: `<div class="alert alert-warning">
+				<strong>${__("Review only — no stock action occurs in E1")}</strong><br>
+				${e(profile.instructions)}</div>
+				<div class="table-responsive"><table class="table table-bordered">
+				<tr><th>${__("Plan Type")}</th><td>${e(profile.plan_type)}</td><th>${__("Fulfilment")}</th><td>${e(profile.fulfilment_mode)}</td></tr>
+				<tr><th>${__("Source")}</th><td>${e(profile.source_warehouse)}</td><th>${__("Destination Policy")}</th><td>${e(profile.destination_assignment_policy)}</td></tr>
+				<tr><th>${__("Tag Policy")}</th><td>${e(profile.tag_policy)}</td><th>${__("Stock Rotation")}</th><td>${e(profile.stock_rotation_policy)}</td></tr>
+				<tr><th>${__("Approval Required")}</th><td>${yes_no(profile.approval_required)}</td><th>${__("Proof Policy")}</th><td>${e(profile.proof_policy)}</td></tr>
+				<tr><th>${__("Responsibility")}</th><td>${e(profile.dispatch_responsibility)}</td><th>${__("Profile Revision")}</th><td>${e(profile.revision)}</td></tr>
+				</table></div>
+				<p class="text-muted">${__("Dispatch Plan activation and controlled stock reservation are delivered in E2. Close this review and continue with an existing logistics workflow for now.")}</p>` }],
+		});
+		dialog.onhide = focus_scanner;
+		dialog.show();
 	}
 
 	function render_warehouse_operations(context) {
@@ -2336,6 +2403,11 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			if (state.lookup.transfer_manifest?.name) await open_manifest(state.lookup.transfer_manifest.name, { keep_lookup: true });
 			else if (state.lookup.preferred_manifest) await open_manifest(state.lookup.preferred_manifest, { keep_lookup: true });
 			else clear_manifest_view({ keep_lookup: true });
+			if (state.lookup.dispatch_operations?.auto_selected_profile) {
+				const selected = (state.lookup.dispatch_operations.profiles || []).find((profile) =>
+					profile.name === state.lookup.dispatch_operations.auto_selected_profile);
+				if (selected) window.setTimeout(() => review_dispatch_profile(selected), 0);
+			}
 			$scanner.find(".scanner-message").html(`<small class="text-success">${__("Status loaded: {0}", [frappe.utils.escape_html(raw)])}</small>`);
 		} catch (error) {
 			scanner_error(server_error_message(error, __("Tag status could not be loaded.")));

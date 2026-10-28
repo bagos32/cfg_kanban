@@ -24,6 +24,13 @@
 - Preserve audit records. Prefer controlled cancellation, reconciliation, and recovery workflows over deleting transactional Kanban history.
 - Keep workstation/execution behaviour changes separate from Production Control Dashboard work when they are being developed in different worktrees.
 
+## Pre-production acceptance gate
+
+- Development may continue while detailed package acceptance is deferred, but implementation status must never be presented as production acceptance.
+- Before recommending, enabling, or declaring production mode/go-live, explicitly remind the user that Package L1 same-Company Transfer Kanban is only partially tested and must be completed against `docs/TEST_PACKAGE_L1_TRANSFER_KANBAN.md`.
+- The Package L1 gate must cover Direct Transfer without tags, tagged and optional-tag transfer, Goods in Transit, draft ERP feedback, cancellation/recovery, authorization rejection, quantity/warehouse rejection, and recorded ERPNext/Kanban audit evidence.
+- Do not close this gate from chat recollection. Record the final test results and deployed Git revision in the L1 test document, including every accepted exception or deferred risk.
+
 ## Production scanner-first standard
 
 - Every new or changed Production Kanban floor action must be operable by fixed keyboard-wedge scanner as well as by touch/click. A screen-only production action is incomplete.

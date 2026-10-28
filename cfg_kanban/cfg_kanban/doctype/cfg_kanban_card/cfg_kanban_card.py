@@ -61,7 +61,9 @@ class CFGKanbanCard(Document):
         if self.card_type == "Location Card" and not self.location_reference:
             frappe.throw("Location Reference is required for a Location Card")
         if (self.card_type == "Location Card" and
-                self.get("location_purpose") in ("Supplier Receiving", "Warehouse Operations")):
+                self.get("location_purpose") in (
+                    "Supplier Receiving", "Warehouse Operations", "Dispatch Operations"
+                )):
             if not self.current_warehouse:
                 frappe.throw("Current Warehouse is required for an operational Location Card")
             warehouse_company = frappe.db.get_value("Warehouse", self.current_warehouse, "company")

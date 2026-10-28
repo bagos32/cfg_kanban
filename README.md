@@ -32,6 +32,8 @@ The end-of-route physical count and ERP variance continuation is
 [Package D3 Route Reconciliation System Test](docs/TEST_PACKAGE_D3_ROUTE_RECONCILIATION.md).
 The same-Company warehouse replenishment continuation is
 [Package L1 Transfer Kanban System Test](docs/TEST_PACKAGE_L1_TRANSFER_KANBAN.md).
+The policy-only foundation for the approved one-card dispatch launcher is
+[Dispatch E1 Profile Launcher Acceptance Test](docs/TEST_DISPATCH_E1_PROFILE_LAUNCHER.md).
 The controlled consumable/indirect-stock issue continuation is
 [Package L2 Withdrawal Kanban System Test](docs/TEST_PACKAGE_L2_WITHDRAWAL_KANBAN.md).
 The production material-transfer, two-operation execution, Manufacture receipt, finished-output

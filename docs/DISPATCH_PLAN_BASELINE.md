@@ -1,10 +1,11 @@
 # CFG Kanban Dispatch Planning Baseline
 
 **Baseline identifier:** `CFG-DISPATCH-E1`  
-**Decision status:** Locked for later implementation  
-**Current status:** Deferred while production execution issues are prioritised  
-**Implementation status:** Architecture only; no Dispatch Plan code has been implemented from this
-baseline
+**Decision status:** Locked
+**Current status:** E1 implementation prepared; E2–E5 remain pending
+**Implementation status:** Dispatch Profiles, permanent Dispatch Operations cards, the read-only
+operator launcher, and the separate Dispatch Control workspace are implemented. No Dispatch Plan,
+reservation, vehicle claim, stock movement, or ERP posting is implemented from this baseline yet.
 
 ## 1. Objective
 
@@ -224,7 +225,7 @@ and Customer Site cards already in the architecture.
 
 ## 12. Approved implementation sequence
 
-### E1 — Profiles and one-card launcher
+### E1 — Profiles and one-card launcher — implemented
 
 - Dispatch Profiles;
 - Dispatch Operations Location Card purpose and print behaviour;

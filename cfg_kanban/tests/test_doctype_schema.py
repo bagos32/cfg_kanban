@@ -1366,6 +1366,67 @@ class TestDocTypeSchema(TestCase):
         ):
             self.assertTrue((APP_ROOT / "cfg_kanban" / "print_format" / print_format).exists())
 
+    def test_dispatch_e1_profile_launcher_is_policy_only_and_scanner_accessible(self):
+        schemas = {schema["name"]: schema for _, schema in self._schemas()}
+        profile = schemas["CFG Kanban Dispatch Profile"]
+        fields = {row["fieldname"]: row for row in profile["fields"]}
+        self.assertTrue({
+            "profile_name", "business_label", "dispatch_point", "company",
+            "source_warehouse", "plan_type", "fulfilment_mode",
+            "destination_assignment_policy", "tag_policy", "stock_rotation_policy",
+            "approval_required", "dispatch_responsibility", "revision",
+        }.issubset(fields))
+        self.assertEqual(fields["plan_type"]["options"], "Customer Order\nOpen Route Stock")
+        self.assertIn("Goods in Transit", fields["fulfilment_mode"]["options"])
+        responsibility_permissions = {
+            row["role"]: row for row in schemas["CFG Kanban Responsibility"]["permissions"]
+        }
+        self.assertEqual(responsibility_permissions["Stock Manager"]["read"], 1)
+        self.assertEqual(
+            responsibility_permissions["CFG Kanban System Maintenance"]["write"], 1
+        )
+
+        card_fields = {
+            row["fieldname"]: row for row in schemas["CFG Kanban Card"]["fields"]
+        }
+        self.assertIn("Dispatch Operations", card_fields["location_purpose"]["options"])
+        card_controller = (APP_ROOT / "cfg_kanban" / "doctype" / "cfg_kanban_card" /
+                           "cfg_kanban_card.py").read_text()
+        card_form = (APP_ROOT / "public" / "js" / "cfg_kanban_card.js").read_text()
+        profile_controller = (ROOT / "cfg_kanban_dispatch_profile" /
+                              "cfg_kanban_dispatch_profile.py").read_text()
+        logistics = (APP_ROOT / "api" / "logistics.py").read_text()
+        panel = (APP_ROOT / "cfg_kanban" / "page" / "kanban_logistics" /
+                 "kanban_logistics.js").read_text()
+        self.assertIn('"Dispatch Operations"', card_controller)
+        self.assertIn("CFG Dispatch Operations Card", card_form)
+        self.assertIn("def get_dispatch_operations_context", logistics)
+        self.assertIn('result["dispatch_operations"]', logistics)
+        self.assertIn("_responsibilities(profile)", logistics)
+        self.assertIn("render_dispatch_operations", panel)
+        self.assertIn("dispatch_operations?.auto_selected_profile", panel)
+        self.assertIn("Review only — no stock action occurs in E1", panel)
+        self.assertIn("does not create a Dispatch Plan", panel)
+        self.assertIn("dialog.onhide = focus_scanner", panel)
+        self.assertIn("Source Warehouse must match Dispatch Operations Card", profile_controller)
+        self.assertIn("Select at Receipt is valid only for Goods in Transit", profile_controller)
+
+        print_format = (APP_ROOT / "cfg_kanban" / "print_format" /
+                        "cfg_dispatch_operations_card" /
+                        "cfg_dispatch_operations_card.json")
+        self.assertTrue(print_format.exists())
+        printed = json.loads(print_format.read_text())
+        self.assertEqual(printed["doc_type"], "CFG Kanban Card")
+        self.assertIn("Profile selection does not move stock", printed["html"])
+
+        workspace_path = (APP_ROOT / "cfg_kanban" / "workspace" /
+                          "cfg_dispatch_control" / "cfg_dispatch_control.json")
+        workspace = json.loads(workspace_path.read_text())
+        self.assertEqual(workspace["parent_page"], "CFG Kanban")
+        shortcuts = {row["label"]: row["link_to"] for row in workspace["shortcuts"]}
+        self.assertEqual(shortcuts["Logistics Operator Panel"], "kanban-logistics")
+        self.assertEqual(shortcuts["Dispatch Profiles"], "CFG Kanban Dispatch Profile")
+
     def test_non_stock_operational_inventory_uses_tag_ledger_without_erp_stock_entry(self):
         schemas = {schema["name"]: schema for _, schema in self._schemas()}
         manifest_fields = {

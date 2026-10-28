@@ -123,6 +123,11 @@ frappe.ui.form.on("CFG Kanban Card", {
 				"CFG Warehouse Operations Card"), __("Print Kanban"));
 			frm.add_custom_button(__("Open Logistics Panel"), () => frappe.set_route("kanban-logistics"));
 		}
+		if (frm.doc.card_type === "Location Card" && frm.doc.location_purpose === "Dispatch Operations") {
+			frm.add_custom_button(__("Print Dispatch Operations Card"), () => cfg_card_print(frm,
+				"CFG Dispatch Operations Card"), __("Print Kanban"));
+			frm.add_custom_button(__("Open Logistics Panel"), () => frappe.set_route("kanban-logistics"));
+		}
 		if (frm.doc.card_type === "Workstation Queue Card") {
 			frm.add_custom_button(__("Print Workstation Queue Card"), () => cfg_card_print(frm,
 				"CFG Workstation Queue Card"), __("Print Kanban"));
