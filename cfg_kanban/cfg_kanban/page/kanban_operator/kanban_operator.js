@@ -2566,7 +2566,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	function close_operator_material_trace_dialog(dialog) {
 		dialog.cfg_operator_close_requested = true;
-		dialog.cfg_pending_material_scan = null;
+		dialog.cfg_pending_material_scans = [];
 		window.clearTimeout(dialog.cfg_trace_scan_timer);
 		dialog.$wrapper.one("hidden.bs.modal.cfg_material_trace_restore", () => {
 			restore_scanner_focus();
@@ -2877,7 +2877,20 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const value = String(raw_value || "").trim();
 		if (dialog.cfg_material_scan_lock) {
 			if (value && value !== dialog.cfg_active_material_scan) {
-				dialog.cfg_pending_material_scan = value;
+				dialog.cfg_pending_material_scans = dialog.cfg_pending_material_scans || [];
+				if (dialog.cfg_pending_material_scans.length >= 20) {
+					frappe.show_alert({
+						message: __("Material scanner queue is full. Wait for the current scan result, then rescan {0}.", [value]),
+						indicator: "red",
+					}, 10);
+					return;
+				}
+				dialog.cfg_pending_material_scans.push(value);
+				frappe.show_alert({
+					message: __("Scan queued ({0} waiting). It will run after the current material scan.",
+						[dialog.cfg_pending_material_scans.length]),
+					indicator: "blue",
+				}, 4);
 			}
 			return;
 		}
@@ -2885,12 +2898,20 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		dialog.cfg_material_scan_lock = true;
 		try {
 			await handle_material_trace_scan(dialog, value);
+		} catch (error) {
+			const message = error?.message || error?.exc ||
+				__("The material scan could not be processed. Review the visible message and rescan.");
+			frappe.show_alert({
+				message: __("Material scan {0} was not accepted: {1}", [value, message]),
+				indicator: "red",
+			}, 10);
 		} finally {
 			window.setTimeout(() => {
 				dialog.cfg_material_scan_lock = false;
 				dialog.cfg_active_material_scan = null;
-				const pending = dialog.cfg_pending_material_scan;
-				dialog.cfg_pending_material_scan = null;
+				const queue = dialog.cfg_pending_material_scans || [];
+				const pending = queue.shift();
+				dialog.cfg_pending_material_scans = queue;
 				if (pending && !dialog.cfg_operator_close_requested) {
 					run_material_trace_scan(dialog, pending);
 				} else {
@@ -3234,7 +3255,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const rows = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
 			row.direction === "Input" && row.wip_bin_required && row.wip_bin_remaining_qty > 0.000001);
 		const row = operator_wip_row(rows, dialog.get_value("wip_bin_row")) || rows[0];
-		if (!row) return;
+		if (!row) {
+			frappe.throw(__("No pending WIP material row is available. Refresh the card before scanning again."));
+		}
 		const consuming = dialog.cfg_trace_plan?.purpose ===
 			"Material Consumption for Manufacture" || row.wip_bin_action === "Consume";
 		const method = consuming

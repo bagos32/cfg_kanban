@@ -71,6 +71,12 @@ Expected:
 - any source Stock Tag is reduced only after ERP submission; and
 - no child tag was printed or created merely to load the Loose bin.
 
+Rapid-scan test: without waiting between devices, scan one Material Quantity, its required source
+tag, and the Loose WIP Bin. Expected: the popup visibly queues scans received while classification
+is running, processes all three in order, creates exactly one correct load, and never closes or
+silently loses the source/bin identity. Scan an unrelated tag next. Expected: a red rejection names
+the rejected scan, the popup remains open, and Scanner Ready is restored.
+
 Mixed-mode routing test: add one Standard Quantity WIP component and one ordinary tagged component
 to the same test production. Scan each physical identity without first changing the ERP-row
 dropdown. Expected: the Standard bin selects only its Standard row, the Loose bin selects an

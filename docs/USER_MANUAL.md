@@ -1781,6 +1781,18 @@ is the quantity. A WIP Bin scanned before its source is held safely instead of b
 the source field. If several rows remain genuinely valid, scan the displayed `CFG:SELECT:n`; the
 held physical scan then continues automatically.
 
+Do not mix the three Loose WIP stages. **Loading** starts from a Draft Material Transfer and uses
+`Scan Material Tags → Material Quantity → source tag when required → Loose WIP Bin → Submit
+Materials`. **Floor-use reporting** uses `Record Loose WIP Use → Loose WIP Bin → numbered Select
+when needed → Material Quantity → Confirm`; it records cumulative use without posting ERP stock.
+**Final posting** uses `Prepare Consolidated Loose WIP Consumption` only after every Job Card is
+complete, followed by Submit Materials and the controlled unused-material returns.
+
+Rapid physical scans are retained in an ordered material-scan queue while the preceding identity is
+being classified. The popup reports queued scans, processes them in order, and shows a red message
+containing any rejected scan rather than silently dropping it. Scanner Ready is restored after each
+result.
+
 Each operation-card cycle may select **Record Loose WIP Use**, scan the same permanent bin, choose
 the numbered Item/Batch when the bin contains several choices, and enter actual use. Every scan
 creates immutable **CFG Kanban Loose WIP Usage** evidence containing both the material-owner Cycle
@@ -4363,6 +4375,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.26 | 28 October 2026 | Prevented silent Loose/Standard WIP material-scan loss by replacing the single pending scan slot with a bounded ordered queue, adding visible queued/rejected scan feedback, replacing the last no-row silent return with an explicit recovery message, and documenting the distinct load, floor-use, and final-posting scan sequences |
 | 2.25 | 28 October 2026 | Implemented Dispatch E3: atomic late lorry claim through a Company-specific Warehouse Operations card, one linked loading Manifest, exact tagged loading scans, explicit untagged physical-pick confirmation, controlled same-Company direct ERP Material Transfer, Loaded feedback closure, and reason-bound pre-posting claim release that preserves E2 reservations; customer fulfilment remains E4 |
 | 2.24 | 28 October 2026 | Implemented Dispatch E2 without stock movement: immutable Profile-snapshot Plans for Customer Order and Open Route Stock, operator submit and Supervisor approval, scan-first tagged and verified untagged/mixed reservations, Ready-for-Vehicle preparation state, reason-bound release/cancellation, quantity-ledger and Allocation audit, safe live refresh, Dispatch workspace visibility, and an independent acceptance test; vehicle claim and Manifest/ERP transfer remain E3 |
 | 2.23 | 28 October 2026 | Implemented Dispatch E1 without stock mutation: manager-controlled revisioned Dispatch Profiles, permanent Dispatch Operations Location Card and A6 print, operator-responsibility filtering, priority ordering, single-choice recommendation, read-only Logistics-panel workflow review, separate CFG Dispatch Control workspace, and an independent acceptance test; Dispatch Plans and reservation remain E2 |

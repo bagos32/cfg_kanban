@@ -59,6 +59,24 @@ Use these hands-free sequences:
   WIP Bin`; and
 - optional-tag rows: scan the source tag, or scan `CFG:CMD:NO_SOURCE` before the WIP Bin.
 
+These are three separate stages and must not be mixed:
+
+1. **Load material into WIP:** create/open the Draft `Material Transfer for Manufacture`, scan
+   `CFG:CMD:SCAN_MATERIALS`, then scan `Material Quantity → source tag when required → permanent
+   Loose WIP Bin`. Repeat for every material and scan `CFG:CMD:SUBMIT_MATERIALS` only after the
+   Draft trace is complete.
+2. **Report floor use:** scan `CFG:CMD:RECORD_LOOSE_WIP_USE`, then scan `Loose WIP Bin → numbered
+   Select when several Item/Batch choices exist → Material Quantity → Confirm`. This records an
+   immutable usage contribution and does not yet post ERP stock.
+3. **Post final consumption:** after every Job Card completes, scan
+   `CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION`, confirm creation of the consolidated Draft, then use
+   `CFG:CMD:SUBMIT_MATERIALS`. Unused balances continue through their controlled return Drafts.
+
+The Production Material Trace scanner processes rapid scans in their original order. A scan made
+while the preceding identity is still being classified is visibly queued instead of overwriting
+the earlier source/bin scan. Rejected scans remain visible as a red message with the scanned value;
+the dialog stays open and returns to Scanner Ready.
+
 If the WIP Bin is scanned before an optional or required source tag, the dialog holds the recognized
 bin rather than misclassifying it as a source. The next source scan—or `No Source` where allowed—
 continues automatically. If one physical identity validly matches several remaining rows, the scan
