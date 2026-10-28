@@ -368,7 +368,8 @@ Expected result:
 
 1. Return to the Production or matching Operation Card after both bins are `Ready`.
 2. Confirm that its Job Card shows **2 Ready bin(s), 20 total quantity**.
-3. Select **Record WIP Bin Use** and scan `WIP-BIN-KETTLE-01`, then
+3. Scan `CFG:CMD:RECORD_WIP_BIN_USE` (or select **Record WIP Bin Use**) and scan
+   `WIP-BIN-KETTLE-01`, then
    `WIP-BIN-KETTLE-02`.
 
 Expected result:
@@ -382,7 +383,7 @@ Expected result:
 
 1. Select **Undo Use** beside `WIP-BIN-KETTLE-01`.
 2. Confirm it returns to `Ready`, with no ERP stock change and no deleted audit history.
-3. Select **Record WIP Bin Use** and scan `WIP-BIN-KETTLE-01` again.
+3. Scan `CFG:CMD:RECORD_WIP_BIN_USE` and scan `WIP-BIN-KETTLE-01` again.
 
 Expected result: both loads are again `Consumption Pending ERP` and the operation is eligible to
 close after its required progress is reported.

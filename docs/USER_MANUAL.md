@@ -1,13 +1,23 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.30
+**Guide version:** 2.32
 
 **Updated:** 28 October 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
 **Canonical file:** `docs/USER_MANUAL.md`
+
+**2.32 incremental Loose WIP:** A Loose Multi-Item BOM row can now opt into **Incremental by
+Operation Cycle**. A positive transferred bin balance is sufficient to start; each operation-card
+cycle records its own use. **Operator Complete** may close a positive partial allocation, releases
+the reusable card, and returns unfulfilled demand to the same Job Card queue. Accumulated Loose WIP
+is posted when its owning Job Card completes, without waiting for downstream Job Cards.
+
+**2.31 scanner control:** Standard Quantity WIP Bin floor-use reporting now has the dedicated,
+printable `CFG:CMD:RECORD_WIP_BIN_USE` command. It opens the same authorized **Record WIP Bin Use**
+dialog as the on-screen button and uses numbered scanner selection when several Job Cards qualify.
 
 **2.30 correction:** A Production Material Trace popup now submits the exact Draft Stock Entry
 shown in that popup instead of relying on a possibly older Card-context list. The popup exposes a
@@ -1049,7 +1059,7 @@ Important profile fields:
 | Transfer Multiple (`transfer_multiple`) | Smallest digital release increment |
 | Require Destination Scan (`require_destination_scan`) | Requires destination confirmation where used |
 | Destination Operation (`destination_operation`) | Downstream Operation |
-| Completion Rule (`completion_rule`) | Full Qty, Operator Complete, or Threshold |
+| Completion Rule (`completion_rule`) | Full Qty keeps the full-allocation gate. Operator Complete permits a positive partial card-cycle close and returns unfulfilled demand to the Job Card queue. Threshold currently retains the full-allocation closure gate; operation start thresholds remain separate. |
 
 `Allow Parallel` (`allow_parallel`) still exists as a hidden legacy compatibility field. Configure
 new Masters with **Execution Mode** rather than looking for a visible Allow Parallel checkbox.
@@ -1571,7 +1581,8 @@ accepted after a short scanner-input pause. This fallback applies equally to com
 Tags, and reusable WIP-bin codes; the visible code must not remain idle in the Scanner Ready field.
 
 After the submitted transfer makes one or more loads `Ready`, the exact Job Card shows **Record WIP
-Bin Use**. Scan each Ready bin once; do not scan its original source tag. CFG Kanban records the
+Bin Use**. Scan `CFG:CMD:RECORD_WIP_BIN_USE` to open that same action without touch input, then scan
+each Ready bin once; do not scan its original source tag. CFG Kanban records the
 physical use as `Consumption Pending ERP` without creating a Stock Entry, allowing that operation
 and its card to close while later Work Order operations continue. **Undo Use** restores a mistaken
 unposted record to Ready. As soon as that same owning Job Card is submitted and complete, use
@@ -1766,8 +1777,10 @@ one or more active **Allowed Loose WIP Items** (`loose_wip_allowed_items`). Seri
 are rejected. Create a **CFG Kanban WIP Bin Pool** with **WIP Bin Mode** (`pool_mode`) =
 `Loose Multi-Item`, assign the bin to its exact Workstation, and retain **Loose WIP Consumption
 Posting** = `Accumulate until Work Order close`. On each applicable BOM component row choose **WIP
-Presentation** = `Loose Multi-Item WIP Bin` and the matching Pool. The Master must use **Transfer to
-WIP by Job Card**.
+Presentation** = `Loose Multi-Item WIP Bin`, the matching Pool, and one **Loose WIP Release Policy**:
+`Full Job Card Quantity Before Start` preserves the original gate; `Incremental by Operation Cycle`
+allows a positive partial bin load to start and requires actual use evidence from each operation-card
+cycle. The Master must use **Transfer to WIP by Job Card**.
 
 The transfer scanner accepts an operator-entered quantity up to the remaining ERP row rather than
 using a fixed capacity. A submitted ERPNext `Material Transfer for Manufacture` creates a separate
@@ -1790,8 +1803,9 @@ Do not mix the three Loose WIP stages. **Loading** starts from a Draft Material 
 `Scan Material Tags → Material Quantity → source tag when required → Loose WIP Bin → Submit
 Materials`. **Floor-use reporting** uses `Record Loose WIP Use → Loose WIP Bin → numbered Select
 when needed → Material Quantity → Confirm`; it records cumulative use without posting ERP stock.
-**Final posting** uses `Prepare Consolidated Loose WIP Consumption` only after every Job Card is
-complete, followed by Submit Materials and the controlled unused-material returns.
+**ERP posting** uses `Prepare Consolidated Loose WIP Consumption` after the owning Job Card is
+complete. It consolidates that Job Card's recorded cycles, followed by Submit Materials and the
+controlled unused-material returns. Downstream Job Cards are not a posting prerequisite.
 
 Rapid physical scans are retained in an ordered material-scan queue while the preceding identity is
 being classified. The popup reports queued scans, processes them in order, and shows a red message
@@ -1805,10 +1819,10 @@ and the requesting operation-card Cycle. Repeated cycles accumulate against the 
 **Undo** reverses only an unposted mistake with a reason; it never deletes the audit row or changes
 ERP stock.
 
-After all Work Order Job Cards complete, the main Production Card shows **Prepare Consolidated Loose
-WIP Consumption**. It creates one native Draft `Material Consumption for Manufacture`, grouped by
+After the owning Job Card completes, its material block shows **Prepare Loose WIP ERP Consumption**.
+It creates one native Draft `Material Consumption for Manufacture`, grouped by
 Item, Batch, UOM, and WIP Warehouse. Only its submitted ERPNext feedback marks usage Posted. Every
-unused load balance receives a separate controlled WIP-to-source return Draft, and the permanent bin
+unused load balance for that Job Card receives a separate controlled WIP-to-source return Draft, and the permanent bin
 does not become Empty until every required return submits. Manufacture receipt remains blocked
 until all Loose WIP consumption and return movements are resolved.
 
@@ -2646,13 +2660,18 @@ Operational command labels have no function-key equivalent:
 - `CFG:CMD:CLOSE_CYCLE` opens the guarded final confirmation for exactly one eligible runtime
   Process/Station Cycle. It never closes immediately: scan `CFG:CMD:CONFIRM` to proceed or
   `CFG:CMD:CANCEL` to return. The server rechecks operator permission, full allocated quantity,
-  Process Task gate, Work Order state, Job Card state, and ERP-completed quantity before closure.
+  Process Task gate, Work Order state, Job Card state, ERP-completed quantity, and incremental Loose
+  WIP usage before closure. Full Qty still requires the allocation. Operator Complete permits a
+  positive partial close and returns unfulfilled quantity to the Job Card queue.
 - `CFG:CMD:PREPARE_MATERIALS` prepares the WIP or operation material transfer.
+- `CFG:CMD:RECORD_WIP_BIN_USE` opens the eligible Job Card's Standard Quantity WIP Bin use dialog.
+  If several Job Cards have Ready Standard bins, scan a numbered Select label and Confirm first;
+  then scan each Ready bin. This records physical operation use but does not post ERP stock.
 - `CFG:CMD:RECORD_LOOSE_WIP_USE` opens the eligible Job Card's cumulative Loose WIP use dialog. If
   several Job Cards are eligible, scan a numbered Select label and Confirm before scanning the bin,
   material choice, quantity, and Confirm.
-- `CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION` opens the final consolidated Loose WIP consumption
-  confirmation after all Job Cards are complete and recorded use is waiting for ERP posting.
+- `CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION` selects an eligible completed Job Card and opens its
+  consolidated Loose WIP consumption confirmation. When several qualify, use numbered selection.
 - `CFG:CMD:PREPARE_RECEIPT` prepares final manufacture receipt/direct consumption when ready.
 - `CFG:CMD:SCAN_MATERIALS` opens the eligible Draft Stock Entry for raw-material tag scans.
 - `CFG:CMD:SUBMIT_MATERIALS` submits the selected Draft production material entry.
@@ -4390,6 +4409,9 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.32 | 28 October 2026 | Added opt-in incremental Loose WIP release per BOM component, positive-load Job Card start readiness, per-operation-cycle usage closure evidence, Job Card-scoped consolidated ERP consumption and unused returns, and Operator Complete partial card closure with audited unfulfilled quantity returned to the Job Card queue while preserving independent handoff rules |
+| 2.31 | 28 October 2026 | Added the dedicated printable `CFG:CMD:RECORD_WIP_BIN_USE` production command for Standard Quantity WIP bins, including single eligible Job Card routing, numbered multi-Job selection, Scanner Help, command-label catalog, and the existing audited no-stock-posting usage dialog |
+| 2.30 | 28 October 2026 | Corrected Production Material Trace submission so the scanner posts the exact visible Draft Stock Entry instead of relying on an older Card-context list, exposes truthful physical-staging readiness, and keeps the popup open when a server gate rejects submission |
 | 2.29 | 28 October 2026 | Separated reusable Process/Station operation closure from the main production lifecycle: a submitted active Work Order may remain Not Started while a card-sized operation allocation closes against authoritative Job Card progress, releases only its reusable operation Card, preserves cumulative handover, and leaves the main Cycle, Work Order, remaining Job Card demand, materials, and manufacture receipt open |
 | 2.28 | 28 October 2026 | Added printable cumulative Material Quantity commands: absolute labels continue to set the quantity, `CFG:QTY:MATERIAL:+n` labels now add consistently across Production Material Trace and WIP usage dialogs, and repeated scans can build odd material quantities before the physical source/bin scan |
 | 2.27 | 28 October 2026 | Corrected Production Material Trace field visibility refresh on Frappe v15 by normalizing Dialog field wrappers before toggling them; quantity → source Stock Tag → Loose WIP Bin now continues through allocation instead of stopping with `wrapper.toggle is not a function` |

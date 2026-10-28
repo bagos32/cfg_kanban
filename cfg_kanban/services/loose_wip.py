@@ -2,7 +2,8 @@
 
 ERPNext remains the stock authority. Loading is confirmed by native Material Transfer for
 Manufacture. These immutable usage rows record floor consumption by operation-card cycle; one
-consolidated native Material Consumption for Manufacture is prepared at Work Order close.
+consolidated native Material Consumption for Manufacture is prepared when the owning Job Card
+completes (with a legacy Work Order-wide fallback for older records).
 """
 
 import frappe
@@ -228,7 +229,7 @@ def reverse_recorded_usage(usage_name, *, reason, operator=None, operator_sessio
 
 
 def bind_consolidated_consumption(stock_entry, usage_names):
-    """Bind Recorded usage and its source loads to one Work Order-level ERP draft."""
+    """Bind Recorded usage and source loads to one Job Card/Work Order ERP draft."""
     from cfg_kanban.services.wip_bin_loads import _refresh_wip_bin_state, bind_consumption_draft
 
     entry = frappe.get_doc("Stock Entry", stock_entry)
@@ -243,6 +244,11 @@ def bind_consolidated_consumption(stock_entry, usage_names):
             frappe.throw(f"Loose WIP Usage {usage.name} is no longer awaiting ERP posting")
         if usage.work_order != entry.work_order or usage.material_owner_cycle != entry.cfg_kanban_cycle:
             frappe.throw(f"Loose WIP Usage {usage.name} belongs to another production context")
+        if entry.get("cfg_kanban_job_card") and usage.job_card != entry.cfg_kanban_job_card:
+            frappe.throw(
+                f"Loose WIP Usage {usage.name} belongs to Job Card {usage.job_card}, "
+                f"not {entry.cfg_kanban_job_card}"
+            )
         by_load.setdefault(usage.wip_bin_load, []).append(usage)
     rows = {}
     for row in entry.items:
@@ -310,10 +316,15 @@ def confirm_consumption(stock_entry):
         _create_wip_bin_return_draft,
         _refresh_wip_bin_state,
     )
+    untouched_filters = {
+        "bin_mode": "Loose Multi-Item", "kanban_cycle": entry.cfg_kanban_cycle,
+        "work_order": entry.work_order, "status": ["in", ["Ready", "In Use"]],
+    }
+    if entry.get("cfg_kanban_job_card"):
+        untouched_filters["job_card"] = entry.cfg_kanban_job_card
     untouched = frappe.get_all(
         "CFG Kanban WIP Bin Load",
-        {"bin_mode": "Loose Multi-Item", "kanban_cycle": entry.cfg_kanban_cycle,
-         "work_order": entry.work_order, "status": ["in", ["Ready", "In Use"]]},
+        untouched_filters,
         ["name", "reusable_bin"], limit_page_length=0,
     )
     for summary in untouched:
@@ -321,7 +332,11 @@ def confirm_consumption(stock_entry):
         load.db_set({
             "status": "Return Draft", "consumed_qty": 0,
             "return_qty": load.actual_qty,
-            "consumption_reason": "Unused Loose WIP material returned at Work Order close",
+            "consumption_reason": (
+                "Unused Loose WIP material returned at Job Card close"
+                if entry.get("cfg_kanban_job_card")
+                else "Unused Loose WIP material returned at Work Order close"
+            ),
             "consumption_reported_on": timestamp,
         }, update_modified=True)
         return_entry = _create_wip_bin_return_draft(load)

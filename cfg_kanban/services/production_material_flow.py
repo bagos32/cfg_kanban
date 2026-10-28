@@ -125,6 +125,10 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
                 rule.standard_bin_qty if rule else 0
             )
             material_row["wip_bin_pool"] = rule.wip_bin_pool if rule else None
+            material_row["loose_wip_release_policy"] = (
+                (rule.loose_wip_release_policy if rule else None)
+                or "Full Job Card Quantity Before Start"
+            )
         restricted_job_rows = [row for row in all_material_rows
                                if row["item_code"] in restricted_items]
         material_rows = [row for row in all_material_rows
@@ -220,6 +224,9 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
                      ),
                      "loose_wip_recorded_qty": sum(
                          flt(row.qty) for row in loose_usage if row.status == "Recorded"
+                     ),
+                     "loose_wip_recorded_count": sum(
+                         1 for row in loose_usage if row.status == "Recorded"
                      ),
                      "loose_wip_usage_rows": [dict(row) for row in loose_usage],
                      "erp_consumption_submission_ready": operation_readiness["ready"],
@@ -574,25 +581,37 @@ def cancel_recorded_loose_wip_usage(usage_name, reason,
 
 
 @frappe.whitelist()
-def prepare_consolidated_loose_wip_consumption(cycle_name, confirmation,
+def prepare_consolidated_loose_wip_consumption(cycle_name, confirmation, job_card=None,
                                                 operator_session_token=None,
                                                 event_token=None):
-    """Create one Work Order-level ERP consumption from all unposted Loose WIP usage."""
+    """Create an operation-scoped (or legacy Work Order-scoped) Loose WIP consumption."""
     cycle, master, work_order = _production_context(cycle_name)
     if work_order.docstatus != 1:
         frappe.throw("Submit the effective Work Order before posting Loose WIP consumption")
     profile, session = require_operator(operator_session_token, "material_transfer")
     confirmation = _validated_confirmation(confirmation)
-    route_readiness = erp_consumption_submission_readiness(work_order.name)
+    if job_card:
+        if frappe.db.get_value("Job Card", job_card, "work_order") != work_order.name:
+            frappe.throw("Selected Job Card does not belong to this Work Order")
+        route_readiness = operation_consumption_submission_readiness(
+            work_order.name, job_card
+        )
+    else:
+        route_readiness = erp_consumption_submission_readiness(work_order.name)
     if not route_readiness["ready"]:
         frappe.throw(route_readiness["reason"])
     _assert_no_open_production_entry(
         cycle.name, work_order.name, "Material Consumption for Manufacture"
     )
+    usage_filters = {
+        "material_owner_cycle": cycle.name, "work_order": work_order.name,
+        "status": "Recorded",
+    }
+    if job_card:
+        usage_filters["job_card"] = job_card
     usages = frappe.get_all(
         "CFG Kanban Loose WIP Usage",
-        {"material_owner_cycle": cycle.name, "work_order": work_order.name,
-         "status": "Recorded"},
+        usage_filters,
         ["name", "item_code", "batch_no", "qty", "stock_uom", "wip_warehouse"],
         order_by="reported_on asc", limit_page_length=0,
     )
@@ -610,7 +629,7 @@ def prepare_consolidated_loose_wip_consumption(cycle_name, confirmation,
         "qty": qty,
     } for (item_code, warehouse, batch_no, stock_uom), qty in grouped.items()]
     key = canonical_key(
-        "loose-wip-consolidated-consumption", cycle.name,
+        "loose-wip-consolidated-consumption", cycle.name, job_card or "work-order",
         event_token or frappe.as_json(lines),
     )
     command, created = insert_once(frappe.get_doc({
@@ -622,6 +641,7 @@ def prepare_consolidated_loose_wip_consumption(cycle_name, confirmation,
         "target_doctype": "Stock Entry",
         "request_payload": frappe.as_json({
             "work_order": work_order.name,
+            "job_card": job_card,
             "lines": lines,
             "wip_bin_consumption": 1,
             "loose_wip_consolidated": 1,
@@ -644,12 +664,13 @@ def prepare_consolidated_loose_wip_consumption(cycle_name, confirmation,
         reference_doctype="Stock Entry", reference_name=entry.name,
         operator=profile.employee, operator_session=session.name,
         terminal_user=session.terminal_user,
-        notes=(f"{len(usages)} usage contribution(s); Operator confirmation: "
+        notes=(f"Scope: {job_card or 'Work Order'}; {len(usages)} usage contribution(s); "
+               f"Operator confirmation: "
                f"{confirmation}"),
     )
     return {"command": command.name, "stock_entry": entry.name,
             "docstatus": entry.docstatus, "duplicate": not created,
-            "usage_count": len(usages)}
+            "usage_count": len(usages), "job_card": job_card}
 
 
 @frappe.whitelist()
@@ -1361,13 +1382,48 @@ def job_card_material_readiness(job_card_name):
     if work_order.skip_transfer:
         return {"ready": True, "reason": None, "pending_qty": 0}
     if work_order.transfer_material_against == "Job Card":
-        pending = flt(frappe.db.sql("""
-            select coalesce(sum(greatest(required_qty - coalesce(transferred_qty, 0), 0)), 0)
-            from `tabJob Card Item` where parent=%s
-        """, job.name)[0][0])
+        material_rows = frappe.get_all(
+            "Job Card Item", filters={"parent": job.name},
+            fields=["item_code", "source_warehouse", "required_qty", "transferred_qty"],
+            order_by="idx asc", limit_page_length=0,
+        )
+        incremental_items = _incremental_loose_wip_items(job.work_order, job.name)
+        blocking_pending = 0
+        incremental_pending = 0
+        incremental_without_stock = []
+        for row in material_rows:
+            row_pending = max(
+                flt(row.required_qty) - flt(row.transferred_qty), 0
+            )
+            if row_pending <= 0.000001:
+                continue
+            if row.item_code not in incremental_items:
+                blocking_pending += row_pending
+                continue
+            incremental_pending += row_pending
+            if _available_incremental_loose_wip(job.name, row.item_code) <= 0.000001:
+                incremental_without_stock.append(row.item_code)
+        if incremental_without_stock:
+            items = ", ".join(sorted(set(incremental_without_stock)))
+            return {
+                "ready": False,
+                "reason": (
+                    "Load a positive quantity into an authorized Loose WIP Bin before "
+                    f"starting Job Card {job.name}. Awaiting: {items}. The full Job Card "
+                    "quantity is not required for incremental rows."
+                ),
+                "pending_qty": blocking_pending + incremental_pending,
+                "incremental_pending_qty": incremental_pending,
+            }
+        pending = blocking_pending
         reason = (f"Prepare and submit the operation materials for Job Card {job.name} "
                   f"before starting it. Pending transfer quantity: {pending}")
-        return {"ready": pending <= 0.000001, "reason": reason, "pending_qty": pending}
+        return {
+            "ready": pending <= 0.000001,
+            "reason": reason,
+            "pending_qty": pending,
+            "incremental_pending_qty": incremental_pending,
+        }
     pending = flt(frappe.db.sql("""
         select coalesce(sum(greatest(required_qty - coalesce(transferred_qty, 0), 0)), 0)
         from `tabWork Order Item` where parent=%s
@@ -1375,6 +1431,64 @@ def job_card_material_readiness(job_card_name):
     reason = (f"Submit the Work Order material transfer before starting Job Card {job.name}. "
               f"Pending transfer quantity: {pending}")
     return {"ready": pending <= 0.000001, "reason": reason, "pending_qty": pending}
+
+
+def _incremental_loose_wip_items(work_order_name, job_card_name):
+    """Return Job Card Items explicitly approved for incremental Loose WIP release."""
+    context = frappe.db.get_value(
+        "Work Order", work_order_name, ["cfg_kanban_cycle"], as_dict=True
+    )
+    if not context or not context.cfg_kanban_cycle:
+        return set()
+    owner = frappe.db.get_value(
+        "CFG Kanban Cycle", context.cfg_kanban_cycle, ["kanban_master"], as_dict=True
+    )
+    job = frappe.db.get_value("Job Card", job_card_name, ["operation"], as_dict=True)
+    if not owner or not job:
+        return set()
+    return set(frappe.get_all(
+        "CFG Kanban Material Flow Rule",
+        filters={
+            "parent": owner.kanban_master,
+            "parenttype": "CFG Kanban Master",
+            "operation": job.operation,
+            "wip_presentation_method": "Loose Multi-Item WIP Bin",
+            "loose_wip_release_policy": "Incremental by Operation Cycle",
+        },
+        pluck="item_code", limit_page_length=0,
+    ))
+
+
+def incremental_loose_wip_items(work_order_name, job_card_name):
+    """Public policy lookup used by operation-cycle readiness and closure controls."""
+    return _incremental_loose_wip_items(work_order_name, job_card_name)
+
+
+def _available_incremental_loose_wip(job_card_name, item_code):
+    """Return physical Loose WIP already transferred but not yet reported as used."""
+    loads = frappe.get_all(
+        "CFG Kanban WIP Bin Load",
+        filters={
+            "job_card": job_card_name,
+            "item_code": item_code,
+            "bin_mode": "Loose Multi-Item",
+            "status": ["in", ["Ready", "In Use"]],
+        },
+        fields=["name", "actual_qty"], limit_page_length=0,
+    )
+    available = 0
+    for load in loads:
+        reported = flt(frappe.db.sql(
+            """
+            select coalesce(sum(qty), 0)
+              from `tabCFG Kanban Loose WIP Usage`
+             where wip_bin_load=%s
+               and status in ('Recorded', 'Consumption Draft', 'Posted')
+            """,
+            load.name,
+        )[0][0])
+        available += max(flt(load.actual_qty) - reported, 0)
+    return available
 
 
 def _work_order_material_row(row, wip_warehouse, mode, resolved_return_qty=0):

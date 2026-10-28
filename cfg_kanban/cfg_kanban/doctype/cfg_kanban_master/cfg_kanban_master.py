@@ -236,7 +236,7 @@ class CFGKanbanMaster(Document):
             filters={"parent": self.name, "parenttype": self.doctype},
             fields=["name", "item_code", "operation", "source_warehouse",
                     "bom_qty", "stock_uom", "wip_presentation_method",
-                    "wip_bin_pool", "standard_bin_qty", "idx"],
+                    "loose_wip_release_policy", "wip_bin_pool", "standard_bin_qty", "idx"],
             order_by="idx asc",
         )
         protected_rows = [row for row in stored_rows
@@ -253,10 +253,16 @@ class CFGKanbanMaster(Document):
         if presentation not in wip_presentations:
             row.wip_bin_pool = None
             row.standard_bin_qty = 0
+            row.loose_wip_release_policy = "Full Job Card Quantity Before Start"
             return
         loose_mode = presentation == "Loose Multi-Item WIP Bin"
         if loose_mode:
             row.standard_bin_qty = 0
+            row.loose_wip_release_policy = (
+                row.loose_wip_release_policy or "Full Job Card Quantity Before Start"
+            )
+        else:
+            row.loose_wip_release_policy = "Full Job Card Quantity Before Start"
         if mode != "Transfer to WIP by Job Card":
             frappe.throw(
                 f"Material Flow row {row.idx}: {presentation} "

@@ -119,8 +119,11 @@ normal Stock Tag and no detachable printed child label is required. The load epi
 immutable source lineage and ERP Stock Entry reference. Draft allocation reserves 10 kg; only
 submitted ERPNext transfer feedback removes it from the source tag and marks the bin Ready.
 
-After transfer submission, the exact Job Card shows **Record WIP Bin Use**. The operator scans each
-physical Ready bin once. CFG Kanban records the Item, WIP Warehouse, UOM, Batch, Cycle, Job Card,
+After transfer submission, the exact Job Card shows **Record WIP Bin Use**. The operator may scan
+the printable `CFG:CMD:RECORD_WIP_BIN_USE` command to open the same guarded action without touch or
+mouse input, then scans each physical Ready bin once. When several Job Cards have Ready Standard
+bins, numbered Select and Confirm commands choose the intended Job Card first. CFG Kanban records
+the Item, WIP Warehouse, UOM, Batch, Cycle, Job Card,
 actual consumed quantity, and unused quantity in the WIP Bin Load; its status becomes
 `Consumption Pending ERP` and the physical bin becomes `In Use`. This step deliberately does not
 create a Stock Entry while the owning Job Card is still running. A mistaken pending-use record can

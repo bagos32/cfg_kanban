@@ -142,6 +142,7 @@ def _scanner_command_catalog(quantity_steps=None):
         ]),
         ("Production Material and WIP", [
             ("Prepare Transfer / Consumption", "CFG:CMD:PREPARE_MATERIALS", ""),
+            ("Record Standard WIP Bin Use", "CFG:CMD:RECORD_WIP_BIN_USE", ""),
             ("Record Loose WIP Use", "CFG:CMD:RECORD_LOOSE_WIP_USE", ""),
             ("Prepare Consolidated Loose WIP Consumption", "CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION", ""),
             ("Prepare Manufacture Receipt", "CFG:CMD:PREPARE_RECEIPT", ""),
@@ -466,7 +467,8 @@ def get_card_context(token, operator_session_token=None):
             fields=["name", "operation", "sequence", "job_card", "workstation", "status",
                     "lane_sequence", "execution_mode", "runtime_allocation", "allocated_qty",
                     "target_qty", "processed_qty", "good_qty", "reject_qty", "released_qty",
-                    "handoff_mode", "crew_compliance_status", "last_crew_compliance_check",
+                    "handoff_mode", "completion_rule", "completion_basis", "unfulfilled_qty",
+                    "crew_compliance_status", "last_crew_compliance_check",
                     "crew_compliance_hold"],
             order_by="sequence asc",
         )
@@ -475,6 +477,7 @@ def get_card_context(token, operator_session_token=None):
             ownership_transfer_requirement,
         )
         for execution in executions:
+            execution["completion_rule"] = _execution_completion_rule(execution)
             job = frappe.db.get_value("Job Card", execution.job_card,
                 ["name", "status", "docstatus", "for_quantity", "total_completed_qty"], as_dict=True)
             execution["job_card_status"] = job.status if job else "Missing"
@@ -1141,8 +1144,14 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
     assert_gate_open(execution.kanban_cycle, "Before Cycle Close")
     if not execution.runtime_allocation:
         frappe.throw("This is not a runtime-selected execution")
-    if flt(execution.processed_qty) + 0.000001 < flt(execution.target_qty):
+    completion_rule = _execution_completion_rule(execution)
+    if completion_rule != "Operator Complete" and flt(execution.processed_qty) + 0.000001 < flt(execution.target_qty):
         frappe.throw(f"Report the full allocated quantity {execution.target_qty} before closing the Cycle")
+    if completion_rule == "Operator Complete" and flt(execution.processed_qty) <= 0.000001:
+        frappe.throw(
+            "Report a positive good or reject quantity before using Operator Complete. "
+            "Use the controlled supervisor cancellation or exception workflow for zero output."
+        )
     allocation = frappe.get_doc("CFG Kanban Runtime Allocation", execution.runtime_allocation)
     cycle = frappe.get_doc("CFG Kanban Cycle", execution.kanban_cycle)
     card = frappe.get_doc("CFG Kanban Card", cycle.kanban_card)
@@ -1170,7 +1179,18 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
             profile,
             session,
         )
-    execution.db_set({"status": "Completed", "completed_on": now_datetime()})
+    unfulfilled_qty = max(flt(execution.target_qty) - flt(execution.good_qty), 0)
+    partial_close = unfulfilled_qty > 0.000001
+    completion_basis = (
+        "Operator Complete - Partial Allocation"
+        if completion_rule == "Operator Complete" and partial_close
+        else completion_rule
+    )
+    execution.db_set({"status": "Completed", "completed_on": now_datetime(),
+        "completion_rule": completion_rule,
+        "completion_basis": completion_basis,
+        "unfulfilled_qty": unfulfilled_qty,
+    })
     from cfg_kanban.services.job_participation import close_execution_participation
     close_execution_participation(
         execution.name,
@@ -1179,7 +1199,11 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
         reason="Runtime-selected Kanban Cycle completed",
     )
     allocation.db_set({"status": "Completed", "completed_on": now_datetime(),
+                       "completion_rule": completion_rule,
+                       "processed_qty": execution.processed_qty,
                        "good_qty": execution.good_qty, "reject_qty": execution.reject_qty,
+                       "unfulfilled_qty": unfulfilled_qty,
+                       "completion_basis": completion_basis,
                        "notes": notes}, update_modified=True)
     cycle.db_set({"completed_on": now_datetime(), "actual_good_qty": execution.good_qty,
                   "reject_qty": execution.reject_qty})
@@ -1196,7 +1220,9 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
     card.db_set("active_cycle", None, update_modified=False)
     closure_scope_note = (
         f"Operation allocation closed independently; owning Work Order {work_order.name} "
-        f"remains {work_order.status} and its main production Cycle remains open."
+        f"remains {work_order.status} and its main production Cycle remains open. "
+        f"Completion rule: {completion_rule}; quantity returned to Job Card queue: "
+        f"{unfulfilled_qty}."
     )
     record("Runtime Allocation Completed", card=card.name, cycle=cycle.name,
            execution=execution.name, qty=execution.good_qty, reference_doctype="Job Card",
@@ -1240,6 +1266,11 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
                notes="ERPNext Job Card is completed and the cumulative Kanban target is reached")
     return {"cycle": cycle.name, "card": card.name, "job_card": execution.job_card,
             "good_qty": execution.good_qty, "reject_qty": execution.reject_qty,
+            "processed_qty": execution.processed_qty,
+            "unfulfilled_qty": unfulfilled_qty,
+            "partial_close": partial_close,
+            "completion_rule": completion_rule,
+            "completion_basis": completion_basis,
             "cumulative_completed_qty": cumulative_completed,
             "job_card_target_qty": target_qty, "job_card_target_reached": target_reached,
             "job_card_submitted": bool(job_card and job_card.docstatus == 1),
@@ -1270,6 +1301,22 @@ def _runtime_close_readiness(execution, work_order, job_card):
         status = job_card.status if job_card else "Missing"
         return {"ready": False, "reason": (f"Cannot close the Operation Cycle while ERPNext Job Card "
                 f"is {status}. Start the Job Card and record its production time log first.")}
+    from cfg_kanban.services.production_material_flow import incremental_loose_wip_items
+    incremental_items = incremental_loose_wip_items(work_order.name, job_card.name)
+    missing_usage = []
+    for item_code in incremental_items:
+        if not frappe.db.exists("CFG Kanban Loose WIP Usage", {
+            "requesting_cycle": execution.kanban_cycle,
+            "job_card": job_card.name,
+            "item_code": item_code,
+            "status": ["in", ["Recorded", "Consumption Draft", "Posted"]],
+        }):
+            missing_usage.append(item_code)
+    if missing_usage:
+        return {"ready": False, "reason": (
+            "Record the actual Loose WIP use for this Operation Card cycle before closing it. "
+            "Awaiting: " + ", ".join(sorted(missing_usage))
+        )}
     from cfg_kanban.services.wip_bin_loads import job_card_wip_bin_close_readiness
     wip_bin_readiness = job_card_wip_bin_close_readiness(job_card.name)
     if not wip_bin_readiness["ready"]:
@@ -1306,6 +1353,18 @@ def _runtime_close_readiness(execution, work_order, job_card):
         "wip_bin_pending_stock_entries": pending_wip_stock_entries,
         "wip_bin_pending_loads": pending_wip_loads,
     }
+
+
+def _execution_completion_rule(execution):
+    """Use the release snapshot; derive it only for pre-migration active executions."""
+    if execution.get("completion_rule"):
+        return execution.completion_rule
+    master = frappe.get_doc("CFG Kanban Master", execution.kanban_master)
+    profile = next(
+        (row for row in master.operation_profiles if row.operation == execution.operation),
+        None,
+    )
+    return (profile.completion_rule if profile else None) or "Full Qty"
 
 
 @frappe.whitelist()

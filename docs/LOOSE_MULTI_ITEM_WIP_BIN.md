@@ -1,7 +1,7 @@
 # CFG Kanban — Loose Multi-Item WIP Bin
 
-**Status:** V1 controlled accumulation and final ERP posting implemented; live acceptance required  
-**Date:** 27 October 2026  
+**Status:** V1 incremental cycle accumulation and Job Card-scoped ERP posting implemented; live acceptance required
+**Date:** 28 October 2026
 **ERP stock authority:** submitted ERPNext Stock Entries
 
 ## Purpose
@@ -14,7 +14,8 @@ Operation, Workstation, Work Order, and Job Card while active.
 
 This mode supports repeated operation-card cycles for the same Job Card. Each cycle may scan the
 same bin and record an immutable quantity contribution. CFG Kanban accumulates those contributions
-and creates one native ERPNext `Material Consumption for Manufacture` at final Work Order close.
+and creates one native ERPNext `Material Consumption for Manufacture` when the owning Job Card
+completes. Downstream Job Cards are not part of that posting gate.
 
 ## Configuration
 
@@ -29,7 +30,10 @@ and creates one native ERPNext `Material Consumption for Manufacture` at final W
    - one Company, Operation, WIP Warehouse, and the actual Workstation for each physical bin.
 3. On the Kanban Master's BOM component row, select:
    - **WIP Presentation** = `Loose Multi-Item WIP Bin`; and
-   - the matching Loose WIP Pool.
+   - the matching Loose WIP Pool; and
+   - **Loose WIP Release Policy** = `Incremental by Operation Cycle` only where partial staged
+     material is operationally controlled. Leave `Full Job Card Quantity Before Start` for the
+     original full-transfer safety gate.
 4. Keep the Master on **Transfer to WIP by Job Card**. The BOM component must have the exact Item
    Operation that owns the Job Card.
 
@@ -49,8 +53,8 @@ Use these hands-free sequences:
 
 - Scan `CFG:CMD:RECORD_LOOSE_WIP_USE` to open the eligible Job Card's Loose WIP usage workflow.
   When several Job Cards are eligible, select the numbered operation and scan Confirm.
-- Scan `CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION` after all Job Cards are complete to open the final
-  consolidated ERP consumption confirmation.
+- Scan `CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION` after the owning Job Card completes to open its
+  consolidated ERP consumption confirmation. Numbered selection is used when several Job Cards qualify.
 - Loose WIP with ERP-only source: `Material Quantity → Loose WIP Bin`;
 - Loose WIP with a physical source: `Material Quantity → Source Stock Tag → Loose WIP Bin`;
 - full Standard WIP: `Source Stock Tag when required → Standard WIP Bin` (the physical bin
@@ -68,7 +72,7 @@ These are three separate stages and must not be mixed:
 2. **Report floor use:** scan `CFG:CMD:RECORD_LOOSE_WIP_USE`, then scan `Loose WIP Bin → numbered
    Select when several Item/Batch choices exist → Material Quantity → Confirm`. This records an
    immutable usage contribution and does not yet post ERP stock.
-3. **Post final consumption:** after every Job Card completes, scan
+3. **Post Job Card consumption:** after the owning Job Card completes, scan
    `CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION`, confirm creation of the consolidated Draft, then use
    `CFG:CMD:SUBMIT_MATERIALS`. Unused balances continue through their controlled return Drafts.
 
@@ -92,8 +96,8 @@ Draft Material Transfer for Manufacture
 one or more immutable WIP Bin Load episodes = Ready / Accumulating
         ↓ each operation-card cycle scans bin and records actual quantity used
 immutable Loose WIP Usage rows accumulate against the Job Card
-        ↓ all Work Order Job Cards complete
-one consolidated Material Consumption for Manufacture Draft
+        ↓ owning Job Card completes
+one Job Card-scoped Material Consumption for Manufacture Draft
         ↓ ERPNext submission confirms actual consumption
 unused quantity receives controlled WIP-to-source return Draft(s)
         ↓ all returns submit
@@ -109,7 +113,7 @@ the owner Cycle, requesting operation-card Cycle, Work Order, Job Card, Operatio
 Item, Batch, quantity, operator, session, bin, and load. An unposted mistake can be reversed with
 **Undo** and a reason.
 
-At final close, **Prepare Consolidated Loose WIP Consumption** groups all recorded contributions by
+At Job Card close, **Prepare Consolidated Loose WIP Consumption** groups that Job Card's recorded contributions by
 Item, Batch, UOM, and WIP Warehouse. The operator reviews and submits the one native ERP entry.
 CFG Kanban then prepares a separate return Draft for every unused load balance. Manufacture receipt
 remains blocked until the consumption and every required unused-material return are submitted.

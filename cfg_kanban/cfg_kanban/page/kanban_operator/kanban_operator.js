@@ -364,6 +364,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			GO_TO_CURRENT_WORK: go_to_current_work,
 			CLOSE_CYCLE: close_context_runtime_cycle,
 			PREPARE_MATERIALS: open_scanner_material_preparation,
+			RECORD_WIP_BIN_USE: open_scanner_standard_wip_usage,
 			RECORD_LOOSE_WIP_USE: open_scanner_loose_wip_usage,
 			PREPARE_LOOSE_WIP_CONSUMPTION: open_scanner_loose_wip_consumption,
 			PREPARE_RECEIPT: open_scanner_manufacture_receipt,
@@ -469,15 +470,20 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}
 		const executions = (state.context.executions || []).filter((row) => row.runtime_allocation);
 		const eligible = executions.filter((row) =>
-			(row.processed_qty || 0) >= (row.target_qty || 0) && row.can_close_runtime_cycle);
+			runtime_cycle_has_closable_progress(row) && row.can_close_runtime_cycle);
 		if (eligible.length === 1) return close_runtime_cycle(eligible[0]);
 		if (eligible.length > 1) {
 			return scanner_command_message(__("More than one runtime Cycle is eligible. Open the correct Process or Station Card before closing."));
 		}
 		const blocked = executions.find((row) =>
-			(row.processed_qty || 0) >= (row.target_qty || 0) && !row.can_close_runtime_cycle);
+			runtime_cycle_has_closable_progress(row) && !row.can_close_runtime_cycle);
 		return scanner_command_message(blocked?.close_block_reason ||
 			__("No runtime Kanban Cycle is currently eligible for closure."));
+	}
+
+	function runtime_cycle_has_closable_progress(row) {
+		if (row.completion_rule === "Operator Complete") return Number(row.processed_qty || 0) > 0;
+		return Number(row.processed_qty || 0) >= Number(row.target_qty || 0);
 	}
 
 	function install_scanner_shortcuts() {
@@ -785,7 +791,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			if (active_execution.job_card_needs_submit && permissions.complete) {
 				return execution_live_action(active_execution, "complete");
 			}
-			if (active_execution.runtime_allocation && active_execution.can_close_runtime_cycle &&
+			if (active_execution.runtime_allocation && runtime_cycle_has_closable_progress(active_execution) &&
+				active_execution.can_close_runtime_cycle &&
 				permissions.complete) {
 				return execution_live_action(active_execution, "close");
 			}
@@ -951,7 +958,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<tr><td>F8</td><td><code>CFG:CMD:END_SESSION</code></td><td>${__("End operator session after confirmation")}</td></tr>
 			</tbody></table>
 			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:ACCEPT_OWNER</code>, <code>CFG:CMD:TRANSFER_OWNER</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
-			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:RECORD_LOOSE_WIP_USE</code>, <code>CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
+			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:RECORD_WIP_BIN_USE</code>, <code>CFG:CMD:RECORD_LOOSE_WIP_USE</code>, <code>CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
 			<p><strong>${__("Progress dialog commands")}</strong>: <code>CFG:QTY:GOOD:+1</code>, <code>CFG:QTY:REJECT:+1</code>, <code>CFG:CMD:CONFIRM</code>, <code>CFG:CMD:CANCEL</code>.</p>
 			<p><strong>${__("Message control")}</strong>: scan the next card to close an error and continue, or scan <code>CFG:CMD:DISMISS</code> to close it.</p>
 			<div class="alert alert-warning">${__("A web page cannot receive scanner keys while the browser address bar is selected. Use full-screen/kiosk mode and configure the scanner to append Enter.")}</div>
@@ -1460,7 +1467,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					$job.append(`<div class="mt-2 alert alert-success py-2"><small>${__("{0} Ready bin(s), {1} total quantity await Job Card consumption", [job.wip_bin_ready_count, job.wip_bin_ready_qty])}</small></div>`);
 				}
 				if (job.has_loose_wip && (job.loose_wip_active_bins || []).length &&
-					!flow.loose_wip_consumption_draft) {
+					!job.wip_bin_consumption_draft) {
 					add_action($job_actions, __("Record Loose WIP Use"), "btn-success", () =>
 						record_loose_wip_usage_dialog(flow, job));
 					const usage_rows = (job.loose_wip_usage_rows || []).filter((row) => row.status === "Recorded");
@@ -1468,7 +1475,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 						`<div class="d-flex justify-content-between align-items-center mt-1"><span>${e(usage.visible_bin_code || usage.reusable_bin)} · ${e(usage.item_code)}${usage.batch_no ? ` · ${e(usage.batch_no)}` : ""} · ${e(usage.qty)} ${e(usage.stock_uom)}</span>
 						<button type="button" class="btn btn-xs btn-danger cancel-loose-wip-use" data-usage="${e(usage.name)}">${__("Undo")}</button></div>`).join("");
 					$job.append(`<div class="mt-2 alert alert-info py-2"><small><strong>${__("Loose WIP accumulation")}</strong><br>
-						${__("Loaded: {0}. Recorded use awaiting final Work Order consumption: {1}.", [job.loose_wip_loaded_qty || 0, job.loose_wip_recorded_qty || 0])}</small>${usage_html}</div>`);
+						${__("Loaded: {0}. Recorded use awaiting this Job Card's ERP consumption: {1}.", [job.loose_wip_loaded_qty || 0, job.loose_wip_recorded_qty || 0])}</small>${usage_html}</div>`);
 					$job.find(".cancel-loose-wip-use").on("click", function () {
 						frappe.prompt([{ fieldname: "reason", label: __("Reason"), fieldtype: "Small Text", reqd: 1 }], async (values) => {
 							await frappe.call({ method: "cfg_kanban.services.production_material_flow.cancel_recorded_loose_wip_usage", args: {
@@ -1478,6 +1485,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 							await load_card(state.context.card.qr_code || state.context.card.card_number);
 						}, __("Reverse Loose WIP Use"), __("Reverse"));
 					});
+				}
+				if (job.loose_wip_recorded_count && job.erp_consumption_submission_ready &&
+					!job.wip_bin_consumption_draft) {
+					add_action($job_actions, __("Prepare Loose WIP ERP Consumption"), "btn-primary", () =>
+						prepare_consolidated_loose_wip_consumption_dialog(flow, job));
 				}
 				if (job.wip_bin_pending_erp_count && !job.wip_bin_consumption_draft) {
 					if (job.erp_consumption_submission_ready) {
@@ -1834,7 +1846,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					operator_session_token: state.session_token },
 				freeze: true, freeze_message: __("Recording cumulative Loose WIP use..."),
 			});
-			frappe.show_alert({ message: __("Loose WIP use recorded for final Work Order consumption."), indicator: "green" });
+			frappe.show_alert({ message: __("Loose WIP use recorded for this Job Card's ERP consumption."), indicator: "green" });
 			await dialog.set_value("qty", 0);
 			await load_bin(balance.handling_unit_id);
 			if (!(balance.items || []).length) {
@@ -1889,13 +1901,18 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		return dialog;
 	}
 
-	function prepare_consolidated_loose_wip_consumption_dialog(flow) {
+	function prepare_consolidated_loose_wip_consumption_dialog(flow, job = null) {
+		const e = frappe.utils.escape_html;
 		const dialog = new frappe.ui.Dialog({
-			title: __("Prepare Consolidated Loose WIP Consumption"),
+			title: job ? __("Prepare Job Card Loose WIP Consumption") : __("Prepare Consolidated Loose WIP Consumption"),
 			fields: [
-				{ fieldtype: "HTML", options: `<div class="alert alert-warning"><strong>${__("Final Work Order posting")}</strong><br>${__("All unposted Loose WIP use from every operation-card cycle will be consolidated into one native ERPNext consumption Draft. Every unused transferred balance will receive a separate controlled WIP-to-source return Draft.")}</div>` },
+				{ fieldtype: "HTML", options: job
+					? `<div class="alert alert-warning"><strong>${__("Completed Job Card posting")}</strong><br>${__("All unposted Loose WIP use recorded by operation-card cycles for Job Card {0} will be consolidated into one native ERPNext consumption Draft. Unused transferred balance from this Job Card will receive a controlled WIP-to-source return Draft.", [e(job.name)])}</div>`
+					: `<div class="alert alert-warning"><strong>${__("Legacy final Work Order posting")}</strong><br>${__("All unposted Loose WIP use will be consolidated into one native ERPNext consumption Draft.")}</div>` },
 				{ fieldname: "confirmation", label: __("Operator Confirmation / Notes"), fieldtype: "Small Text", reqd: 1,
-					default: __("All operation usage was reviewed before final Work Order consumption") },
+					default: job
+						? __("All operation-cycle usage was reviewed before Job Card consumption")
+						: __("All operation usage was reviewed before final Work Order consumption") },
 				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data" },
 			],
 			primary_action_label: __("Create Consolidated ERP Draft"),
@@ -1903,6 +1920,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				const response = await frappe.call({
 					method: "cfg_kanban.services.production_material_flow.prepare_consolidated_loose_wip_consumption",
 					args: { cycle_name: flow.cycle, confirmation: values.confirmation,
+						job_card: job?.name,
 						event_token: frappe.utils.get_random(24),
 						operator_session_token: state.session_token },
 					freeze: true, freeze_message: __("Preparing consolidated Loose WIP consumption..."),
@@ -2198,6 +2216,29 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		return dialog;
 	}
 
+	function open_scanner_standard_wip_usage() {
+		const flow = state.context && state.context.production_material_flow;
+		if (!flow || !state.operator.permissions.material_transfer) {
+			return scanner_command_message(__("No authorized Standard WIP Bin use is available on this card."));
+		}
+		if (flow.work_order_docstatus !== 1) {
+			return scanner_command_message(__("Submit the Work Order before recording Standard WIP Bin use."));
+		}
+		const eligible = (flow.jobs || []).filter((job) =>
+			job.wip_bin_ready_count && !job.wip_bin_consumption_draft);
+		if (!eligible.length) {
+			return scanner_command_message(__("No Ready Standard Quantity WIP Bin is available for this production card."));
+		}
+		if (eligible.length > 1) return scanner_selection_dialog(
+			__("Select Job Card for Standard WIP Bin Use"),
+			eligible.map((job) => ({ value: job.name,
+				label: `${job.operation || __("Operation")} · ${job.name} · ${job.wip_bin_ready_count} ${__("Ready bin(s)")}`, job })),
+			__("Record Selected WIP Bin Use"),
+			(choice) => record_wip_bin_consumption_dialog(flow, choice.job),
+		);
+		return record_wip_bin_consumption_dialog(flow, eligible[0]);
+	}
+
 	function open_scanner_loose_wip_usage() {
 		const flow = state.context && state.context.production_material_flow;
 		if (!flow || !state.operator.permissions.material_transfer) {
@@ -2229,16 +2270,22 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (!flow || !state.operator.permissions.material_transfer) {
 			return scanner_command_message(__("No authorized consolidated Loose WIP consumption is available on this card."));
 		}
-		if (flow.loose_wip_consumption_draft) {
-			return scanner_command_message(__("The consolidated Loose WIP consumption Draft is already open."));
+		const eligible = (flow.jobs || []).filter((job) =>
+			job.loose_wip_recorded_count && job.erp_consumption_submission_ready &&
+			!job.wip_bin_consumption_draft);
+		if (eligible.length > 1) return scanner_selection_dialog(
+			__("Select Completed Job Card for Loose WIP Posting"),
+			eligible.map((job) => ({ value: job.name,
+				label: `${job.operation || __("Operation")} · ${job.name}`, job })),
+			__("Prepare Selected Consumption"),
+			(choice) => prepare_consolidated_loose_wip_consumption_dialog(flow, choice.job),
+		);
+		if (eligible.length === 1) {
+			return prepare_consolidated_loose_wip_consumption_dialog(flow, eligible[0]);
 		}
-		if (!flow.all_job_cards_completed) {
-			return scanner_command_message(__("Complete all Job Cards before preparing consolidated Loose WIP consumption."));
-		}
-		if (!flow.loose_wip_recorded_count) {
-			return scanner_command_message(__("No recorded Loose WIP use is waiting for ERP consumption."));
-		}
-		return prepare_consolidated_loose_wip_consumption_dialog(flow);
+		return scanner_command_message(
+			__("No completed Job Card has recorded Loose WIP use awaiting ERP consumption.")
+		);
 	}
 
 	function open_scanner_material_preparation() {
@@ -3837,7 +3884,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					<small>${__("ERP completed")}: ${e(row.job_card_completed_qty || 0)} / ${e(row.job_card_target_qty || 0)}</small>
 					${(row.good_qty || 0) > (row.job_card_completed_qty || 0) ? `<div class="text-warning"><small>${__("Kanban progress is awaiting ERP Job Card entry")}</small></div>` : ""}</div>
 				<div class="col-md-2"><span class="indicator-pill ${indicator(row.status)}">${e(row.status)}</span></div>
-				<div class="col-md-3">${__("Allocated")}: ${e(row.allocated_qty || row.target_qty || 0)}<br>${__("Good")}: ${e(row.good_qty || 0)}<br>${__("Released")}: ${e(row.released_qty || 0)}</div>
+				<div class="col-md-3">${__("Allocated")}: ${e(row.allocated_qty || row.target_qty || 0)}<br>${__("Good")}: ${e(row.good_qty || 0)}<br>${__("Released")}: ${e(row.released_qty || 0)}<br><small>${__("Completion")}: ${e(row.completion_rule || "Full Qty")}</small></div>
 				<div class="col-md-4 text-right cfg-execution-actions"></div>
 				</div></div>`).appendTo($section);
 			$(`<div class="cfg-execution-crew-strip ${crew_colour}">
@@ -3860,7 +3907,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			if (row.runtime_allocation && row.job_card_needs_submit && state.operator.permissions.complete) {
 				add_action($buttons, __("Complete Job Card"), "btn-primary", () => job_action(row, "complete"));
 			}
-			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && row.can_close_runtime_cycle && state.operator.permissions.complete) {
+			if (row.runtime_allocation && runtime_cycle_has_closable_progress(row) && row.can_close_runtime_cycle && state.operator.permissions.complete) {
 				const close_label = row.close_requires_supervisor_approval
 					? __("Supervisor Pass & Close Operation") : __("Close Operation Cycle");
 				const close_class = row.close_requires_supervisor_approval ? "btn-warning" : "btn-success";
@@ -3869,7 +3916,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					$row.append(`<div class="mt-2 alert alert-warning py-2"><small>${__("Operation use is recorded for this Job Card. Its ERP consumption {0} remains pending, but it does not prevent the next operation from starting after this Job Card reaches its progress target.", [(row.wip_bin_pending_entries || []).join(", ")])}</small></div>`);
 				}
 			}
-			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && !row.can_close_runtime_cycle) {
+			if (row.runtime_allocation && runtime_cycle_has_closable_progress(row) && !row.can_close_runtime_cycle) {
 				const $blocked = $("<button class='btn btn-sm btn-warning ml-1'>" + __("ERP Update Required") + "</button>").appendTo($buttons);
 				$blocked.on("click", () => frappe.msgprint({ title: __("Cannot Close Operation Cycle"),
 					message: e(row.close_block_reason || __("ERP operation evidence is not ready.")), indicator: "orange" }));
@@ -4153,6 +4200,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					${__("Operation")}: ${e(row.operation || "-")}<br>
 					${__("Job Card")}: ${e(row.job_card || "-")}<br>
 					${__("Processed")}: ${e(row.processed_qty || 0)} / ${e(row.target_qty || 0)}<br>
+					${__("Completion rule")}: ${e(row.completion_rule || "Full Qty")}<br>
+					${row.completion_rule === "Operator Complete" && Number(row.processed_qty || 0) < Number(row.target_qty || 0)
+						? `<strong>${__("Partial close: unfulfilled demand returns to the same Job Card queue.")}</strong><br>` : ""}
 					${__("Only this operation allocation and reusable Card will close. The main production Cycle, Work Order, and remaining Job Card demand stay open.")}</div>` },
 				{ fieldname: "notes", label: __("Completion Notes"), fieldtype: "Small Text" },
 				...supervisor_fields,
@@ -4175,7 +4225,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				}, freeze: true, freeze_message: __("Closing Operation Cycle...") });
 				dialog.hide();
 				const result = response.message;
-				frappe.show_alert({ message: result.wip_bin_erp_posting_pending
+				frappe.show_alert({ message: result.partial_close
+					? __("Partial Operation Cycle closed; {0} returned to the Job Card queue", [result.unfulfilled_qty])
+					: result.wip_bin_erp_posting_pending
 					? __("Operation closed; ERP WIP-bin consumption remains pending in {0}", [(result.wip_bin_pending_entries || []).join(", ")])
 					: result.job_card_target_reached
 					? __("Operation Cycle completed and ERPNext Job Card submitted")

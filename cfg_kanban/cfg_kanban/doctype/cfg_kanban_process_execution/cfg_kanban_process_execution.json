@@ -1,6 +1,6 @@
 {
  "doctype":"DocType","name":"CFG Kanban Process Execution","module":"CFG Kanban","autoname":"KPE-.#####","track_changes":1,
- "field_order":["kanban_cycle","kanban_master","runtime_allocation","operation_summary","operation","sequence","lane_sequence","job_card","workstation","status","execution_mode","allocated_qty","target_qty","input_available_qty","processed_qty","good_qty","reject_qty","released_qty","operator","started_on","completed_on","allow_parallel","handoff_mode","transfer_multiple","destination_operation","destination_execution","operation_profile_revision","execution_values","crew_compliance_section","crew_compliance_status","last_crew_compliance_check","crew_compliance_hold","crew_hold_previous_status","crew_compliance_checked_on","blocked","exception"],
+ "field_order":["kanban_cycle","kanban_master","runtime_allocation","operation_summary","operation","sequence","lane_sequence","job_card","workstation","status","execution_mode","completion_rule","completion_basis","allocated_qty","target_qty","input_available_qty","processed_qty","good_qty","reject_qty","unfulfilled_qty","released_qty","operator","started_on","completed_on","allow_parallel","handoff_mode","transfer_multiple","destination_operation","destination_execution","operation_profile_revision","execution_values","crew_compliance_section","crew_compliance_status","last_crew_compliance_check","crew_compliance_hold","crew_hold_previous_status","crew_compliance_checked_on","blocked","exception"],
  "fields":[
   {"fieldname":"kanban_cycle","label":"Kanban Cycle","fieldtype":"Link","options":"CFG Kanban Cycle","reqd":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"kanban_master","label":"Kanban Master","fieldtype":"Link","options":"CFG Kanban Master","reqd":1},
@@ -13,12 +13,15 @@
   {"fieldname":"workstation","label":"Workstation","fieldtype":"Link","options":"Workstation","in_list_view":1,"in_standard_filter":1},
   {"fieldname":"status","label":"Status","fieldtype":"Select","options":"Not Ready\nReady\nIn Progress\nPaused\nWaiting Input\nCompleted\nBlocked\nCancelled","default":"Not Ready","in_list_view":1,"in_standard_filter":1},
   {"fieldname":"execution_mode","label":"Execution Mode","fieldtype":"Select","options":"Single Workstation\nParallel Workstations\nSequential Split","read_only":1},
+  {"fieldname":"completion_rule","label":"Completion Rule Snapshot","fieldtype":"Select","options":"Full Qty\nOperator Complete\nThreshold","default":"Full Qty","read_only":1},
+  {"fieldname":"completion_basis","label":"Completion Basis","fieldtype":"Data","read_only":1},
   {"fieldname":"allocated_qty","label":"ERP Job Card Allocated Qty","fieldtype":"Float","read_only":1},
   {"fieldname":"target_qty","label":"Execution Target Qty","fieldtype":"Float","in_list_view":1},
   {"fieldname":"input_available_qty","label":"Operation Input Available Qty","fieldtype":"Float","read_only":1},
   {"fieldname":"processed_qty","label":"Processed Qty","fieldtype":"Float","read_only":1},
   {"fieldname":"good_qty","label":"Good Qty","fieldtype":"Float","read_only":1,"in_list_view":1},
   {"fieldname":"reject_qty","label":"Reject Qty","fieldtype":"Float","read_only":1},
+  {"fieldname":"unfulfilled_qty","label":"Returned to Job Card Queue","fieldtype":"Float","read_only":1},
   {"fieldname":"released_qty","label":"Released Qty","fieldtype":"Float","read_only":1},
   {"fieldname":"operator","label":"Operator Employee","fieldtype":"Link","options":"Employee"},
   {"fieldname":"started_on","label":"Started On","fieldtype":"Datetime"},

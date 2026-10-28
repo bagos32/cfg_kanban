@@ -152,6 +152,7 @@ async function load_bom_material_flow(frm, options = {}) {
 			controls_by_component[material_flow_key(row)] = {
 				source_warehouse: row.source_warehouse,
 				wip_presentation_method: row.wip_presentation_method || "Standard ERP / Tag Flow",
+				loose_wip_release_policy: row.loose_wip_release_policy || "Full Job Card Quantity Before Start",
 				wip_bin_pool: row.wip_bin_pool,
 				standard_bin_qty: row.standard_bin_qty,
 			};
@@ -249,6 +250,11 @@ frappe.ui.form.on("CFG Kanban Material Flow Rule", {
 		}
 		if (row.wip_presentation_method !== "Standard Quantity Reusable WIP Bin") {
 			frappe.model.set_value(cdt, cdn, "standard_bin_qty", 0);
+		}
+		if (row.wip_presentation_method !== "Loose Multi-Item WIP Bin") {
+			frappe.model.set_value(cdt, cdn, "loose_wip_release_policy", "Full Job Card Quantity Before Start");
+		} else if (!row.loose_wip_release_policy) {
+			frappe.model.set_value(cdt, cdn, "loose_wip_release_policy", "Full Job Card Quantity Before Start");
 		}
 	},
 });
