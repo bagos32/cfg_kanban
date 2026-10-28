@@ -2337,6 +2337,8 @@ class TestDocTypeSchema(TestCase):
         self.assertIn('return doc.get("purpose") or doc.get("stock_entry_type")', load_service)
         self.assertIn("def cancel_consumption_bin", load_service)
         self.assertIn("def entry_wip_bin_rule", load_service)
+        self.assertIn('"item_code": row.item_code', load_service)
+        self.assertIn("The selected ERP material row has no Item Code", load_service)
         self.assertIn('entry.get("cfg_kanban_job_card")', load_service)
         self.assertIn("consumption_loads_for_row", (
             APP_ROOT / "services" / "production_trace.py"

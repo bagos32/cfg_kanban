@@ -82,6 +82,11 @@ Expected: the source field fills, the Loose WIP quantity controls remain visible
 asks for the Loose WIP Bin without any `wrapper.toggle is not a function` error. Scan the Loose bin.
 Expected: the load is allocated and the popup refreshes with the remaining ERP quantity.
 
+Authorization regression test: the Loose-bin allow-list validation must use the Item from the
+selected ERP material row. If the Item is not enabled in **Allowed Loose WIP Items**, the rejection
+must name that Item (for example, `Item TPJ is not authorized...`). `Item None` is never a valid
+authorization result.
+
 Mixed-mode routing test: add one Standard Quantity WIP component and one ordinary tagged component
 to the same test production. Scan each physical identity without first changing the ERP-row
 dropdown. Expected: the Standard bin selects only its Standard row, the Loose bin selects an

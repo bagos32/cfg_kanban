@@ -722,7 +722,7 @@ def entry_wip_bin_rule(entry, row):
     ) or {}
     return {
         "kanban_cycle": cycle.name, "kanban_master": cycle.kanban_master,
-        "work_order": entry.work_order,
+        "work_order": entry.work_order, "item_code": row.item_code,
         "job_card": job.name, "operation": job.operation,
         "workstation": job.workstation, "wip_bin_pool": rule.wip_bin_pool,
         "presentation_method": rule.wip_presentation_method,
@@ -2228,6 +2228,12 @@ def _resolve_reusable_bin(scan_value, context, entry, row):
 def _assert_reusable_bin(unit, context, company, wip_warehouse):
     pool_name = context["wip_bin_pool"]
     bin_mode = context.get("bin_mode") or "Standard Quantity"
+    item_code = context.get("item_code")
+    if not item_code:
+        frappe.throw(
+            "The selected ERP material row has no Item Code. Refresh Production Material "
+            "Trace and scan the material again."
+        )
     expected_role = (
         "Loose Multi-Item WIP Bin" if bin_mode == "Loose Multi-Item"
         else "Standard Quantity WIP Bin"
@@ -2255,11 +2261,11 @@ def _assert_reusable_bin(unit, context, company, wip_warehouse):
         "CFG Kanban Loose WIP Allowed Item", {
             "parent": unit.name, "parenttype": "CFG Kanban Handling Unit",
             "parentfield": "loose_wip_allowed_items",
-            "item_code": context.get("item_code"), "active": 1,
+            "item_code": item_code, "active": 1,
         },
     ):
         frappe.throw(
-            f"Item {context.get('item_code')} is not authorized for Loose WIP Bin "
+            f"Item {item_code} is not authorized for Loose WIP Bin "
             f"{unit.handling_unit_id}"
         )
     active = frappe.get_all(
