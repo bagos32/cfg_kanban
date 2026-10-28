@@ -617,10 +617,10 @@ Expected result:
 
 Run this test with a reusable Process/Station operation Card allocated to the same Job Card.
 
-1. Report enough operation progress for **Close Kanban Cycle** to become relevant.
+1. Report enough operation progress for **Close Operation Cycle** to become relevant.
 2. Leave one WIP Bin Load in each of these conditions in separate repetitions:
    `Transfer Draft`, `Ready`, `In Use`, `Return Draft`, or `Consumption Draft`.
-3. Try the visible **Close Kanban Cycle** action and scan `CFG:CMD:CLOSE_CYCLE`.
+3. Try the visible **Close Operation Cycle** action and scan `CFG:CMD:CLOSE_CYCLE`.
 
 Expected result for `Transfer Draft`, `Ready`, `In Use`, `Return Draft`, and Open reconciliation:
 
@@ -631,7 +631,7 @@ Expected result for `Transfer Draft`, `Ready`, `In Use`, `Return Draft`, and Ope
 
 Expected result for a valid `Consumption Draft` after every Ready bin was scanned:
 
-- **Close Kanban Cycle** remains available;
+- **Close Operation Cycle** remains available;
 - the operation Cycle and Runtime Allocation complete and the operation Card returns to
   `Available`;
 - the page and event timeline identify the exact Draft as **ERP Posting Pending**;
@@ -652,7 +652,25 @@ Expected result: closure identifies the Open Supervisor reconciliation and remai
 the correct Section 10.14/10.15 reconciliation is completed—and no recovered Ready load remains
 unconsumed—the same server-side closure check can pass.
 
-### 10.17 Supervisor WIP Bin Control report
+### 10.17 Multiple operation-card cycles under one Work Order
+
+1. Use a submitted Work Order whose status is still `Not Started` and a matching Job Card target of
+   100.
+2. Allocate a reusable Process/Station Card for 50, report 50 good, and confirm ERP Job Card
+   completed quantity is 50.
+3. Complete the operation's WIP physical-use and Process Task requirements, then select **Close
+   Operation Cycle** or scan `CFG:CMD:CLOSE_CYCLE`.
+
+Expected:
+
+- the 50-unit operation Cycle, Runtime Allocation, and Process Execution complete;
+- the reusable operation Card returns to `Available`;
+- the Job Card stays open for the remaining 50;
+- the main production Cycle and Work Order remain open;
+- no manufacture receipt is created or completed by this action; and
+- the next operation sees only the quantity released through the configured handover rule.
+
+### 10.18 Supervisor WIP Bin Control report
 
 1. Open **CFG Kanban > Production Supervisor > WIP Bin Control**.
 2. Confirm that every configured physical WIP bin appears once with its visible Bin Code, Pool,

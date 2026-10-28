@@ -200,7 +200,7 @@ def job_card_wip_bin_close_readiness(job_card):
         return {
             "ready": False,
             "reason": (
-                f"Cannot close the Kanban Cycle while Job Card {job_card} has an open WIP Bin "
+                f"Cannot close the Operation Cycle while Job Card {job_card} has an open WIP Bin "
                 f"supervisor reconciliation: {detail}"
             ),
             "active_loads": active,
@@ -215,7 +215,7 @@ def job_card_wip_bin_close_readiness(job_card):
             "ready": False,
             "reason": (
                 "Record physical use for every Ready WIP Bin, or resolve "
-                f"the remaining material movement before closing this Kanban Cycle. "
+                f"the remaining material movement before closing this Operation Cycle. "
                 f"Blocking bin load(s): {detail}"
             ),
             "active_loads": active,

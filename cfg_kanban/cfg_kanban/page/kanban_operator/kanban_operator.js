@@ -3850,7 +3850,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			}
 			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && row.can_close_runtime_cycle && state.operator.permissions.complete) {
 				const close_label = row.close_requires_supervisor_approval
-					? __("Supervisor Pass & Close") : __("Close Kanban Cycle");
+					? __("Supervisor Pass & Close Operation") : __("Close Operation Cycle");
 				const close_class = row.close_requires_supervisor_approval ? "btn-warning" : "btn-success";
 				add_action($buttons, close_label, close_class, () => close_runtime_cycle(row));
 				if (row.wip_bin_erp_posting_pending) {
@@ -3859,8 +3859,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			}
 			if (row.runtime_allocation && (row.processed_qty || 0) >= (row.target_qty || 0) && !row.can_close_runtime_cycle) {
 				const $blocked = $("<button class='btn btn-sm btn-warning ml-1'>" + __("ERP Update Required") + "</button>").appendTo($buttons);
-				$blocked.on("click", () => frappe.msgprint({ title: __("Cannot Close Kanban Cycle"),
-					message: e(row.close_block_reason || __("ERP Work Order and Job Card are not ready.")), indicator: "orange" }));
+				$blocked.on("click", () => frappe.msgprint({ title: __("Cannot Close Operation Cycle"),
+					message: e(row.close_block_reason || __("ERP operation evidence is not ready.")), indicator: "orange" }));
 			}
 		});
 	}
@@ -4134,14 +4134,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				`<div class="text-muted">${__("Awaiting eligible supervisor credential scan")}</div>` },
 		] : [];
 		const dialog = new frappe.ui.Dialog({
-			title: __("Close Kanban Cycle"),
+			title: __("Close Operation Cycle"),
 			fields: [
 				{ fieldname: "closure_summary", fieldtype: "HTML", options:
-					`<div class="alert alert-warning"><strong>${__("Final closure confirmation")}</strong><br>
+					`<div class="alert alert-warning"><strong>${__("Operation allocation closure")}</strong><br>
 					${__("Operation")}: ${e(row.operation || "-")}<br>
 					${__("Job Card")}: ${e(row.job_card || "-")}<br>
 					${__("Processed")}: ${e(row.processed_qty || 0)} / ${e(row.target_qty || 0)}<br>
-					${__("ERP and process gates will be checked again before closure.")}</div>` },
+					${__("Only this operation allocation and reusable Card will close. The main production Cycle, Work Order, and remaining Job Card demand stay open.")}</div>` },
 				{ fieldname: "notes", label: __("Completion Notes"), fieldtype: "Small Text" },
 				...supervisor_fields,
 				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data",
@@ -4150,7 +4150,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 						: __("Scan Confirm / Submit to close and release the Card, or scan Cancel.") },
 			],
 			primary_action_label: requires_supervisor
-				? __("Use Supervisor Pass and Close") : __("Close Cycle and Release Card"),
+				? __("Use Supervisor Pass and Close Operation") : __("Close Operation and Release Card"),
 			primary_action: async (values) => {
 				if (requires_supervisor && !supervisor_approval_token) {
 					frappe.show_alert({ message: __("Scan an eligible supervisor credential first"), indicator: "orange" });
@@ -4160,14 +4160,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					execution_name: row.name, notes: values.notes,
 					operator_session_token: state.session_token,
 					supervisor_approval_token,
-				}, freeze: true, freeze_message: __("Closing Kanban Cycle...") });
+				}, freeze: true, freeze_message: __("Closing Operation Cycle...") });
 				dialog.hide();
 				const result = response.message;
 				frappe.show_alert({ message: result.wip_bin_erp_posting_pending
 					? __("Operation closed; ERP WIP-bin consumption remains pending in {0}", [(result.wip_bin_pending_entries || []).join(", ")])
 					: result.job_card_target_reached
-					? __("Cycle completed and ERPNext Job Card submitted")
-					: __("Cycle completed; reusable card is available for the remaining Job Card demand"), indicator: "green" });
+					? __("Operation Cycle completed and ERPNext Job Card submitted")
+					: __("Operation Cycle completed; reusable card is available for the remaining Job Card demand"), indicator: "green" });
 				await load_card(state.context.card.qr_code);
 			},
 		});

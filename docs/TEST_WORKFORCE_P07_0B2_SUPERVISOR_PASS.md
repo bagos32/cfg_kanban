@@ -25,7 +25,7 @@ The pass must never log out, replace, or permanently elevate the active operator
 
 1. Open the production Card as the non-owner operator.
 2. Find the completed runtime execution lane.
-3. Confirm the action says **Supervisor Pass & Close**, not the ordinary green close button.
+3. Confirm the action says **Supervisor Pass & Close Operation**, not the ordinary green close button.
 4. Open it and confirm the dialog shows the assigned operator-in-charge and an approval reason.
 
 Expected: the system clearly explains that the supervisor scan authorizes only this close attempt.
@@ -83,7 +83,7 @@ Test each case below:
 - owner enforcement is disabled;
 - no Supervisor/Verifier role has an Authority Role with **Close on Behalf**.
 
-Expected: the existing **Close Kanban Cycle** flow remains available and no supervisor pass is
+Expected: the existing **Close Operation Cycle** flow remains available and no supervisor pass is
 requested.
 
 ## Pass criteria

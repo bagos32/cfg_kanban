@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.28
+**Guide version:** 2.29
 
 **Updated:** 28 October 2026
 
@@ -1921,19 +1921,26 @@ same idempotent reconciliation; it never manufactures or completes ERP documents
 
 ### Close a Process/Station runtime allocation
 
-Runtime-selected Process/Station cards have a separate implemented closure. **Close Kanban Cycle**
+Runtime-selected Process/Station cards have a separate implemented closure. **Close Operation Cycle**
 is allowed only after all of these are true:
 
 - the full allocation target has been reported in Kanban;
 - the Before Cycle Close Process Task gate is open;
 - the ERPNext Job Card is Work In Progress or Completed;
-- the ERPNext Work Order is started, or it uses Skip Transfer and the Job Card is already active;
+- the owning ERPNext Work Order is submitted and is not Stopped or Cancelled; `Not Started` does
+  not block an individual operation allocation when its matching Job Card already contains the
+  required authoritative progress;
 - ERPNext Job Card completed quantity is at least this allocation's Kanban Good Qty.
 
 Closure marks the execution/allocation/Cycle Completed and returns the reusable Card through
 Production Released → In Production → Produced → Available. It clears Active Cycle. If several
 card cycles feed one larger Job Card, the Job Card remains open until cumulative completed quantity
-reaches its own full target.
+reaches its own full target. Closing an Operation Cycle does not complete the main production Cycle,
+Work Order, downstream operations, material consumption, or manufacture receipt. Its completed
+quantity remains available through the existing ERP Job Card progress and operation-handover ledger.
+For a following operation that must start in several partial cycles, configure the source Operation
+Profile with **Digital Quantity Handoff** and the required Transfer Multiple. **Full Batch Handoff**
+deliberately keeps the following operation waiting until the full source operation is complete.
 
 The operator no longer needs to revisit every related Process/Station Card after the main physical
 production Card becomes ready to close. Main Cycle reconciliation first finds every runtime Cycle
@@ -1943,7 +1950,7 @@ Cycle Close task gate is open is completed and recycled together with the main C
 closure retains separate Cycle, allocation, execution, Card-transition and Event audit records.
 If even one related operation Cycle is genuinely incomplete or inconsistent, none of the remaining
 operation Cards are auto-closed and the main Card stays open with the exact blocking Card/Cycle and
-reason. The individual **Close Kanban Cycle** action remains available when an operation Card must
+reason. The individual **Close Operation Cycle** action remains available when an operation Card must
 be released before the overall Work Order and finished-goods receipt are complete.
 
 ## 9. Stock-based Sales Order proposals
@@ -4378,6 +4385,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.29 | 28 October 2026 | Separated reusable Process/Station operation closure from the main production lifecycle: a submitted active Work Order may remain Not Started while a card-sized operation allocation closes against authoritative Job Card progress, releases only its reusable operation Card, preserves cumulative handover, and leaves the main Cycle, Work Order, remaining Job Card demand, materials, and manufacture receipt open |
 | 2.28 | 28 October 2026 | Added printable cumulative Material Quantity commands: absolute labels continue to set the quantity, `CFG:QTY:MATERIAL:+n` labels now add consistently across Production Material Trace and WIP usage dialogs, and repeated scans can build odd material quantities before the physical source/bin scan |
 | 2.27 | 28 October 2026 | Corrected Production Material Trace field visibility refresh on Frappe v15 by normalizing Dialog field wrappers before toggling them; quantity → source Stock Tag → Loose WIP Bin now continues through allocation instead of stopping with `wrapper.toggle is not a function` |
 | 2.26 | 28 October 2026 | Prevented silent Loose/Standard WIP material-scan loss by replacing the single pending scan slot with a bounded ordered queue, adding visible queued/rejected scan feedback, replacing the last no-row silent return with an explicit recovery message, and documenting the distinct load, floor-use, and final-posting scan sequences |

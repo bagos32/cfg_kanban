@@ -138,7 +138,7 @@ def _scanner_command_catalog(quantity_steps=None):
             ("Start Operation", "CFG:CMD:START", ""),
             ("Report Progress", "CFG:CMD:REPORT_PROGRESS", ""),
             ("Go to Current Work", "CFG:CMD:GO_TO_CURRENT_WORK", ""),
-            ("Close Kanban Cycle", "CFG:CMD:CLOSE_CYCLE", ""),
+            ("Close Operation Cycle", "CFG:CMD:CLOSE_CYCLE", ""),
         ]),
         ("Production Material and WIP", [
             ("Prepare Transfer / Consumption", "CFG:CMD:PREPARE_MATERIALS", ""),
@@ -1194,9 +1194,15 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
     card.reload()
     transition_card(card, "Available", event_type="Reusable Card Released", cycle=cycle.name)
     card.db_set("active_cycle", None, update_modified=False)
+    closure_scope_note = (
+        f"Operation allocation closed independently; owning Work Order {work_order.name} "
+        f"remains {work_order.status} and its main production Cycle remains open."
+    )
     record("Runtime Allocation Completed", card=card.name, cycle=cycle.name,
            execution=execution.name, qty=execution.good_qty, reference_doctype="Job Card",
-           reference_name=execution.job_card, notes=notes, operator=profile.employee,
+           reference_name=execution.job_card,
+           notes="\n".join(filter(None, ((notes or "").strip(), closure_scope_note))),
+           operator=profile.employee,
            operator_session=session.name, terminal_user=session.terminal_user)
     pending_wip_entries = readiness.get("wip_bin_pending_entries", [])
     if pending_wip_entries:
@@ -1238,6 +1244,8 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
             "job_card_target_qty": target_qty, "job_card_target_reached": target_reached,
             "job_card_submitted": bool(job_card and job_card.docstatus == 1),
             "job_card_kept_open": not target_reached,
+            "work_order_status": work_order.status,
+            "main_production_cycle_kept_open": True,
             "wip_bin_erp_posting_pending": bool(pending_wip_entries),
             "wip_bin_pending_entries": pending_wip_entries,
             "supervisor_action_approval": (
@@ -1248,18 +1256,19 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
 def _runtime_close_readiness(execution, work_order, job_card):
     if not execution.get("runtime_allocation"):
         return {"ready": True, "reason": None}
-    job_in_progress = bool(job_card and job_card.status in ("Work In Progress", "Completed"))
-    work_order_started = bool(work_order and (
-        work_order.status in ("In Process", "Started", "Completed") or
-        (work_order.status == "Not Started" and work_order.skip_transfer and job_in_progress)
-    ))
-    if not work_order_started:
+    if not work_order or cint(work_order.docstatus) != 1:
         status = work_order.status if work_order else "Missing"
-        return {"ready": False, "reason": (f"Cannot close the Kanban Cycle while ERPNext Work Order "
-                f"is {status}. Start the Work Order and satisfy any material-transfer prerequisites first.")}
+        return {"ready": False, "reason": (
+            "Cannot close the Operation Cycle because its ERPNext Work Order is not a "
+            f"submitted active document ({status})."
+        )}
+    if work_order.status in ("Stopped", "Cancelled"):
+        return {"ready": False, "reason": (
+            f"Cannot close the Operation Cycle while ERPNext Work Order is {work_order.status}."
+        )}
     if not job_card or job_card.status not in ("Work In Progress", "Completed"):
         status = job_card.status if job_card else "Missing"
-        return {"ready": False, "reason": (f"Cannot close the Kanban Cycle while ERPNext Job Card "
+        return {"ready": False, "reason": (f"Cannot close the Operation Cycle while ERPNext Job Card "
                 f"is {status}. Start the Job Card and record its production time log first.")}
     from cfg_kanban.services.wip_bin_loads import job_card_wip_bin_close_readiness
     wip_bin_readiness = job_card_wip_bin_close_readiness(job_card.name)
@@ -1275,7 +1284,7 @@ def _runtime_close_readiness(execution, work_order, job_card):
     if (flt(job_card.total_completed_qty) + 0.000001 >= flt(job_card.for_quantity) and
             job_card.docstatus == 0):
         return {"ready": False, "reason": (
-            f"Cannot close the final Kanban Cycle while ERPNext Job Card {job_card.name} is still Draft. "
+            f"Cannot close the final Operation Cycle while ERPNext Job Card {job_card.name} is still Draft. "
             "Use Complete Job Card first, or enable Auto-submit Job Card at Target in Kanban Settings."
         )}
     prior_good = flt(frappe.db.sql("""
@@ -1286,7 +1295,7 @@ def _runtime_close_readiness(execution, work_order, job_card):
     required_erp_qty = prior_good + flt(execution.good_qty)
     erp_qty = flt(job_card.total_completed_qty)
     if erp_qty + 0.000001 < required_erp_qty:
-        return {"ready": False, "reason": (f"Cannot close the Kanban Cycle: cumulative Kanban good "
+        return {"ready": False, "reason": (f"Cannot close the Operation Cycle: cumulative Kanban good "
                 f"quantity is {required_erp_qty}, but ERPNext Job Card completed quantity is only {erp_qty}. "
                 "Update the Job Card time log, save it, and reload the Operator panel.")}
     return {
