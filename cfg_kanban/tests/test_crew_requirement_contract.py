@@ -85,6 +85,10 @@ class TestCrewRequirementContract(TestCase):
         self.assertIn("min(ratios)", rules)
         self.assertIn("Workstation Restriction", source)
         self.assertIn("Kanban Card", source)
+        self.assertIn("def _mapping_value(value):", source)
+        self.assertIn('getattr(value, "as_dict", None)', source)
+        self.assertIn("callable(converter)", source)
+        self.assertNotIn('hasattr(row, "as_dict")', source)
 
         direct = {
             "crew_mode": "Single Operator",

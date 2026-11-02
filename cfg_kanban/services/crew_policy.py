@@ -26,10 +26,10 @@ def assert_approved_crew_profile(profile_name, company=None):
 
 
 def normalize_crew_profile(profile):
-    profile = frappe._dict(profile.as_dict() if hasattr(profile, "as_dict") else profile)
+    profile = frappe._dict(_mapping_value(profile))
     skills = []
     for row in profile.get("skill_requirements") or []:
-        row = frappe._dict(row.as_dict() if hasattr(row, "as_dict") else row)
+        row = frappe._dict(_mapping_value(row))
         skills.append({
             "participation_role": row.participation_role,
             "skill": row.skill,
@@ -65,6 +65,18 @@ def normalize_crew_profile(profile):
             "external_policy_revision_snapshot"
         ),
     }
+
+
+def _mapping_value(value):
+    """Return a mapping without treating Frappe's missing attributes as callables.
+
+    ``frappe._dict`` returns ``None`` for an unknown attribute instead of raising
+    ``AttributeError``.  Consequently ``hasattr(value, "as_dict")`` can be true even
+    when ``value.as_dict`` is ``None``.  Crew child rows commonly arrive in exactly
+    that form after the parent document is converted to a mapping.
+    """
+    converter = getattr(value, "as_dict", None)
+    return converter() if callable(converter) else value
 
 
 def merge_crew_policies(policies, sources=None):

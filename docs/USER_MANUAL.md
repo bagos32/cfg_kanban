@@ -9,6 +9,11 @@
 
 **Canonical file:** `docs/USER_MANUAL.md`
 
+**2.34 crew skill-profile compatibility:** Crew authorization now safely reads submitted Crew
+Requirement Profiles whose Skill Requirement child rows are returned as Frappe dictionary values.
+Starting an operation with workstation-, operation-, or card-level crew restrictions therefore
+evaluates the configured skills instead of failing while normalizing the policy.
+
 **2.33 repeated-cycle material transfer:** When a Job Card operation uses more than one Operation
 Card cycle, ERPNext may rebuild the original Job Card material list for each transfer. CFG Kanban
 now removes components already satisfied by an earlier submitted transfer and creates the next
