@@ -30,6 +30,7 @@ from cfg_kanban.services.crew_authorization import (
     enforce_execution_crew,
     enforce_operation_crew,
     evaluate_execution_crew,
+    evaluate_operation_crew,
 )
 
 
@@ -262,6 +263,68 @@ def get_execution_crew_panel(execution_name, operator_session_token=None):
     decision = evaluate_execution_crew(
         execution.name, "Operator Crew Panel", persist=False
     )
+    return _crew_panel_payload(
+        company=master.company,
+        operation=execution.operation,
+        workstation=execution.workstation,
+        job_card=execution.job_card,
+        status=execution.status,
+        context_name=execution.name,
+        cycle_name=cycle.name,
+        decision=decision,
+        profile=profile,
+        operator_session_token=operator_session_token,
+        scope="Execution",
+    )
+
+
+@frappe.whitelist()
+def get_runtime_crew_panel(card_name, job_card=None, operator_session_token=None):
+    """Return crew controls before a reusable Process/Station Card is allocated."""
+    require_operator(operator_session_token)
+    proposal = preview_runtime_card(card_name, job_card)
+    card = frappe.get_doc("CFG Kanban Card", card_name)
+    master = frappe.get_cached_doc("CFG Kanban Master", card.kanban_master)
+    profile, _session = require_operator(
+        operator_session_token,
+        operation=proposal["operation"],
+        workstation=proposal["workstation"],
+    )
+    decision = evaluate_operation_crew(
+        master.name,
+        proposal["operation"],
+        proposal["workstation"],
+        card_name=card.name,
+    )
+    return _crew_panel_payload(
+        company=master.company,
+        operation=proposal["operation"],
+        workstation=proposal["workstation"],
+        job_card=proposal["job_card"],
+        status="Awaiting Allocation",
+        context_name=None,
+        cycle_name=None,
+        decision=decision,
+        profile=profile,
+        operator_session_token=operator_session_token,
+        scope="Runtime Allocation",
+    )
+
+
+def _crew_panel_payload(
+    *,
+    company,
+    operation,
+    workstation,
+    job_card,
+    status,
+    context_name,
+    cycle_name,
+    decision,
+    profile,
+    operator_session_token,
+    scope,
+):
     active_crew = None
     from cfg_kanban.services.crew_registry import (
         get_active_workstation_crew,
@@ -269,7 +332,7 @@ def get_execution_crew_panel(execution_name, operator_session_token=None):
     )
 
     registered_crew = get_active_workstation_crew(
-        master.company, execution.workstation
+        company, workstation
     )
     crew_name = (
         registered_crew["session"].name if registered_crew
@@ -281,8 +344,8 @@ def get_execution_crew_panel(execution_name, operator_session_token=None):
     templates = frappe.get_all(
         "CFG Kanban Crew Template",
         filters={
-            "company": master.company,
-            "workstation": execution.workstation,
+            "company": company,
+            "workstation": workstation,
             "active": 1,
             "docstatus": 1,
         },
@@ -292,7 +355,7 @@ def get_execution_crew_panel(execution_name, operator_session_token=None):
     )
     templates = [
         row for row in templates
-        if not row.operation or row.operation == execution.operation
+        if not row.operation or row.operation == operation
     ]
     actor_membership = None
     if active_crew:
@@ -315,14 +378,15 @@ def get_execution_crew_panel(execution_name, operator_session_token=None):
             member["qualifications"] = qualification_by_employee.get(member.employee) or []
     return {
         "execution": {
-            "name": execution.name,
-            "operation": execution.operation,
-            "workstation": execution.workstation,
-            "status": execution.status,
-            "job_card": execution.job_card,
-            "kanban_cycle": cycle.name,
+            "name": context_name,
+            "operation": operation,
+            "workstation": workstation,
+            "status": status,
+            "job_card": job_card,
+            "kanban_cycle": cycle_name,
         },
-        "company": master.company,
+        "scope": scope,
+        "company": company,
         "configured": bool(decision.get("configured")),
         "allowed": bool(decision.get("allowed")),
         "findings": decision.get("findings") or [],
@@ -361,6 +425,36 @@ def open_execution_crew_session(
         execution.workstation,
         operator_session_token,
         operation=execution.operation,
+        crew_template=crew_template or None,
+        notes=notes,
+    )
+
+
+@frappe.whitelist()
+def open_runtime_crew_session(
+    card_name,
+    job_card,
+    operator_session_token,
+    crew_template=None,
+    notes=None,
+):
+    """Open the persistent workstation crew before runtime Card allocation."""
+    require_operator(operator_session_token)
+    proposal = preview_runtime_card(card_name, job_card)
+    card = frappe.get_doc("CFG Kanban Card", card_name)
+    master = frappe.get_cached_doc("CFG Kanban Master", card.kanban_master)
+    require_operator(
+        operator_session_token,
+        operation=proposal["operation"],
+        workstation=proposal["workstation"],
+    )
+    from cfg_kanban.services.crew_registry import open_workstation_crew_session
+
+    return open_workstation_crew_session(
+        master.company,
+        proposal["workstation"],
+        operator_session_token,
+        operation=proposal["operation"],
         crew_template=crew_template or None,
         notes=notes,
     )

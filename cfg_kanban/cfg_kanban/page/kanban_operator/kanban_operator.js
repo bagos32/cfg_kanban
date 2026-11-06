@@ -961,6 +961,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:ACCEPT_OWNER</code>, <code>CFG:CMD:TRANSFER_OWNER</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
 			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:RECORD_WIP_BIN_USE</code>, <code>CFG:CMD:RECORD_LOOSE_WIP_USE</code>, <code>CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
 			<p><strong>${__("Crew commands")}</strong>: <code>CFG:CMD:CREW</code>, <code>CFG:CMD:CREW_OPEN</code>, <code>CFG:CMD:CREW_JOIN</code>, <code>CFG:CMD:CREW_JOIN_SENIOR</code>, <code>CFG:CMD:CREW_JOIN_OVERSIGHT</code>, <code>CFG:CMD:CREW_JOIN_TEMP</code>, <code>CFG:CMD:CREW_BREAK</code>, <code>CFG:CMD:CREW_RESUME</code>, <code>CFG:CMD:CREW_LEAVE</code>, <code>CFG:CMD:CREW_MAIN</code>, <code>CFG:CMD:CREW_CONTEXT</code>, <code>CFG:CMD:CREW_CLOSE</code>.</p>
+			<p><small>${__("On an Available Process/Station Card, choose the exact numbered Job Card before Crew Controls when several targets are eligible. On a Workstation Queue Card, Crew Controls uses the selected Active/Ready work row.")}</small></p>
 			<p><strong>${__("Progress dialog commands")}</strong>: <code>CFG:QTY:GOOD:+1</code>, <code>CFG:QTY:REJECT:+1</code>, <code>CFG:CMD:CONFIRM</code>, <code>CFG:CMD:CANCEL</code>.</p>
 			<p><strong>${__("Message control")}</strong>: scan the next card to close an error and continue, or scan <code>CFG:CMD:DISMISS</code> to close it.</p>
 			<div class="alert alert-warning">${__("A web page cannot receive scanner keys while the browser address bar is selected. Use full-screen/kiosk mode and configure the scanner to append Enter.")}</div>
@@ -1332,9 +1333,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			render_live_current_action();
 			return;
 		}
-		if (!cycle && card.current_state === "Available" && state.operator.permissions.consume) {
-			$("<button class='btn btn-primary mr-2'>" + __("Consume / Trigger") + "</button>")
-				.appendTo($actions).on("click", consume_card);
+		if (!cycle && card.current_state === "Available") {
+			if (state.operator.permissions.consume) {
+				$("<button class='btn btn-primary mr-2'>" + __("Consume / Trigger") + "</button>")
+					.appendTo($actions).on("click", consume_card);
+			}
+			if (["Process Kanban", "Station Kanban"].includes(card.card_type)) {
+				$("<button class='btn btn-default mr-2'>" + __("Set Workstation Crew") + "</button>")
+					.appendTo($actions).on("click", () => propose_runtime_selection(card, false, true));
+			}
 		}
 		if (cycle) {
 			if (cycle.runtime_allocation) {
@@ -1405,11 +1412,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				<div class="col-md-3"><strong>${e(row.item_code || "-")}</strong><br><small>${e(row.operation || "-")}</small></div>
 				<div class="col-md-2"><span class="indicator-pill ${indicator(row.dispatch_status)}">${e(row.dispatch_status)}</span><br><small>${e(row.readiness || "")}</small></div>
 				<div class="col-md-2"><small>${__("Good / Target")}</small><div>${e(row.good_qty || 0)} / ${e(row.target_qty || 0)}</div><small>${__("Reject")}: ${e(row.reject_qty || 0)}</small></div>
-				<div class="col-md-3"><small>${__("Work Order")}</small><div>${document_link("work-order", row.work_order)}</div><small>${__("Job Card")}: ${document_link("job-card", row.job_card)}</small></div>
-				<div class="col-md-1 text-right">${can_open ? `<button class="btn btn-primary btn-sm open-queued-work" data-token="${e(row.card_qr_code || row.card_number)}">${__("Open")}</button>` : `<small class="text-muted">${__("No card")}</small>`}</div>
+				<div class="col-md-2"><small>${__("Work Order")}</small><div>${document_link("work-order", row.work_order)}</div><small>${__("Job Card")}: ${document_link("job-card", row.job_card)}</small></div>
+				<div class="col-md-2 text-right">
+					${row.process_execution ? `<button class="btn btn-default btn-sm mb-1 open-queued-crew">${__("Crew Controls")}</button><br>` : ""}
+					${can_open ? `<button class="btn btn-primary btn-sm open-queued-work" data-token="${e(row.card_qr_code || row.card_number)}">${__("Open")}</button>` : `<small class="text-muted">${__("No card")}</small>`}
+				</div>
 				</div><div class="mt-2"><small>${__("Priority")}: ${e(row.priority || "Normal")} · ${__("Cycle")}: ${e(row.kanban_cycle || "-")} · ${__("Queue source")}: ${e(row.sequence_source || "-")}</small></div>
 			</div>`).appendTo($section);
 			$row.find(".open-queued-work").on("click", function () { load_card($(this).data("token")); });
+			$row.find(".open-queued-crew").on("click", () => open_crew_control({ name: row.process_execution }));
 		});
 	}
 
@@ -3732,7 +3743,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		await load_card(card.qr_code);
 	}
 
-	async function propose_runtime_selection(card, scanner_mode = false) {
+	async function propose_runtime_selection(card, scanner_mode = false, crew_first = false,
+		crew_initial_command = null) {
 		const response = await frappe.call({
 			method: "cfg_kanban.api.operator.preview_runtime_selection",
 			args: { card_name: card.name, operator_session_token: state.session_token }, freeze: true,
@@ -3759,6 +3771,29 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<b>${__("Available Input")}</b>: ${value.available_input_qty}<br>
 			<h4>${__("Effective Cycle Qty")}: ${value.effective_cycle_qty}</h4>
 			${value.short_cycle_reason ? `<div class="text-warning"><b>${__("Short cycle")}</b>: ${frappe.utils.escape_html(value.short_cycle_reason)}</div>` : ""}</div>`;
+		const refresh_runtime_crew = async () => {
+			const job_card = dialog.get_value("selected_job_card") || proposal.job_card;
+			const response = await frappe.call({ method: "cfg_kanban.api.operator.get_runtime_crew_panel", args: {
+				card_name: card.name, job_card, operator_session_token: state.session_token,
+			} });
+			dialog.cfg_runtime_crew_panel = response.message;
+			const panel = response.message;
+			const colour = !panel.configured ? "blue" : panel.allowed ? "green" : "red";
+			const label = !panel.configured ? __("No crew restriction") : panel.allowed ? __("Crew ready") : __("Crew setup required");
+			const detail = (panel.findings || []).map((row) => frappe.utils.escape_html(row.message || row.code)).join("<br>");
+			dialog.get_field("crew_readiness").$wrapper.html(`<div class="alert alert-${colour === "green" ? "success" : colour === "red" ? "danger" : "info"} py-2">
+				<strong>${label}</strong> · ${frappe.utils.escape_html(panel.execution.workstation || "-")}<br>
+				<small>${detail || __("This selected work can continue without a configured crew policy.")}</small></div>`);
+			return panel;
+		};
+		const open_runtime_crew = async (initial_command = null) => {
+			const job_card = dialog.get_value("selected_job_card") || proposal.job_card;
+			await open_crew_control(
+				{ name: null }, initial_command,
+				{ runtime: { card_name: card.name, job_card }, return_dialog: dialog,
+					on_close: refresh_runtime_crew }
+			);
+		};
 		dialog = new frappe.ui.Dialog({
 			title: __("Confirm Runtime Allocation"),
 			fields: [
@@ -3777,19 +3812,26 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 						dialog.fields_dict.proposal_html.$wrapper.html(proposal_html(proposal));
 						dialog.set_df_property("override_reason", "reqd", !proposal.is_recommended);
 						dialog.set_df_property("override_reason", "hidden", proposal.is_recommended);
+						await refresh_runtime_crew();
 					},
 				},
 				{ fieldname: "proposal_html", fieldtype: "HTML", options: proposal_html(proposal) },
+				{ fieldname: "crew_readiness", fieldtype: "HTML" },
 				{ fieldname: "override_reason", label: __("Override Reason"), fieldtype: "Small Text", hidden: 1,
 					description: __("Required when the operator chooses a different eligible option from the system recommendation.") },
 				{ fieldname: "confirmation", label: __("Operator Confirmation / Notes"), fieldtype: "Small Text", reqd: 1,
 					default: __("Operator confirmed runtime allocation from the Kanban panel"),
 					description: proposal.short_cycle ? __("Confirm that the reduced quantity and reason are understood.") : __("Confirm the proposed Work Order, Job Card, and quantity.") },
 				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data",
-					description: __("Scan Confirm / Submit or Cancel after reviewing the proposed allocation.") },
+					description: __("Scan a numbered choice, Crew Controls, Confirm / Submit, or Cancel. Crew action labels remain active inside Crew Controls.") },
 			],
 			primary_action_label: __("Confirm and Allocate"),
 			primary_action: async (values) => {
+				const crew = await refresh_runtime_crew();
+				if (crew.configured && !crew.allowed) {
+					frappe.show_alert({ message: __("Set the required Workstation Crew before allocating this Card."), indicator: "orange" });
+					return window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 80);
+				}
 				await frappe.call({ method: "cfg_kanban.api.operator.confirm_runtime_selection", args: {
 					card_name: card.name, job_card: values.selected_job_card,
 					confirmation: values.confirmation, override_reason: values.override_reason,
@@ -3800,8 +3842,22 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			},
 		});
 		dialog.show();
+		const $crew = $(`<button class="btn btn-default mr-2">${__("Crew Controls")}</button>`);
+		$crew.on("click", () => open_runtime_crew());
+		dialog.get_primary_btn().before($crew);
+		dialog.cfg_raw_scanner_handler = async (raw_value) => {
+			const command = String(raw_value || "").trim().toUpperCase();
+			if (command === "CFG:CMD:CREW" || command.startsWith("CFG:CMD:CREW_")) {
+				return open_runtime_crew(command === "CFG:CMD:CREW" ? null : command);
+			}
+			frappe.show_alert({ message: __("Scan a Crew command, Confirm / Submit, Cancel, or a numbered choice."), indicator: "orange" });
+		};
 		bind_confirmation_scanner(dialog, true,
 			candidate_options.map((row) => row.value), "selected_job_card");
+		await refresh_runtime_crew();
+		if (crew_first && candidate_options.length === 1) {
+			await open_runtime_crew(crew_initial_command);
+		}
 	}
 
 	function render_job_role_coverage(role_coverage) {
@@ -3948,15 +4004,53 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	function open_context_crew_control(initial_command) {
 		const row = crew_execution_context();
-		if (!row) return scanner_command_message(__("Scan a production or operation Card with an execution lane first."));
+		if (!row && ["Process Kanban", "Station Kanban"].includes(state.context?.card?.card_type) &&
+			!state.context?.cycle) {
+			return propose_runtime_selection(state.context.card, true, true, initial_command);
+		}
+		if (!row && state.context?.workstation_queue_card) {
+			return open_workstation_queue_crew(initial_command);
+		}
+		if (!row) return scanner_command_message(__("Scan a production, operation, or Workstation Queue Card with eligible work first."));
 		return open_crew_control(row, initial_command);
 	}
 
-	async function open_crew_control(row, initial_command) {
-		const response = await frappe.call({
+	function open_workstation_queue_crew(initial_command) {
+		const queue = state.context?.workstation_queue || {};
+		const active = (queue.active || []).filter((row) => row.process_execution);
+		const candidates = active.length ? active : (queue.queue || []).filter((row) => row.process_execution);
+		if (!candidates.length) {
+			return scanner_command_message(__("No eligible workstation execution is available for Crew Controls."));
+		}
+		if (candidates.length === 1) {
+			return open_crew_control({ name: candidates[0].process_execution }, initial_command);
+		}
+		return scanner_selection_dialog(
+			__("Select Workstation Work for Crew Controls"),
+			candidates.slice(0, 10).map((row) => ({
+				value: row.process_execution,
+				label: `${row.operation || "-"} · ${row.work_order || "-"} · ${row.job_card || "-"}`,
+			})),
+			__("Open Crew Controls"),
+			(choice) => open_crew_control({ name: choice.value }, initial_command),
+		);
+	}
+
+	async function get_crew_panel(row, options = {}) {
+		if (options.runtime) {
+			return frappe.call({
+				method: "cfg_kanban.api.operator.get_runtime_crew_panel",
+				args: { ...options.runtime, operator_session_token: state.session_token },
+			});
+		}
+		return frappe.call({
 			method: "cfg_kanban.api.operator.get_execution_crew_panel",
 			args: { execution_name: row.name, operator_session_token: state.session_token },
 		});
+	}
+
+	async function open_crew_control(row, initial_command, options = {}) {
+		const response = await get_crew_panel(row, options);
 		const panel = response.message;
 		const templates = panel.templates || [];
 		const template_options = [{ label: __("No template"), value: "" }].concat(
@@ -3987,10 +4081,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				await refresh_crew_dialog(dialog);
 			},
 		});
-		state.active_crew_dialog = { dialog, row, panel, pending_action: null,
+		state.active_crew_dialog = { dialog, row, panel, options, pending_action: null,
 			pending_open: false, pending_close: false };
 		dialog.onhide = async () => {
 			if (state.active_crew_dialog?.dialog === dialog) state.active_crew_dialog = null;
+			if (options.return_dialog?.$wrapper?.is(":visible")) {
+				if (typeof options.on_close === "function") await options.on_close();
+				state.active_command_dialog = options.return_dialog;
+				return window.setTimeout(() => options.return_dialog.get_field("scanner_command")?.set_focus(), 80);
+			}
 			if (state.context?.card?.qr_code) await load_card(state.context.card.qr_code);
 			else focus_scanner();
 		};
@@ -4143,8 +4242,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	async function open_crew_from_dialog(dialog) {
 		const active = state.active_crew_dialog;
 		const values = dialog.get_values(true) || {};
-		await frappe.call({ method: "cfg_kanban.api.operator.open_execution_crew_session", args: {
-			execution_name: active.row.name, crew_template: values.crew_template || null,
+		const method = active.options.runtime
+			? "cfg_kanban.api.operator.open_runtime_crew_session"
+			: "cfg_kanban.api.operator.open_execution_crew_session";
+		const scope_args = active.options.runtime
+			? active.options.runtime
+			: { execution_name: active.row.name };
+		await frappe.call({ method, args: {
+			...scope_args, crew_template: values.crew_template || null,
 			notes: values.reason, operator_session_token: state.session_token,
 		}, freeze: true, freeze_message: __("Opening workstation crew...") });
 		await refresh_crew_dialog(dialog);
@@ -4197,9 +4302,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	async function refresh_crew_dialog(dialog) {
 		const active = state.active_crew_dialog;
 		if (!active || active.dialog !== dialog) return;
-		const response = await frappe.call({ method: "cfg_kanban.api.operator.get_execution_crew_panel", args: {
-			execution_name: active.row.name, operator_session_token: state.session_token,
-		} });
+		const response = await get_crew_panel(active.row, active.options);
 		active.panel = response.message;
 		active.pending_action = null;
 		active.pending_open = false;

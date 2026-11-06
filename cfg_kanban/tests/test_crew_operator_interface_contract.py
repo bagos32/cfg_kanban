@@ -20,6 +20,20 @@ class TestCrewOperatorInterfaceContract(TestCase):
         self.assertIn("execution.workstation", opener)
         self.assertIn("execution.operation", opener)
 
+    def test_runtime_card_can_prepare_crew_before_allocation(self):
+        source = (ROOT / "api" / "operator.py").read_text()
+        panel = source.split("def get_runtime_crew_panel", 1)[1].split(
+            "def _crew_panel_payload", 1
+        )[0]
+        opener = source.split("def open_runtime_crew_session", 1)[1].split(
+            "def get_card_context", 1
+        )[0]
+        self.assertIn("preview_runtime_card(card_name, job_card)", panel)
+        self.assertIn("evaluate_operation_crew", panel)
+        self.assertIn("card_name=card.name", panel)
+        self.assertIn("proposal[\"workstation\"]", opener)
+        self.assertIn("proposal[\"operation\"]", opener)
+
     def test_scanner_sheet_contains_every_crew_transition(self):
         source = (ROOT / "api" / "operator.py").read_text()
         for command in (
@@ -58,6 +72,11 @@ class TestCrewOperatorInterfaceContract(TestCase):
         self.assertIn("Start Break", source)
         self.assertIn("Change Main Operator", source)
         self.assertIn("Close Crew", source)
+        self.assertIn("Set Workstation Crew", source)
+        self.assertIn("get_runtime_crew_panel", source)
+        self.assertIn("open_runtime_crew_session", source)
+        self.assertIn("open_workstation_queue_crew", source)
+        self.assertIn("open-queued-crew", source)
 
     def test_direct_senior_action_is_scanner_operable_and_audited(self):
         panel = (

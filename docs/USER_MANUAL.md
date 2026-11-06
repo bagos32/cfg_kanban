@@ -145,6 +145,16 @@ Priority** is the fallback when no supervisor sequence exists. An authorised ope
 another eligible candidate and must give an Override Reason. One card-sized Cycle is then created
 for the effective quantity; it does not mirror every Job Card on that Work Order.
 
+If the selected operation has an effective crew requirement, establish the workstation crew before
+runtime allocation. On an available Process/Station Card, select **Set Workstation Crew**, or select
+**Consume / Trigger** and use **Crew Controls** inside the allocation dialog. First select the exact
+eligible Work Order / Job Card because a Process Card may resolve to more than one Workstation; CFG
+Kanban never silently chooses an ambiguous crew scope. The allocation dialog shows **Crew ready**
+only when the selected Job Card's Operation, Workstation, Operation Profile, Workstation rule, and
+Card-specific crew rule are satisfied. The same flow is scanner-operable: scan numbered
+`CFG:SELECT:n`, `CFG:CMD:CREW`, the required crew action and Employee labels, then
+`CFG:CMD:CONFIRM`. The runtime Cycle is created only after the crew check passes.
+
 When a supervisor uses **Pause and Give Way**, the paused Job Card is removed from new
 Process/Station Card allocation choices. Its remaining quantity is already owned by the retained
 paused execution and must continue through **Resume Paused Work**. The Ready replacement keeps the
@@ -155,7 +165,11 @@ for the interrupted Work Order while its original WIP remains paused.
 A **Workstation Queue Card** is different: it is a permanent access identity, carries no item or
 quantity, and never allocates work by itself. Scan it in the Production Operator Panel to see the
 operator-authorized queue for its exact Company and Workstation. Select **Open** on a queue row to
-load that row's own production Card and continue through the existing controlled actions.
+load that row's own production Card and continue through the existing controlled actions. Select
+**Crew Controls** directly on an Active or Ready queue row to prepare or adjust that Workstation's
+persistent crew without opening the main Production Card. When `CFG:CMD:CREW` has more than one safe
+queue target, scan a numbered choice first; CFG Kanban does not silently pick a Work Order or Job
+Card.
 
 ## 3. Roles and responsibilities
 
@@ -325,7 +339,9 @@ quantity. Direct labour duration and oversight duration remain separate facts. U
 Every Job Card Execution Lane in the Production Operator Panel shows a **Workstation Crew** strip.
 It identifies the persistent Crew Session's Main Operator, active/break counts, and current crew
 compliance. Select **Crew Controls**, or scan the printable `CFG:CMD:CREW` command, to manage the
-crew for the panel's current execution.
+crew for the panel's current execution. An available Process/Station Card also exposes pre-allocation
+Crew Controls, and a permanent Workstation Queue Card exposes Crew Controls on each eligible work
+row, so floor operators never need the main Production Card merely to establish workstation crew.
 
 To work without a mouse, scan a Crew action command first and then scan the affected Employee's
 normal operator QR. Supported actions are Open Crew, Join Direct, **Join / Set Direct Senior**, Join
@@ -4451,7 +4467,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
-| 2.33 | 6 November 2026 | Added the scanner-first Join / Set Direct Senior crew action so a new or active member can be audited as Senior / Overseer with Direct Participation and, when their competency approvals qualify, satisfy both Qualified Lead and Active Supervisor rows without requiring a fictitious second person; Crew Controls now gives only the policy-scoped L-level a prominent compact badge and keeps role/minimum/authorization details in fine print; submitted Crew Requirement Profiles, Crew Templates, and Workstation Crew Requirements now support reasoned Active lifecycle changes with user/time audit, reference safety, preserved historical snapshots, and live workstation compliance re-evaluation |
+| 2.33 | 6 November 2026 | Added the scanner-first Join / Set Direct Senior crew action so a new or active member can be audited as Senior / Overseer with Direct Participation and, when their competency approvals qualify, satisfy both Qualified Lead and Active Supervisor rows without requiring a fictitious second person; Crew Controls now gives only the policy-scoped L-level a prominent compact badge and keeps role/minimum/authorization details in fine print; submitted Crew Requirement Profiles, Crew Templates, and Workstation Crew Requirements now support reasoned Active lifecycle changes with user/time audit, reference safety, preserved historical snapshots, and live workstation compliance re-evaluation; available Process/Station Cards can establish the exact selected Job Card's crew before runtime allocation, while Workstation Queue rows expose the same persistent crew controls without requiring access to the main Production Card |
 | 2.32 | 28 October 2026 | Added opt-in incremental Loose WIP release per BOM component, positive-load Job Card start readiness, per-operation-cycle usage closure evidence, Job Card-scoped consolidated ERP consumption and unused returns, and Operator Complete partial card closure with audited unfulfilled quantity returned to the Job Card queue while preserving independent handoff rules |
 | 2.31 | 28 October 2026 | Added the dedicated printable `CFG:CMD:RECORD_WIP_BIN_USE` production command for Standard Quantity WIP bins, including single eligible Job Card routing, numbered multi-Job selection, Scanner Help, command-label catalog, and the existing audited no-stock-posting usage dialog |
 | 2.30 | 28 October 2026 | Corrected Production Material Trace submission so the scanner posts the exact visible Draft Stock Entry instead of relying on an older Card-context list, exposes truthful physical-staging readiness, and keeps the popup open when a server gate rejects submission |

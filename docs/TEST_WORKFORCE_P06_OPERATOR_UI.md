@@ -55,6 +55,39 @@ and the full catalogue remains available without manually selecting every row.
 Expected result: a crew-specific hold is shown ahead of ordinary current work. No crew action is
 performed merely by opening the modal.
 
+### Test 1A — prepare crew from a reusable Process/Station Card
+
+1. Release a submitted Work Order with an eligible open Job Card for the pilot Operation, but leave
+   the reusable Process/Station Card Available.
+2. Scan that Process/Station Card. Confirm **Set Workstation Crew** is visible before allocation.
+3. Select **Consume / Trigger** and confirm the allocation dialog also shows the selected Job Card's
+   crew readiness plus **Crew Controls**.
+4. If more than one Job Card is eligible, scan the exact `CFG:SELECT:n` first. Confirm changing the
+   selection refreshes Operation, Workstation and crew findings.
+5. Open Crew Controls by touch or scan `CFG:CMD:CREW`. Establish the required crew entirely inside
+   this flow, then return to the still-open allocation dialog.
+6. Confirm the status changes to **Crew ready**. Scan Confirm and verify the runtime Cycle and
+   execution are created only now.
+7. Repeat with an incomplete crew and confirm allocation remains blocked without creating a runtime
+   Cycle, Card consumption, or Job Card progress.
+
+Expected result: there is no pre-allocation deadlock. The exact Process/Station Card policy is
+evaluated, including its Card-specific requirement, before the runtime execution exists.
+
+### Test 1B — prepare crew from the permanent Workstation Queue Card
+
+1. Scan the pilot Workstation Queue Card.
+2. Confirm each eligible Active/Ready work row with a Process Execution shows **Crew Controls**.
+3. Open the control on the intended row, establish or adjust the persistent crew, and confirm the
+   main Production Card was not needed.
+4. Scan `CFG:CMD:CREW`. With one eligible target it opens directly; with several targets it must
+   require a numbered `CFG:SELECT:n` choice instead of silently selecting work.
+5. Return to the Process/Station Card and confirm its exact allocation policy is still re-evaluated;
+   a stricter Card-specific requirement must remain visible until satisfied.
+
+Expected result: the Workstation Card is a safe floor entry point for crew preparation, but it does
+not allocate production or bypass the exact Process/Station Card policy.
+
 ## Test 2 — open the persistent Workstation crew
 
 1. If approved templates exist, select one by touch or scan its numbered `CFG:SELECT:n` label.
