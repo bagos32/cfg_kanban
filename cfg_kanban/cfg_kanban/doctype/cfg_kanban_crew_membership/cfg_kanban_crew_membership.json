@@ -206,7 +206,7 @@
    "fieldname": "last_event",
    "label": "Last Event",
    "fieldtype": "Select",
-   "options": "Join\nBreak\nResume\nLeave\nChange Main Operator\nClose Session",
+   "options": "Join\nBreak\nResume\nLeave\nChange Crew Role\nChange Main Operator\nClose Session",
    "read_only": 1
   },
   {

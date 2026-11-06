@@ -391,8 +391,11 @@ break counts, compliance state, and a **Crew Controls** action. The same control
 printable `CFG:CMD:CREW` scanner label and follows the panel's current execution priority.
 
 The scanner-first modal supports opening the Crew Session, joining direct/oversight/temporary
-members, break, resume, leave, main-operator change, Operation-context change and controlled Crew
-Session closure. A crew action command selects the transition; the next scan uses the Employee's
+members, assigning a new or existing member as **Senior / Overseer / Direct Participation**, break,
+resume, leave, main-operator change, Operation-context change and controlled Crew Session closure.
+The printable `CFG:CMD:CREW_JOIN_SENIOR` action lets one properly approved Employee count as both
+Qualified Lead and Active Supervisor without adding a fictitious second person. A crew action
+command selects the transition; the next scan uses the Employee's
 existing operator credential only as crew identity. It never opens a terminal Operator Session or
 changes the authenticated operator. Closing the whole crew requires a separate Confirm scan.
 

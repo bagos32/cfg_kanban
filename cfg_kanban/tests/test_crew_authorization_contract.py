@@ -2,7 +2,10 @@ import json
 from pathlib import Path
 from unittest import TestCase
 
-from cfg_kanban.services.crew_authorization_rules import evaluate_crew_authorization
+from cfg_kanban.services.crew_authorization_rules import (
+    evaluate_crew_authorization,
+    member_policy_roles,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +53,15 @@ class TestCrewAuthorizationContract(TestCase):
         result = evaluate_crew_authorization({"configured": False}, [])
         self.assertTrue(result["allowed"])
         self.assertFalse(result["configured"])
+
+    def test_direct_senior_represents_worker_lead_and_supervisor_roles(self):
+        self.assertEqual(
+            member_policy_roles({
+                "crew_role": "Senior / Overseer",
+                "work_category": "Direct Participation",
+            }),
+            {"Direct Worker", "Qualified Lead", "Active Supervisor"},
+        )
 
     def test_qualified_supervised_crew_passes(self):
         result = evaluate_crew_authorization(

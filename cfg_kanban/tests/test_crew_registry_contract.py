@@ -70,6 +70,7 @@ class TestCrewRegistryContract(TestCase):
             next_presence_state("Left", "Resume")
         with self.assertRaises(ValueError):
             validate_membership_choice("Main Operator", "Oversight Only")
+        validate_membership_choice("Senior / Overseer", "Direct Participation")
 
     def test_break_members_do_not_count_as_active_coverage(self):
         members = [

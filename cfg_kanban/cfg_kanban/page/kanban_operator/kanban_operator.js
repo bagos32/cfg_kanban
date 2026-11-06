@@ -373,6 +373,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			CREW: () => open_context_crew_control(),
 			CREW_OPEN: () => open_context_crew_control("CFG:CMD:CREW_OPEN"),
 			CREW_JOIN: () => open_context_crew_control("CFG:CMD:CREW_JOIN"),
+			CREW_JOIN_SENIOR: () => open_context_crew_control("CFG:CMD:CREW_JOIN_SENIOR"),
 			CREW_JOIN_OVERSIGHT: () => open_context_crew_control("CFG:CMD:CREW_JOIN_OVERSIGHT"),
 			CREW_JOIN_TEMP: () => open_context_crew_control("CFG:CMD:CREW_JOIN_TEMP"),
 			CREW_BREAK: () => open_context_crew_control("CFG:CMD:CREW_BREAK"),
@@ -959,6 +960,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			</tbody></table>
 			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:ACCEPT_OWNER</code>, <code>CFG:CMD:TRANSFER_OWNER</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
 			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:RECORD_WIP_BIN_USE</code>, <code>CFG:CMD:RECORD_LOOSE_WIP_USE</code>, <code>CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
+			<p><strong>${__("Crew commands")}</strong>: <code>CFG:CMD:CREW</code>, <code>CFG:CMD:CREW_OPEN</code>, <code>CFG:CMD:CREW_JOIN</code>, <code>CFG:CMD:CREW_JOIN_SENIOR</code>, <code>CFG:CMD:CREW_JOIN_OVERSIGHT</code>, <code>CFG:CMD:CREW_JOIN_TEMP</code>, <code>CFG:CMD:CREW_BREAK</code>, <code>CFG:CMD:CREW_RESUME</code>, <code>CFG:CMD:CREW_LEAVE</code>, <code>CFG:CMD:CREW_MAIN</code>, <code>CFG:CMD:CREW_CONTEXT</code>, <code>CFG:CMD:CREW_CLOSE</code>.</p>
 			<p><strong>${__("Progress dialog commands")}</strong>: <code>CFG:QTY:GOOD:+1</code>, <code>CFG:QTY:REJECT:+1</code>, <code>CFG:CMD:CONFIRM</code>, <code>CFG:CMD:CANCEL</code>.</p>
 			<p><strong>${__("Message control")}</strong>: scan the next card to close an error and continue, or scan <code>CFG:CMD:DISMISS</code> to close it.</p>
 			<div class="alert alert-warning">${__("A web page cannot receive scanner keys while the browser address bar is selected. Use full-screen/kiosk mode and configure the scanner to append Enter.")}</div>
@@ -4009,10 +4011,27 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const members = crew?.members || [];
 		const e = frappe.utils.escape_html;
 		const findings = (panel.findings || []).map((row) => `<li>${e(row.message || row.code)}</li>`).join("");
-		const member_rows = members.length ? members.map((row) => `<tr>
+		const member_rows = members.length ? members.map((row) => {
+			const qualifications = (row.qualifications || []).map((qualification) => {
+				const level = qualification.actual_level || __("None");
+				const tone = qualification.meets_requirement ? "green" : "red";
+				const approvals = [];
+				if (qualification.requires_independent_authorization) {
+					approvals.push(qualification.independent_authorized ? __("Independent approved") : __("Independent approval missing"));
+				}
+				if (qualification.requires_supervisor_authorization) {
+					approvals.push(qualification.supervisor_authorized ? __("Supervision approved") : __("Supervision approval missing"));
+				}
+				const approval_text = approvals.length ? ` · ${e(approvals.join(" · "))}` : "";
+				return `<div class="mb-1"><strong>${e(qualification.skill_name || qualification.skill)}</strong>
+					<span class="indicator-pill ${tone}">${e(level)}</span>
+					<small class="text-muted d-block">${e(qualification.participation_role)} · ${__("minimum")} ${e(qualification.minimum_level || "L0")}${approval_text}</small></div>`;
+			}).join("") || `<span class="text-muted">${__("No applicable policy skill")}</span>`;
+			return `<tr>
 			<td>${e(row.employee_name || row.employee)}</td><td>${e(row.crew_role)}</td>
-			<td>${e(row.work_category)}</td><td><span class="indicator-pill ${row.status === "Active" ? "green" : "orange"}">${e(row.status)}</span></td>
-		</tr>`).join("") : `<tr><td colspan="4" class="text-muted">${__("No scanned crew members")}</td></tr>`;
+			<td>${e(row.work_category)}</td><td>${qualifications}</td><td><span class="indicator-pill ${row.status === "Active" ? "green" : "orange"}">${e(row.status)}</span></td>
+		</tr>`;
+		}).join("") : `<tr><td colspan="5" class="text-muted">${__("No scanned crew members")}</td></tr>`;
 		const policy = panel.configured
 			? `${e(panel.policy.crew_mode || __("Configured"))} · ${__("Minimum direct")}: ${e(panel.policy.minimum_direct_workers || 0)}`
 			: __("No crew requirement configured; attendance can still be recorded.");
@@ -4020,7 +4039,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<div><strong>${e(panel.execution.operation)}</strong><span>${e(panel.execution.workstation)} · ${e(panel.execution.job_card || "-")}</span></div>
 			<div><span class="indicator-pill ${panel.allowed ? "green" : "red"}">${panel.allowed ? __("Compliant") : __("Crew Hold")}</span></div>
 			<p>${policy}</p>${findings ? `<ul>${findings}</ul>` : ""}
-			<table class="table table-bordered table-sm"><thead><tr><th>${__("Employee")}</th><th>${__("Role")}</th><th>${__("Work")}</th><th>${__("Presence")}</th></tr></thead><tbody>${member_rows}</tbody></table>
+			<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr><th>${__("Employee")}</th><th>${__("Role")}</th><th>${__("Work")}</th><th>${__("Role Qualification")}</th><th>${__("Presence")}</th></tr></thead><tbody>${member_rows}</tbody></table></div>
 		</div>`;
 		dialog.get_field("crew_status").df.options = status_html;
 		dialog.get_field("crew_status").refresh();
@@ -4036,6 +4055,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const actions = crew ? `<div class="cfg-crew-scan-instruction">${instruction}</div>
 			<div class="cfg-crew-actions">
 				<button class="btn btn-primary" data-crew-action="join_direct"${disabled}>${__("Join Direct")}</button>
+				<button class="btn btn-primary" data-crew-action="direct_senior"${disabled}>${__("Join / Set Direct Senior")}</button>
 				<button class="btn btn-info" data-crew-action="join_oversight"${disabled}>${__("Join Oversight")}</button>
 				<button class="btn btn-default" data-crew-action="join_temp"${disabled}>${__("Join Temporary")}</button>
 				<button class="btn btn-warning" data-crew-action="break"${disabled}>${__("Start Break")}</button>
@@ -4060,7 +4080,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	function crew_action_label(action) {
 		return ({ join_direct: __("Join Direct"), join_oversight: __("Join Oversight"),
-			join_temp: __("Join Temporary"), break: __("Start Break"), resume: __("Resume"),
+			direct_senior: __("Join / Set Direct Senior"), join_temp: __("Join Temporary"), break: __("Start Break"), resume: __("Resume"),
 			leave: __("Leave"), main: __("Change Main Operator") })[action] || action;
 	}
 
@@ -4089,6 +4109,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		await dialog.set_value("scanner_command", "");
 		const command_actions = {
 			"CFG:CMD:CREW_JOIN": "join_direct", "CFG:CMD:CREW_JOIN_OVERSIGHT": "join_oversight",
+			"CFG:CMD:CREW_JOIN_SENIOR": "direct_senior",
 			"CFG:CMD:CREW_JOIN_TEMP": "join_temp", "CFG:CMD:CREW_BREAK": "break",
 			"CFG:CMD:CREW_RESUME": "resume", "CFG:CMD:CREW_LEAVE": "leave",
 			"CFG:CMD:CREW_MAIN": "main", "CFG:CMD:CREW_CONTEXT": "context",
@@ -4152,7 +4173,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const args = { crew_session: active.panel.crew.name, member_qr_token: member_token,
 			operator_session_token: state.session_token, reason: dialog.get_value("reason") };
 		let method;
-		if (["join_direct", "join_oversight", "join_temp"].includes(action)) {
+		if (action === "direct_senior") {
+			method = "cfg_kanban.services.crew_registry.assign_direct_senior";
+		} else if (["join_direct", "join_oversight", "join_temp"].includes(action)) {
 			method = "cfg_kanban.services.crew_registry.join_crew_member";
 			args.crew_role = action === "join_temp" ? "Temporary Support" :
 				action === "join_oversight" ? "Senior / Overseer" : "Supporting Operator";

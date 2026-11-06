@@ -23,7 +23,7 @@ class TestCrewOperatorInterfaceContract(TestCase):
     def test_scanner_sheet_contains_every_crew_transition(self):
         source = (ROOT / "api" / "operator.py").read_text()
         for command in (
-            "CREW_OPEN", "CREW_JOIN", "CREW_JOIN_OVERSIGHT", "CREW_JOIN_TEMP",
+            "CREW_OPEN", "CREW_JOIN", "CREW_JOIN_SENIOR", "CREW_JOIN_OVERSIGHT", "CREW_JOIN_TEMP",
             "CREW_BREAK", "CREW_RESUME", "CREW_LEAVE", "CREW_MAIN",
             "CREW_CONTEXT", "CREW_CLOSE",
         ):
@@ -49,10 +49,33 @@ class TestCrewOperatorInterfaceContract(TestCase):
         self.assertIn("Crew Controls", source)
         self.assertIn("handle_crew_dialog_scan", source)
         self.assertIn("Join Direct", source)
+        self.assertIn("Join / Set Direct Senior", source)
+        self.assertIn("Role Qualification", source)
+        self.assertIn("qualification.actual_level", source)
         self.assertIn("Join Oversight", source)
         self.assertIn("Start Break", source)
         self.assertIn("Change Main Operator", source)
         self.assertIn("Close Crew", source)
+
+    def test_direct_senior_action_is_scanner_operable_and_audited(self):
+        panel = (
+            ROOT / "cfg_kanban" / "page" / "kanban_operator" / "kanban_operator.js"
+        ).read_text()
+        registry = (ROOT / "services" / "crew_registry.py").read_text()
+        self.assertIn('CFG:CMD:CREW_JOIN_SENIOR', panel)
+        self.assertIn('crew_registry.assign_direct_senior', panel)
+        self.assertIn('def assign_direct_senior', registry)
+        self.assertIn('"Senior / Overseer"', registry)
+        self.assertIn('"Direct Participation"', registry)
+        self.assertIn('"Change Crew Role"', registry)
+
+    def test_crew_panel_returns_policy_scoped_l_levels(self):
+        source = (ROOT / "api" / "operator.py").read_text()
+        panel = source.split("def get_execution_crew_panel", 1)[1].split(
+            "def open_execution_crew_session", 1
+        )[0]
+        self.assertIn("crew_qualification_summary", panel)
+        self.assertIn('member["qualifications"]', panel)
 
     def test_live_revision_includes_immutable_crew_events(self):
         source = (ROOT / "api" / "operator.py").read_text()

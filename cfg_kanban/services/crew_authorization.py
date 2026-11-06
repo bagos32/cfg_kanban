@@ -4,12 +4,16 @@ import frappe
 from frappe import _
 from frappe.utils import cint, now_datetime
 
-from cfg_kanban.services.competency import employee_has_competency
+from cfg_kanban.services.competency import (
+    competency_level_code,
+    competency_level_rank,
+    effective_competency_status,
+    employee_has_competency,
+)
 from cfg_kanban.services.crew_authorization_rules import (
     DIRECT_WORK,
-    LEAD_ROLES,
-    SUPERVISOR_ROLE,
     evaluate_crew_authorization,
+    member_policy_roles,
     requirement_key,
 )
 from cfg_kanban.services.crew_policy import get_effective_crew_policy
@@ -186,16 +190,97 @@ def _qualified_by_requirement(policy, active_members):
 
 
 def _eligible_for_role(member, participation_role):
-    if participation_role == "Direct Worker":
-        return member.get("work_category") == DIRECT_WORK
-    if participation_role == "Qualified Lead":
-        return (
-            member.get("work_category") == DIRECT_WORK
-            and member.get("crew_role") in LEAD_ROLES
-        )
-    if participation_role == "Active Supervisor":
-        return member.get("crew_role") == SUPERVISOR_ROLE
-    return False
+    return participation_role in member_policy_roles(member)
+
+
+def crew_qualification_summary(policy, members):
+    """Return actual L-level evidence only for policy rows applicable to each live role."""
+    members = list(members or [])
+    requirements = list((policy or {}).get("skill_requirements") or [])
+    employees = sorted({row.get("employee") for row in members if row.get("employee")})
+    skills = sorted({row.get("skill") for row in requirements if row.get("skill")})
+    if not employees or not skills:
+        return {employee: [] for employee in employees}
+
+    rows = frappe.get_all(
+        "CFG Kanban Employee Competency",
+        filters={
+            "employee": ["in", employees],
+            "skill": ["in", skills],
+            "docstatus": 1,
+            "status": "Active",
+        },
+        fields=[
+            "employee", "skill", "skill_name", "competency_level",
+            "can_work_independently", "can_supervise_trainees", "docstatus", "status",
+            "effective_from", "valid_until",
+        ],
+        order_by="effective_from desc, creation desc",
+        limit_page_length=0,
+    )
+    effective = {}
+    for row in rows:
+        if effective_competency_status(row) != "Active":
+            continue
+        key = (row.employee, row.skill)
+        previous = effective.get(key)
+        if (not previous or competency_level_rank(row.competency_level)
+                > competency_level_rank(previous.competency_level)):
+            effective[key] = row
+
+    result = {}
+    for member in members:
+        employee = member.get("employee")
+        roles = member_policy_roles(member)
+        qualifications = []
+        for requirement in requirements:
+            role = requirement.get("participation_role")
+            if role not in roles:
+                continue
+            competency = effective.get((employee, requirement.get("skill")))
+            actual_rank = (
+                competency_level_rank(competency.competency_level) if competency else -1
+            )
+            required_rank = competency_level_rank(requirement.get("minimum_level") or "L0")
+            independent_ok = not requirement.get("require_independent_authorization") or bool(
+                competency and cint(competency.can_work_independently)
+            )
+            supervisor_ok = not requirement.get("require_supervisor_authorization") or bool(
+                competency and cint(competency.can_supervise_trainees)
+            )
+            qualifications.append({
+                "participation_role": role,
+                "skill": requirement.get("skill"),
+                "skill_name": (
+                    competency.skill_name if competency and competency.skill_name
+                    else requirement.get("skill")
+                ),
+                "actual_level": (
+                    competency_level_code(competency.competency_level) if competency else None
+                ),
+                "actual_level_label": competency.competency_level if competency else None,
+                "minimum_level": competency_level_code(
+                    requirement.get("minimum_level") or "L0"
+                ),
+                "requires_independent_authorization": bool(
+                    requirement.get("require_independent_authorization")
+                ),
+                "requires_supervisor_authorization": bool(
+                    requirement.get("require_supervisor_authorization")
+                ),
+                "meets_requirement": bool(
+                    competency and actual_rank >= required_rank
+                    and independent_ok and supervisor_ok
+                ),
+                "independent_authorized": bool(
+                    competency and cint(competency.can_work_independently)
+                ),
+                "supervisor_authorized": bool(
+                    competency and cint(competency.can_supervise_trainees)
+                ),
+            })
+        result[employee] = qualifications
+    return result
 
 
 def _trainee_employees(policy, active_members):

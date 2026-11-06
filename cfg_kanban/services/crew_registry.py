@@ -120,6 +120,86 @@ def join_crew_member(
 
 
 @frappe.whitelist()
+def assign_direct_senior(
+    crew_session,
+    member_qr_token,
+    operator_session_token,
+    reason=None,
+):
+    """Join or reclassify one active member as a direct-participating senior.
+
+    This explicit floor action lets one qualified Employee satisfy both Qualified Lead and
+    Active Supervisor policy rows without inventing a second person. Competency and supervisor
+    authorization remain independently enforced by the normal crew compliance evaluation.
+    """
+    session = _active_session(crew_session)
+    actor = _actor(operator_session_token, session.workstation)
+    _assert_actor_can_manage(session, actor)
+    identity = _scanned_identity(member_qr_token, session.company)
+    membership_name = frappe.db.get_value(
+        "CFG Kanban Crew Membership",
+        {
+            "crew_session": session.name,
+            "employee": identity["employee"],
+            "status": ["in", ["Active", "On Break"]],
+        },
+        "name",
+    )
+    if not membership_name:
+        roster = _json_list(session.expected_roster_snapshot)
+        expected = expected_roster_match(roster, identity["employee"])
+        membership = _insert_membership(
+            session,
+            identity["employee"],
+            identity["employee_name"],
+            identity["operator_profile"],
+            "Senior / Overseer",
+            "Direct Participation",
+            "Employee QR Scan",
+            actor,
+            expected,
+            reason,
+        )
+        _reconcile_compliance(session, actor)
+        return _public_membership(membership)
+
+    membership = frappe.get_doc("CFG Kanban Crew Membership", membership_name)
+    if membership.status != "Active":
+        frappe.throw("Resume the crew member before assigning Direct Senior responsibility")
+    if (membership.crew_role == "Senior / Overseer"
+            and membership.work_category == "Direct Participation"):
+        return _public_membership(membership)
+
+    previous_state = f"{membership.crew_role} / {membership.work_category}"
+    current = now_datetime()
+    membership.db_set({
+        "crew_role": "Senior / Overseer",
+        "work_category": "Direct Participation",
+        "last_event": "Change Crew Role",
+        "last_event_on": current,
+    }, update_modified=False)
+    session.db_set("last_activity_on", current, update_modified=False)
+    _record_event(
+        session,
+        "Change Crew Role",
+        actor,
+        membership=membership,
+        subject_employee=membership.employee,
+        previous_state=previous_state,
+        new_state="Senior / Overseer / Direct Participation",
+        reason=reason,
+        details={
+            "previous_crew_role": previous_state.split(" / ", 1)[0],
+            "previous_work_category": previous_state.split(" / ", 1)[1],
+            "crew_role": "Senior / Overseer",
+            "work_category": "Direct Participation",
+        },
+    )
+    _reconcile_compliance(session, actor)
+    return _public_membership(membership)
+
+
+@frappe.whitelist()
 def break_crew_member(crew_session, member_qr_token, operator_session_token, reason=None):
     return _transition_scanned_member(
         crew_session, member_qr_token, operator_session_token, "Break", reason

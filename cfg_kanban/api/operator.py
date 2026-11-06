@@ -26,6 +26,7 @@ from cfg_kanban.services.process_tasks import (assert_gate_open, ensure_tasks,
 from cfg_kanban.services.dynamic_forms import definitions, validate_values
 from cfg_kanban.services.production_trace import SUPPORTED_PURPOSES
 from cfg_kanban.services.crew_authorization import (
+    crew_qualification_summary,
     enforce_execution_crew,
     enforce_operation_crew,
     evaluate_execution_crew,
@@ -155,6 +156,7 @@ def _scanner_command_catalog(quantity_steps=None):
             ("Crew Controls", "CFG:CMD:CREW", ""),
             ("Crew: Open Session", "CFG:CMD:CREW_OPEN", ""),
             ("Crew: Join Direct", "CFG:CMD:CREW_JOIN", ""),
+            ("Crew: Join / Set Direct Senior", "CFG:CMD:CREW_JOIN_SENIOR", ""),
             ("Crew: Join Oversight", "CFG:CMD:CREW_JOIN_OVERSIGHT", ""),
             ("Crew: Join Temporary Support", "CFG:CMD:CREW_JOIN_TEMP", ""),
             ("Crew: Start Break", "CFG:CMD:CREW_BREAK", ""),
@@ -305,6 +307,12 @@ def get_execution_crew_panel(execution_name, operator_session_token=None):
         cint(profile.get("can_override")) or profile.get("kanban_role") == "Supervisor"
     )
     policy = decision.get("policy") or {}
+    if active_crew:
+        qualification_by_employee = crew_qualification_summary(
+            policy, active_crew.get("members") or []
+        )
+        for member in active_crew.get("members") or []:
+            member["qualifications"] = qualification_by_employee.get(member.employee) or []
     return {
         "execution": {
             "name": execution.name,

@@ -88,7 +88,7 @@
    "fieldname": "event_type",
    "label": "Event Type",
    "fieldtype": "Select",
-   "options": "Open Session\nJoin\nBreak\nResume\nLeave\nChange Main Operator\nContext Change\nClose Session",
+   "options": "Open Session\nJoin\nBreak\nResume\nLeave\nChange Crew Role\nChange Main Operator\nContext Change\nClose Session",
    "reqd": 1,
    "read_only": 1,
    "in_list_view": 1,

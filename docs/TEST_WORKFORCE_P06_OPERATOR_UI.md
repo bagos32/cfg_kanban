@@ -17,7 +17,7 @@ sheet includes:
 
 - `CFG:CMD:CREW` — open Crew Controls for the current execution;
 - `CFG:CMD:CREW_OPEN` — open the Workstation crew;
-- `CFG:CMD:CREW_JOIN`, `CREW_JOIN_OVERSIGHT`, `CREW_JOIN_TEMP`;
+- `CFG:CMD:CREW_JOIN`, `CREW_JOIN_SENIOR`, `CREW_JOIN_OVERSIGHT`, `CREW_JOIN_TEMP`;
 - `CFG:CMD:CREW_BREAK`, `CREW_RESUME`, `CREW_LEAVE`;
 - `CFG:CMD:CREW_MAIN`, `CREW_CONTEXT`, and `CREW_CLOSE`;
 - the existing `CFG:CMD:CONFIRM` and `CFG:CMD:CANCEL` labels.
@@ -48,7 +48,9 @@ and the full catalogue remains available without manually selecting every row.
 4. Scan `CFG:CMD:CREW`. The panel must select the current In Progress/Blocked/Paused execution,
    otherwise the next Ready execution.
 5. Confirm the modal shows exact Operation, Workstation, Job Card, effective policy, current
-   findings, member roster and scanner input.
+   findings, member roster and scanner input. In **Role Qualification**, confirm each member shows
+   the actual L-level and minimum L-level only for policy skill rows applicable to that live role;
+   missing or insufficient evidence must be red rather than silently omitted.
 
 Expected result: a crew-specific hold is shown ahead of ordinary current work. No crew action is
 performed merely by opening the modal.
@@ -73,6 +75,14 @@ Membership. Expected template members are not present until they scan.
 4. Scan `CFG:CMD:CREW_JOIN_OVERSIGHT`, then scan the qualified supervisor's normal operator QR.
 5. Confirm the supervisor appears as Senior / Overseer / Oversight Only.
 6. Confirm the terminal header still names the original logged-in operator.
+
+7. Scan `CFG:CMD:CREW_JOIN_SENIOR`, then scan an active L3/L4 senior's normal operator QR.
+8. Confirm a new person joins, or an existing active person is reclassified, as
+   **Senior / Overseer / Direct Participation**. If that person holds the required independent and
+   trainee-supervision competency approvals, confirm the same Employee satisfies both Qualified
+   Lead and Active Supervisor rows. Confirm both role-specific L-level lines appear in the popup.
+   Repeat while that member is On Break and confirm the server
+   requires Resume first.
 
 Expected result: compliant coverage resolves the crew hold automatically. The Card live refresh
 updates the crew strip without requiring a rescan. No additional ERPNext Job Card is created.

@@ -328,10 +328,19 @@ compliance. Select **Crew Controls**, or scan the printable `CFG:CMD:CREW` comma
 crew for the panel's current execution.
 
 To work without a mouse, scan a Crew action command first and then scan the affected Employee's
-normal operator QR. Supported actions are Open Crew, Join Direct, Join Oversight, Join Temporary,
-Start Break, Resume, Leave, Change Main Operator, Use Current Operation and Close Crew. Close Crew
+normal operator QR. Supported actions are Open Crew, Join Direct, **Join / Set Direct Senior**, Join
+Oversight, Join Temporary, Start Break, Resume, Leave, Change Main Operator, Use Current Operation
+and Close Crew. `CFG:CMD:CREW_JOIN_SENIOR` creates or reclassifies an active membership as
+**Senior / Overseer / Direct Participation**, allowing one genuinely qualified Employee to satisfy
+both Qualified Lead and Active Supervisor policy rows. It does not grant competency: the Employee's
+active independent-work and trainee-supervision approvals are still checked. Close Crew
 requires a separate Confirm scan. Cancel closes the modal without converting the next scan into a
 Card scan.
+
+The Crew Controls roster includes **Role Qualification**. For every effective skill row applicable
+to the member's live role, it shows the actual L-level beside the policy minimum. Green means the
+level and required independent/supervision approvals pass; red or **None** identifies the exact
+qualification gap. Unrelated Employee competencies are intentionally omitted from the floor popup.
 
 The Employee scan inside Crew Controls is identity evidence only. The terminal remains signed in as
 the current operator, every crew mutation carries that authenticated Operator Session and ERP
@@ -4430,6 +4439,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.33 | 6 November 2026 | Added the scanner-first Join / Set Direct Senior crew action so a new or active member can be audited as Senior / Overseer with Direct Participation and, when their competency approvals qualify, satisfy both Qualified Lead and Active Supervisor rows without requiring a fictitious second person; Crew Controls now displays policy-scoped actual-versus-minimum L-levels with visible pass/gap state for every selected live role |
 | 2.32 | 28 October 2026 | Added opt-in incremental Loose WIP release per BOM component, positive-load Job Card start readiness, per-operation-cycle usage closure evidence, Job Card-scoped consolidated ERP consumption and unused returns, and Operator Complete partial card closure with audited unfulfilled quantity returned to the Job Card queue while preserving independent handoff rules |
 | 2.31 | 28 October 2026 | Added the dedicated printable `CFG:CMD:RECORD_WIP_BIN_USE` production command for Standard Quantity WIP bins, including single eligible Job Card routing, numbered multi-Job selection, Scanner Help, command-label catalog, and the existing audited no-stock-posting usage dialog |
 | 2.30 | 28 October 2026 | Corrected Production Material Trace submission so the scanner posts the exact visible Draft Stock Entry instead of relying on an older Card-context list, exposes truthful physical-staging readiness, and keeps the popup open when a server gate rejects submission |

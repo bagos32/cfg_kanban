@@ -4,6 +4,18 @@ LEAD_ROLES = {"Main Operator", "Senior / Overseer"}
 SUPERVISOR_ROLE = "Senior / Overseer"
 
 
+def member_policy_roles(member):
+    """Return every effective policy role represented by one live crew membership."""
+    roles = set()
+    if member.get("work_category") == DIRECT_WORK:
+        roles.add("Direct Worker")
+        if member.get("crew_role") in LEAD_ROLES:
+            roles.add("Qualified Lead")
+    if member.get("crew_role") == SUPERVISOR_ROLE:
+        roles.add("Active Supervisor")
+    return roles
+
+
 def requirement_key(requirement):
     return f"{requirement.get('participation_role')}|{requirement.get('skill')}"
 
