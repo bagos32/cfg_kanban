@@ -25,11 +25,20 @@ class TestCrewRegistryContract(TestCase):
         session_fields = {row["fieldname"]: row for row in session["fields"]}
         self.assertEqual(template["is_submittable"], 1)
         self.assertEqual(fields["members"]["options"], "CFG Kanban Crew Template Member")
+        self.assertEqual(fields["active"]["allow_on_submit"], 1)
+        self.assertTrue({
+            "active_change_reason", "active_changed_by", "active_changed_on",
+        }.issubset(fields))
         self.assertIn("never marks any employee present", fields["identity_section"]["description"])
         self.assertIn(
             "not present until they join",
             session_fields["expected_roster_snapshot"]["description"],
         )
+        controller = (
+            DOCTYPE_ROOT / "cfg_kanban_crew_template" / "cfg_kanban_crew_template.py"
+        ).read_text()
+        self.assertIn("def before_update_after_submit", controller)
+        self.assertIn("update_snapshots=False", controller)
 
     def test_session_membership_and_event_schema_preserve_actual_presence(self):
         session = self._doctype("cfg_kanban_crew_session", "cfg_kanban_crew_session.json")

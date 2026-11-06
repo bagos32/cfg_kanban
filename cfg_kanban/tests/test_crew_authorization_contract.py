@@ -134,6 +134,7 @@ class TestCrewAuthorizationContract(TestCase):
         scan = (ROOT / "api" / "scan.py").read_text()
         progress = (ROOT / "services" / "progress.py").read_text()
         registry = (ROOT / "services" / "crew_registry.py").read_text()
+        authorization = (ROOT / "services" / "crew_authorization.py").read_text()
         self.assertIn('"Before Runtime Allocation"', operator)
         self.assertIn('"Before Operation Start"', operator)
         self.assertIn('"Progress"', operator)
@@ -141,6 +142,8 @@ class TestCrewAuthorizationContract(TestCase):
         self.assertIn('"Before WIP Release"', scan)
         self.assertIn("release_execution_wip_if_authorized", progress)
         self.assertIn("reconcile_workstation_crew_compliance", registry)
+        self.assertIn("The workstation crew restriction was deactivated", authorization)
+        self.assertIn('compliance_status="Not Evaluated"', authorization)
 
     def test_workspace_exposes_compliance_history(self):
         workspace = json.loads(

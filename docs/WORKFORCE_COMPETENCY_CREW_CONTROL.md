@@ -211,6 +211,12 @@ Profiles are submitted manager approvals. Use a new Profile/revision when the ap
 changes. External policy fields are neutral identifiers and immutable revision snapshots; they do
 not create a TrackQMS dependency.
 
+After submission, **Active** remains editable for lifecycle control. Every activation or
+deactivation requires a new reason and records the ERP User and timestamp. A Profile cannot be
+deactivated while an active Kanban Master operation, Kanban Card, or submitted active Workstation
+Crew Requirement still references it; replace or deactivate those references first. Use Cancel only
+when the approved revision itself is invalid, not for a temporary operational pause.
+
 ### Three policy layers
 
 1. In **CFG Kanban Master → Operation Profiles**, select the normal submitted Crew Requirement.
@@ -262,6 +268,11 @@ When a Crew Session opens with a template, CFG Kanban copies an immutable JSON s
 expected roster and revision into the session. It does **not** create attendance for those people.
 This prevents yesterday's saved team from being silently treated as present today.
 
+After submission, **Active** remains editable with a mandatory fresh reason, responsible ERP User,
+and timestamp. Deactivating a Crew Template removes it from future selection but never rewrites a
+Crew Session's earlier expected-roster snapshot. Reactivation revalidates its Employees and active
+Operator Profiles. Cancel the document only when that approved template revision is invalid.
+
 ### Persistent Workstation Crew Session
 
 Only one active **CFG Kanban Crew Session** may be opened for the same Company and Workstation. It
@@ -285,6 +296,12 @@ Every transition also inserts a read-only **CFG Kanban Crew Event** with the sub
 Employee, terminal ERP User, Operator Session, timestamp, previous/new state, reason, and structured
 details. Closing a session closes every still-present membership and preserves individual Leave
 events before the final Close Session event.
+
+A submitted **CFG Kanban Workstation Crew Requirement** uses the same reasoned Active lifecycle.
+Changing Active immediately re-evaluates live executions at that Workstation. Deactivation removes
+only that policy layer; another applicable Card or Operation Profile may still enforce its own
+requirement. If no effective policy remains, any hold owned by crew compliance is resolved and the
+execution returns to **Not Evaluated** rather than remaining blocked by a stale rule.
 
 ### P03 acceptance test
 

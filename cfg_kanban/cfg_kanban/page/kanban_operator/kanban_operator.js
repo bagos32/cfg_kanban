@@ -4015,6 +4015,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			const qualifications = (row.qualifications || []).map((qualification) => {
 				const level = qualification.actual_level || __("None");
 				const tone = qualification.meets_requirement ? "green" : "red";
+				const level_html = /^L[0-4]$/.test(level)
+					? `<span class="indicator-pill ${tone}" style="font-size:11px;font-weight:800;padding:1px 6px">${e(level)}</span>`
+					: `<small class="text-danger" style="font-size:9px;font-weight:600">${e(level)}</small>`;
 				const approvals = [];
 				if (qualification.requires_independent_authorization) {
 					approvals.push(qualification.independent_authorized ? __("Independent approved") : __("Independent approval missing"));
@@ -4023,9 +4026,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					approvals.push(qualification.supervisor_authorized ? __("Supervision approved") : __("Supervision approval missing"));
 				}
 				const approval_text = approvals.length ? ` · ${e(approvals.join(" · "))}` : "";
-				return `<div class="mb-1"><strong>${e(qualification.skill_name || qualification.skill)}</strong>
-					<span class="indicator-pill ${tone}">${e(level)}</span>
-					<small class="text-muted d-block">${e(qualification.participation_role)} · ${__("minimum")} ${e(qualification.minimum_level || "L0")}${approval_text}</small></div>`;
+				return `<div class="mb-1" style="line-height:1.1">
+					${level_html}
+					<small class="text-muted" style="font-size:9px">${e(qualification.skill_name || qualification.skill)} · ${e(qualification.participation_role)} · ${__("min")} ${e(qualification.minimum_level || "L0")}${approval_text}</small></div>`;
 			}).join("") || `<span class="text-muted">${__("No applicable policy skill")}</span>`;
 			return `<tr>
 			<td>${e(row.employee_name || row.employee)}</td><td>${e(row.crew_role)}</td>

@@ -34,6 +34,9 @@ def evaluate_execution_crew(execution_name, checkpoint, actor=None, persist=True
     )
     result.update({
         "checkpoint": checkpoint,
+        "company": cycle.company,
+        "workstation": execution.workstation,
+        "operation": execution.operation,
         "kanban_cycle": cycle.name,
         "kanban_card": cycle.kanban_card,
         "process_execution": execution.name,
@@ -143,10 +146,30 @@ def reconcile_workstation_crew_compliance(company, workstation, actor=None):
         cycle_company = frappe.db.get_value("CFG Kanban Cycle", row.kanban_cycle, "company")
         if cycle_company and cycle_company != company:
             continue
+        execution = frappe.get_doc("CFG Kanban Process Execution", row.name)
         result = evaluate_execution_crew(
             row.name, "Crew Change", actor=actor, persist=True
         )
         if not result.get("configured"):
+            if execution.get("crew_compliance_hold"):
+                check = _insert_check(result, actor)
+                result["check"] = check.name
+                _resolve_execution_hold(
+                    execution,
+                    check,
+                    now_datetime(),
+                    actor,
+                    compliance_status="Not Evaluated",
+                    resolution=(
+                        "The workstation crew restriction was deactivated and no other "
+                        "effective crew policy remains"
+                    ),
+                )
+            elif execution.get("crew_compliance_status") != "Not Evaluated":
+                execution.db_set({
+                    "crew_compliance_status": "Not Evaluated",
+                    "crew_compliance_checked_on": now_datetime(),
+                }, update_modified=True)
             # An unconfigured operation remains backward compatible, but an
             # already-running execution must still mirror actual crew joins,
             # breaks, resumes, and departures into participation intervals.
@@ -363,10 +386,17 @@ def _persist_execution_decision(execution, result, actor):
     result["exception"] = exception.name
 
 
-def _resolve_execution_hold(execution, check, current, actor=None):
+def _resolve_execution_hold(
+    execution,
+    check,
+    current,
+    actor=None,
+    compliance_status="Compliant",
+    resolution="Active crew again satisfies the effective approved policy",
+):
     hold = execution.get("crew_compliance_hold")
     updates = {
-        "crew_compliance_status": "Compliant",
+        "crew_compliance_status": compliance_status,
         "last_crew_compliance_check": check.name,
         "crew_compliance_checked_on": current,
     }
@@ -376,7 +406,7 @@ def _resolve_execution_hold(execution, check, current, actor=None):
             "status": "Resolved",
             "resolved_on": current,
             "resolved_by": frappe.session.user,
-            "resolution": "Active crew again satisfies the effective approved policy",
+            "resolution": resolution,
         })
         if execution.status == "Blocked" and crew_owns_general_block:
             updates["status"] = execution.get("crew_hold_previous_status") or "Ready"

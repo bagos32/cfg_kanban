@@ -14,7 +14,8 @@ class CFGKanbanCrewTemplate(Document):
             frappe.throw("Template Code is required")
         if cint(self.revision) < 1:
             frappe.throw("Revision must be at least 1")
-        self._validate_members()
+        if self.docstatus == 0:
+            self._validate_members()
 
     def before_submit(self):
         if not cint(self.active):
@@ -23,7 +24,23 @@ class CFGKanbanCrewTemplate(Document):
         self.approved_by = frappe.session.user
         self.approved_on = now_datetime()
 
-    def _validate_members(self):
+    def before_update_after_submit(self):
+        previous = self.get_doc_before_save()
+        if not previous or cint(previous.active) == cint(self.active):
+            return
+        reason = (self.active_change_reason or "").strip()
+        previous_reason = (previous.active_change_reason or "").strip()
+        if not reason or reason == previous_reason:
+            frappe.throw(
+                "Enter a new Activation / Deactivation Reason before changing Active"
+            )
+        if cint(self.active):
+            self._validate_members(update_snapshots=False)
+        self.active_change_reason = reason
+        self.active_changed_by = frappe.session.user
+        self.active_changed_on = now_datetime()
+
+    def _validate_members(self, update_snapshots=True):
         if not self.members:
             frappe.throw("Add at least one expected crew member")
         employees = set()
@@ -48,8 +65,9 @@ class CFGKanbanCrewTemplate(Document):
             )
             if not profile:
                 frappe.throw(f"Employee {row.employee} needs an active Kanban Operator Profile")
-            row.employee_name = employee.employee_name
-            row.operator_profile = profile
+            if update_snapshots:
+                row.employee_name = employee.employee_name
+                row.operator_profile = profile
             if row.crew_role == "Main Operator":
                 main_count += 1
                 if row.work_category != "Direct Participation":

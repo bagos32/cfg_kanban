@@ -16,14 +16,80 @@ class CFGKanbanCrewRequirementProfile(Document):
             frappe.throw("Requirement Code is required")
         if cint(self.revision) < 1:
             frappe.throw("Revision must be at least 1")
-        self._validate_crew_shape()
-        self._validate_skill_requirements()
+        if self.docstatus == 0:
+            self._validate_crew_shape()
+            self._validate_skill_requirements()
 
     def before_submit(self):
         if not cint(self.active):
             frappe.throw("An inactive Crew Requirement Profile cannot be approved")
+        self._validate_crew_shape()
+        self._validate_skill_requirements()
         self.approved_by = frappe.session.user
         self.approved_on = now_datetime()
+
+    def before_update_after_submit(self):
+        previous = self.get_doc_before_save()
+        if not previous or cint(previous.active) == cint(self.active):
+            return
+        self._require_new_active_change_reason(previous)
+        if cint(self.active):
+            self._validate_crew_shape()
+            self._validate_skill_requirements()
+        else:
+            self._assert_no_active_references()
+        self.active_changed_by = frappe.session.user
+        self.active_changed_on = now_datetime()
+
+    def _require_new_active_change_reason(self, previous):
+        reason = (self.active_change_reason or "").strip()
+        previous_reason = (previous.active_change_reason or "").strip()
+        if not reason or reason == previous_reason:
+            frappe.throw(
+                "Enter a new Activation / Deactivation Reason before changing Active"
+            )
+        self.active_change_reason = reason
+
+    def _assert_no_active_references(self):
+        references = []
+        operation_rows = frappe.get_all(
+            "CFG Kanban Operation Profile",
+            filters={
+                "parenttype": "CFG Kanban Master",
+                "crew_requirement_profile": self.name,
+            },
+            fields=["parent", "operation"],
+            limit_page_length=0,
+        )
+        for row in operation_rows:
+            if cint(frappe.db.get_value("CFG Kanban Master", row.parent, "active")):
+                references.append(f"Kanban Master {row.parent} ({row.operation})")
+        cards = frappe.get_all(
+            "CFG Kanban Card",
+            filters={"crew_requirement_profile": self.name, "active": 1},
+            pluck="name",
+            limit_page_length=0,
+        )
+        references.extend(f"Kanban Card {name}" for name in cards)
+        workstation_rules = frappe.get_all(
+            "CFG Kanban Workstation Crew Requirement",
+            filters={
+                "crew_requirement_profile": self.name,
+                "active": 1,
+                "docstatus": 1,
+            },
+            pluck="name",
+            limit_page_length=0,
+        )
+        references.extend(f"Workstation Crew Requirement {name}" for name in workstation_rules)
+        if references:
+            preview = "; ".join(references[:10])
+            if len(references) > 10:
+                preview += f"; and {len(references) - 10} more"
+            frappe.throw(
+                "Replace or deactivate every active reference before deactivating this "
+                f"Crew Requirement Profile: {preview}"
+            )
 
     def _validate_crew_shape(self):
         direct_workers = cint(self.minimum_direct_workers)

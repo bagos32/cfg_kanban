@@ -37,6 +37,10 @@ class TestCrewRequirementContract(TestCase):
             fields["skill_requirements"]["options"],
             "CFG Kanban Crew Skill Requirement",
         )
+        self.assertEqual(fields["active"]["allow_on_submit"], 1)
+        self.assertTrue({
+            "active_change_reason", "active_changed_by", "active_changed_on",
+        }.issubset(fields))
 
     def test_skill_rows_are_skill_specific_and_role_specific(self):
         schema = self._doctype(
@@ -72,6 +76,27 @@ class TestCrewRequirementContract(TestCase):
         self.assertEqual(workstation_fields["crew_requirement_profile"]["options"], expected)
         self.assertEqual(workstation["is_submittable"], 1)
         self.assertFalse(workstation_fields["operation"].get("reqd", 0))
+        self.assertEqual(workstation_fields["active"]["allow_on_submit"], 1)
+        self.assertTrue({
+            "active_change_reason", "active_changed_by", "active_changed_on",
+        }.issubset(workstation_fields))
+
+    def test_submitted_active_changes_are_reasoned_and_reference_safe(self):
+        profile = (
+            DOCTYPE_ROOT / "cfg_kanban_crew_requirement_profile" /
+            "cfg_kanban_crew_requirement_profile.py"
+        ).read_text()
+        workstation = (
+            DOCTYPE_ROOT / "cfg_kanban_workstation_crew_requirement" /
+            "cfg_kanban_workstation_crew_requirement.py"
+        ).read_text()
+        self.assertIn("def before_update_after_submit", profile)
+        self.assertIn("_assert_no_active_references", profile)
+        self.assertIn("Kanban Master", profile)
+        self.assertIn("Kanban Card", profile)
+        self.assertIn("Workstation Crew Requirement", profile)
+        self.assertIn("def on_update_after_submit", workstation)
+        self.assertIn("reconcile_workstation_crew_compliance", workstation)
 
     def test_effective_policy_uses_conservative_merging(self):
         source = (ROOT / "services" / "crew_policy.py").read_text()

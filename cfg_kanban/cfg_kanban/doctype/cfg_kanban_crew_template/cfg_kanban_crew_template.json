@@ -22,6 +22,9 @@
   "control_section",
   "approved_by",
   "approved_on",
+  "active_change_reason",
+  "active_changed_by",
+  "active_changed_on",
   "notes"
  ],
  "fields": [
@@ -62,6 +65,7 @@
    "label": "Active",
    "fieldtype": "Check",
    "default": "1",
+   "allow_on_submit": 1,
    "in_list_view": 1,
    "in_standard_filter": 1
   },
@@ -125,6 +129,28 @@
    "label": "Approved On",
    "fieldtype": "Datetime",
    "read_only": 1
+  },
+  {
+   "fieldname": "active_change_reason",
+   "label": "Activation / Deactivation Reason",
+   "fieldtype": "Small Text",
+   "allow_on_submit": 1,
+   "description": "Enter a new reason whenever a submitted template is activated or deactivated."
+  },
+  {
+   "fieldname": "active_changed_by",
+   "label": "Active Status Changed By",
+   "fieldtype": "Link",
+   "options": "User",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "active_changed_on",
+   "label": "Active Status Changed On",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "allow_on_submit": 1
   },
   {
    "fieldname": "notes",

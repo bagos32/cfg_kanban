@@ -52,6 +52,8 @@ class TestCrewOperatorInterfaceContract(TestCase):
         self.assertIn("Join / Set Direct Senior", source)
         self.assertIn("Role Qualification", source)
         self.assertIn("qualification.actual_level", source)
+        self.assertIn('style="font-size:11px', source)
+        self.assertIn('style="font-size:9px', source)
         self.assertIn("Join Oversight", source)
         self.assertIn("Start Break", source)
         self.assertIn("Change Main Operator", source)
