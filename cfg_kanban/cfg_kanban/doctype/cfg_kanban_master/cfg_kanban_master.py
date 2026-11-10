@@ -204,6 +204,53 @@ class CFGKanbanMaster(Document):
             _validate_warehouse_company(row.source_warehouse, self.company,
                                         f"Material Flow row {row.idx}")
             self._validate_wip_bin_rule(row, mode)
+            row.material_run_tracking_mode = (
+                row.material_run_tracking_mode or "No Run Tracking"
+            )
+            if row.material_run_tracking_mode == "Source Tag Quantity":
+                if not row.operation:
+                    frappe.throw(
+                        f"Material Flow row {row.idx}: Source Tag Quantity tracking "
+                        "requires an Item Operation"
+                    )
+                if (row.wip_presentation_method or "Standard ERP / Tag Flow") != "Standard ERP / Tag Flow":
+                    frappe.throw(
+                        f"Material Flow row {row.idx}: Material Run source-tag tracking "
+                        "cannot be combined with a reusable WIP Bin presentation"
+                    )
+                if not row.material_run_scan_warehouse:
+                    frappe.throw(
+                        f"Material Flow row {row.idx}: Material Run Scan Warehouse is required"
+                    )
+                _validate_warehouse_company(
+                    row.material_run_scan_warehouse,
+                    self.company,
+                    f"Material Flow row {row.idx} Material Run Scan Warehouse",
+                )
+                row.material_run_qty_per_output = flt(row.bom_qty) / flt(bom.quantity or 1)
+                if flt(row.material_run_qty_per_output) <= 0:
+                    frappe.throw(
+                        f"Material Flow row {row.idx}: Material Qty per Output Unit must be positive"
+                    )
+                if frappe.db.get_value("Item", row.item_code, "has_serial_no"):
+                    frappe.throw(
+                        f"Material Flow row {row.idx}: serial-controlled Item {row.item_code} "
+                        "requires the exact-serial Material Run package. Keep Material Run "
+                        "Tracking Mode as No Run Tracking for this Item for now."
+                    )
+                profile = next(
+                    (candidate for candidate in self.operation_profiles
+                     if candidate.operation == row.operation),
+                    None,
+                )
+                if not profile or (profile.material_run_control or "Disabled") == "Disabled":
+                    frappe.throw(
+                        f"Material Flow row {row.idx}: enable Material Run Control on "
+                        f"operation {row.operation} before tracking {row.item_code}"
+                    )
+            else:
+                row.material_run_scan_warehouse = None
+                row.material_run_qty_per_output = 0
         if len(rule_keys) != len(set(rule_keys)):
             frappe.throw("BOM Component Material Flow cannot repeat the same Item and Operation")
 
@@ -252,6 +299,8 @@ class CFGKanbanMaster(Document):
             filters={"parent": self.name, "parenttype": self.doctype},
             fields=["name", "item_code", "operation", "source_warehouse",
                     "bom_qty", "stock_uom", "wip_presentation_method",
+                    "material_run_tracking_mode", "material_run_scan_warehouse",
+                    "material_run_qty_per_output",
                     "loose_wip_release_policy", "loose_wip_usage_timing",
                     "wip_bin_pool", "standard_bin_qty", "idx"],
             order_by="idx asc",

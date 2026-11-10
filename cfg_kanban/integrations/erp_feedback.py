@@ -6,6 +6,7 @@ from cfg_kanban.services.operation_summary import (ensure_summary, ready_executi
                                                     ready_next_sequential_lane, recalculate,
                                                     refresh_destination)
 from cfg_kanban.services.state_machine import set_cycle_state, transition_card
+from cfg_kanban.services.operation_material_runs import build_material_run_rule_snapshot
 
 
 EMPTY_LINK_VALUES = {"", "none", "null", "undefined"}
@@ -925,6 +926,9 @@ def _sync_job_cards(work_order, cycle):
             "allow_material_carry_forward": profile.allow_material_carry_forward,
             "material_run_settlement_timing": (
                 profile.material_run_settlement_timing or "At Job Card End"
+            ),
+            "material_run_rules_json": build_material_run_rule_snapshot(
+                master, profile.operation
             ),
         }).insert(ignore_permissions=True)
         created[job.operation] = execution.name

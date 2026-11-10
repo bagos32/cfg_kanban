@@ -22,6 +22,9 @@ frappe.ui.form.on("CFG Kanban Master", {
 		frm.set_query("source_warehouse", "material_flow_rules", () => ({ filters: {
 			company: frm.doc.company || "", is_group: 0, disabled: 0,
 		} }));
+		frm.set_query("material_run_scan_warehouse", "material_flow_rules", () => ({ filters: {
+			company: frm.doc.company || "", is_group: 0, disabled: 0,
+		} }));
 		frm.set_query("wip_bin_pool", "material_flow_rules", (doc, cdt, cdn) => {
 			const row = locals[cdt][cdn];
 			return { filters: {
@@ -151,6 +154,8 @@ async function load_bom_material_flow(frm, options = {}) {
 		(frm.doc.material_flow_rules || []).forEach((row) => {
 			controls_by_component[material_flow_key(row)] = {
 				source_warehouse: row.source_warehouse,
+				material_run_tracking_mode: row.material_run_tracking_mode || "No Run Tracking",
+				material_run_scan_warehouse: row.material_run_scan_warehouse,
 				wip_presentation_method: row.wip_presentation_method || "Standard ERP / Tag Flow",
 				loose_wip_release_policy: row.loose_wip_release_policy || "Full Job Card Quantity Before Start",
 				loose_wip_usage_timing: row.loose_wip_usage_timing || "Every Operation Cycle",

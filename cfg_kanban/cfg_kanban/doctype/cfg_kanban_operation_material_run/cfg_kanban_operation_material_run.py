@@ -7,7 +7,7 @@ IMMUTABLE_CONTEXT_FIELDS = (
     "run_number", "kanban_cycle", "kanban_master", "process_execution",
     "runtime_allocation", "work_order", "job_card", "operation", "workstation",
     "output_serial_boundary", "opened_on", "opened_by_operator", "operator_session",
-    "terminal_user", "idempotency_key",
+    "terminal_user", "material_draw_fingerprint", "idempotency_key",
 )
 
 

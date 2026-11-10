@@ -5,6 +5,7 @@ from cfg_kanban.services.cycle_allocation import calculate_cycle_allocation
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key, insert_once
 from cfg_kanban.services.operation_summary import ensure_summary, recalculate
+from cfg_kanban.services.operation_material_runs import build_material_run_rule_snapshot
 from cfg_kanban.services.state_machine import transition_card
 
 
@@ -127,6 +128,9 @@ def allocate(card_name, job_card_name, confirmation, override_reason=None):
         "allow_material_carry_forward": profile.allow_material_carry_forward,
         "material_run_settlement_timing": (
             profile.material_run_settlement_timing or "At Job Card End"
+        ),
+        "material_run_rules_json": build_material_run_rule_snapshot(
+            master, profile.operation
         ),
     }).insert(ignore_permissions=True)
     recalculate(cycle.name, profile.operation)

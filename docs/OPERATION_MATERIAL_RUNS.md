@@ -9,9 +9,9 @@ bind raw-material Batch/serial evidence to a small output interval without slowi
 This feature is optional per Operation Profile. Existing production remains unchanged while
 **Material Run Control** is **Disabled**.
 
-## Package 1 status
+## Package status
 
-This package provides the safe foundation:
+Package 1 provides the safe run foundation:
 
 - operation-level configuration and immutable runtime snapshots;
 - one concurrently open Material Run per execution lane;
@@ -20,15 +20,25 @@ This package provides the safe foundation:
 - configurable output-boundary capture;
 - idempotent creation, operator/session audit, live refresh and printable command label;
 - automatic linkage and closure when the next operator progress record is posted;
-- scanner-safe cancellation of an empty run started by mistake;
-- no ERPNext stock posting and no change to ordinary progress reporting yet.
+- scanner-safe cancellation before progress.
+
+Package 2 adds opt-in source quantity evidence:
+
+- per-BOM-component **Material Run Tracking = Source Tag Quantity**;
+- immutable rule snapshots on newly released Process Executions;
+- scanner sequence of Material Quantity then physical source Stock Tag;
+- Item, Company, Warehouse, UOM, active/released and available-quantity validation;
+- immutable **CFG Kanban Operation Material Draw** audit rows;
+- cross-execution operational reservation so a shared bulk tag cannot be over-declared;
+- BOM-ratio progress gating and FIFO carry-forward into later Material Runs;
+- cancelled-draw audit with reservation release;
+- no change to operations and components that retain Disabled/No Run Tracking defaults.
 
 The following packages must be completed before this is accepted as the full material-trace flow:
 
-1. material-source draws, progress gate, source-change boundaries and carry-forward;
-2. exact serial reservation with parallel-machine collision protection;
-3. final Material Trace adoption and ERP settlement without rescanning or double reservation;
-4. controlled correction/recovery plus complete floor acceptance.
+1. exact serial reservation and serial-range evidence with parallel-machine collision protection;
+2. final Material Trace adoption and ERP settlement without rescanning or double reservation;
+3. controlled post-progress correction/recovery plus complete floor acceptance.
 
 ## Minimal configuration
 
@@ -38,13 +48,15 @@ the high-frequency flow:
 | Field | Recommended pilot value |
 |---|---|
 | Output Reporting Mode | Incremental |
-| Material Run Control | Optional |
+| Material Run Control | Optional first; Required Before Progress after Package 2 acceptance |
 | Output Boundary Requirement | Every Material Run |
 | Allow Unused Material Carry-forward | Enabled |
 | ERP Settlement Timing | At Job Card End |
 
-Use **Optional** during floor trials. Change to **Required Before Progress** only after the later
-progress-gate package is deployed and accepted.
+For each tracked BOM row, select **Source Tag Quantity**, its physical scan Warehouse, and
+**Standard ERP / Tag Flow**. The calculated ratio is BOM component quantity divided by BOM output
+quantity. Leave simple components at **No Run Tracking**. Do not enable it for an ERPNext
+serial-controlled Item until the exact-serial package is delivered.
 
 ## Scanner-only pilot
 
@@ -52,16 +64,21 @@ progress-gate package is deployed and accepted.
 2. Scan `CFG:CMD:START_MATERIAL_RUN`.
 3. If several enabled operations are active, scan the displayed `CFG:SELECT:n` label.
 4. If requested, scan the first output serial or other printed output boundary.
-5. Scan `CFG:CMD:CONFIRM`.
-6. Verify that the execution lane displays the open Material Run number and boundary.
-7. Scan `CFG:CMD:START_MATERIAL_RUN` again. Verify that it reports the existing open run rather
+5. Scan `CFG:QTY:MATERIAL:n`, then the physical source Stock Tag for each tracked component.
+6. Scan `CFG:CMD:CONFIRM`.
+7. Verify that the execution lane displays the open Material Run number and boundary and that each
+   Draw is recorded without reducing ERPNext or Handling Unit stock.
+8. Scan `CFG:CMD:START_MATERIAL_RUN` again. Verify that it reports the existing open run rather
    than creating a second run.
-8. Report a positive progress quantity. Verify that the progress record links to the Material Run,
-   the run becomes **Progress Posted**, and a new run may be opened.
-9. Start another run by mistake, scan `CFG:CMD:CANCEL_MATERIAL_RUN`, then Confirm. Verify that the
-   empty run is Cancelled. A run with material/progress evidence must reject this simple recovery.
-10. For an operation where Material Run Control is Disabled, verify that the start command says no
+9. Report a positive progress quantity. Verify that the BOM-ratio quantity is used, the progress
+   record links to the Material Run, the run becomes **Progress Posted**, and any remainder becomes
+   **Carry Forward**.
+10. Start another run by mistake, scan `CFG:CMD:CANCEL_MATERIAL_RUN`, then Confirm. Verify that the
+   run and staged Draws are Cancelled before progress and no reservation remains active.
+11. For an operation where Material Run Control is Disabled, verify that the start command says no
    eligible operation is available and that normal production remains unchanged.
 
-The current package records a boundary only. Do not treat it as final raw-material reservation,
-serial allocation, progress enforcement, or ERP consumption acceptance.
+Follow `docs/TEST_OPERATION_MATERIAL_RUN_DRAWS.md` for the complete acceptance test. The current
+Draw is an operational reservation. Do not treat it as ERP stock consumption or exact serial
+allocation, and do not skip the existing final Production Material Trace until the settlement
+package explicitly adopts these Draw rows.

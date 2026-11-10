@@ -31,11 +31,41 @@ class TestOperationMaterialRunContract(unittest.TestCase):
             fields["open_material_run"]["options"],
             "CFG Kanban Operation Material Run",
         )
+        self.assertTrue(fields["material_run_rules_json"]["hidden"])
         feedback = (ROOT / "integrations" / "erp_feedback.py").read_text()
         selector = (ROOT / "services" / "runtime_selector.py").read_text()
         for source in (feedback, selector):
             self.assertIn('"material_run_control": profile.material_run_control', source)
             self.assertIn('"material_run_output_boundary": profile.material_run_output_boundary', source)
+            self.assertIn('"material_run_rules_json": build_material_run_rule_snapshot', source)
+
+    def test_material_flow_rule_opts_in_without_changing_simple_materials(self):
+        schema = json.loads(
+            (DOCTYPE_ROOT / "cfg_kanban_material_flow_rule" /
+             "cfg_kanban_material_flow_rule.json").read_text()
+        )
+        fields = {row["fieldname"]: row for row in schema["fields"]}
+        self.assertEqual(fields["material_run_tracking_mode"]["default"], "No Run Tracking")
+        self.assertIn("Source Tag Quantity", fields["material_run_tracking_mode"]["options"])
+        self.assertEqual(fields["material_run_scan_warehouse"]["options"], "Warehouse")
+        self.assertEqual(fields["material_run_qty_per_output"]["read_only"], 1)
+        master = (DOCTYPE_ROOT / "cfg_kanban_master" / "cfg_kanban_master.py").read_text()
+        self.assertIn("material_run_qty_per_output", master)
+        self.assertIn("exact-serial Material Run package", master)
+
+    def test_material_draw_is_immutable_and_does_not_mutate_stock(self):
+        schema = json.loads(
+            (DOCTYPE_ROOT / "cfg_kanban_operation_material_draw" /
+             "cfg_kanban_operation_material_draw.json").read_text()
+        )
+        fields = {row["fieldname"]: row for row in schema["fields"]}
+        self.assertEqual(fields["source_handling_unit"]["options"], "CFG Kanban Handling Unit")
+        self.assertEqual(fields["idempotency_key"]["unique"], 1)
+        self.assertIn("Carry Forward", fields["status"]["options"])
+        controller = (DOCTYPE_ROOT / "cfg_kanban_operation_material_draw" /
+                      "cfg_kanban_operation_material_draw.py").read_text()
+        self.assertIn("Operation Material Draw identity is immutable", controller)
+        self.assertIn("cannot be deleted", controller)
 
     def test_material_run_is_immutable_and_concurrency_guarded(self):
         schema = json.loads(
@@ -70,6 +100,9 @@ class TestOperationMaterialRunContract(unittest.TestCase):
         self.assertIn("def start_scanner_run", service)
         self.assertIn("def cancel_scanner_run", service)
         self.assertIn("def close_run_with_progress", service)
+        self.assertIn("def preview_material_draw", service)
+        self.assertIn("def validate_progress_materials", service)
+        self.assertIn("def apply_progress_material_plan", service)
         self.assertIn('ACTIVE_EXECUTION_STATES = {"In Progress", "Paused"}', service)
         self.assertIn('canonical_key("operation-material-run"', service)
 
@@ -78,6 +111,27 @@ class TestOperationMaterialRunContract(unittest.TestCase):
         self.assertNotIn("Stock Entry", service)
         self.assertNotIn("post_quantity_event", service)
         self.assertIn("ERPNext remains the manufacturing and stock system of record", service)
+
+    def test_scanner_run_captures_quantity_then_physical_source(self):
+        panel = (ROOT / "cfg_kanban" / "page" / "kanban_operator" /
+                 "kanban_operator.js").read_text()
+        self.assertIn("dialog.cfg_pending_material_qty", panel)
+        self.assertIn("dialog.cfg_material_draws", panel)
+        self.assertIn("preview_material_draw", panel)
+        self.assertIn("CFG:QTY:MATERIAL:", panel)
+        self.assertIn("material_draws: JSON.stringify", panel)
+        self.assertIn("physical source Stock Tag", panel)
+        self.assertIn("finally {\n\t\t\t\tif (dialog.$wrapper.is(\":visible\"))", panel)
+
+    def test_progress_uses_material_plan_before_run_closure(self):
+        progress = (ROOT / "services" / "progress.py").read_text()
+        validate_at = progress.index("validate_progress_materials")
+        insert_at = progress.index("progress.insert")
+        apply_at = progress.index("apply_progress_material_plan")
+        close_at = progress.index("close_run_with_progress")
+        self.assertLess(validate_at, insert_at)
+        self.assertLess(insert_at, apply_at)
+        self.assertLess(apply_at, close_at)
 
     def test_progress_links_and_closes_an_open_run(self):
         progress_schema = json.loads(
@@ -93,6 +147,24 @@ class TestOperationMaterialRunContract(unittest.TestCase):
         progress = (ROOT / "services" / "progress.py").read_text()
         self.assertIn("material_run = open_run_for_execution(execution.name)", operator)
         self.assertIn("close_run_with_progress(", progress)
+
+    def test_progress_command_prefers_the_open_material_run_lane(self):
+        panel = (ROOT / "cfg_kanban" / "page" / "kanban_operator" /
+                 "kanban_operator.js").read_text()
+        self.assertIn(
+            'eligible.filter((row) => row.material_run?.status === "Open")',
+            panel,
+        )
+        self.assertIn(
+            'eligible.filter((row) => ["In Progress", "Paused"].includes(row.status))',
+            panel,
+        )
+        self.assertIn("select_scanner_execution_action(action, eligible)", panel)
+        self.assertIn("Scan CFG:SELECT:n, then scan Confirm", panel)
+        self.assertNotIn(
+            "More than one execution lane is eligible. Select the correct lane on screen.",
+            panel,
+        )
 
 
 if __name__ == "__main__":

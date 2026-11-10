@@ -26,6 +26,12 @@ def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_
         frappe.throw("Progress quantities cannot be negative; use an explicit adjustment workflow")
     if flt(execution.processed_qty) + processed_qty > flt(execution.target_qty) + 0.000001:
         frappe.throw(f"Progress exceeds this Cycle allocation of {execution.target_qty}")
+    material_plan = []
+    if source == "Operator":
+        from cfg_kanban.services.operation_material_runs import validate_progress_materials
+        material_plan = validate_progress_materials(
+            execution, material_run_doc, processed_qty
+        )
     progress = frappe.get_doc({
         "doctype": "CFG Kanban Operation Progress", "process_execution": execution.name,
         "kanban_cycle": execution.kanban_cycle, "posting_datetime": now_datetime(),
@@ -39,6 +45,9 @@ def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_
     for value in values or []:
         progress.append("execution_values", value)
     progress.insert(ignore_permissions=bool(operator_session))
+    if material_run_doc:
+        from cfg_kanban.services.operation_material_runs import apply_progress_material_plan
+        apply_progress_material_plan(material_plan, progress, material_run_doc)
     total_good = flt(execution.good_qty) + good_qty
     execution.db_set({"good_qty": total_good, "reject_qty": flt(execution.reject_qty) + reject_qty,
                       "processed_qty": flt(execution.processed_qty) + processed_qty,

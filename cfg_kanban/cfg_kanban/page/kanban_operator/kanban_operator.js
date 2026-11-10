@@ -406,22 +406,61 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			return focus_scanner();
 		}
 		const executions = state.context.executions || [];
-		const eligible = executions.filter((row) => {
+		let eligible = executions.filter((row) => {
 			if (action === "start") {
 				return row.status === "Ready" && state.operator.permissions.start;
 			}
 			return ["Ready", "In Progress", "Paused"].includes(row.status) &&
 				state.operator.permissions.report_progress;
 		});
-		if (eligible.length !== 1) {
-			const message = eligible.length
-				? __("More than one execution lane is eligible. Select the correct lane on screen.")
-				: __("No execution lane is currently eligible for this command.");
-			frappe.msgprint({ title: __("Scanner Command Not Applied"), message, indicator: "orange" });
-			return;
+		if (action === "report_progress") {
+			const material_run_lanes = eligible.filter((row) => row.material_run?.status === "Open");
+			const active_lanes = eligible.filter((row) => ["In Progress", "Paused"].includes(row.status));
+			if (material_run_lanes.length) eligible = material_run_lanes;
+			else if (active_lanes.length) eligible = active_lanes;
 		}
+		if (!eligible.length) {
+			return scanner_command_message(__("No execution lane is currently eligible for this command."));
+		}
+		if (eligible.length > 1) return select_scanner_execution_action(action, eligible);
 		if (action === "start") return job_action(eligible[0], "start");
 		return progress_dialog(eligible[0]);
+	}
+
+	function select_scanner_execution_action(action, eligible) {
+		if (eligible.length > 10) {
+			return scanner_command_message(__("More than ten execution lanes are eligible. Scan the exact Process or Station Card first."));
+		}
+		const values = eligible.map((row) => row.name);
+		const options = eligible.map((row, index) =>
+			`${index + 1}. ${row.operation || __("Operation")} · ${row.workstation || "-"} · ${row.job_card || "-"}`);
+		const dialog = new frappe.ui.Dialog({
+			title: action === "start" ? __("Select Operation to Start") : __("Select Operation for Progress"),
+			fields: [
+				{ fieldtype: "HTML", options: `<div class="alert alert-info">
+					<strong>${__("Scanner selection required")}</strong><br>
+					${options.map((row) => frappe.utils.escape_html(row)).join("<br>")}<br>
+					${__("Scan CFG:SELECT:n, then scan Confirm. Scan Cancel to leave without action.")}
+				</div>` },
+				{ fieldname: "execution_name", label: __("Execution Lane"), fieldtype: "Select",
+					options: values.join("\n"), default: values[0] },
+				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data" },
+			],
+			primary_action_label: action === "start" ? __("Start Operation") : __("Report Progress"),
+			primary_action: (form_values) => {
+				const row = eligible.find((candidate) => candidate.name === form_values.execution_name);
+				if (!row) {
+					frappe.show_alert({ message: __("The selected execution lane is no longer available."), indicator: "orange" });
+					return dialog.get_field("scanner_command").set_focus();
+				}
+				dialog.hide();
+				if (action === "start") return job_action(row, "start");
+				return progress_dialog(row);
+			},
+		});
+		dialog.cfg_require_prefixed_selection = true;
+		dialog.show();
+		bind_confirmation_scanner(dialog, true, values, "execution_name");
 	}
 
 	async function accept_context_job_ownership() {
@@ -965,7 +1004,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			</tbody></table>
 			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:ACCEPT_OWNER</code>, <code>CFG:CMD:TRANSFER_OWNER</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
 			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:START_MATERIAL_RUN</code>, <code>CFG:CMD:CANCEL_MATERIAL_RUN</code>, <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:RECORD_WIP_BIN_USE</code>, <code>CFG:CMD:RECORD_LOOSE_WIP_USE</code>, <code>CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
-			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then Confirm. Ordinary operations remain unchanged.")}</small></p>
+			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then scan Material Quantity and the physical source Stock Tag for each tracked component. Confirm opens the run. Ordinary operations and No Run Tracking components remain unchanged.")}</small></p>
 			<p><strong>${__("PPHU trace commands")}</strong>: <code>CFG:CMD:PPHU_HOPPER_CHANGE</code>, <code>CFG:CMD:PPHU_BATCH_CHANGE</code>, <code>CFG:CMD:PPHU_OUTPUT_SERIAL</code>. Select an operation with <code>CFG:SELECT:n</code>, scan the physical Hopper/material tag when requested, scan the first affected output serial, then scan <code>CFG:CMD:CONFIRM</code>.</p>
 			<p><strong>${__("Crew commands")}</strong>: <code>CFG:CMD:CREW</code>, <code>CFG:CMD:CREW_OPEN</code>, <code>CFG:CMD:CREW_JOIN</code>, <code>CFG:CMD:CREW_JOIN_SENIOR</code>, <code>CFG:CMD:CREW_JOIN_OVERSIGHT</code>, <code>CFG:CMD:CREW_JOIN_TEMP</code>, <code>CFG:CMD:CREW_BREAK</code>, <code>CFG:CMD:CREW_RESUME</code>, <code>CFG:CMD:CREW_LEAVE</code>, <code>CFG:CMD:CREW_MAIN</code>, <code>CFG:CMD:CREW_CONTEXT</code>, <code>CFG:CMD:CREW_CLOSE</code>.</p>
 			<p><small>${__("On an Available Process/Station Card, choose the exact numbered Job Card before Crew Controls when several targets are eligible. On a Workstation Queue Card, Crew Controls uses the selected Active/Ready work row.")}</small></p>
@@ -2000,6 +2039,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				control_mode: row.material_run_control,
 				boundary_mode: row.material_run_output_boundary,
 				boundary_required: row.material_run_output_boundary === "Every Material Run",
+				material_rules: [],
 				open_run: row.material_run,
 			}])
 		);
@@ -2011,8 +2051,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					options: values.join("\n"), default: values[0], read_only: candidates.length === 1 },
 				{ fieldname: "output_serial_boundary", label: __("First Output Serial / Boundary"),
 					fieldtype: "Data", read_only: 1 },
+				{ fieldname: "material_draw_summary", fieldtype: "HTML" },
 				{ fieldname: "scanner_command", label: __("Scanner Input"), fieldtype: "Data",
-					description: __("Use the fixed scanner only: numbered selection, output boundary when requested, then Confirm or Cancel.") },
+					description: __("Scanner sequence: boundary when requested, Material Quantity, physical source Stock Tag, then Confirm. Cancel safely leaves without opening the run.") },
 			],
 			primary_action_label: __("Start Material Run"),
 			primary_action: async (form_values) => {
@@ -2037,6 +2078,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 						args: {
 							execution_name: form_values.execution_name,
 							output_serial_boundary: form_values.output_serial_boundary,
+							material_draws: JSON.stringify(dialog.cfg_material_draws || []),
 							event_token: dialog.cfg_material_run_event_token,
 							operator_session_token: state.session_token,
 						},
@@ -2061,6 +2103,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		});
 		dialog.cfg_material_run_event_token = frappe.utils.get_random(24);
 		dialog.cfg_material_run_submitting = false;
+		dialog.cfg_material_draws = [];
+		dialog.cfg_pending_material_qty = 0;
 		dialog.cfg_require_prefixed_selection = true;
 		dialog.cfg_scanner_selection_values = values;
 		dialog.cfg_scanner_selection_field = "execution_name";
@@ -2069,11 +2113,25 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			const context = context_by_execution[execution_name];
 			dialog.cfg_material_run_event_token = frappe.utils.get_random(24);
 			await dialog.set_value("output_serial_boundary", "");
+			dialog.cfg_material_draws = [];
+			dialog.cfg_pending_material_qty = 0;
 			dialog.cfg_selection_locked = false;
 			dialog.set_df_property("execution_name", "read_only", candidates.length === 1);
 			refresh_material_run_guide(dialog, context, options);
 		};
 		dialog.cfg_selection_changed = load_context;
+		dialog.cfg_quantity_handler = async (qty, additive = false) => {
+			const current = Number(dialog.cfg_pending_material_qty || 0);
+			dialog.cfg_pending_material_qty = additive ? current + Number(qty || 0) : Number(qty || 0);
+			const context = context_by_execution[dialog.get_value("execution_name")];
+			refresh_material_run_guide(dialog, context, options);
+			frappe.show_alert({
+				message: dialog.cfg_pending_material_qty > 0
+					? __("Material quantity {0} ready. Scan the physical source Stock Tag.", [dialog.cfg_pending_material_qty])
+					: __("Scan a positive Material Quantity."),
+				indicator: dialog.cfg_pending_material_qty > 0 ? "blue" : "orange",
+			});
+		};
 		dialog.cfg_raw_scanner_handler = async (raw_value) => {
 			const execution_name = dialog.get_value("execution_name");
 			const context = context_by_execution[execution_name];
@@ -2085,15 +2143,60 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				frappe.show_alert({ message: __("Material Run {0} is already open. Scan Cancel to return.", [context.open_run.name]), indicator: "blue" });
 				return;
 			}
-			if (dialog.get_value("output_serial_boundary")) {
-				frappe.show_alert({ message: __("Boundary is ready. Scan Confirm or Cancel."), indicator: "orange" });
+			const rules = context.material_rules || [];
+			if (context.boundary_required && !dialog.get_value("output_serial_boundary")) {
+				await dialog.set_value("output_serial_boundary", raw_value);
+				dialog.cfg_selection_locked = true;
+				dialog.set_df_property("execution_name", "read_only", 1);
+				refresh_material_run_guide(dialog, context, options);
+				frappe.show_alert({ message: __("Output boundary captured. Scan Material Quantity next."), indicator: "green" });
 				return;
 			}
-			await dialog.set_value("output_serial_boundary", raw_value);
+			if (!rules.length) {
+				if (dialog.get_value("output_serial_boundary")) {
+					frappe.show_alert({ message: __("Boundary is ready. Scan Confirm or Cancel."), indicator: "orange" });
+					return;
+				}
+				await dialog.set_value("output_serial_boundary", raw_value);
+				dialog.cfg_selection_locked = true;
+				dialog.set_df_property("execution_name", "read_only", 1);
+				refresh_material_run_guide(dialog, context, options);
+				return frappe.show_alert({ message: __("Output boundary captured. Scan Confirm."), indicator: "green" });
+			}
+			const quantity = Number(dialog.cfg_pending_material_qty || 0);
+			if (quantity <= 0) {
+				frappe.show_alert({ message: __("Scan a Material Quantity before the physical source Stock Tag."), indicator: "orange" });
+				return;
+			}
+			const response = await frappe.call({
+				method: "cfg_kanban.services.operation_material_runs.preview_material_draw",
+				args: {
+					execution_name,
+					scan_value: raw_value,
+					quantity,
+					operator_session_token: state.session_token,
+				},
+				freeze: true,
+				freeze_message: __("Checking source material..."),
+			});
+			const preview = response.message;
+			if ((dialog.cfg_material_draws || []).some((row) => row.rule_row === preview.rule_row)) {
+				frappe.throw(__("{0} already has a source tag in this run. Use Material +quantity before scanning, or report progress and start the next run when the source changes.", [preview.item_code]));
+			}
+			dialog.cfg_material_draws.push({
+				scan_value: raw_value,
+				qty: quantity,
+				display_source_code: preview.physical_container_code || preview.source_visible_code,
+				...preview,
+			});
+			dialog.cfg_pending_material_qty = 0;
 			dialog.cfg_selection_locked = true;
 			dialog.set_df_property("execution_name", "read_only", 1);
 			refresh_material_run_guide(dialog, context, options);
-			frappe.show_alert({ message: __("Output boundary captured. Scan Confirm."), indicator: "green" });
+			frappe.show_alert({
+				message: __("Reserved {0} {1} of {2} from {3} for confirmation.", [quantity, preview.stock_uom, preview.item_code, preview.physical_container_code || preview.source_visible_code]),
+				indicator: "green",
+			}, 7);
 		};
 		dialog.show();
 		if (candidates.length > 1) {
@@ -2111,20 +2214,42 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const e = frappe.utils.escape_html;
 		if (!context) return;
 		const boundary = dialog.get_value("output_serial_boundary");
+		const rules = context.material_rules || [];
+		const draws = dialog.cfg_material_draws || [];
+		const pending = Number(dialog.cfg_pending_material_qty || 0);
+		const outstanding = rules.filter((rule) =>
+			Number(rule.carry_forward_qty || 0) <= 0 && !draws.some((draw) => draw.rule_row === rule.rule_row));
 		let next_step;
 		if (context.open_run) {
 			next_step = __("Material Run {0} is already open. Continue floor work or scan Cancel to return.", [context.open_run.name]);
 		} else if (context.boundary_required && !boundary) {
 			next_step = __("Scan the first output serial or other production boundary for this run.");
+		} else if (outstanding.length && pending <= 0) {
+			next_step = __("Scan Material Quantity for {0}, then scan its physical source Stock Tag.", [outstanding[0].item_code]);
+		} else if (outstanding.length) {
+			next_step = __("Scan the physical source Stock Tag for {0} ({1} {2}).", [outstanding[0].item_code, pending, outstanding[0].stock_uom]);
 		} else {
 			next_step = __("Scan Confirm to open the run, or Cancel to leave without recording.");
 		}
+		const requirement_html = rules.length ? `<br><strong>${__("Tracked materials")}</strong>:<br>${rules.map((rule) => {
+			const draw = draws.find((row) => row.rule_row === rule.rule_row);
+			const status = draw
+				? `${draw.qty} ${e(draw.stock_uom)} · ${e(draw.display_source_code || draw.source_visible_code)}`
+				: Number(rule.carry_forward_qty || 0) > 0
+					? `${rule.carry_forward_qty} ${e(rule.stock_uom)} ${e(__("carry-forward"))}`
+					: e(__("awaiting scan"));
+			return `${e(rule.item_code)} · ${rule.qty_per_output} ${e(rule.stock_uom)}/${e(__("output"))} · <strong>${status}</strong>`;
+		}).join("<br>")}` : "";
 		dialog.get_field("material_run_guide").$wrapper.html(`<div class="alert alert-info">
 			<strong>${__("High-frequency Material Run")}</strong><br>
 			${options.length > 1 ? `${__("Select the operation first")}:<br>${options.map((row) => e(row)).join("<br>")}<br>` : ""}
-			<strong>${__("Next step")}</strong>: ${e(next_step)}<br>
-			<small>${__("Opening a run records the trace boundary only. It does not post ERP stock or stop the machine. Material sources and progress will attach to this run in the next package.")}</small>
+			<strong>${__("Next step")}</strong>: ${e(next_step)}${requirement_html}<br>
+			<small>${__("Source scans create protected operational reservations. They do not post ERP stock or reduce the Handling Unit ledger. Progress consumes the reservation; final ERP binding remains a separate controlled step.")}</small>
 		</div>`);
+		dialog.get_field("material_draw_summary").$wrapper.html(draws.length
+			? `<div class="alert alert-success"><strong>${__("Ready to confirm")}</strong><br>${draws.map((row) =>
+				`${e(row.item_code)}: ${row.qty} ${e(row.stock_uom)} · ${e(row.display_source_code || row.source_visible_code)}`).join("<br>")}</div>`
+			: "");
 	}
 
 	function cancel_open_material_run(preferred_execution = null) {
@@ -2147,7 +2272,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				{ fieldtype: "HTML", options: `<div class="alert alert-warning">
 					<strong>${__("Started by mistake only")}</strong><br>
 					${candidates.length > 1 ? `${__("Select the exact run")}:<br>${options.map((row) => frappe.utils.escape_html(row)).join("<br>")}<br>` : ""}
-					${__("This is allowed only before material draws or progress evidence exists. Scan Confirm to cancel, or Cancel to leave it open.")}
+					${__("This is allowed before progress is posted. Any staged operational material reservations are released but retained as Cancelled audit rows. Scan Confirm to cancel, or Cancel to leave it open.")}
 				</div>` },
 				{ fieldname: "execution_name", label: __("Operation Context"), fieldtype: "Select",
 					options: values.join("\n"), default: values[0], read_only: candidates.length === 1 },
@@ -2644,8 +2769,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}
 		if (["CFG:CMD:CANCEL", "CFG:CMD:DISMISS"].includes(command)) return dialog.hide();
 		if (raw_value && typeof dialog.cfg_raw_scanner_handler === "function") {
-			await dialog.cfg_raw_scanner_handler(raw_value);
-			if (dialog.$wrapper.is(":visible")) window.setTimeout(() => field.set_focus(), 80);
+			try {
+				await dialog.cfg_raw_scanner_handler(raw_value);
+			} finally {
+				if (dialog.$wrapper.is(":visible")) window.setTimeout(() => field.set_focus(), 80);
+			}
 			return;
 		}
 		frappe.show_alert({ message: __("Scan Confirm / Submit or Cancel"), indicator: "orange" });

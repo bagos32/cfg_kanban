@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.35
+**Guide version:** 2.37
 
 **Updated:** 10 November 2026
 
@@ -9,14 +9,26 @@
 
 **Canonical file:** `docs/USER_MANUAL.md`
 
+**2.37 Material Run source draws:** A BOM Component Material Flow row can now opt into
+**Material Run Tracking = Source Tag Quantity**. The scanner captures Material Quantity followed
+by the physical source Stock Tag inside `CFG:CMD:START_MATERIAL_RUN`; an immutable operational
+reservation prevents parallel runs from declaring the same tagged balance. Progress consumes the
+BOM-ratio quantity and can carry an unused balance to the next run. Simple materials remain **No
+Run Tracking**. This package deliberately does not post ERPNext stock, mutate the Handling Unit
+quantity ledger, reserve exact serial membership, or eliminate the final ERP Material Trace scan.
+
+**2.36 Material Run progress routing:** The global `CFG:CMD:REPORT_PROGRESS` command now selects
+the exact execution carrying the open Material Run before considering other active or downstream
+Ready lanes. Without an open run it prefers In Progress/Paused work. If more than one equally safe
+lane remains, the scanner presents `CFG:SELECT:n` choices instead of requiring screen selection.
+
 **2.35 Operation Material Run foundation:** Operations that require high-frequency material
 traceability can opt into an immutable Material Run boundary without changing ordinary production.
 The printable `CFG:CMD:START_MATERIAL_RUN` command selects the exact active execution, captures an
 output serial/boundary only when configured, and prevents two open runs on one execution lane. The
 next progress record closes and links the run; `CFG:CMD:CANCEL_MATERIAL_RUN` safely cancels an empty
-run started by mistake. This foundation does not yet reserve raw material or gate progress; follow
-`docs/OPERATION_MATERIAL_RUNS.md` and keep the pilot setting **Optional** until the remaining
-material-draw, serial-reservation and ERP-settlement packages are accepted.
+run started by mistake. Follow `docs/OPERATION_MATERIAL_RUNS.md` and
+`docs/TEST_OPERATION_MATERIAL_RUN_DRAWS.md` for the current package boundary and acceptance.
 
 **2.34 crew skill-profile compatibility:** Crew authorization now safely reads submitted Crew
 Requirement Profiles whose Skill Requirement child rows are returned as Frappe dictionary values.
@@ -2840,20 +2852,42 @@ must retain the same event token when retrying the same physical scan.
 Use Material Runs only for an operation where small repeated floor batches need their own output
 boundary and later raw-material Batch/serial evidence. In **CFG Kanban Master → Operation
 Profiles**, set **Output Reporting Mode = Incremental**, then choose **Material Run Control =
-Optional** for the pilot. Leave it **Disabled** for straightforward operations.
+Optional** for an advisory pilot or **Required Before Progress** after the source-draw acceptance
+test passes. Leave it **Disabled** for straightforward operations.
+
+For each material that must be declared at the micro-cycle boundary, use **CFG Kanban Master → BOM
+Component Material Flow**:
+
+- **Material Run Tracking** (`material_run_tracking_mode`) = `Source Tag Quantity`;
+- **Material Run Scan Warehouse** (`material_run_scan_warehouse`) = the physical Warehouse where
+  the source tag is scanned;
+- **WIP Presentation** (`wip_presentation_method`) = `Standard ERP / Tag Flow`.
+
+The server calculates read-only **Material Qty per Output Unit**
+(`material_run_qty_per_output`) from BOM component quantity divided by BOM output quantity. Keep
+unrelated components at **No Run Tracking**. Reusable WIP-bin rows and ERPNext serial-controlled
+Items remain on their dedicated evidence paths. The rule is snapshotted only when a new Process
+Execution is released; an execution already open before deployment or before the Master change
+keeps its original empty/older snapshot. Complete or safely cancel it and release a new execution
+for the new rule.
 
 After the operation is started, scan `CFG:CMD:START_MATERIAL_RUN`. When several enabled lanes are
 active, scan `CFG:SELECT:n`. If the Operation Profile requires a boundary, scan the first output
-serial or other printed production boundary, then scan `CFG:CMD:CONFIRM`. The open Material Run is
-shown on the execution lane. A second start request returns the existing open run instead of
+serial or other printed production boundary. For each tracked component, scan an absolute or
+additive `CFG:QTY:MATERIAL:n` command and then its physical source Stock Tag. The dialog shows the
+resolved Item, UOM, Warehouse, visible tag and quantity. Scan `CFG:CMD:CONFIRM`. The open Material
+Run is shown on the execution lane. A second start request returns the existing open run instead of
 creating overlapping evidence. Cancel exits the dialog without creating a run, and scanner focus
-returns to the main panel. The next progress report links and closes the open run. If it was opened
-by mistake before any material or progress evidence exists, scan `CFG:CMD:CANCEL_MATERIAL_RUN`,
-select the exact run when requested, and Confirm.
+returns to the main panel. The next progress report consumes `processed quantity × material quantity
+per output unit`, links and closes the run. With **Allow Unused Material Carry-forward** enabled,
+the balance is offered to the next run. With it disabled, the current run needs the exact required
+amount. Before progress, `CFG:CMD:CANCEL_MATERIAL_RUN` cancels the run and its staged reservations
+while preserving audit rows.
 
-This first package creates the run identity and audit boundary only. It does not reserve material,
-enforce progress, consume ERP stock or replace Production Material Trace. The exact delivered and
-remaining scope is documented in `docs/OPERATION_MATERIAL_RUNS.md`.
+A Material Draw is an operational reservation, not stock posting. It does not reduce ERPNext stock
+or the Handling Unit ledger. The existing final Production Material Trace/ERP transaction is still
+required. Exact serial membership and automatic final ERP adoption are the next packages. See
+`docs/OPERATION_MATERIAL_RUNS.md` and `docs/TEST_OPERATION_MATERIAL_RUN_DRAWS.md`.
 
 ### PPHU trace boundaries
 
@@ -4522,6 +4556,8 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.37 | 10 November 2026 | Added opt-in per-BOM-component Operation Material Draws: immutable release-time rule snapshots, scanner quantity plus physical source-tag capture inside Start Material Run, Warehouse/UOM/Company/quality validation, cross-machine over-reservation protection, BOM-ratio progress gating, FIFO carry-forward, safe pre-progress cancellation, focus recovery, and unchanged simple-operation defaults; exact serial membership and final ERP Material Trace/ERP settlement remain explicit next packages |
+| 2.36 | 10 November 2026 | Corrected scanner Report Progress routing after a Material Run starts: the open-run execution has first priority, the sole In Progress/Paused lane has second priority, downstream Ready lanes no longer cause false ambiguity, and genuine multi-lane ambiguity uses scanner-only numbered selection instead of a screen-only instruction |
 | 2.35 | 10 November 2026 | Added the optional high-frequency Operation Material Run foundation: revisioned Operation Profile policy, immutable Process Execution snapshots, one open run per lane, idempotent operator/session audit, live execution visibility, progress linkage/closure, empty-run recovery, and scanner-only actions through printable `CFG:CMD:START_MATERIAL_RUN` and `CFG:CMD:CANCEL_MATERIAL_RUN`, numbered ambiguity selection, configurable output boundary, Confirm/Cancel, and focus restoration; material draws, progress gating, exact serial reservation and ERP settlement remain explicitly deferred packages |
 | 2.34 | 10 November 2026 | Adopted the PPHU V1.8 handover baseline and added the first scanner-first traceability slice: printable commands for initial output serial, Hopper change, and material Batch change; exact active-operation selection; physical Handling Unit validation; immutable idempotent event evidence with scanner/device source fields; recent event visibility and live refresh; and an explicit no-ERP-stock/no-QC/no-machine-control boundary for the future shared PLC/SCADA event contract |
 | 2.33 | 6 November 2026 | Added the scanner-first Join / Set Direct Senior crew action so a new or active member can be audited as Senior / Overseer with Direct Participation and, when their competency approvals qualify, satisfy both Qualified Lead and Active Supervisor rows without requiring a fictitious second person; Crew Controls now gives only the policy-scoped L-level a prominent compact badge and keeps role/minimum/authorization details in fine print; submitted Crew Requirement Profiles, Crew Templates, and Workstation Crew Requirements now support reasoned Active lifecycle changes with user/time audit, reference safety, preserved historical snapshots, and live workstation compliance re-evaluation; available Process/Station Cards can establish the exact selected Job Card's crew before runtime allocation, while Workstation Queue rows expose the same persistent crew controls without requiring access to the main Production Card |

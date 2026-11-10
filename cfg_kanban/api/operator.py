@@ -12,6 +12,7 @@ from cfg_kanban.services.operator_auth import (close_session, credential_hash, g
 from cfg_kanban.services.progress import report
 from cfg_kanban.services.printing import get_qr_svg
 from cfg_kanban.services.operation_summary import recalculate
+from cfg_kanban.services.operation_material_runs import _material_rule_context
 from cfg_kanban.services.triggers import create_work_order_command
 from cfg_kanban.services.purchase_replenishment import (
     continue_purchase_execution,
@@ -583,6 +584,7 @@ def get_card_context(token, operator_session_token=None):
                     "started_on",
                     "material_run_control", "material_run_output_boundary",
                     "allow_material_carry_forward", "material_run_settlement_timing",
+                    "material_run_rules_json",
                     "open_material_run",
                     "crew_compliance_status", "last_crew_compliance_check",
                     "crew_compliance_hold"],
@@ -657,6 +659,7 @@ def get_card_context(token, operator_session_token=None):
                 "settlement_timing": execution.material_run_settlement_timing,
                 "open_run": execution.material_run,
                 "prior_run_count": prior_run_count,
+                "material_rules": _material_rule_context(execution),
             }
         if job_ownership and executions:
             transfer_execution = next(
