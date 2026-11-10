@@ -370,6 +370,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			PREPARE_RECEIPT: open_scanner_manufacture_receipt,
 			SCAN_MATERIALS: open_scanner_material_trace,
 			SUBMIT_MATERIALS: submit_scanner_material_entry,
+			PPHU_HOPPER_CHANGE: () => open_pphu_event_dialog("PPHU Hopper Boundary"),
+			PPHU_BATCH_CHANGE: () => open_pphu_event_dialog("PPHU Material Batch Boundary"),
+			PPHU_OUTPUT_SERIAL: () => open_pphu_event_dialog("PPHU Output Serial Start"),
 			CREW: () => open_context_crew_control(),
 			CREW_OPEN: () => open_context_crew_control("CFG:CMD:CREW_OPEN"),
 			CREW_JOIN: () => open_context_crew_control("CFG:CMD:CREW_JOIN"),
@@ -960,6 +963,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			</tbody></table>
 			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:ACCEPT_OWNER</code>, <code>CFG:CMD:TRANSFER_OWNER</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
 			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:RECORD_WIP_BIN_USE</code>, <code>CFG:CMD:RECORD_LOOSE_WIP_USE</code>, <code>CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
+			<p><strong>${__("PPHU trace commands")}</strong>: <code>CFG:CMD:PPHU_HOPPER_CHANGE</code>, <code>CFG:CMD:PPHU_BATCH_CHANGE</code>, <code>CFG:CMD:PPHU_OUTPUT_SERIAL</code>. Select an operation with <code>CFG:SELECT:n</code>, scan the physical Hopper/material tag when requested, scan the first affected output serial, then scan <code>CFG:CMD:CONFIRM</code>.</p>
 			<p><strong>${__("Crew commands")}</strong>: <code>CFG:CMD:CREW</code>, <code>CFG:CMD:CREW_OPEN</code>, <code>CFG:CMD:CREW_JOIN</code>, <code>CFG:CMD:CREW_JOIN_SENIOR</code>, <code>CFG:CMD:CREW_JOIN_OVERSIGHT</code>, <code>CFG:CMD:CREW_JOIN_TEMP</code>, <code>CFG:CMD:CREW_BREAK</code>, <code>CFG:CMD:CREW_RESUME</code>, <code>CFG:CMD:CREW_LEAVE</code>, <code>CFG:CMD:CREW_MAIN</code>, <code>CFG:CMD:CREW_CONTEXT</code>, <code>CFG:CMD:CREW_CLOSE</code>.</p>
 			<p><small>${__("On an Available Process/Station Card, choose the exact numbered Job Card before Crew Controls when several targets are eligible. On a Workstation Queue Card, Crew Controls uses the selected Active/Ready work row.")}</small></p>
 			<p><strong>${__("Progress dialog commands")}</strong>: <code>CFG:QTY:GOOD:+1</code>, <code>CFG:QTY:REJECT:+1</code>, <code>CFG:CMD:CONFIRM</code>, <code>CFG:CMD:CANCEL</code>.</p>
@@ -1249,7 +1253,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}
 		const { card, master, cycle, effective_work_order, work_order_attention, selected_job_card,
 			executions, operation_summaries, production_progress, production_stock_entries, production_material_flow,
-			process_tasks, service_tasks,
+			process_tasks, service_tasks, pphu_events,
 			service_identity_card, workstation_queue_card, workstation_queue,
 			work_orders, route_warnings, production_reconciliation } = state.context;
 		if (workstation_queue_card) {
@@ -1354,7 +1358,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			}
 			$("<button class='btn btn-default mr-2'>" + __("View Timeline") + "</button>")
 				.appendTo($actions).on("click", () => show_timeline(cycle.name));
+			if (state.operator.permissions.report_progress) {
+				$("<button class='btn btn-default mr-2'>" + __("Set / Change Hopper") + "</button>")
+					.appendTo($actions).on("click", () => open_pphu_event_dialog("PPHU Hopper Boundary"));
+				$("<button class='btn btn-default mr-2'>" + __("Material Batch Change") + "</button>")
+					.appendTo($actions).on("click", () => open_pphu_event_dialog("PPHU Material Batch Boundary"));
+			}
 		}
+		render_pphu_events(pphu_events || []);
 		render_production_material_flow(production_material_flow);
 		render_production_stock_entries(production_stock_entries || [], effective_work_order,
 			production_material_flow);
@@ -1953,6 +1964,206 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		return dialog;
 	}
 
+	function pphu_event_configuration(event_type) {
+		return {
+			"PPHU Hopper Boundary": {
+				title: __("Set / Change PPHU Hopper"),
+				requires_identity: true,
+				identity_label: __("Scanned Hopper"),
+				identity_instruction: __("Scan the active Handling Unit configured as type Hopper."),
+			},
+			"PPHU Material Batch Boundary": {
+				title: __("Record PPHU Material Batch Change"),
+				requires_identity: true,
+				identity_label: __("Scanned Material Tag"),
+				identity_instruction: __("Scan the active material Stock Tag carrying the new Item and Batch."),
+			},
+			"PPHU Output Serial Start": {
+				title: __("Set PPHU Output Serial Start"),
+				requires_identity: false,
+				identity_label: __("Physical Identity"),
+				identity_instruction: "",
+			},
+		}[event_type];
+	}
+
+	function pphu_execution_candidates() {
+		return (state.context?.executions || []).filter((row) =>
+			["Ready", "In Progress", "Paused"].includes(row.status));
+	}
+
+	function open_pphu_event_dialog(event_type) {
+		const config = pphu_event_configuration(event_type);
+		const cycle = state.context?.cycle;
+		const card = state.context?.card;
+		if (!config || !cycle || !card) {
+			frappe.msgprint({ title: __("PPHU Event Not Available"),
+				message: __("Scan an active production Card before recording a PPHU event."),
+				indicator: "orange" });
+			return restore_scanner_focus();
+		}
+		if (!state.operator?.permissions?.report_progress) {
+			frappe.msgprint({ title: __("Not Permitted"),
+				message: __("This operator cannot record production progress or PPHU trace events."),
+				indicator: "red" });
+			return restore_scanner_focus();
+		}
+		const candidates = pphu_execution_candidates();
+		if (!candidates.length) {
+			frappe.msgprint({ title: __("No Active Operation"),
+				message: __("Start or select an active operation before recording this boundary."),
+				indicator: "orange" });
+			return restore_scanner_focus();
+		}
+		if (candidates.length > 10) {
+			frappe.msgprint({ title: __("Supervisor Selection Required"),
+				message: __("More than ten operations are eligible. Open the exact operation Card first."),
+				indicator: "orange" });
+			return restore_scanner_focus();
+		}
+
+		const values = candidates.map((row) => row.name);
+		const options = candidates.map((row, index) =>
+			`${index + 1}. ${row.operation || __("Operation")} · ${row.workstation || "-"} · ${row.job_card || "-"}`);
+		const dialog = new frappe.ui.Dialog({
+			title: config.title,
+			fields: [
+				{ fieldname: "pphu_guide", fieldtype: "HTML" },
+				{ fieldname: "execution_name", label: __("Operation Context"), fieldtype: "Select",
+					options: values.join("\n"), default: values[0], read_only: candidates.length === 1 },
+				{ fieldname: "identity_display", label: config.identity_label, fieldtype: "Data",
+					read_only: 1, hidden: !config.requires_identity },
+				{ fieldname: "output_serial_boundary", label: __("First Affected Output Serial"),
+					fieldtype: "Data", read_only: 1 },
+				{ fieldname: "scanner_command", label: __("Scanner Input"), fieldtype: "Data",
+					description: __("Use only the fixed scanner: numbered selection, identity, output serial, then Confirm or Cancel.") },
+			],
+			primary_action_label: __("Record PPHU Boundary"),
+			primary_action: async (values_) => {
+				if (dialog.cfg_pphu_submitting) return;
+				if (config.requires_identity && !dialog.cfg_pphu_identity_scan) {
+					frappe.show_alert({ message: config.identity_instruction, indicator: "orange" });
+					return dialog.get_field("scanner_command").set_focus();
+				}
+				if (!values_.output_serial_boundary) {
+					frappe.show_alert({ message: __("Scan the first output serial affected by this event."), indicator: "orange" });
+					return dialog.get_field("scanner_command").set_focus();
+				}
+				dialog.cfg_pphu_submitting = true;
+				try {
+					const response = await frappe.call({
+						method: "cfg_kanban.services.pphu_events.record_scanner_event",
+						args: {
+							event_type, card_name: card.name, execution_name: values_.execution_name,
+							handling_unit_scan: dialog.cfg_pphu_identity_scan,
+							output_serial_boundary: values_.output_serial_boundary,
+							event_token: dialog.cfg_pphu_event_token,
+							operator_session_token: state.session_token,
+						},
+						freeze: true, freeze_message: __("Recording PPHU trace boundary..."),
+					});
+					dialog.hide();
+					frappe.show_alert({ message: __("PPHU event {0} recorded", [response.message.name]), indicator: "green" }, 7);
+					await load_card(card.qr_code || card.card_number);
+				} finally {
+					if (dialog.$wrapper.is(":visible")) {
+						dialog.cfg_pphu_submitting = false;
+						window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 100);
+					}
+				}
+			},
+		});
+		dialog.cfg_pphu_event_token = frappe.utils.get_random(24);
+		dialog.cfg_pphu_submitting = false;
+		dialog.cfg_require_prefixed_selection = true;
+		dialog.cfg_scanner_selection_values = values;
+		dialog.cfg_scanner_selection_field = "execution_name";
+		dialog.cfg_selection_changed = async () => {
+			dialog.cfg_pphu_identity_scan = null;
+			dialog.cfg_pphu_event_token = frappe.utils.get_random(24);
+			await dialog.set_value("identity_display", "");
+			await dialog.set_value("output_serial_boundary", "");
+			refresh_pphu_guide(dialog, config, candidates, options);
+		};
+		dialog.cfg_raw_scanner_handler = async (raw_value) => {
+			if (config.requires_identity && !dialog.cfg_pphu_identity_scan) {
+				try {
+					const execution_name = dialog.get_value("execution_name");
+					const response = await frappe.call({
+						method: "cfg_kanban.services.pphu_events.preview_scanned_identity",
+						args: {
+							event_type, scan_value: raw_value, card_name: card.name, execution_name,
+							operator_session_token: state.session_token,
+						},
+						freeze: true, freeze_message: __("Validating physical identity..."),
+					});
+					dialog.cfg_pphu_identity_scan = raw_value;
+					await dialog.set_value("identity_display", response.message.visible_code);
+					dialog.cfg_selection_locked = true;
+					dialog.set_df_property("execution_name", "read_only", 1);
+					refresh_pphu_guide(dialog, config, candidates, options);
+					frappe.show_alert({ message: __("Identity accepted. Scan the first affected output serial."), indicator: "green" });
+					return;
+				} finally {
+					if (dialog.$wrapper.is(":visible")) {
+						window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 100);
+					}
+				}
+			}
+			if (!dialog.get_value("output_serial_boundary")) {
+				await dialog.set_value("output_serial_boundary", raw_value);
+				dialog.cfg_selection_locked = true;
+				dialog.set_df_property("execution_name", "read_only", 1);
+				refresh_pphu_guide(dialog, config, candidates, options);
+				frappe.show_alert({ message: __("Boundary captured. Scan Confirm to record the event."), indicator: "blue" });
+				return;
+			}
+			frappe.show_alert({ message: __("Boundary is ready. Scan Confirm or Cancel."), indicator: "orange" });
+		};
+		dialog.show();
+		if (candidates.length > 1) {
+			dialog.get_field("execution_name").$input.on("change.cfg_pphu", () => {
+				if (!dialog.cfg_pphu_identity_scan && !dialog.get_value("output_serial_boundary")) return;
+				dialog.cfg_selection_changed(dialog.get_value("execution_name"));
+			});
+		}
+		refresh_pphu_guide(dialog, config, candidates, options);
+		bind_confirmation_scanner(dialog, true, values, "execution_name");
+	}
+
+	function refresh_pphu_guide(dialog, config, candidates, options) {
+		const e = frappe.utils.escape_html;
+		const identity = dialog.get_value("identity_display");
+		const boundary = dialog.get_value("output_serial_boundary");
+		let next_step = boundary
+			? __("Scan Confirm to record this immutable trace boundary, or Cancel to leave without recording.")
+			: (config.requires_identity && !identity)
+				? config.identity_instruction
+				: __("Scan the first output serial affected by this change.");
+		dialog.get_field("pphu_guide").$wrapper.html(`<div class="alert alert-info">
+			<strong>${__("Scanner-only PPHU trace")}</strong><br>
+			${candidates.length > 1 ? `${__("Select the operation first")}:<br>${options.map((row) => e(row)).join("<br>")}<br>` : ""}
+			<strong>${__("Next step")}</strong>: ${e(next_step)}<br>
+			<small>${__("This records operational evidence only. It does not post ERP stock, release QC material, or control a machine.")}</small>
+		</div>`);
+	}
+
+	function render_pphu_events(events) {
+		if (!events.length) return;
+		const e = frappe.utils.escape_html;
+		const $section = $(`<div class="cfg-pphu-events mb-4"><div class="cfg-work-section-heading">
+			<div><h4>${__("PPHU Trace Boundaries")}</h4><small>${__("Recent scanner, sensor or industrial events for this production Cycle.")}</small></div>
+			<span class="indicator-pill blue">${events.length}</span></div></div>`).appendTo($root);
+		events.slice(0, 10).forEach((row) => $section.append(`<div class="frappe-card p-3 mb-2">
+			<div class="d-flex justify-content-between flex-wrap"><strong>${e(row.event_type)}</strong>
+				<span class="indicator-pill grey">${e(row.input_source || "System")}</span></div>
+			<small>${e(row.operation || "-")} · ${e(row.workstation || "-")} · ${e(row.event_datetime || "-")}</small><br>
+			${row.handling_unit ? `<span>${__("Identity")}: ${e(row.new_state || row.handling_unit)}</span> · ` : ""}
+			<span>${__("First affected output serial")}: <strong>${e(row.output_serial_boundary || "-")}</strong></span>
+			${row.material_item ? `<br><small>${e(row.material_item)} · ${e(row.material_batch || "-")}</small>` : ""}
+		</div>`));
+	}
+
 	function material_confirmation_fields() {
 		return [
 			{ fieldname: "item_code", label: __("Item"), fieldtype: "Link", options: "Item", read_only: 1, in_list_view: 1, columns: 3 },
@@ -2145,7 +2356,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		await dialog.set_value("scanner_command", "");
 		const selection_values = dialog.cfg_scanner_selection_values || [];
 		const selection_field = dialog.cfg_scanner_selection_field;
-		const selection = command.match(/^CFG:SELECT:(\d+)$/) || command.match(/^(\d+)$/);
+		const selection = command.match(/^CFG:SELECT:(\d+)$/) ||
+			(dialog.cfg_require_prefixed_selection ? null : command.match(/^(\d+)$/));
+		if (selection && dialog.cfg_selection_locked) {
+			frappe.show_alert({ message: __("The operation context is locked after physical evidence is scanned. Cancel and restart to change it."), indicator: "orange" });
+			return window.setTimeout(() => field.set_focus(), 80);
+		}
 		if (selection && dialog.cfg_material_rows) {
 			const index = Number(selection[1]) - 1;
 			if (index >= 0 && index < dialog.cfg_material_rows.length) {
@@ -2182,6 +2398,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			const index = Number(selection[1]) - 1;
 			if (index >= 0 && index < selection_values.length) {
 				await dialog.set_value(selection_field, selection_values[index]);
+				if (typeof dialog.cfg_selection_changed === "function") {
+					await dialog.cfg_selection_changed(selection_values[index]);
+				}
 				if (selection_field === "selected_job_card" && dialog.get_field("override_reason") && index > 0) {
 					await dialog.set_value("override_reason",
 						__("Operator selected eligible option {0} using the scanner", [index + 1]));

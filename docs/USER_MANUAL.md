@@ -2820,6 +2820,26 @@ Task action appropriate to its status. The Service Task scanner recognises perma
 The server scan APIs support stable event tokens for retry/idempotency. Custom scanner clients
 must retain the same event token when retrying the same physical scan.
 
+### PPHU trace boundaries
+
+PPHU traceability uses the same fixed Production Operator scanner and operator session. Scan the
+active production Card first, then use one of these printable commands:
+
+- `CFG:CMD:PPHU_OUTPUT_SERIAL` records the initial output serial context;
+- `CFG:CMD:PPHU_HOPPER_CHANGE` records an active Handling Unit configured as **Hopper**;
+- `CFG:CMD:PPHU_BATCH_CHANGE` records an active released Stock Tag carrying the new Item and Batch.
+
+If several operation lanes are active, scan `CFG:SELECT:1` through `CFG:SELECT:10` to select the
+exact Operation/Job Card. For Hopper or material change, scan the physical identity next. Then scan
+the first output serial affected by the change and scan `CFG:CMD:CONFIRM`. `CFG:CMD:CANCEL` exits
+without recording. The scanner field remains armed throughout the dialog and is restored after an
+error or cancellation.
+
+These commands create immutable PPHU production evidence only. They do not post ERP stock, release
+QC material, submit a Work Order/Job Card, or control a machine. The consolidated architecture,
+warehouse-local FEFO rule, proportional partial-release formula, and future PLC/SCADA boundary are
+defined in `docs/PPHU_HANDOVER_SPEC.md`.
+
 ### Production scanner-first development standard
 
 Every new or adjusted Production Kanban floor action must include its scanner path in the same
@@ -4467,6 +4487,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.34 | 10 November 2026 | Adopted the PPHU V1.8 handover baseline and added the first scanner-first traceability slice: printable commands for initial output serial, Hopper change, and material Batch change; exact active-operation selection; physical Handling Unit validation; immutable idempotent event evidence with scanner/device source fields; recent event visibility and live refresh; and an explicit no-ERP-stock/no-QC/no-machine-control boundary for the future shared PLC/SCADA event contract |
 | 2.33 | 6 November 2026 | Added the scanner-first Join / Set Direct Senior crew action so a new or active member can be audited as Senior / Overseer with Direct Participation and, when their competency approvals qualify, satisfy both Qualified Lead and Active Supervisor rows without requiring a fictitious second person; Crew Controls now gives only the policy-scoped L-level a prominent compact badge and keeps role/minimum/authorization details in fine print; submitted Crew Requirement Profiles, Crew Templates, and Workstation Crew Requirements now support reasoned Active lifecycle changes with user/time audit, reference safety, preserved historical snapshots, and live workstation compliance re-evaluation; available Process/Station Cards can establish the exact selected Job Card's crew before runtime allocation, while Workstation Queue rows expose the same persistent crew controls without requiring access to the main Production Card |
 | 2.32 | 28 October 2026 | Added opt-in incremental Loose WIP release per BOM component, positive-load Job Card start readiness, per-operation-cycle usage closure evidence, Job Card-scoped consolidated ERP consumption and unused returns, and Operator Complete partial card closure with audited unfulfilled quantity returned to the Job Card queue while preserving independent handoff rules |
 | 2.31 | 28 October 2026 | Added the dedicated printable `CFG:CMD:RECORD_WIP_BIN_USE` production command for Standard Quantity WIP bins, including single eligible Job Card routing, numbered multi-Job selection, Scanner Help, command-label catalog, and the existing audited no-stock-posting usage dialog |

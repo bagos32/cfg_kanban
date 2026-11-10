@@ -4,7 +4,7 @@
  "fields":[
   {"fieldname":"identity_section","label":"Physical Identity","fieldtype":"Section Break"},
   {"fieldname":"handling_unit_id","label":"Preprinted Tag / Handling Unit ID","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1,"description":"Primary physical scan code printed before activation, for example MFG-STK1000. Scan or enter this code; do not enter the internal UUID."},
-  {"fieldname":"handling_unit_type","label":"Handling Unit Type","fieldtype":"Select","options":"Pallet\nMesh\nTote\nContainer\nLorry Compartment\nReusable Box\nOther","default":"Pallet","reqd":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"handling_unit_type","label":"Handling Unit Type","fieldtype":"Select","options":"Pallet\nMesh\nTote\nContainer\nHopper\nLorry Compartment\nReusable Box\nOther","default":"Pallet","reqd":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"tag_kind","label":"Tag Kind","fieldtype":"Select","options":"Main Stock Tag\nChild Stock Tag\nReusable Container","default":"Main Stock Tag","reqd":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"opaque_token","label":"Internal UUID Alias","fieldtype":"Data","unique":1,"read_only":1,"hidden":1,"description":"System-only compatibility and audit identity. It is not required on the physical tag."},
   {"fieldname":"tag_range_registry","label":"Source Tag Range Registry","fieldtype":"Link","options":"CFG Kanban Tag Range Registry","read_only":1,"in_standard_filter":1},
