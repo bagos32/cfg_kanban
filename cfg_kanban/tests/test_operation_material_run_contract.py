@@ -137,6 +137,8 @@ class TestOperationMaterialRunContract(unittest.TestCase):
         self.assertIn("Production Draft Stock Entry remains open", feedback)
         self.assertIn("unresolved_material_run_settlement", feedback)
         self.assertIn("material_run_job_end_pending_count", panel)
+        self.assertIn("Material Run settlement requires an authorized operator", panel)
+        self.assertIn("Settle Material Runs button or scan CFG:CMD:PREPARE_MATERIALS", panel)
         self.assertIn("Settle the Job Card-end Material Runs before preparing Manufacture", panel)
         self.assertIn("Skip-WIP Work Order material is consumed in the final Manufacture entry", panel)
         self.assertNotIn('__("Consume Work Order Materials")', panel)

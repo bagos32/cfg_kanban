@@ -1623,16 +1623,33 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			}
 			$section.append(`<div class="alert alert-info">${__("Skip-WIP normally consumes remaining inputs in the final ERPNext Manufacture entry. A separate Material Consumption entry is created only for Material Runs configured for At Job Card End settlement; their earlier source-tag scans are reused automatically.")}</div>`);
 		}
+		const pending_material_run_jobs = (flow.jobs || []).filter((job) =>
+			job.material_run_job_end_pending_count);
+		const ready_material_run_jobs = pending_material_run_jobs.filter((job) =>
+			job.material_run_job_end_settlement_ready);
+		if (ready_material_run_jobs.length && state.operator.permissions.material_transfer) {
+			add_action($actions, __("Settle Material Runs"), "btn-warning", () =>
+				open_scanner_material_preparation());
+		}
 		if (state.operator.permissions.production_receipt &&
 			flow.all_job_cards_completed && flow.remaining_output_qty > 0.000001 &&
 			flow.wip_bin_receipt_ready !== false && !flow.material_run_job_end_pending_count &&
 			!(flow.open_pre_receipt_drafts || []).length) {
 			add_action($actions, __("Prepare Manufacture Receipt"), "btn-success", () =>
 				manufacture_receipt_dialog(flow));
+		} else if (flow.material_run_job_end_pending_count &&
+			!state.operator.permissions.material_transfer) {
+			$section.append(`<div class="alert alert-warning" data-live-focus="production-material">
+				<strong>${__("Material Run settlement requires an authorized operator")}</strong><br>
+				${__("The active operator profile does not have Start permission. Scan an authorized operator, then use Settle Material Runs or CFG:CMD:PREPARE_MATERIALS.")}</div>`);
+		} else if (flow.material_run_job_end_pending_count && !ready_material_run_jobs.length) {
+			$section.append(`<div class="alert alert-warning" data-live-focus="production-material">
+				<strong>${__("Material Run settlement is waiting for submitted ERP Job Cards")}</strong><br>
+				${pending_material_run_jobs.map((job) => `${e(job.name)} · ${e(job.operation || "-")} · ${e(job.status || "-")}`).join("<br>")}</div>`);
 		} else if (flow.material_run_job_end_pending_count) {
 			$section.append(`<div class="alert alert-warning" data-live-focus="production-material">
 				<strong>${__("Manufacture receipt is waiting for Material Run settlement")}</strong><br>
-				${__("Complete the eligible Job Card and use Settle Material Runs before Manufacture.")}</div>`);
+				${__("Use the Settle Material Runs button or scan CFG:CMD:PREPARE_MATERIALS.")}</div>`);
 		} else if ((flow.open_pre_receipt_drafts || []).length) {
 			$section.append(`<div class="alert alert-warning" data-live-focus="production-material">
 				<strong>${__("Manufacture receipt is waiting for the earlier ERP Draft")}</strong><br>

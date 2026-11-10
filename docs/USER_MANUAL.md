@@ -2906,7 +2906,10 @@ the immutable Operation Profile snapshot:
 - **At Job Card End** exposes **Settle Material Runs** after progress has used a Draw and the native
   Job Card is completed/submitted. CFG Kanban creates one Draft `Material Consumption for
   Manufacture` for that Job Card and automatically adopts the original source-tag scans into its
-  Production Material Trace.
+  Production Material Trace. The action is shown prominently in Production Material Control and
+  is also available by scanning `CFG:CMD:PREPARE_MATERIALS`. If it is unavailable, the panel now
+  identifies either the unsubmitted ERP Job Card or the active Operator Profile's missing **Start**
+  permission instead of showing a generic dead-end message.
 - **At Work Order Manufacture Receipt** keeps the used Draws until the final `Manufacture` entry.
   Preparing that receipt automatically adopts the original scans. If the Master normally
   auto-submits Manufacture, it pauses at Draft so the complete input/output trace can be reviewed
