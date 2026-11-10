@@ -177,6 +177,13 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
         operation_readiness = operation_consumption_submission_readiness(
             work_order.name, job.name
         )
+        from cfg_kanban.services.operation_material_runs import (
+            material_run_settlement_context,
+            material_run_settlement_lines,
+        )
+        run_settlement = material_run_settlement_context(work_order.name, job.name)
+        job_end_draws = run_settlement["At Job Card End"]
+        receipt_draws = run_settlement["At Work Order Manufacture Receipt"]
         jobs.append({**job, "materials": material_rows,
                      "pending_material_qty": sum(row["pending_qty"] for row in material_rows),
                      "has_pending_materials": any(
@@ -245,6 +252,20 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
                          1 for row in loose_usage if row.status == "Recorded"
                      ),
                      "loose_wip_usage_rows": [dict(row) for row in loose_usage],
+                     "material_run_job_end_pending_count": len(job_end_draws),
+                     "material_run_job_end_settlement_ready": (
+                         job.status == "Completed" and job.docstatus == 1
+                     ),
+                     "material_run_job_end_pending_qty": sum(
+                         flt(row.used_qty) for row in job_end_draws
+                     ),
+                     "material_run_job_end_lines": material_run_settlement_lines(
+                         work_order.name, job.name, "At Job Card End"
+                     ),
+                     "material_run_receipt_pending_count": len(receipt_draws),
+                     "material_run_receipt_pending_qty": sum(
+                         flt(row.used_qty) for row in receipt_draws
+                     ),
                      "erp_consumption_submission_ready": operation_readiness["ready"],
                      "erp_consumption_submission_reason": operation_readiness["reason"]})
 
@@ -282,6 +303,20 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
         "purpose": "Material Consumption for Manufacture",
         "docstatus": 0,
     }, "name")
+    open_pre_receipt_drafts = frappe.get_all(
+        "Stock Entry",
+        filters={
+            "cfg_kanban_cycle": cycle.name,
+            "work_order": work_order.name,
+            "docstatus": 0,
+            "purpose": ["in", [
+                "Material Transfer for Manufacture",
+                "Material Consumption for Manufacture",
+            ]],
+        },
+        pluck="name",
+        order_by="creation asc",
+    )
     return {
         "cycle": cycle.name,
         "work_order": work_order.name,
@@ -322,6 +357,16 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
         "loose_wip_recorded_count": len(loose_wip_recorded),
         "loose_wip_recorded_qty": sum(flt(row.qty) for row in loose_wip_recorded),
         "loose_wip_consumption_draft": loose_wip_consumption_draft,
+        "open_pre_receipt_drafts": open_pre_receipt_drafts,
+        "material_run_job_end_pending_count": sum(
+            row["material_run_job_end_pending_count"] for row in jobs
+        ),
+        "material_run_receipt_pending_count": sum(
+            row["material_run_receipt_pending_count"] for row in jobs
+        ),
+        "material_run_receipt_pending_qty": sum(
+            row["material_run_receipt_pending_qty"] for row in jobs
+        ),
         "material_transfer_posting_mode": master.get("material_transfer_posting_mode")
             or "Create Draft for Review",
         "material_consumption_posting_mode": "Create Draft for Review",
@@ -841,10 +886,15 @@ def prepare_material_consumption(cycle_name, lines, job_card=None, event_token=N
         job = frappe.db.get_value(
             "Job Card", {"name": job_card, "work_order": work_order.name,
                          "docstatus": ["<", 2]},
-            ["name", "operation", "workstation"], as_dict=True,
+            ["name", "operation", "workstation", "status", "docstatus"], as_dict=True,
         )
         if not job:
             frappe.throw("Job Card does not belong to the effective Work Order")
+        if job.status != "Completed" or job.docstatus != 1:
+            frappe.throw(
+                f"Complete and submit Job Card {job.name} before its At Job Card End "
+                "Material Runs are settled to ERPNext"
+            )
         operation, workstation = job.operation, job.workstation
         execution = frappe.db.get_value(
             "CFG Kanban Process Execution",
@@ -853,6 +903,28 @@ def prepare_material_consumption(cycle_name, lines, job_card=None, event_token=N
     elif job_card:
         frappe.throw(
             "This Skip-WIP Work Order records consumption against the Work Order, not a Job Card"
+        )
+
+    # Ordinary Skip-WIP production consumes its inputs in the final Manufacture entry.
+    # A separate Material Consumption entry exists only for scanner Material Runs whose
+    # immutable execution policy explicitly settles at Job Card end.
+    if not job_card:
+        frappe.throw(
+            "Skip-WIP Work Order material is consumed by the final Manufacture entry. "
+            "A separate consumption entry is available only for Material Runs configured "
+            "for At Job Card End settlement."
+        )
+    from cfg_kanban.services.operation_material_runs import (
+        material_run_settlement_lines,
+    )
+    settlement_lines = material_run_settlement_lines(
+        work_order.name, job_card, "At Job Card End"
+    )
+    if not settlement_lines:
+        frappe.throw(
+            f"Job Card {job_card} has no used, unbound Material Runs configured for "
+            "At Job Card End settlement. Its remaining inputs belong in the final "
+            "Manufacture entry."
         )
 
     operation_cycle = _validated_operation_requesting_cycle(
@@ -866,9 +938,7 @@ def prepare_material_consumption(cycle_name, lines, job_card=None, event_token=N
     server_manage_restricted = bool(
         hidden_policy["items"] and not hidden_policy["can_view"]
     )
-    normalized = _validated_confirmation_lines(
-        lines, allow_empty=server_manage_restricted
-    )
+    normalized = _validated_confirmation_lines(settlement_lines, allow_empty=False)
     if server_manage_restricted and any(
             row["item_code"] in hidden_policy["items"] for row in normalized):
         frappe.throw("Restricted production components are managed server-side")
@@ -915,6 +985,14 @@ def prepare_material_consumption(cycle_name, lines, job_card=None, event_token=N
         "terminal_user": session.terminal_user,
     }), key, ignore_permissions=True)
     entry = execute_command(command.name)
+    from cfg_kanban.services.operation_material_runs import adopt_material_run_draws
+    adopted = adopt_material_run_draws(
+        entry.name,
+        "At Job Card End",
+        operator_session_token,
+        cycle.kanban_card,
+        job_card=job_card,
+    )
     record(
         "Production Material Consumption Prepared", card=cycle.kanban_card,
         cycle=cycle.name, execution=execution,
@@ -947,6 +1025,7 @@ def prepare_material_consumption(cycle_name, lines, job_card=None, event_token=N
         "docstatus": entry.docstatus,
         "duplicate": not created,
         "tag_scan_required": required_tag_scan,
+        "material_draws_adopted": adopted["adopted"],
     }
 
 
@@ -970,6 +1049,35 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
     if incomplete:
         frappe.throw("Complete the ERPNext Job Card(s) before receiving output: "
                      + ", ".join(incomplete))
+    open_pre_receipt = frappe.get_all(
+        "Stock Entry",
+        filters={
+            "work_order": work_order.name,
+            "cfg_kanban_cycle": cycle.name,
+            "docstatus": 0,
+            "purpose": ["in", [
+                "Material Transfer for Manufacture",
+                "Material Consumption for Manufacture",
+            ]],
+        },
+        pluck="name",
+        order_by="creation asc",
+    )
+    if open_pre_receipt:
+        frappe.throw(
+            "Submit or abandon the earlier production Draft(s) before preparing the "
+            "Manufacture receipt: " + ", ".join(open_pre_receipt)
+        )
+    from cfg_kanban.services.operation_material_runs import (
+        material_run_settlement_context,
+    )
+    pending_run_settlement = material_run_settlement_context(work_order.name)
+    job_end_pending = pending_run_settlement["At Job Card End"]
+    if job_end_pending:
+        frappe.throw(
+            "Settle the Job Card-end Material Runs before preparing the Manufacture receipt: "
+            + ", ".join(row.name for row in job_end_pending)
+        )
     from cfg_kanban.services.wip_bin_loads import manufacture_receipt_wip_bin_readiness
     receipt_wip_readiness = manufacture_receipt_wip_bin_readiness(
         work_order.name, cycle.name
@@ -993,8 +1101,12 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
     _assert_no_open_production_entry(
         cycle.name, work_order.name, "Manufacture"
     )
+    receipt_draws = pending_run_settlement["At Work Order Manufacture Receipt"]
+    # Material Run scans must be adopted into the Draft Material Trace before ERPNext
+    # submission. Even an auto-submit Master therefore pauses at Draft when such evidence
+    # exists; the ordinary Submit Materials scanner action remains the posting authority.
     submit = (master.get("manufacture_posting_mode") == "Submit on Operator Confirmation"
-              and not cint(defer_submit_for_scanning))
+              and not cint(defer_submit_for_scanning) and not receipt_draws)
     identity = event_token or f"{qty}:{target}:{batch_no or ''}:{frappe.as_json(normalized)}"
     key = canonical_key("production-manufacture-receipt", cycle.name, identity)
     command, created = insert_once(frappe.get_doc({
@@ -1022,6 +1134,13 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
         "terminal_user": session.terminal_user,
     }), key, ignore_permissions=True)
     entry = execute_command(command.name)
+    from cfg_kanban.services.operation_material_runs import adopt_material_run_draws
+    adopted = adopt_material_run_draws(
+        entry.name,
+        "At Work Order Manufacture Receipt",
+        operator_session_token,
+        cycle.kanban_card,
+    )
     record("Production Manufacture Receipt Prepared", card=cycle.kanban_card,
            cycle=cycle.name, qty=qty, reference_doctype="Stock Entry",
            reference_name=entry.name, operator=profile.employee,
@@ -1029,7 +1148,8 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
            notes=(f"Target {target}; {'Submitted' if entry.docstatus == 1 else 'Draft'}; "
                   f"Operator confirmation: {confirmation}"))
     return {"command": command.name, "stock_entry": entry.name,
-            "docstatus": entry.docstatus, "duplicate": not created}
+            "docstatus": entry.docstatus, "duplicate": not created,
+            "material_draws_adopted": adopted["adopted"]}
 
 
 @frappe.whitelist()

@@ -849,11 +849,19 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		].includes(row.purpose) && (row.purpose !== "Material Consumption for Manufacture" ||
 			row.erp_route_ready !== false));
 		if (pending_material_entry) return material_entry_live_action(pending_material_entry);
-		if (flow?.has_pending_materials && permissions.material_transfer) {
-			return { key: "production-material", title: __("Prepare production materials"),
-				detail: __("Issue or consume the next required material quantity"),
-				status: __("Next Step"), colour: "orange" };
-		}
+			const ready_material_run_settlement = (flow?.jobs || []).some((job) =>
+				job.material_run_job_end_pending_count && job.material_run_job_end_settlement_ready);
+			if (ready_material_run_settlement && permissions.material_transfer) {
+				return { key: "production-material", title: __("Settle Material Runs"),
+					detail: __("Post the completed Job Card source scans to ERPNext"),
+					status: __("Next Step"), colour: "orange" };
+			}
+			if (flow?.has_pending_materials && flow?.mode !== "Skip WIP Transfer" &&
+				permissions.material_transfer) {
+				return { key: "production-material", title: __("Prepare production materials"),
+					detail: __("Issue or consume the next required material quantity"),
+					status: __("Next Step"), colour: "orange" };
+			}
 		const active_task = process_tasks.find((row) => row.status === "In Progress");
 		if (active_task) return { key: `task:${active_task.name}`, title: active_task.task_name,
 			detail: process_task_next_instruction(active_task), status: active_task.status,
@@ -862,7 +870,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (ready_task) return { key: `task:${ready_task.name}`, title: ready_task.task_name,
 			detail: process_task_next_instruction(ready_task), status: ready_task.status,
 			colour: "green" };
-		if (flow?.all_job_cards_completed && flow?.remaining_output_qty > 0.000001 &&
+			if (flow?.all_job_cards_completed && !flow?.material_run_job_end_pending_count &&
+				!(flow?.open_pre_receipt_drafts || []).length &&
+				flow?.remaining_output_qty > 0.000001 &&
 			flow?.wip_bin_receipt_ready !== false && permissions.production_receipt) {
 			return { key: "production-material", title: __("Receive manufactured product"),
 				detail: __("Prepare and confirm the finished-goods Manufacture receipt"),
@@ -1594,29 +1604,39 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (state.operator.permissions.material_transfer && flow.mode === "Skip WIP Transfer") {
 			if (flow.transfer_material_against === "Job Card") {
 				(flow.jobs || []).forEach((job) => {
-					if (!job.has_pending_materials) return;
+					if (!job.material_run_job_end_pending_count) return;
 					const $job = $(`<div class="frappe-card p-3 mb-2" data-live-focus="material-job:${e(job.name)}"><div class="row align-items-center">
 						<div class="col-md-4"><strong>${e(job.operation)}</strong><br><small>${document_link("job-card", job.name)} · ${e(job.workstation || "-")}</small></div>
-						<div class="col-md-5">${production_material_table(job.materials || [])}</div>
+						<div class="col-md-5"><small>${__("Material Run use awaiting ERP settlement")}: <strong>${e(job.material_run_job_end_pending_qty)}</strong></small></div>
 						<div class="col-md-3 text-right cfg-job-material-action"></div></div></div>`).appendTo($section);
-					add_action($job.find(".cfg-job-material-action"), __("Consume Operation Materials"),
-						job.has_shortage ? "btn-warning" : "btn-primary", () =>
-						production_consumption_dialog(flow, job, job.materials));
+					if (job.material_run_job_end_settlement_ready) {
+						add_action($job.find(".cfg-job-material-action"), __("Settle Material Runs"),
+							job.has_shortage ? "btn-warning" : "btn-primary", () =>
+								production_consumption_dialog(flow, job, job.material_run_job_end_lines || []));
+					} else {
+						$job.find(".cfg-job-material-action").html(`<small class="text-muted">${__("Complete the ERP Job Card first")}</small>`);
+					}
 					if (job.restricted_materials_present) {
 						$job.append(`<div class="mt-2 text-muted"><small>${__("Restricted operation material is included server-side and is not displayed.")}</small></div>`);
 					}
 				});
-			} else if (flow.has_pending_materials) {
-				add_action($actions, __("Consume Work Order Materials"), "btn-primary", () =>
-					production_consumption_dialog(flow, null, flow.materials));
 			}
-			$section.append(`<div class="alert alert-info">${__("Skip-WIP consumption uses a native ERPNext Material Consumption for Manufacture entry. A partial tag scan consumes only the confirmed quantity; the balance stays available on the same tag. ERPNext stock changes only when the entry is submitted.")}</div>`);
+			$section.append(`<div class="alert alert-info">${__("Skip-WIP normally consumes remaining inputs in the final ERPNext Manufacture entry. A separate Material Consumption entry is created only for Material Runs configured for At Job Card End settlement; their earlier source-tag scans are reused automatically.")}</div>`);
 		}
 		if (state.operator.permissions.production_receipt &&
 			flow.all_job_cards_completed && flow.remaining_output_qty > 0.000001 &&
-			flow.wip_bin_receipt_ready !== false) {
+			flow.wip_bin_receipt_ready !== false && !flow.material_run_job_end_pending_count &&
+			!(flow.open_pre_receipt_drafts || []).length) {
 			add_action($actions, __("Prepare Manufacture Receipt"), "btn-success", () =>
 				manufacture_receipt_dialog(flow));
+		} else if (flow.material_run_job_end_pending_count) {
+			$section.append(`<div class="alert alert-warning" data-live-focus="production-material">
+				<strong>${__("Manufacture receipt is waiting for Material Run settlement")}</strong><br>
+				${__("Complete the eligible Job Card and use Settle Material Runs before Manufacture.")}</div>`);
+		} else if ((flow.open_pre_receipt_drafts || []).length) {
+			$section.append(`<div class="alert alert-warning" data-live-focus="production-material">
+				<strong>${__("Manufacture receipt is waiting for the earlier ERP Draft")}</strong><br>
+				${(flow.open_pre_receipt_drafts || []).map((name) => document_link("stock-entry", name)).join(", ")}</div>`);
 		} else if (flow.all_job_cards_completed && !flow.erp_consumption_submission_ready) {
 			$section.append(`<div class="alert alert-warning" data-live-focus="production-material">
 				<strong>${__("ERP Work Order operation update required")}</strong><br>
@@ -2516,14 +2536,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		</div>`));
 	}
 
-	function material_confirmation_fields() {
+	function material_confirmation_fields(read_only = false) {
 		return [
 			{ fieldname: "item_code", label: __("Item"), fieldtype: "Link", options: "Item", read_only: 1, in_list_view: 1, columns: 3 },
 			{ fieldname: "operation", label: __("Operation"), fieldtype: "Link", options: "Operation", read_only: 1, in_list_view: 1, columns: 2 },
-			{ fieldname: "source_warehouse", label: __("Source Warehouse"), fieldtype: "Link", options: "Warehouse", reqd: 1, in_list_view: 1, columns: 3 },
+			{ fieldname: "source_warehouse", label: __("Source Warehouse"), fieldtype: "Link", options: "Warehouse", reqd: 1, read_only: read_only ? 1 : 0, in_list_view: 1, columns: 3 },
 			{ fieldname: "available_qty", label: __("Available"), fieldtype: "Float", read_only: 1, in_list_view: 1, columns: 2 },
 			{ fieldname: "stock_uom", label: __("Stock UOM"), fieldtype: "Link", options: "UOM", read_only: 1, hidden: 1 },
-			{ fieldname: "qty", label: __("Actual Qty"), fieldtype: "Float", reqd: 1, in_list_view: 1, columns: 2 },
+			{ fieldname: "qty", label: __("Actual Qty"), fieldtype: "Float", reqd: 1, read_only: read_only ? 1 : 0, in_list_view: 1, columns: 2 },
 		];
 	}
 
@@ -2570,24 +2590,25 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	}
 
 	function production_consumption_dialog(flow, job, rows, scanner_mode = false) {
-		const data = rows.filter((row) => row.pending_qty > 0.000001).map((row) => ({
+		const material_run_settlement = Boolean(job && job.material_run_job_end_pending_count);
+		const data = rows.filter((row) => (row.qty ?? row.pending_qty) > 0.000001).map((row) => ({
 			item_code: row.item_code, operation: job ? job.operation : row.operation,
 			source_warehouse: row.source_warehouse, available_qty: row.available_qty,
-			qty: row.pending_qty, stock_uom: row.stock_uom,
+			qty: row.qty ?? row.pending_qty, stock_uom: row.stock_uom,
 		}));
 		const posting_mode = flow.material_consumption_posting_mode || "Create Draft for Review";
 		const dialog = new frappe.ui.Dialog({
-			title: job ? __("Record Actual Material Use for {0}", [job.operation]) :
+			title: material_run_settlement ? __("Settle Material Runs for {0}", [job.operation]) : job ? __("Record Actual Material Use for {0}", [job.operation]) :
 				__("Record Work Order Material Use"),
 			size: "extra-large",
 			fields: [
-				{ fieldtype: "HTML", options: `<div class="alert alert-info">${__("Enter the quantity physically used now. It may be less than the quantity held by a scanned tag. ERPNext remains the stock authority and records consumption only after submission.")}<br>
+				{ fieldtype: "HTML", options: `<div class="alert alert-info">${material_run_settlement ? __("These quantities come from completed Material Runs. Their original physical source-tag scans will be adopted into Production Material Trace automatically; do not scan them again.") : __("Enter the quantity physically used now. It may be less than the quantity held by a scanned tag. ERPNext remains the stock authority and records consumption only after submission.")}<br>
 					<strong>${__("Posting policy")}</strong>: ${frappe.utils.escape_html(posting_mode)}<br>
-					<strong>${__("Scanner step")}</strong>: ${__("Create the Draft, scan actual material tags in Production Material Trace, then scan Submit Materials.")}</div>` },
+					<strong>${__("Scanner step")}</strong>: ${material_run_settlement ? __("Scan Confirm to create the Draft, open Production Material Trace, verify the adopted lines, then scan Submit Materials. Do not rescan the sources.") : __("Create the Draft, scan actual material tags in Production Material Trace, then scan Submit Materials.")}</div>` },
 				{ fieldname: "material_scanner_guide", fieldtype: "HTML" },
 				{ fieldname: "materials", fieldtype: "Table", label: __("Actual Materials Used"),
 					cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true,
-					fields: material_confirmation_fields(), data },
+					fields: material_confirmation_fields(material_run_settlement), data },
 				{ fieldname: "confirmation", label: __("Operator Confirmation / Notes"), fieldtype: "Small Text", reqd: 1,
 					default: __("Operator confirmed actual Skip-WIP material usage") },
 				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data",
@@ -2611,7 +2632,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		});
 		dialog.onhide = restore_scanner_focus;
 		dialog.show();
-		configure_material_confirmation_scanner(dialog);
+		if (!material_run_settlement) configure_material_confirmation_scanner(dialog);
 		bind_confirmation_scanner(dialog, true);
 	}
 
@@ -2633,6 +2654,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 
 	function manufacture_receipt_dialog(flow, scanner_mode = false) {
 		const direct = flow.mode === "Skip WIP Transfer";
+		const adopts_material_runs = Boolean(flow.material_run_receipt_pending_count);
 		const data = (flow.materials || []).map((row) => ({
 			item_code: row.item_code, operation: row.operation,
 			source_warehouse: direct ? row.source_warehouse : flow.wip_warehouse,
@@ -2643,7 +2665,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const dialog = new frappe.ui.Dialog({
 			title: __("Confirm Manufacture Receipt"), size: "extra-large",
 			fields: [
-				{ fieldtype: "HTML", options: `<div class="alert alert-warning">${__("Verify actual input consumption and accepted finished quantity before creating the ERPNext Manufacture entry. Posting policy")}: <strong>${frappe.utils.escape_html(flow.manufacture_posting_mode)}</strong></div>` },
+				{ fieldtype: "HTML", options: `<div class="alert alert-warning">${__("Verify actual input consumption and accepted finished quantity before creating the ERPNext Manufacture entry. Posting policy")}: <strong>${frappe.utils.escape_html(flow.manufacture_posting_mode)}</strong>${adopts_material_runs ? `<br><strong>${__("Material Run settlement")}</strong>: ${__("The earlier source-tag scans will be attached automatically. The Manufacture entry will remain Draft until its complete Material Trace is submitted; do not scan those same source quantities again.")}` : ""}</div>` },
 				{ fieldname: "output_qty", label: __("Accepted Finished Quantity"), fieldtype: "Float", reqd: 1, default: flow.remaining_output_qty },
 				{ fieldname: "target_warehouse", label: __("Finished Goods Warehouse"), fieldtype: "Link", options: "Warehouse", reqd: 1, default: flow.output_warehouse },
 				{ fieldname: "batch_no", label: __("Finished Batch (Optional)"), fieldtype: "Data", default: flow.planned_batch,
@@ -2659,7 +2681,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data",
 					description: __("Scan Confirm / Submit or Cancel. The scanner remains active without touching the screen.") },
 			],
-			primary_action_label: flow.manufacture_posting_mode === "Submit on Operator Confirmation" ? __("Confirm and Submit Manufacture") : __("Create Draft Manufacture"),
+			primary_action_label: flow.manufacture_posting_mode === "Submit on Operator Confirmation" && !adopts_material_runs ? __("Confirm and Submit Manufacture") : __("Create Draft Manufacture"),
 			primary_action: async (values) => {
 				const lines = (values.materials || []).map((row) => ({ item_code: row.item_code,
 					source_warehouse: row.source_warehouse, qty: row.qty }));
@@ -2891,22 +2913,22 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}
 		if (flow.mode === "Skip WIP Transfer") {
 			if (flow.transfer_material_against !== "Job Card") {
-				if (!flow.has_pending_materials) return scanner_command_message(__("No Work Order material remains to consume."));
-				return production_consumption_dialog(flow, null, flow.materials || [], true);
+				return scanner_command_message(__("Skip-WIP Work Order material is consumed in the final Manufacture entry."));
 			}
-			const pending_consumption = (flow.jobs || []).filter((job) => job.has_pending_materials);
+			const pending_consumption = (flow.jobs || []).filter((job) =>
+				job.material_run_job_end_pending_count && job.material_run_job_end_settlement_ready);
 			if (pending_consumption.length > 1) return scanner_selection_dialog(
 				__("Select Job Card for Material Consumption"),
 				pending_consumption.map((job) => ({ value: job.name,
 					label: `${job.operation || __("Operation")} · ${job.name}`, job })),
 				__("Record Selected Material Use"),
 				(choice) => production_consumption_dialog(
-					flow, choice.job, choice.job.materials || [], true
+					flow, choice.job, choice.job.material_run_job_end_lines || [], true
 				),
 			);
-			if (!pending_consumption.length) return scanner_command_message(__("No Job Card material remains to consume."));
+			if (!pending_consumption.length) return scanner_command_message(__("No Job Card-end Material Run settlement is pending. Remaining inputs belong in the final Manufacture entry."));
 			return production_consumption_dialog(
-				flow, pending_consumption[0], pending_consumption[0].materials || [], true
+				flow, pending_consumption[0], pending_consumption[0].material_run_job_end_lines || [], true
 			);
 		}
 		if (flow.mode === "Transfer to WIP by Work Order") {
@@ -2963,6 +2985,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (flow.wip_bin_receipt_ready === false) {
 			return scanner_command_message(flow.wip_bin_receipt_block_reason ||
 				__("Consume and submit the Ready WIP Bin material first."));
+		}
+		if (flow.material_run_job_end_pending_count) {
+			return scanner_command_message(__("Settle the Job Card-end Material Runs before preparing Manufacture."));
+		}
+		if ((flow.open_pre_receipt_drafts || []).length) {
+			return scanner_command_message(__("Submit or abandon the earlier production Draft before preparing Manufacture: {0}", [(flow.open_pre_receipt_drafts || []).join(", ")]));
 		}
 		return manufacture_receipt_dialog(flow, true);
 	}

@@ -1,9 +1,9 @@
 """High-frequency operation Material Run and scanner material-draw lifecycle.
 
-Material Draws are operational reservations against a physical source tag. They prevent
-parallel floor runs from declaring the same tagged quantity twice, but deliberately do not
-post ERPNext stock or mutate the Handling Unit ledger. A later native ERP transaction binds
-the draw to final consumption. ERPNext remains the manufacturing and stock system of record.
+Material Draws start as operational reservations against a physical source tag. They prevent
+parallel floor runs from declaring the same tagged quantity twice. The configured settlement
+route later adopts the used quantity into one native ERPNext production Stock Entry and its
+Material Trace; only submission mutates ERPNext stock and the Handling Unit ledger.
 """
 
 import re
@@ -22,7 +22,325 @@ CONTROL_MODES = {"Optional", "Required Before Progress"}
 BOUNDARY_MODES = {"None", "First Run Only", "Every Material Run"}
 TRACKED_MODE = "Source Tag Quantity"
 ACTIVE_DRAW_STATUSES = ("Open", "Partially Used", "Carry Forward", "Used")
+SETTLEMENT_TIMINGS = ("At Job Card End", "At Work Order Manufacture Receipt")
 TOLERANCE = 0.000001
+
+
+def material_run_settlement_context(work_order, job_card=None):
+    """Return unbound used Material Draws grouped by their immutable settlement timing."""
+    filters = {
+        "work_order": work_order,
+        "status": ["in", ACTIVE_DRAW_STATUSES],
+        "used_qty": [">", TOLERANCE],
+        "material_trace": ["is", "not set"],
+    }
+    if job_card:
+        filters["job_card"] = job_card
+    draws = frappe.get_all(
+        "CFG Kanban Operation Material Draw",
+        filters=filters,
+        fields=[
+            "name", "process_execution", "job_card", "item_code", "batch_no",
+            "stock_uom", "source_warehouse", "source_handling_unit",
+            "source_visible_code", "physical_container", "used_qty", "remaining_qty",
+        ],
+        order_by="drawn_on asc, creation asc",
+        limit_page_length=0,
+    )
+    timings = {}
+    if draws:
+        execution_names = list(dict.fromkeys(row.process_execution for row in draws))
+        timings = {
+            row.name: (row.material_run_settlement_timing or "At Job Card End")
+            for row in frappe.get_all(
+                "CFG Kanban Process Execution",
+                {"name": ["in", execution_names]},
+                ["name", "material_run_settlement_timing"],
+                limit_page_length=0,
+            )
+        }
+    result = {timing: [] for timing in SETTLEMENT_TIMINGS}
+    for draw in draws:
+        timing = timings.get(draw.process_execution, "At Job Card End")
+        if timing not in result:
+            frappe.throw(
+                _("Material Draw {0} has unsupported ERP settlement timing {1}").format(
+                    draw.name, timing
+                )
+            )
+        result[timing].append(draw)
+    return result
+
+
+def material_run_settlement_lines(work_order, job_card, timing="At Job Card End"):
+    """Build native Stock Entry confirmation lines from used, unbound scanner evidence."""
+    draws = material_run_settlement_context(work_order, job_card).get(timing, [])
+    grouped = {}
+    for draw in draws:
+        key = (draw.item_code, draw.source_warehouse, draw.stock_uom)
+        grouped[key] = grouped.get(key, 0) + flt(draw.used_qty)
+    return [
+        {
+            "item_code": item_code,
+            "source_warehouse": warehouse,
+            "stock_uom": stock_uom,
+            "qty": qty,
+        }
+        for (item_code, warehouse, stock_uom), qty in grouped.items()
+        if qty > TOLERANCE
+    ]
+
+
+def adopt_material_run_draws(stock_entry, timing, operator_session_token, kanban_card,
+                             job_card=None):
+    """Adopt prior floor scans into a Draft ERP Material Trace without rescanning.
+
+    The public trace allocator is deliberately reused so Item, Warehouse, UOM, Batch,
+    Serial and physical-container controls remain identical to a live operator scan.
+    """
+    if timing not in SETTLEMENT_TIMINGS:
+        frappe.throw(_("Unsupported Material Run settlement timing: {0}").format(timing))
+    entry = frappe.get_doc("Stock Entry", stock_entry)
+    draws = material_run_settlement_context(entry.work_order, job_card).get(timing, [])
+    if not draws:
+        return {"stock_entry": entry.name, "adopted": 0, "qty": 0}
+
+    from cfg_kanban.services.production_trace import allocate_input_tag
+    draw_rows = _prepare_material_draw_rows(entry, draws)
+
+    adopted = []
+    adopted_qty = 0
+    for draw in draws:
+        scan_value = draw.source_visible_code
+        if draw.physical_container:
+            scan_value = frappe.db.get_value(
+                "CFG Kanban Handling Unit", draw.physical_container, "handling_unit_id"
+            ) or scan_value
+        trace_name = frappe.db.get_value(
+            "CFG Kanban Material Trace", {"stock_entry": entry.name}, "name"
+        )
+        before = set(frappe.get_all(
+            "CFG Kanban Material Trace Line",
+            {"parent": trace_name},
+            pluck="name",
+        )) if trace_name else set()
+        plan = allocate_input_tag(
+            entry.name,
+            item_row=draw_rows.get(draw.name) or "AUTO",
+            scan_value=scan_value,
+            qty=flt(draw.used_qty),
+            operator_session_token=operator_session_token,
+            kanban_card=kanban_card,
+        )
+        trace_name = plan.get("trace")
+        trace = frappe.get_doc("CFG Kanban Material Trace", trace_name)
+        line = next(
+            (
+                row for row in reversed(trace.lines)
+                if row.name not in before
+                and row.direction == "Input"
+                and row.handling_unit == draw.source_handling_unit
+                and abs(flt(row.qty) - flt(draw.used_qty)) <= TOLERANCE
+            ),
+            None,
+        )
+        if not line:
+            frappe.throw(
+                _("Material Draw {0} could not be bound to the new ERP trace line").format(
+                    draw.name
+                )
+            )
+        frappe.db.set_value(
+            "CFG Kanban Operation Material Draw",
+            draw.name,
+            {"material_trace": trace.name, "material_trace_line": line.name},
+            update_modified=True,
+        )
+        adopted.append(draw.name)
+        adopted_qty += flt(draw.used_qty)
+
+    record(
+        "Operation Material Draws Adopted by ERP Draft",
+        cycle=entry.get("cfg_kanban_cycle"),
+        qty=adopted_qty,
+        reference_doctype="Stock Entry",
+        reference_name=entry.name,
+        notes=(f"{timing}; Material Draws: {', '.join(adopted)}; "
+               "physical source scans reused without rescanning"),
+    )
+    return {"stock_entry": entry.name, "adopted": len(adopted), "qty": adopted_qty}
+
+
+def _prepare_material_draw_rows(entry, draws):
+    """Split one native ERP input row only when scanned Draw batches require it.
+
+    ERPNext commonly maps one input row for the complete component quantity. Material Runs
+    may have used two physical source batches during that quantity. In that case each Batch
+    needs its own Stock Entry Detail before Material Trace can adopt the scans. Any unscanned
+    residual remains on a blank row for the ordinary final scanner path.
+    """
+    grouped = {}
+    for draw in draws:
+        key = (draw.item_code, draw.source_warehouse, draw.stock_uom)
+        grouped.setdefault(key, []).append(draw)
+
+    row_for_draw = {}
+    changed = False
+    for key, key_draws in grouped.items():
+        item_code, warehouse, stock_uom = key
+        candidates = [
+            row for row in entry.items
+            if row.s_warehouse == warehouse
+            and row.item_code == item_code
+            and row.stock_uom == stock_uom
+        ]
+        if not candidates:
+            frappe.throw(
+                _("ERPNext did not map an input row for Material Run Item {0} from {1}").format(
+                    item_code, warehouse
+                )
+            )
+        total_qty = sum(_entry_row_stock_qty(row) for row in candidates)
+        batch_qty = {}
+        for draw in key_draws:
+            batch_qty[draw.batch_no or ""] = (
+                batch_qty.get(draw.batch_no or "", 0) + flt(draw.used_qty)
+            )
+        drawn_qty = sum(batch_qty.values())
+        if drawn_qty > total_qty + TOLERANCE:
+            frappe.throw(
+                _("Material Runs used {0} {1} of {2}, but ERPNext mapped only {3}").format(
+                    drawn_qty, stock_uom, item_code, total_qty
+                )
+            )
+
+        distinct_batches = {value for value in batch_qty if value}
+        needs_split = bool(distinct_batches) and (
+            len(distinct_batches) > 1 or total_qty - drawn_qty > TOLERANCE
+        )
+        if not needs_split:
+            for draw in key_draws:
+                row_for_draw[draw.name] = candidates[0].name
+            continue
+
+        template = candidates[0]
+        for row in candidates:
+            entry.remove(row)
+        batch_rows = {}
+        for batch_no, qty in batch_qty.items():
+            if qty <= TOLERANCE:
+                continue
+            row = entry.append(
+                "items", _cloned_entry_input_row(template, qty, batch_no or None)
+            )
+            batch_rows[batch_no] = row
+        residual = total_qty - drawn_qty
+        if residual > TOLERANCE:
+            entry.append("items", _cloned_entry_input_row(template, residual, None))
+        for draw in key_draws:
+            row_for_draw[draw.name] = batch_rows[draw.batch_no or ""]
+        changed = True
+
+    if changed:
+        entry.save(ignore_permissions=True)
+        entry.reload()
+        for draw_name, row in list(row_for_draw.items()):
+            row_for_draw[draw_name] = row.name
+    return row_for_draw
+
+
+def _entry_row_stock_qty(row):
+    return flt(row.get("transfer_qty") or (
+        flt(row.qty) * flt(row.conversion_factor or 1)
+    ))
+
+
+def _cloned_entry_input_row(template, stock_qty, batch_no):
+    values = template.as_dict()
+    for fieldname in (
+        "name", "parent", "parenttype", "parentfield", "idx", "docstatus",
+        "serial_and_batch_bundle",
+    ):
+        values.pop(fieldname, None)
+    conversion = flt(template.conversion_factor or 1)
+    values.update({
+        "qty": stock_qty / conversion,
+        "transfer_qty": stock_qty,
+        "batch_no": batch_no,
+        "use_serial_batch_fields": 1 if batch_no else 0,
+    })
+    return values
+
+
+def confirm_material_run_settlement(trace_name):
+    """Release the operational reservation only after native ERP submission succeeds."""
+    if not trace_name:
+        return
+    draws = frappe.get_all(
+        "CFG Kanban Operation Material Draw",
+        {"material_trace": trace_name, "status": ["in", ACTIVE_DRAW_STATUSES]},
+        pluck="name",
+        limit_page_length=0,
+    )
+    for draw_name in draws:
+        frappe.db.set_value(
+            "CFG Kanban Operation Material Draw", draw_name,
+            "status", "Bound to ERP", update_modified=True,
+        )
+
+
+def reverse_material_run_settlement(trace_name):
+    """Restore the prior operational reservation after ERP Stock Entry cancellation."""
+    draws = frappe.get_all(
+        "CFG Kanban Operation Material Draw",
+        {"material_trace": trace_name, "status": "Bound to ERP"},
+        ["name", "remaining_qty"],
+        limit_page_length=0,
+    )
+    for draw in draws:
+        frappe.db.set_value(
+            "CFG Kanban Operation Material Draw",
+            draw.name,
+            {
+                "status": "Carry Forward" if flt(draw.remaining_qty) > TOLERANCE else "Used",
+                "material_trace": None,
+                "material_trace_line": None,
+            },
+            update_modified=True,
+        )
+
+
+def release_material_run_draft_line(trace_line):
+    """Return an abandoned/cancelled Draft trace allocation to operation reservation."""
+    if not trace_line:
+        return
+    draws = frappe.get_all(
+        "CFG Kanban Operation Material Draw",
+        {"material_trace_line": trace_line, "status": ["in", ACTIVE_DRAW_STATUSES]},
+        pluck="name",
+        limit_page_length=0,
+    )
+    for draw_name in draws:
+        frappe.db.set_value(
+            "CFG Kanban Operation Material Draw", draw_name,
+            {"material_trace": None, "material_trace_line": None},
+            update_modified=True,
+        )
+
+
+def unresolved_material_run_settlement(work_order):
+    """List used scanner draws that have not reached a submitted ERP Stock Entry."""
+    return frappe.get_all(
+        "CFG Kanban Operation Material Draw",
+        {
+            "work_order": work_order,
+            "used_qty": [">", TOLERANCE],
+            "status": ["in", ACTIVE_DRAW_STATUSES],
+        },
+        pluck="name",
+        order_by="drawn_on asc",
+        limit_page_length=0,
+    )
 
 
 def build_material_run_rule_snapshot(master, operation):
@@ -579,14 +897,20 @@ def _match_source_rule(execution, unit):
 
 
 def _source_reserved_qty(unit_name):
-    return flt(frappe.db.get_value(
-        "CFG Kanban Operation Material Draw",
-        {
-            "source_handling_unit": unit_name,
-            "status": ["in", ACTIVE_DRAW_STATUSES],
-        },
-        "sum(drawn_qty)",
-    ) or 0)
+    # Before ERP adoption the complete draw is an operational reservation. Once its used
+    # portion is reserved by Material Trace, only the unused carry-forward balance remains
+    # an operation-level reservation; this prevents a temporary double deduction.
+    return flt(frappe.db.sql(
+        """
+        select coalesce(sum(
+            case when ifnull(material_trace, '') = '' then drawn_qty else remaining_qty end
+        ), 0)
+          from `tabCFG Kanban Operation Material Draw`
+         where source_handling_unit=%s
+           and status in ('Open', 'Partially Used', 'Carry Forward', 'Used')
+        """,
+        unit_name,
+    )[0][0])
 
 
 def _operationally_available_source_qty(unit):

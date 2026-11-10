@@ -2267,7 +2267,8 @@ class TestDocTypeSchema(TestCase):
         self.assertNotIn("if not active:\n        return\n    detail", wip_service.split(
             "def abandon_draft_stock_entry", 1
         )[1].split("@frappe.whitelist()", 1)[0])
-        self.assertIn("Consume Operation Materials", panel)
+        self.assertIn("Settle Material Runs", panel)
+        self.assertIn("material_run_job_end_pending_count", panel)
         self.assertIn("Select Job Card for Material Consumption", panel)
         self.assertIn("CFG:QTY:MATERIAL:", panel)
         self.assertIn('instruction.startsWith("+")', panel)

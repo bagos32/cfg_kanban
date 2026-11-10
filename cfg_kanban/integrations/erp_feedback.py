@@ -478,6 +478,44 @@ def reconcile_physical_production_cycle(
             "reason": "ERPNext Job Card(s) are not Completed: " + ", ".join(incomplete_jobs),
         }
 
+    open_production_drafts = frappe.get_all(
+        "Stock Entry",
+        filters={
+            "work_order": cycle.work_order,
+            "docstatus": 0,
+            "purpose": ["in", [
+                "Material Transfer for Manufacture",
+                "Material Consumption for Manufacture",
+                "Manufacture",
+            ]],
+        },
+        pluck="name",
+        order_by="creation asc",
+    )
+    if open_production_drafts:
+        return {
+            "completed": False,
+            "reason": (
+                "Production Draft Stock Entry remains open. Submit or abandon it before "
+                "closing the Cycle: " + ", ".join(open_production_drafts)
+            ),
+            "open_production_drafts": open_production_drafts,
+        }
+
+    from cfg_kanban.services.operation_material_runs import (
+        unresolved_material_run_settlement,
+    )
+    unsettled_draws = unresolved_material_run_settlement(cycle.work_order)
+    if unsettled_draws:
+        return {
+            "completed": False,
+            "reason": (
+                "Operation Material Run usage has not reached a submitted ERP Stock Entry: "
+                + ", ".join(unsettled_draws)
+            ),
+            "unsettled_material_draws": unsettled_draws,
+        }
+
     received_qty = _submitted_finished_goods_qty(
         cycle.name, cycle.work_order, cycle.item_code
     )

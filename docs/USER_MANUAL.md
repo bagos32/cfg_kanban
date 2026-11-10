@@ -1,13 +1,23 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.37
+**Guide version:** 2.38
 
 **Updated:** 10 November 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
 **Canonical file:** `docs/USER_MANUAL.md`
+
+**2.38 Skip-WIP Material Run settlement:** Ordinary Skip-WIP inputs are now consumed once by the
+final native ERPNext `Manufacture` entry. CFG Kanban no longer creates an intermediate
+`Material Consumption for Manufacture` merely because the Work Order transfers against Job Card.
+A separate consumption entry is used only when the Operation Profile explicitly selects **ERP
+Settlement Timing = At Job Card End**. In both settlement routes, the final ERP Material Trace
+adopts the source Stock Tags already scanned in Material Runs, including separate batch rows when
+more than one input Batch was used; the operator must not scan those quantities again. Production
+Cycle closure now rejects any linked Draft production Stock Entry or used Material Draw that has
+not reached a submitted ERP entry, preventing silent orphan Drafts.
 
 **2.37 Material Run source draws:** A BOM Component Material Flow row can now opt into
 **Material Run Tracking = Source Tag Quantity**. The scanner captures Material Quantity followed
@@ -1577,7 +1587,7 @@ The four modes behave as follows:
 | Follow ERPNext BOM / Work Order | Preserves the Work Order's native transfer policy. Existing Masters remain compatible; loaded component source rules are still applied. |
 | Transfer to WIP by Work Order | **Prepare WIP Transfer** appears once for all required materials. Submit that ERP entry before starting a Job Card. |
 | Transfer to WIP by Job Card | **Prepare Operation Materials** appears per Job Card and contains only BOM components assigned to its Item Operation. Submit that operation's transfer before starting it. |
-| Skip WIP Transfer | No WIP transfer is made. When the Work Order is configured against Job Cards, **Consume Operation Materials** creates a native Draft `Material Consumption for Manufacture` for the selected operation. ERPNext posts that entry against the Work Order; CFG Kanban preserves the exact operation owner in **Kanban Material Job Card**. Work Order scope uses **Consume Work Order Materials**. The final Manufacture entry consumes only the remaining inputs and receives output. |
+| Skip WIP Transfer | No WIP transfer is made. Ordinary input consumption and finished-goods receipt are posted together by the final native `Manufacture` entry, matching ERPNext's normal Skip-WIP model. Material Runs configured **At Work Order Manufacture Receipt** reuse their earlier source-tag scans in that entry. Only Material Runs explicitly configured **At Job Card End** expose **Settle Material Runs** and create a separate Draft `Material Consumption for Manufacture`; CFG Kanban adopts the earlier scans into that Draft without rescanning. |
 
 #### Standard-quantity reusable WIP bins — configuration and audit foundation
 
@@ -2748,7 +2758,8 @@ Operational command labels have no function-key equivalent:
   Process Task gate, Work Order state, Job Card state, ERP-completed quantity, and incremental Loose
   WIP usage before closure. Full Qty still requires the allocation. Operator Complete permits a
   positive partial close and returns unfulfilled quantity to the Job Card queue.
-- `CFG:CMD:PREPARE_MATERIALS` prepares the WIP or operation material transfer.
+- `CFG:CMD:PREPARE_MATERIALS` prepares a WIP transfer or selects an eligible completed Job Card
+  whose Material Runs require Job Card-end settlement.
 - `CFG:CMD:RECORD_WIP_BIN_USE` opens the eligible Job Card's Standard Quantity WIP Bin use dialog.
   If several Job Cards have Ready Standard bins, scan a numbered Select label and Confirm first;
   then scan each Ready bin. This records physical operation use but does not post ERP stock.
@@ -2863,6 +2874,10 @@ Component Material Flow**:
   the source tag is scanned;
 - **WIP Presentation** (`wip_presentation_method`) = `Standard ERP / Tag Flow`.
 
+The Master must use **Production Material Mode = Skip WIP Transfer**. When settlement is **At Job
+Card End**, the ERPNext BOM must also use **Transfer Material Against = Job Card**. If the BOM
+controls material against the Work Order, select **At Work Order Manufacture Receipt** instead.
+
 The server calculates read-only **Material Qty per Output Unit**
 (`material_run_qty_per_output`) from BOM component quantity divided by BOM output quantity. Keep
 unrelated components at **No Run Tracking**. Reusable WIP-bin rows and ERPNext serial-controlled
@@ -2884,10 +2899,32 @@ the balance is offered to the next run. With it disabled, the current run needs 
 amount. Before progress, `CFG:CMD:CANCEL_MATERIAL_RUN` cancels the run and its staged reservations
 while preserving audit rows.
 
-A Material Draw is an operational reservation, not stock posting. It does not reduce ERPNext stock
-or the Handling Unit ledger. The existing final Production Material Trace/ERP transaction is still
-required. Exact serial membership and automatic final ERP adoption are the next packages. See
-`docs/OPERATION_MATERIAL_RUNS.md` and `docs/TEST_OPERATION_MATERIAL_RUN_DRAWS.md`.
+A Material Draw begins as an operational reservation, not stock posting. It does not reduce
+ERPNext stock or the Handling Unit ledger when the Material Run is recorded. Settlement depends on
+the immutable Operation Profile snapshot:
+
+- **At Job Card End** exposes **Settle Material Runs** after progress has used a Draw and the native
+  Job Card is completed/submitted. CFG Kanban creates one Draft `Material Consumption for
+  Manufacture` for that Job Card and automatically adopts the original source-tag scans into its
+  Production Material Trace.
+- **At Work Order Manufacture Receipt** keeps the used Draws until the final `Manufacture` entry.
+  Preparing that receipt automatically adopts the original scans. If the Master normally
+  auto-submits Manufacture, it pauses at Draft so the complete input/output trace can be reviewed
+  and submitted safely.
+- Ordinary Skip-WIP materials with **No Run Tracking** remain on the native final Manufacture row.
+  Scan them there only when their physical-tag policy requires it. Do not rescan a quantity already
+  shown as an adopted Material Run trace line.
+- When tracked source tags carry different Batches, CFG Kanban splits the native input row into the
+  exact Batch quantities before adopting the scans. ERPNext remains the Batch and stock authority.
+
+Submission changes ERPNext stock and the Handling Unit ledger and moves the linked Draw to **Bound
+to ERP**. Cancelling or abandoning a Draft trace restores the Draw reservation for controlled
+recovery; an authorized supervisor must then delete the unposted Draft Stock Entry before creating
+a replacement. A Cycle cannot close while a production Draft or used-but-unsettled Draw remains. Exact
+serial membership remains a later package; Material Run tracking is therefore rejected for
+ERPNext serial-controlled Items. See `docs/OPERATION_MATERIAL_RUNS.md`,
+`docs/TEST_OPERATION_MATERIAL_RUN_DRAWS.md`, and
+`docs/TEST_OPERATION_MATERIAL_RUN_SETTLEMENT.md`.
 
 ### PPHU trace boundaries
 
@@ -4556,6 +4593,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.38 | 10 November 2026 | Corrected Skip-WIP settlement so ordinary inputs are consumed once in the final Manufacture entry; added immutable Job Card-end versus Work Order-receipt Material Run settlement, automatic reuse of the original source-tag scans without double Kanban consumption, native input-row splitting for multiple scanned Batches, Draft/submit/reversal linkage, and closure gates for orphan production Drafts or unsettled Draws |
 | 2.37 | 10 November 2026 | Added opt-in per-BOM-component Operation Material Draws: immutable release-time rule snapshots, scanner quantity plus physical source-tag capture inside Start Material Run, Warehouse/UOM/Company/quality validation, cross-machine over-reservation protection, BOM-ratio progress gating, FIFO carry-forward, safe pre-progress cancellation, focus recovery, and unchanged simple-operation defaults; exact serial membership and final ERP Material Trace/ERP settlement remain explicit next packages |
 | 2.36 | 10 November 2026 | Corrected scanner Report Progress routing after a Material Run starts: the open-run execution has first priority, the sole In Progress/Paused lane has second priority, downstream Ready lanes no longer cause false ambiguity, and genuine multi-lane ambiguity uses scanner-only numbered selection instead of a screen-only instruction |
 | 2.35 | 10 November 2026 | Added the optional high-frequency Operation Material Run foundation: revisioned Operation Profile policy, immutable Process Execution snapshots, one open run per lane, idempotent operator/session audit, live execution visibility, progress linkage/closure, empty-run recovery, and scanner-only actions through printable `CFG:CMD:START_MATERIAL_RUN` and `CFG:CMD:CANCEL_MATERIAL_RUN`, numbered ambiguity selection, configurable output boundary, Confirm/Cancel, and focus restoration; material draws, progress gating, exact serial reservation and ERP settlement remain explicitly deferred packages |

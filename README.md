@@ -81,7 +81,9 @@ buyer-owned purchase-replenishment baseline. Vendor-managed external processing 
 - Per-operation profiles with dependency/start rules, parallel operation support, full-batch,
   physical-card, automatic, and digital-quantity handoffs.
 - Per-BOM-component source Warehouses and explicit production material modes for Work Order-wide
-  WIP transfer, operation-specific Job Card transfer, or Skip-WIP direct consumption. The Operator
+  WIP transfer, operation-specific Job Card transfer, or native final-entry Skip-WIP consumption.
+  High-frequency Material Runs can settle at Job Card end or final Work Order Manufacture and reuse
+  their original source-tag scans without double consumption. The Operator
   panel shows live ERP stock/shortages, captures actual quantities, prepares native ERPNext Stock
   Entries, and supports controlled Draft review or operator-confirmed submission.
 - Optional Hidden Item Settings compatibility filters restricted BOM components from unauthorized

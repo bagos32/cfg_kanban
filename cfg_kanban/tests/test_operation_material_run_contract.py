@@ -52,6 +52,8 @@ class TestOperationMaterialRunContract(unittest.TestCase):
         master = (DOCTYPE_ROOT / "cfg_kanban_master" / "cfg_kanban_master.py").read_text()
         self.assertIn("material_run_qty_per_output", master)
         self.assertIn("exact-serial Material Run package", master)
+        self.assertIn("Material Run Source Tag Quantity currently requires", master)
+        self.assertIn("At Job Card End requires BOM Transfer Material", master)
 
     def test_material_draw_is_immutable_and_does_not_mutate_stock(self):
         schema = json.loads(
@@ -106,11 +108,38 @@ class TestOperationMaterialRunContract(unittest.TestCase):
         self.assertIn('ACTIVE_EXECUTION_STATES = {"In Progress", "Paused"}', service)
         self.assertIn('canonical_key("operation-material-run"', service)
 
-    def test_current_package_does_not_post_erp_stock(self):
+    def test_material_draws_settle_only_through_native_erp_trace(self):
         service = (ROOT / "services" / "operation_material_runs.py").read_text()
-        self.assertNotIn("Stock Entry", service)
+        trace = (ROOT / "services" / "production_trace.py").read_text()
+        self.assertIn("def adopt_material_run_draws", service)
+        self.assertIn("allocate_input_tag", service)
+        self.assertIn("def confirm_material_run_settlement", service)
+        self.assertIn("def reverse_material_run_settlement", service)
+        self.assertIn("confirm_material_run_settlement(trace.name)", trace)
+        self.assertIn("reverse_material_run_settlement(trace.name)", trace)
         self.assertNotIn("post_quantity_event", service)
-        self.assertIn("ERPNext remains the manufacturing and stock system of record", service)
+
+    def test_skip_wip_uses_selected_settlement_route_without_orphan_draft(self):
+        service = (ROOT / "services" / "operation_material_runs.py").read_text()
+        flow = (ROOT / "services" / "production_material_flow.py").read_text()
+        feedback = (ROOT / "integrations" / "erp_feedback.py").read_text()
+        panel = (ROOT / "cfg_kanban" / "page" / "kanban_operator" /
+                 "kanban_operator.js").read_text()
+        self.assertIn("material_run_settlement_lines", flow)
+        self.assertIn("At Job Card End", flow)
+        self.assertIn("At Work Order Manufacture Receipt", flow)
+        self.assertIn("adopt_material_run_draws", flow)
+        self.assertIn("_prepare_material_draw_rows", service)
+        self.assertIn("_cloned_entry_input_row", service)
+        self.assertIn("Skip-WIP Work Order material is consumed by the final Manufacture entry", flow)
+        self.assertIn("and not receipt_draws", flow)
+        self.assertIn("material_run_job_end_settlement_ready", flow)
+        self.assertIn("Production Draft Stock Entry remains open", feedback)
+        self.assertIn("unresolved_material_run_settlement", feedback)
+        self.assertIn("material_run_job_end_pending_count", panel)
+        self.assertIn("Settle the Job Card-end Material Runs before preparing Manufacture", panel)
+        self.assertIn("Skip-WIP Work Order material is consumed in the final Manufacture entry", panel)
+        self.assertNotIn('__("Consume Work Order Materials")', panel)
 
     def test_scanner_run_captures_quantity_then_physical_source(self):
         panel = (ROOT / "cfg_kanban" / "page" / "kanban_operator" /

@@ -526,6 +526,10 @@ def cancel_trace_line(stock_entry, trace_line, operator_session_token=None,
         line.reversal_ledger = ledger.name
     line.status = "Cancelled"
     trace.save(ignore_permissions=True)
+    from cfg_kanban.services.operation_material_runs import (
+        release_material_run_draft_line,
+    )
+    release_material_run_draft_line(line.name)
     record(
         "Material Trace Line Cancelled",
         cycle=doc.get("cfg_kanban_cycle"),
@@ -575,6 +579,10 @@ def abandon_draft_trace(stock_entry, reason, operator_session_token=None,
             line.status = "Cancelled"
         elif line.status == "Pending":
             line.status = "Cancelled"
+        from cfg_kanban.services.operation_material_runs import (
+            release_material_run_draft_line,
+        )
+        release_material_run_draft_line(line.name)
     trace.status = "Abandoned"
     trace.abandoned_on = now_datetime()
     trace.abandoned_by = frappe.session.user
@@ -769,6 +777,10 @@ def confirm_stock_entry_trace(doc):
     trace.confirmed_on = now_datetime()
     trace.confirmed_by = frappe.session.user
     trace.save(ignore_permissions=True)
+    from cfg_kanban.services.operation_material_runs import (
+        confirm_material_run_settlement,
+    )
+    confirm_material_run_settlement(trace.name)
     record(
         ("Warehouse Transfer Trace Confirmed" if _purpose(doc) == "Material Transfer"
          else "Production Material Trace Confirmed"),
@@ -1005,6 +1017,10 @@ def reverse_stock_entry_trace(doc):
     trace.reversed_on = now_datetime()
     trace.reversed_by = frappe.session.user
     trace.save(ignore_permissions=True)
+    from cfg_kanban.services.operation_material_runs import (
+        reverse_material_run_settlement,
+    )
+    reverse_material_run_settlement(trace.name)
     record(
         ("Warehouse Transfer Trace Reversed" if _purpose(doc) == "Material Transfer"
          else "Production Material Trace Reversed"),

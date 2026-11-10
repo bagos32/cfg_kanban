@@ -34,11 +34,28 @@ Package 2 adds opt-in source quantity evidence:
 - cancelled-draw audit with reservation release;
 - no change to operations and components that retain Disabled/No Run Tracking defaults.
 
-The following packages must be completed before this is accepted as the full material-trace flow:
+Package 3 adds controlled ERP settlement without a second physical scan:
+
+- **At Job Card End** creates a dedicated Draft `Material Consumption for Manufacture` only for
+  the used Material Draw quantities of that Job Card;
+- **At Work Order Manufacture Receipt** adopts those quantities into the final native
+  `Manufacture` entry instead;
+- ordinary Skip-WIP inputs are consumed only by final Manufacture and no longer create a duplicate
+  intermediate consumption entry;
+- the original source Handling Unit, Warehouse, UOM, Batch and quantity are adopted into Production
+  Material Trace through the same validation used by a live scan;
+- different scanned input Batches are split into exact native Stock Entry Detail rows;
+- ERP submission changes stock/Handling Unit quantity and marks the Draw **Bound to ERP**;
+- Draft line cancellation, Draft abandonment and submitted-entry reversal restore controlled Draw
+  state; and
+- Cycle closure is blocked by any linked Draft production Stock Entry or used, unsettled Draw.
+
+The following packages must still be completed before this is accepted as the full
+serial-controlled material-trace flow:
 
 1. exact serial reservation and serial-range evidence with parallel-machine collision protection;
-2. final Material Trace adoption and ERP settlement without rescanning or double reservation;
-3. controlled post-progress correction/recovery plus complete floor acceptance.
+2. controlled post-progress quantity correction beyond ERP cancellation/reversal;
+3. complete floor acceptance of both settlement timings and recovery cases.
 
 ## Minimal configuration
 
@@ -57,6 +74,10 @@ For each tracked BOM row, select **Source Tag Quantity**, its physical scan Ware
 **Standard ERP / Tag Flow**. The calculated ratio is BOM component quantity divided by BOM output
 quantity. Leave simple components at **No Run Tracking**. Do not enable it for an ERPNext
 serial-controlled Item until the exact-serial package is delivered.
+
+Source Tag Quantity currently requires **Production Material Mode = Skip WIP Transfer**. For
+**At Job Card End**, the BOM must use **Transfer Material Against = Job Card**. When the BOM uses
+Work Order material control, select **At Work Order Manufacture Receipt**.
 
 ## Scanner-only pilot
 
@@ -77,8 +98,17 @@ serial-controlled Item until the exact-serial package is delivered.
    run and staged Draws are Cancelled before progress and no reservation remains active.
 11. For an operation where Material Run Control is Disabled, verify that the start command says no
    eligible operation is available and that normal production remains unchanged.
+12. If **ERP Settlement Timing = At Job Card End**, complete/submit the Job Card, select/scan
+    **Prepare Materials**, choose the Job Card when prompted, and use **Settle Material Runs**.
+    Verify the Draft already contains the earlier source scans. Submit it with the normal scanner
+    command; do not scan those tags again.
+13. If **ERP Settlement Timing = At Work Order Manufacture Receipt**, finish all Job Cards and
+    prepare Manufacture. Verify the final Draft already contains the earlier source scans. Scan
+    only other required physical inputs and the finished-output tag, then submit.
+14. Verify no unused `Material Transfer for Manufacture` or duplicate consumption Draft remains.
+    Attempting to close with any linked Draft or unsettled Draw must be rejected with its identifier.
 
-Follow `docs/TEST_OPERATION_MATERIAL_RUN_DRAWS.md` for the complete acceptance test. The current
-Draw is an operational reservation. Do not treat it as ERP stock consumption or exact serial
-allocation, and do not skip the existing final Production Material Trace until the settlement
-package explicitly adopts these Draw rows.
+Follow `docs/TEST_OPERATION_MATERIAL_RUN_DRAWS.md` for scanner evidence and
+`docs/TEST_OPERATION_MATERIAL_RUN_SETTLEMENT.md` for ERP settlement. A Draw remains only an
+operational reservation until its linked native Stock Entry is submitted. Exact serial membership
+is not included; do not enable Source Tag Quantity for an ERPNext serial-controlled Item.

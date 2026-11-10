@@ -251,6 +251,27 @@ class CFGKanbanMaster(Document):
             else:
                 row.material_run_scan_warehouse = None
                 row.material_run_qty_per_output = 0
+        tracked_operations = {
+            row.operation for row in self.material_flow_rules
+            if (row.material_run_tracking_mode or "No Run Tracking") == "Source Tag Quantity"
+        }
+        if tracked_operations and mode != "Skip WIP Transfer":
+            frappe.throw(
+                "Material Run Source Tag Quantity currently requires Production Material "
+                "Mode = Skip WIP Transfer so the scanned source Warehouse matches the native "
+                "ERPNext consumption row"
+            )
+        job_end_operations = {
+            row.operation for row in self.operation_profiles
+            if row.operation in tracked_operations
+            and (row.material_run_settlement_timing or "At Job Card End") == "At Job Card End"
+        }
+        if job_end_operations and bom.get("transfer_material_against") != "Job Card":
+            frappe.throw(
+                "Material Run settlement At Job Card End requires BOM Transfer Material "
+                "Against = Job Card. Use At Work Order Manufacture Receipt when the BOM "
+                "controls materials against the Work Order."
+            )
         if len(rule_keys) != len(set(rule_keys)):
             frappe.throw("BOM Component Material Flow cannot repeat the same Item and Operation")
 

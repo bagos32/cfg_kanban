@@ -490,9 +490,11 @@ rows for that Job Card.
 Alternative behavior:
 
 - `Transfer to WIP by Work Order`: use **Prepare WIP Transfer** once before the first Job Card.
-- `Skip WIP Transfer`: no WIP transfer is created. Use **Consume Operation Materials** at the Job
-  Card that physically uses each component, scan actual tag quantities, and submit the Draft native
-  `Material Consumption for Manufacture`. The final Manufacture dialog shows only remaining input.
+- `Skip WIP Transfer`: no WIP transfer is created. Ordinary inputs stay on the final native
+  `Manufacture` entry. Only Operation Material Runs explicitly configured **At Job Card End** use
+  **Settle Material Runs** and a separate Draft `Material Consumption for Manufacture`; their
+  earlier source-tag scans are adopted automatically. Runs configured **At Work Order Manufacture
+  Receipt** are adopted directly into final Manufacture.
 - `Follow ERPNext BOM / Work Order`: existing ERPNext Work Order settings remain authoritative.
 
 Because this first test sets raw materials to **No Physical Tag**, no Handling Unit input scan is

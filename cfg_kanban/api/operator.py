@@ -146,7 +146,7 @@ def _scanner_command_catalog(quantity_steps=None):
         ("Production Material and WIP", [
             ("Start Operation Material Run", "CFG:CMD:START_MATERIAL_RUN", ""),
             ("Cancel Open Material Run", "CFG:CMD:CANCEL_MATERIAL_RUN", ""),
-            ("Prepare Transfer / Consumption", "CFG:CMD:PREPARE_MATERIALS", ""),
+            ("Prepare / Settle Materials", "CFG:CMD:PREPARE_MATERIALS", ""),
             ("Record Standard WIP Bin Use", "CFG:CMD:RECORD_WIP_BIN_USE", ""),
             ("Record Loose WIP Use", "CFG:CMD:RECORD_LOOSE_WIP_USE", ""),
             ("Prepare Consolidated Loose WIP Consumption", "CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION", ""),

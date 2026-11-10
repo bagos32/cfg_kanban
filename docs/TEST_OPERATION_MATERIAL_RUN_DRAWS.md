@@ -6,8 +6,9 @@ Verify the opt-in scanner flow that binds a physical source Stock Tag quantity t
 high-frequency Operation Material Run, consumes the declared quantity when progress is posted,
 and carries an unused balance into the next run without changing ERPNext stock prematurely.
 
-This is a development acceptance test. It does **not** accept exact serial membership or final
-ERP settlement; those remain the next packages.
+This test accepts scanner capture and operational reservation only. Run
+`docs/TEST_OPERATION_MATERIAL_RUN_SETTLEMENT.md` separately to accept final ERP settlement. Exact
+serial membership remains outside this package.
 
 ## Minimal sample
 
@@ -22,6 +23,7 @@ In **CFG Kanban Master → Operation Profiles**, set:
 - **Material Run Control** = `Required Before Progress`;
 - **Output Boundary Requirement** = `Every Material Run`;
 - **Allow Unused Material Carry-forward** = enabled.
+- **ERP Settlement Timing** = `At Work Order Manufacture Receipt` for this test.
 
 In **BOM Component Material Flow**, set only the `TEST-BAG` row:
 
@@ -75,4 +77,4 @@ older rule snapshot.
 - source Handling Unit code and before/after quantities;
 - two Progress records and final carry balance;
 - screenshots of scanner guide, rejection, and focus recovery;
-- explicit note that ERP settlement and exact serial acceptance remain open.
+- explicit note that the separate ERP settlement test and exact serial acceptance remain open.
