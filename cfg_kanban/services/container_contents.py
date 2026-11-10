@@ -248,7 +248,7 @@ def load_production_output_content(container, content, *, reference_name, reason
     content.reload()
     assert_container_not_in_open_manifest(container.name, "receiving a production output")
     assert_container_not_in_open_delivery(container.name, "receiving a production output")
-    _validate_production_container_location(container, content)
+    validate_production_container_location(container, content)
     _container, existing_content, membership = production_output_content(
         container.name, require_content=False
     )
@@ -364,7 +364,7 @@ def sync_production_container_location(container_handling_unit, company, warehou
     )
 
 
-def _validate_production_container_location(container, content):
+def validate_production_container_location(container, content):
     if container.identity_state != "Active" or container.quality_state != "Released":
         frappe.throw(
             f"Production Output Container {container.handling_unit_id} is "

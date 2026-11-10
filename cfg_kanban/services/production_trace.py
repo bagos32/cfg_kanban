@@ -300,7 +300,13 @@ def allocate_input_tag(stock_entry, item_row=None, scan_value=None, qty=0,
     scanned_unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
     unit, physical_container = _production_input_unit(scanned_unit)
     trace = _ensure_trace(doc)
-    row = _resolve_input_row(doc, trace, unit, item_row)
+    row = _resolve_input_row(
+        doc, trace, unit, item_row, physical_container=physical_container
+    )
+    _bind_scanned_input_batch(
+        doc, row, unit, physical_container=physical_container,
+        operator_actor=operator_actor,
+    )
     policy = effective_trace_policy(row.item_code, doc.company)
     if policy.production_input_tag_policy == NO_TAG:
         frappe.throw(
@@ -1244,7 +1250,7 @@ def _resolve_output_row(doc, trace, row_reference=None):
     frappe.throw(f"Select the exact ERP output row before staging a tag: {items}")
 
 
-def _resolve_input_row(doc, trace, unit, row_name=None):
+def _resolve_input_row(doc, trace, unit, row_name=None, physical_container=None):
     """Resolve a Stock Entry input row from the physical Handling Unit scan.
 
     A supplied row remains supported for Desk/API compatibility, but the scanner-only
@@ -1275,17 +1281,111 @@ def _resolve_input_row(doc, trace, unit, row_name=None):
             continue
         if row.stock_uom != unit.stock_uom:
             continue
-        if (_tag_batch_no(row) or "") != (unit.batch_no or ""):
+        row_batch = _tag_batch_no(row)
+        # A scanner-first production input may be created before ERPNext has a
+        # Batch on its Draft row.  The exact manufactured fill is allowed to
+        # bind that blank row below.  A conflicting non-blank Batch remains a
+        # hard rejection.
+        if row_batch and row_batch != (unit.batch_no or ""):
             continue
         candidates.append(row)
 
     if not candidates:
-        frappe.throw(
-            f"Item {unit.item_code} exists in the input list, but tag "
-            f"{unit.handling_unit_id} does not match its source Warehouse, UOM, Batch, "
-            "or remaining ERP quantity."
-        )
+        frappe.throw(_input_row_mismatch_message(
+            item_rows, unit, physical_container=physical_container
+        ))
     return candidates[0]
+
+
+def _bind_scanned_input_batch(doc, row, unit, physical_container=None,
+                              operator_actor=None):
+    """Bind an exact scanned Batch to one blank ERPNext v15 Draft input row.
+
+    ERPNext remains authoritative: an existing row Batch or Serial and Batch
+    Bundle is never replaced.  This only fills a blank batch-only input row
+    from the immutable manufactured fill carried by the scanned tag/container.
+    """
+    scanned_batch = unit.batch_no or ""
+    row_batch = _tag_batch_no(row) or ""
+    if row_batch or not scanned_batch:
+        return
+
+    item_control = frappe.get_cached_value(
+        "Item", row.item_code, ["has_batch_no", "has_serial_no"], as_dict=True
+    ) or {}
+    if not cint(item_control.get("has_batch_no")):
+        frappe.throw(
+            f"Scanned {_input_identity_label(unit, physical_container)} carries Batch "
+            f"{scanned_batch}, but Item {row.item_code} is not batch-controlled in ERPNext"
+        )
+    if cint(item_control.get("has_serial_no")):
+        frappe.throw(
+            f"Item {row.item_code} is serial-controlled. Complete its exact ERPNext Serial "
+            "and Batch Bundle before scanning the production input container."
+        )
+    if row.get("serial_and_batch_bundle"):
+        frappe.throw(
+            f"Stock Entry row {row.idx} has a Serial and Batch Bundle without a usable Batch. "
+            "Correct that ERPNext bundle before scanning the production input container."
+        )
+
+    frappe.db.set_value(
+        "Stock Entry Detail",
+        row.name,
+        {"use_serial_batch_fields": 1, "batch_no": scanned_batch},
+        update_modified=False,
+    )
+    row.use_serial_batch_fields = 1
+    row.batch_no = scanned_batch
+    record(
+        "Production Input Batch Bound",
+        cycle=doc.get("cfg_kanban_cycle"),
+        handling_unit=unit.name,
+        reference_doctype="Stock Entry",
+        reference_name=doc.name,
+        notes=(
+            f"Row {row.name} / {row.item_code} / Batch {scanned_batch} / "
+            f"{_input_identity_label(unit, physical_container)}"
+        ),
+        **_operator_audit(operator_actor),
+    )
+
+
+def _input_row_mismatch_message(item_rows, unit, physical_container=None):
+    identity = _input_identity_label(unit, physical_container)
+    actual = (
+        f"Warehouse {unit.current_warehouse or '(blank)'}, "
+        f"UOM {unit.stock_uom or '(blank)'}, Batch {unit.batch_no or '(blank)'}"
+    )
+    comparisons = []
+    for row in item_rows:
+        row_batch = _tag_batch_no(row)
+        mismatches = []
+        if row.s_warehouse != unit.current_warehouse:
+            mismatches.append(
+                f"Warehouse expected {row.s_warehouse or '(blank)'}"
+            )
+        if row.stock_uom != unit.stock_uom:
+            mismatches.append(f"UOM expected {row.stock_uom or '(blank)'}")
+        if row_batch and row_batch != (unit.batch_no or ""):
+            mismatches.append(f"Batch expected {row_batch}")
+        comparisons.append(
+            f"row {row.idx}: {', '.join(mismatches) or 'no field mismatch'}"
+        )
+    return (
+        f"Item {unit.item_code} exists in the remaining input list, but scanned {identity} "
+        f"does not match. Tag values: {actual}. ERP comparison: "
+        + "; ".join(comparisons)
+    )
+
+
+def _input_identity_label(unit, physical_container=None):
+    if physical_container:
+        return (
+            f"Production Output Container {physical_container.handling_unit_id} "
+            f"(fill {unit.handling_unit_id})"
+        )
+    return f"Handling Unit {unit.handling_unit_id}"
 
 
 def _remaining_row_qty(doc, trace, row, direction):
@@ -1455,9 +1555,13 @@ def _production_input_unit(scanned_unit):
         frappe.throw(
             "Scan a Stock Tag or a loaded Production Output Container, not this reusable container"
         )
-    from cfg_kanban.services.container_contents import production_output_content
+    from cfg_kanban.services.container_contents import (
+        production_output_content,
+        validate_production_container_location,
+    )
 
     container, content, _membership = production_output_content(scanned_unit.name)
+    validate_production_container_location(container, content)
     return content, container
 
 

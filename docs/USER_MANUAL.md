@@ -2412,6 +2412,12 @@ must also carry the semi-finished Item into the next production process:
    consumption closes the fill episode and makes the permanent container empty and reusable. A
    partial consumption leaves the balance in the same container.
 
+For a batch-controlled, non-serialized input, the permanent-container scan may bind its exact
+manufactured Batch to a blank Draft Stock Entry input row. It never replaces an existing ERPNext
+Batch or Serial and Batch Bundle. A genuine mismatch now reports the scanned and expected
+Warehouse, stock UOM, and Batch separately; correct the ERP row or the physical-location record
+rather than bypassing that rejection.
+
 The system rejects a Production Output Container that is already filled, belongs to a different
 Company or Warehouse, is on an open Manifest/delivery, is on Hold, or contains inconsistent content.
 A normal Logistics Container and a Standard Quantity WIP Bin cannot substitute for this role. Never
