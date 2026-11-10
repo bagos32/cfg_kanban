@@ -75,9 +75,10 @@ For each tracked BOM row, select **Source Tag Quantity**, its physical scan Ware
 quantity. Leave simple components at **No Run Tracking**. Do not enable it for an ERPNext
 serial-controlled Item until the exact-serial package is delivered.
 
-Source Tag Quantity currently requires **Production Material Mode = Skip WIP Transfer**. For
-**At Job Card End**, the BOM must use **Transfer Material Against = Job Card**. When the BOM uses
-Work Order material control, select **At Work Order Manufacture Receipt**.
+Source Tag Quantity currently requires **Production Material Mode = Skip WIP Transfer**. At Job
+Card end, BOMs controlled against Job Card use the Job Card material rows. BOMs controlled against
+Work Order use the immutable used Material Draws as the exact settlement scope while preserving
+the originating Job Card in CFG Kanban's audit field.
 
 ## Scanner-only pilot
 

@@ -2874,9 +2874,10 @@ Component Material Flow**:
   the source tag is scanned;
 - **WIP Presentation** (`wip_presentation_method`) = `Standard ERP / Tag Flow`.
 
-The Master must use **Production Material Mode = Skip WIP Transfer**. When settlement is **At Job
-Card End**, the ERPNext BOM must also use **Transfer Material Against = Job Card**. If the BOM
-controls material against the Work Order, select **At Work Order Manufacture Receipt** instead.
+The Master must use **Production Material Mode = Skip WIP Transfer**. **At Job Card End** works
+with either ERPNext material-control scope: when the BOM transfers against Job Card, CFG Kanban
+validates that Job Card's material rows; when it transfers against Work Order, the immutable used
+Material Draws provide the exact settlement scope and the Job Card remains the Kanban audit owner.
 
 The server calculates read-only **Material Qty per Output Unit**
 (`material_run_qty_per_output`) from BOM component quantity divided by BOM output quantity. Keep

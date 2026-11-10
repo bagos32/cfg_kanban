@@ -880,30 +880,25 @@ def prepare_material_consumption(cycle_name, lines, job_card=None, event_token=N
     execution = None
     operation = None
     workstation = None
-    if work_order.transfer_material_against == "Job Card":
-        if not job_card:
-            frappe.throw("Select the Job Card whose actual material usage is being recorded")
-        job = frappe.db.get_value(
-            "Job Card", {"name": job_card, "work_order": work_order.name,
-                         "docstatus": ["<", 2]},
-            ["name", "operation", "workstation", "status", "docstatus"], as_dict=True,
-        )
-        if not job:
-            frappe.throw("Job Card does not belong to the effective Work Order")
-        if job.status != "Completed" or job.docstatus != 1:
-            frappe.throw(
-                f"Complete and submit Job Card {job.name} before its At Job Card End "
-                "Material Runs are settled to ERPNext"
-            )
-        operation, workstation = job.operation, job.workstation
-        execution = frappe.db.get_value(
-            "CFG Kanban Process Execution",
-            {"kanban_cycle": cycle.name, "job_card": job.name}, "name",
-        )
-    elif job_card:
+    if not job_card:
+        frappe.throw("Select the Job Card whose Material Runs are being settled")
+    job = frappe.db.get_value(
+        "Job Card", {"name": job_card, "work_order": work_order.name,
+                     "docstatus": ["<", 2]},
+        ["name", "operation", "workstation", "status", "docstatus"], as_dict=True,
+    )
+    if not job:
+        frappe.throw("Job Card does not belong to the effective Work Order")
+    if job.status != "Completed" or job.docstatus != 1:
         frappe.throw(
-            "This Skip-WIP Work Order records consumption against the Work Order, not a Job Card"
+            f"Complete and submit Job Card {job.name} before its At Job Card End "
+            "Material Runs are settled to ERPNext"
         )
+    operation, workstation = job.operation, job.workstation
+    execution = frappe.db.get_value(
+        "CFG Kanban Process Execution",
+        {"kanban_cycle": cycle.name, "job_card": job.name}, "name",
+    )
 
     # Ordinary Skip-WIP production consumes its inputs in the final Manufacture entry.
     # A separate Material Consumption entry exists only for scanner Material Runs whose
@@ -1783,8 +1778,11 @@ def _job_consumed_quantities(job_card):
 
 
 def _validate_consumption_scope(work_order, normalized, restricted_items, job_card=None):
-    source_rows = (frappe.get_doc("Job Card", job_card).items
-                   if job_card else work_order.required_items)
+    source_rows = (
+        frappe.get_doc("Job Card", job_card).items
+        if job_card and work_order.transfer_material_against == "Job Card"
+        else work_order.required_items
+    )
     allowed = {(row.item_code, row.source_warehouse) for row in source_rows}
     invalid = [
         f"{row['item_code']} / {row['source_warehouse']}"

@@ -1299,12 +1299,18 @@ def create_production_material_consumption(command, payload):
         job = frappe.get_doc("Job Card", job_card)
         if job.work_order != work_order.name or job.docstatus == 2:
             frappe.throw("Material consumption requires an active Job Card from this Work Order")
-        allowed_keys = {(row.item_code, row.source_warehouse) for row in job.items}
-        if not allowed_keys:
-            frappe.throw(f"Job Card {job.name} has no operation material rows")
-        if not wip_bin_consumption:
-            selected_keys &= allowed_keys
-            restricted_items &= {item_code for item_code, _warehouse in allowed_keys}
+        if work_order.transfer_material_against == "Job Card":
+            allowed_keys = {(row.item_code, row.source_warehouse) for row in job.items}
+            if not allowed_keys:
+                frappe.throw(f"Job Card {job.name} has no operation material rows")
+            if not wip_bin_consumption:
+                selected_keys &= allowed_keys
+                restricted_items &= {item_code for item_code, _warehouse in allowed_keys}
+        elif not wip_bin_consumption:
+            # Work Order material control has no Job Card Item rows. The immutable Material
+            # Draw lines are the exact settlement scope; ordinary/hidden inputs stay on the
+            # later final Manufacture entry.
+            restricted_items = set()
         # ERPNext v15 deliberately permits its native ``job_card`` link only on
         # Material Transfer for Manufacture (and Repack). Material Consumption for
         # Manufacture is posted against the Work Order, so retain the operation owner

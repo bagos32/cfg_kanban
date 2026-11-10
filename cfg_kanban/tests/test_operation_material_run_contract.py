@@ -53,7 +53,6 @@ class TestOperationMaterialRunContract(unittest.TestCase):
         self.assertIn("material_run_qty_per_output", master)
         self.assertIn("exact-serial Material Run package", master)
         self.assertIn("Material Run Source Tag Quantity currently requires", master)
-        self.assertIn("At Job Card End requires BOM Transfer Material", master)
 
     def test_material_draw_is_immutable_and_does_not_mutate_stock(self):
         schema = json.loads(
@@ -122,6 +121,7 @@ class TestOperationMaterialRunContract(unittest.TestCase):
     def test_skip_wip_uses_selected_settlement_route_without_orphan_draft(self):
         service = (ROOT / "services" / "operation_material_runs.py").read_text()
         flow = (ROOT / "services" / "production_material_flow.py").read_text()
+        gateway = (ROOT / "integrations" / "erp_gateway.py").read_text()
         feedback = (ROOT / "integrations" / "erp_feedback.py").read_text()
         panel = (ROOT / "cfg_kanban" / "page" / "kanban_operator" /
                  "kanban_operator.js").read_text()
@@ -134,13 +134,14 @@ class TestOperationMaterialRunContract(unittest.TestCase):
         self.assertIn("Skip-WIP Work Order material is consumed by the final Manufacture entry", flow)
         self.assertIn("and not receipt_draws", flow)
         self.assertIn("material_run_job_end_settlement_ready", flow)
+        self.assertIn('work_order.transfer_material_against == "Job Card"', flow)
+        self.assertIn("Work Order material control has no Job Card Item rows", gateway)
         self.assertIn("Production Draft Stock Entry remains open", feedback)
         self.assertIn("unresolved_material_run_settlement", feedback)
         self.assertIn("material_run_job_end_pending_count", panel)
         self.assertIn("Material Run settlement requires an authorized operator", panel)
         self.assertIn("Settle Material Runs button or scan CFG:CMD:PREPARE_MATERIALS", panel)
         self.assertIn("Settle the Job Card-end Material Runs before preparing Manufacture", panel)
-        self.assertIn("Skip-WIP Work Order material is consumed in the final Manufacture entry", panel)
         self.assertNotIn('__("Consume Work Order Materials")', panel)
 
     def test_scanner_run_captures_quantity_then_physical_source(self):

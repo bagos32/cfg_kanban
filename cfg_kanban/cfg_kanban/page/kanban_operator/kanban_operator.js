@@ -2929,9 +2929,6 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			return scanner_command_message(__("Submit the Work Order before preparing materials."));
 		}
 		if (flow.mode === "Skip WIP Transfer") {
-			if (flow.transfer_material_against !== "Job Card") {
-				return scanner_command_message(__("Skip-WIP Work Order material is consumed in the final Manufacture entry."));
-			}
 			const pending_consumption = (flow.jobs || []).filter((job) =>
 				job.material_run_job_end_pending_count && job.material_run_job_end_settlement_ready);
 			if (pending_consumption.length > 1) return scanner_selection_dialog(
