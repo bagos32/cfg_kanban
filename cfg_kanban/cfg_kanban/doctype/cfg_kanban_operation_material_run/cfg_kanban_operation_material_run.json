@@ -1,0 +1,52 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Operation Material Run",
+ "module": "CFG Kanban",
+ "autoname": "KMR-.YYYY.-.#####",
+ "title_field": "output_serial_boundary",
+ "track_changes": 1,
+ "search_fields": "process_execution,kanban_cycle,work_order,job_card,operation,workstation,output_serial_boundary",
+ "field_order": [
+  "status", "run_number", "context_section", "kanban_cycle", "kanban_master",
+  "process_execution", "runtime_allocation", "work_order", "job_card", "operation",
+  "workstation", "boundary_section", "output_serial_boundary", "material_draw_count",
+  "drawn_qty", "used_qty", "carry_forward_qty", "progress", "audit_section",
+  "opened_on", "opened_by_operator", "operator_session", "terminal_user", "closed_on",
+  "cancelled_on", "cancellation_reason", "active_execution_key", "idempotency_key"
+ ],
+ "fields": [
+  {"fieldname":"status","label":"Material Run Status","fieldtype":"Select","options":"Open\nProgress Posted\nSettled\nCancelled","default":"Open","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"run_number","label":"Run Number","fieldtype":"Int","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"context_section","label":"Immutable Production Context","fieldtype":"Section Break"},
+  {"fieldname":"kanban_cycle","label":"Kanban Cycle","fieldtype":"Link","options":"CFG Kanban Cycle","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"kanban_master","label":"Kanban Master","fieldtype":"Link","options":"CFG Kanban Master","reqd":1,"read_only":1,"in_standard_filter":1},
+  {"fieldname":"process_execution","label":"Process Execution","fieldtype":"Link","options":"CFG Kanban Process Execution","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"runtime_allocation","label":"Runtime Allocation","fieldtype":"Link","options":"CFG Kanban Runtime Allocation","read_only":1,"in_standard_filter":1},
+  {"fieldname":"work_order","label":"Work Order","fieldtype":"Link","options":"Work Order","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"job_card","label":"Job Card","fieldtype":"Link","options":"Job Card","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"operation","label":"Operation","fieldtype":"Link","options":"Operation","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"workstation","label":"Workstation","fieldtype":"Link","options":"Workstation","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"boundary_section","label":"Material and Output Boundary","fieldtype":"Section Break","description":"One high-frequency floor run. Material draws and exact serial reservations will attach to this immutable run identity."},
+  {"fieldname":"output_serial_boundary","label":"First Output Serial / Boundary","fieldtype":"Data","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"material_draw_count","label":"Material Draws","fieldtype":"Int","default":"0","read_only":1},
+  {"fieldname":"drawn_qty","label":"Total Drawn Qty","fieldtype":"Float","default":"0","read_only":1},
+  {"fieldname":"used_qty","label":"Total Used Qty","fieldtype":"Float","default":"0","read_only":1},
+  {"fieldname":"carry_forward_qty","label":"Carry-forward Qty","fieldtype":"Float","default":"0","read_only":1},
+  {"fieldname":"progress","label":"Closing Progress Record","fieldtype":"Link","options":"CFG Kanban Operation Progress","read_only":1,"in_standard_filter":1},
+  {"fieldname":"audit_section","label":"Immutable Scanner Audit","fieldtype":"Section Break","collapsible":1},
+  {"fieldname":"opened_on","label":"Opened On","fieldtype":"Datetime","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"opened_by_operator","label":"Opened By Operator","fieldtype":"Link","options":"Employee","reqd":1,"read_only":1,"in_standard_filter":1},
+  {"fieldname":"operator_session","label":"Operator Session","fieldtype":"Link","options":"CFG Kanban Operator Session","reqd":1,"read_only":1},
+  {"fieldname":"terminal_user","label":"Terminal User","fieldtype":"Link","options":"User","reqd":1,"read_only":1},
+  {"fieldname":"closed_on","label":"Closed On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"cancelled_on","label":"Cancelled On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"cancellation_reason","label":"Cancellation Reason","fieldtype":"Small Text","read_only":1},
+  {"fieldname":"active_execution_key","label":"Open Execution Uniqueness Key","fieldtype":"Data","unique":1,"read_only":1,"hidden":1},
+  {"fieldname":"idempotency_key","label":"Idempotency Key","fieldtype":"Data","reqd":1,"unique":1,"read_only":1,"hidden":1}
+ ],
+ "permissions": [
+  {"role":"Manufacturing User","read":1,"print":1},
+  {"role":"Manufacturing Manager","read":1,"print":1,"report":1},
+  {"role":"System Manager","read":1,"print":1,"report":1}
+ ]
+}

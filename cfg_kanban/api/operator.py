@@ -143,6 +143,8 @@ def _scanner_command_catalog(quantity_steps=None):
             ("Close Operation Cycle", "CFG:CMD:CLOSE_CYCLE", ""),
         ]),
         ("Production Material and WIP", [
+            ("Start Operation Material Run", "CFG:CMD:START_MATERIAL_RUN", ""),
+            ("Cancel Open Material Run", "CFG:CMD:CANCEL_MATERIAL_RUN", ""),
             ("Prepare Transfer / Consumption", "CFG:CMD:PREPARE_MATERIALS", ""),
             ("Record Standard WIP Bin Use", "CFG:CMD:RECORD_WIP_BIN_USE", ""),
             ("Record Loose WIP Use", "CFG:CMD:RECORD_LOOSE_WIP_USE", ""),
@@ -579,6 +581,9 @@ def get_card_context(token, operator_session_token=None):
                     "target_qty", "processed_qty", "good_qty", "reject_qty", "released_qty",
                     "handoff_mode", "completion_rule", "completion_basis", "unfulfilled_qty",
                     "started_on",
+                    "material_run_control", "material_run_output_boundary",
+                    "allow_material_carry_forward", "material_run_settlement_timing",
+                    "open_material_run",
                     "crew_compliance_status", "last_crew_compliance_check",
                     "crew_compliance_hold"],
             order_by="sequence asc",
@@ -587,6 +592,15 @@ def get_card_context(token, operator_session_token=None):
             close_on_behalf_requirement,
             ownership_transfer_requirement,
         )
+        material_run_counts = {
+            row.process_execution: row.run_count
+            for row in frappe.get_all(
+                "CFG Kanban Operation Material Run",
+                filters={"kanban_cycle": cycle.name, "status": ["!=", "Cancelled"]},
+                fields=["process_execution", "count(name) as run_count"],
+                group_by="process_execution",
+            )
+        }
         for execution in executions:
             execution["completion_rule"] = _execution_completion_rule(execution)
             job = frappe.db.get_value("Job Card", execution.job_card,
@@ -615,6 +629,35 @@ def get_card_context(token, operator_session_token=None):
                 execution["close_approval"].get("required")
             )
             execution["crew"] = _execution_crew_summary(execution, master.company)
+            if execution.open_material_run:
+                execution["material_run"] = frappe.db.get_value(
+                    "CFG Kanban Operation Material Run",
+                    execution.open_material_run,
+                    ["name", "status", "run_number", "output_serial_boundary", "opened_on"],
+                    as_dict=True,
+                )
+            else:
+                execution["material_run"] = None
+            prior_run_count = int(material_run_counts.get(execution.name) or 0)
+            boundary_mode = execution.material_run_output_boundary or "None"
+            execution["material_run_context"] = {
+                "execution": execution.name,
+                "operation": execution.operation,
+                "workstation": execution.workstation,
+                "job_card": execution.job_card,
+                "execution_status": execution.status,
+                "control_mode": execution.material_run_control or "Disabled",
+                "boundary_mode": boundary_mode,
+                "boundary_required": boundary_mode == "Every Material Run" or (
+                    boundary_mode == "First Run Only" and not prior_run_count
+                ),
+                "allow_material_carry_forward": bool(
+                    execution.allow_material_carry_forward
+                ),
+                "settlement_timing": execution.material_run_settlement_timing,
+                "open_run": execution.material_run,
+                "prior_run_count": prior_run_count,
+            }
         if job_ownership and executions:
             transfer_execution = next(
                 (
@@ -823,6 +866,7 @@ def get_card_live_revision(token, operator_session_token=None):
             ("CFG ERP Command", {"kanban_cycle": cycle.name}),
             ("CFG Kanban Cycle Role Assignment", {"kanban_cycle": cycle.name}),
             ("CFG Kanban Correction Request", {"kanban_cycle": cycle.name}),
+            ("CFG Kanban Operation Material Run", {"kanban_cycle": cycle.name}),
             ("CFG Kanban Event", {
                 "kanban_cycle": cycle.name, "event_type": ["like", "PPHU %"]
             }),
@@ -1685,9 +1729,12 @@ def submit_progress(execution_name, good_qty, reject_qty=0, processed_qty=None,
             "event_type": "Operation Progress"}, "reference_name")
         if existing:
             return {"name": existing, "duplicate": True}
+    from cfg_kanban.services.operation_material_runs import open_run_for_execution
+    material_run = open_run_for_execution(execution.name)
     progress = report(execution_name, good_qty, reject_qty, processed_qty,
                       values=values, notes=notes, operator=profile.employee,
-                      operator_session=session.name, terminal_user=session.terminal_user)
+                      operator_session=session.name, terminal_user=session.terminal_user,
+                      material_run=material_run.name if material_run else None)
     from cfg_kanban.services.job_participation import sync_execution_participation
     sync_execution_participation(
         execution.name,

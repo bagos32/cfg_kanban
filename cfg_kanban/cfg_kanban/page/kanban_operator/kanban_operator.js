@@ -363,6 +363,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			REPORT_PROGRESS: () => run_context_execution_action("report_progress"),
 			GO_TO_CURRENT_WORK: go_to_current_work,
 			CLOSE_CYCLE: close_context_runtime_cycle,
+			START_MATERIAL_RUN: open_material_run_dialog,
+			CANCEL_MATERIAL_RUN: cancel_open_material_run,
 			PREPARE_MATERIALS: open_scanner_material_preparation,
 			RECORD_WIP_BIN_USE: open_scanner_standard_wip_usage,
 			RECORD_LOOSE_WIP_USE: open_scanner_loose_wip_usage,
@@ -962,7 +964,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<tr><td>F8</td><td><code>CFG:CMD:END_SESSION</code></td><td>${__("End operator session after confirmation")}</td></tr>
 			</tbody></table>
 			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:ACCEPT_OWNER</code>, <code>CFG:CMD:TRANSFER_OWNER</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
-			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:RECORD_WIP_BIN_USE</code>, <code>CFG:CMD:RECORD_LOOSE_WIP_USE</code>, <code>CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
+			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:START_MATERIAL_RUN</code>, <code>CFG:CMD:CANCEL_MATERIAL_RUN</code>, <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:RECORD_WIP_BIN_USE</code>, <code>CFG:CMD:RECORD_LOOSE_WIP_USE</code>, <code>CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
+			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then Confirm. Ordinary operations remain unchanged.")}</small></p>
 			<p><strong>${__("PPHU trace commands")}</strong>: <code>CFG:CMD:PPHU_HOPPER_CHANGE</code>, <code>CFG:CMD:PPHU_BATCH_CHANGE</code>, <code>CFG:CMD:PPHU_OUTPUT_SERIAL</code>. Select an operation with <code>CFG:SELECT:n</code>, scan the physical Hopper/material tag when requested, scan the first affected output serial, then scan <code>CFG:CMD:CONFIRM</code>.</p>
 			<p><strong>${__("Crew commands")}</strong>: <code>CFG:CMD:CREW</code>, <code>CFG:CMD:CREW_OPEN</code>, <code>CFG:CMD:CREW_JOIN</code>, <code>CFG:CMD:CREW_JOIN_SENIOR</code>, <code>CFG:CMD:CREW_JOIN_OVERSIGHT</code>, <code>CFG:CMD:CREW_JOIN_TEMP</code>, <code>CFG:CMD:CREW_BREAK</code>, <code>CFG:CMD:CREW_RESUME</code>, <code>CFG:CMD:CREW_LEAVE</code>, <code>CFG:CMD:CREW_MAIN</code>, <code>CFG:CMD:CREW_CONTEXT</code>, <code>CFG:CMD:CREW_CLOSE</code>.</p>
 			<p><small>${__("On an Available Process/Station Card, choose the exact numbered Job Card before Crew Controls when several targets are eligible. On a Workstation Queue Card, Crew Controls uses the selected Active/Ready work row.")}</small></p>
@@ -1962,6 +1965,230 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		dialog.show();
 		bind_confirmation_scanner(dialog, true);
 		return dialog;
+	}
+
+	function material_run_candidates() {
+		return (state.context?.executions || []).filter((row) =>
+			["Optional", "Required Before Progress"].includes(row.material_run_control) &&
+			["In Progress", "Paused"].includes(row.status));
+	}
+
+	async function open_material_run_dialog(preferred_execution = null) {
+		if (!state.context?.cycle || !state.context?.card) {
+			return scanner_command_message(__("Scan an active production or Process Card first."));
+		}
+		if (!state.operator?.permissions?.report_progress) {
+			return scanner_command_message(__("This operator cannot open a Material Run."));
+		}
+		const available = material_run_candidates();
+		const candidates = preferred_execution
+			? available.filter((row) => row.name === preferred_execution)
+			: available;
+		if (!candidates.length) {
+			return scanner_command_message(__("No started operation on this Card has Material Run Control enabled."));
+		}
+		if (candidates.length > 10) {
+			return scanner_command_message(__("More than ten operations are eligible. Open the exact Process or Station Card first."));
+		}
+
+		const values = candidates.map((row) => row.name);
+		const options = candidates.map((row, index) =>
+			`${index + 1}. ${row.operation || __("Operation")} · ${row.workstation || "-"} · ${row.job_card || "-"}`);
+		const context_by_execution = Object.fromEntries(
+			candidates.map((row) => [row.name, row.material_run_context || {
+				execution: row.name,
+				control_mode: row.material_run_control,
+				boundary_mode: row.material_run_output_boundary,
+				boundary_required: row.material_run_output_boundary === "Every Material Run",
+				open_run: row.material_run,
+			}])
+		);
+		const dialog = new frappe.ui.Dialog({
+			title: __("Start Operation Material Run"),
+			fields: [
+				{ fieldname: "material_run_guide", fieldtype: "HTML" },
+				{ fieldname: "execution_name", label: __("Operation Context"), fieldtype: "Select",
+					options: values.join("\n"), default: values[0], read_only: candidates.length === 1 },
+				{ fieldname: "output_serial_boundary", label: __("First Output Serial / Boundary"),
+					fieldtype: "Data", read_only: 1 },
+				{ fieldname: "scanner_command", label: __("Scanner Input"), fieldtype: "Data",
+					description: __("Use the fixed scanner only: numbered selection, output boundary when requested, then Confirm or Cancel.") },
+			],
+			primary_action_label: __("Start Material Run"),
+			primary_action: async (form_values) => {
+				if (dialog.cfg_material_run_submitting) return;
+				const context = context_by_execution[form_values.execution_name];
+				if (!context) {
+					frappe.show_alert({ message: __("Material Run context is still loading. Scan Confirm again."), indicator: "orange" });
+					return dialog.get_field("scanner_command").set_focus();
+				}
+				if (context.open_run) {
+					frappe.show_alert({ message: __("Material Run {0} is already open.", [context.open_run.name]), indicator: "blue" });
+					return dialog.get_field("scanner_command").set_focus();
+				}
+				if (context.boundary_required && !form_values.output_serial_boundary) {
+					frappe.show_alert({ message: __("Scan the first output serial or production boundary."), indicator: "orange" });
+					return dialog.get_field("scanner_command").set_focus();
+				}
+				dialog.cfg_material_run_submitting = true;
+				try {
+					const response = await frappe.call({
+						method: "cfg_kanban.services.operation_material_runs.start_scanner_run",
+						args: {
+							execution_name: form_values.execution_name,
+							output_serial_boundary: form_values.output_serial_boundary,
+							event_token: dialog.cfg_material_run_event_token,
+							operator_session_token: state.session_token,
+						},
+						freeze: true,
+						freeze_message: __("Opening Material Run..."),
+					});
+					dialog.hide();
+					frappe.show_alert({
+						message: response.message.already_open
+							? __("Material Run {0} was already open", [response.message.name])
+							: __("Material Run {0} started", [response.message.name]),
+						indicator: response.message.already_open ? "blue" : "green",
+					}, 7);
+					await load_card(state.context.card.qr_code || state.context.card.card_number);
+				} finally {
+					if (dialog.$wrapper.is(":visible")) {
+						dialog.cfg_material_run_submitting = false;
+						window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 80);
+					}
+				}
+			},
+		});
+		dialog.cfg_material_run_event_token = frappe.utils.get_random(24);
+		dialog.cfg_material_run_submitting = false;
+		dialog.cfg_require_prefixed_selection = true;
+		dialog.cfg_scanner_selection_values = values;
+		dialog.cfg_scanner_selection_field = "execution_name";
+
+		const load_context = async (execution_name) => {
+			const context = context_by_execution[execution_name];
+			dialog.cfg_material_run_event_token = frappe.utils.get_random(24);
+			await dialog.set_value("output_serial_boundary", "");
+			dialog.cfg_selection_locked = false;
+			dialog.set_df_property("execution_name", "read_only", candidates.length === 1);
+			refresh_material_run_guide(dialog, context, options);
+		};
+		dialog.cfg_selection_changed = load_context;
+		dialog.cfg_raw_scanner_handler = async (raw_value) => {
+			const execution_name = dialog.get_value("execution_name");
+			const context = context_by_execution[execution_name];
+			if (!context) {
+				frappe.show_alert({ message: __("Material Run context is still loading."), indicator: "orange" });
+				return;
+			}
+			if (context.open_run) {
+				frappe.show_alert({ message: __("Material Run {0} is already open. Scan Cancel to return.", [context.open_run.name]), indicator: "blue" });
+				return;
+			}
+			if (dialog.get_value("output_serial_boundary")) {
+				frappe.show_alert({ message: __("Boundary is ready. Scan Confirm or Cancel."), indicator: "orange" });
+				return;
+			}
+			await dialog.set_value("output_serial_boundary", raw_value);
+			dialog.cfg_selection_locked = true;
+			dialog.set_df_property("execution_name", "read_only", 1);
+			refresh_material_run_guide(dialog, context, options);
+			frappe.show_alert({ message: __("Output boundary captured. Scan Confirm."), indicator: "green" });
+		};
+		dialog.show();
+		if (candidates.length > 1) {
+			dialog.get_field("execution_name").$input.on("change.cfg_material_run", () => {
+				if (dialog.cfg_selection_locked) return;
+				load_context(dialog.get_value("execution_name"));
+			});
+		}
+		bind_confirmation_scanner(dialog, true, values, "execution_name");
+		await load_context(values[0]);
+		window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 80);
+	}
+
+	function refresh_material_run_guide(dialog, context, options) {
+		const e = frappe.utils.escape_html;
+		if (!context) return;
+		const boundary = dialog.get_value("output_serial_boundary");
+		let next_step;
+		if (context.open_run) {
+			next_step = __("Material Run {0} is already open. Continue floor work or scan Cancel to return.", [context.open_run.name]);
+		} else if (context.boundary_required && !boundary) {
+			next_step = __("Scan the first output serial or other production boundary for this run.");
+		} else {
+			next_step = __("Scan Confirm to open the run, or Cancel to leave without recording.");
+		}
+		dialog.get_field("material_run_guide").$wrapper.html(`<div class="alert alert-info">
+			<strong>${__("High-frequency Material Run")}</strong><br>
+			${options.length > 1 ? `${__("Select the operation first")}:<br>${options.map((row) => e(row)).join("<br>")}<br>` : ""}
+			<strong>${__("Next step")}</strong>: ${e(next_step)}<br>
+			<small>${__("Opening a run records the trace boundary only. It does not post ERP stock or stop the machine. Material sources and progress will attach to this run in the next package.")}</small>
+		</div>`);
+	}
+
+	function cancel_open_material_run(preferred_execution = null) {
+		const available = material_run_candidates().filter((row) => row.material_run?.status === "Open");
+		const candidates = preferred_execution
+			? available.filter((row) => row.name === preferred_execution)
+			: available;
+		if (!candidates.length) {
+			return scanner_command_message(__("No open Material Run is available to cancel on this Card."));
+		}
+		if (candidates.length > 10) {
+			return scanner_command_message(__("More than ten Material Runs are open. Open the exact Process or Station Card first."));
+		}
+		const values = candidates.map((row) => row.name);
+		const options = candidates.map((row, index) =>
+			`${index + 1}. ${row.operation || __("Operation")} · ${row.material_run.name} · ${row.job_card || "-"}`);
+		const dialog = new frappe.ui.Dialog({
+			title: __("Cancel Open Material Run"),
+			fields: [
+				{ fieldtype: "HTML", options: `<div class="alert alert-warning">
+					<strong>${__("Started by mistake only")}</strong><br>
+					${candidates.length > 1 ? `${__("Select the exact run")}:<br>${options.map((row) => frappe.utils.escape_html(row)).join("<br>")}<br>` : ""}
+					${__("This is allowed only before material draws or progress evidence exists. Scan Confirm to cancel, or Cancel to leave it open.")}
+				</div>` },
+				{ fieldname: "execution_name", label: __("Operation Context"), fieldtype: "Select",
+					options: values.join("\n"), default: values[0], read_only: candidates.length === 1 },
+				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data" },
+			],
+			primary_action_label: __("Cancel Material Run"),
+			primary_action: async (form_values) => {
+				if (dialog.cfg_material_run_cancelling) return;
+				dialog.cfg_material_run_cancelling = true;
+				try {
+					const response = await frappe.call({
+						method: "cfg_kanban.services.operation_material_runs.cancel_scanner_run",
+						args: {
+							execution_name: form_values.execution_name,
+							event_token: dialog.cfg_material_run_cancel_token,
+							operator_session_token: state.session_token,
+						},
+						freeze: true,
+						freeze_message: __("Cancelling Material Run..."),
+					});
+					dialog.hide();
+					frappe.show_alert({
+						message: response.message.cancelled
+							? __("Material Run {0} cancelled", [response.message.name])
+							: __("The Material Run was already closed"),
+						indicator: response.message.cancelled ? "green" : "blue",
+					}, 7);
+					await load_card(state.context.card.qr_code || state.context.card.card_number);
+				} finally {
+					if (dialog.$wrapper.is(":visible")) {
+						dialog.cfg_material_run_cancelling = false;
+						window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 80);
+					}
+				}
+			},
+		});
+		dialog.cfg_material_run_cancel_token = frappe.utils.get_random(24);
+		dialog.cfg_material_run_cancelling = false;
+		dialog.cfg_require_prefixed_selection = true;
+		dialog.show();
+		bind_confirmation_scanner(dialog, true, values, "execution_name");
 	}
 
 	function pphu_event_configuration(event_type) {
@@ -4176,6 +4403,15 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				<button class="btn btn-sm btn-default cfg-open-crew">${__("Crew Controls")}</button></div>
 			</div>`).appendTo($row).find(".cfg-open-crew").on("click", () => open_crew_control(row));
 			const $buttons = $row.find(".cfg-execution-actions");
+			if (["Optional", "Required Before Progress"].includes(row.material_run_control)) {
+				if (row.material_run?.status === "Open") {
+					$row.append(`<div class="mt-2 alert alert-info py-2"><strong>${__("Material Run")}: ${e(row.material_run.name)}</strong> · ${__("Run")} ${e(row.material_run.run_number)}
+						${row.material_run.output_serial_boundary ? ` · ${__("Boundary")}: ${e(row.material_run.output_serial_boundary)}` : ""}</div>`);
+					add_action($buttons, __("Cancel Material Run"), "btn-warning", () => cancel_open_material_run(row.name));
+				} else if (["In Progress", "Paused"].includes(row.status) && state.operator.permissions.report_progress) {
+					add_action($buttons, __("Start Material Run"), "btn-info", () => open_material_run_dialog(row.name));
+				}
+			}
 			if (row.status === "Ready" && state.operator.permissions.start) {
 				if (ownership?.enabled && !ownership.owner && !ownership.eligible_to_accept) {
 					$(`<button class="btn btn-sm btn-warning ml-1" disabled>${__("Job Code Required")}</button>`).appendTo($buttons);

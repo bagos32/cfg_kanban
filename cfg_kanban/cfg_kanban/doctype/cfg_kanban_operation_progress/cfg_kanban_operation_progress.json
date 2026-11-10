@@ -19,6 +19,7 @@
   "notes",
   "source",
   "linked_job_card",
+  "material_run",
   "correction_request",
   "adjustment_proposal",
   "execution_values",
@@ -118,6 +119,15 @@
    "label": "Linked Job Card",
    "fieldtype": "Link",
    "options": "Job Card",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "material_run",
+   "label": "Operation Material Run",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Operation Material Run",
+   "read_only": 1,
    "in_list_view": 1,
    "in_standard_filter": 1
   },

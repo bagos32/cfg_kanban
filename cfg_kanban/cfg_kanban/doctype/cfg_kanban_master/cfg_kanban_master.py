@@ -71,6 +71,22 @@ class CFGKanbanMaster(Document):
         operations = {row.operation for row in self.operation_profiles}
         for row in self.operation_profiles:
             row.allow_parallel = row.execution_mode == "Parallel Workstations"
+            row.material_run_control = row.material_run_control or "Disabled"
+            if row.material_run_control == "Disabled":
+                row.material_run_output_boundary = "None"
+                row.material_run_settlement_timing = "At Job Card End"
+            else:
+                row.material_run_output_boundary = (
+                    row.material_run_output_boundary or "Every Material Run"
+                )
+                row.material_run_settlement_timing = (
+                    row.material_run_settlement_timing or "At Job Card End"
+                )
+                if row.output_reporting_mode != "Incremental":
+                    frappe.throw(
+                        f"Operation {row.operation} must use Incremental Output Reporting "
+                        "before Material Run Control can be enabled"
+                    )
             if row.get("crew_requirement_profile"):
                 assert_approved_crew_profile(
                     row.crew_requirement_profile, self.company

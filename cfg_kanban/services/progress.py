@@ -10,8 +10,16 @@ from cfg_kanban.services.crew_authorization import release_execution_wip_if_auth
 
 def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_qty=None,
            values=None, notes=None, source="Operator", operator=None,
-           operator_session=None, terminal_user=None):
+           operator_session=None, terminal_user=None, material_run=None):
     execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
+    material_run_doc = None
+    if source == "Operator":
+        from cfg_kanban.services.operation_material_runs import open_run_for_execution
+        material_run_doc = (
+            frappe.get_doc("CFG Kanban Operation Material Run", material_run)
+            if material_run else open_run_for_execution(execution.name)
+        )
+        material_run = material_run_doc.name if material_run_doc else None
     good_qty, reject_qty = flt(good_qty), flt(reject_qty)
     processed_qty = flt(processed_qty) if processed_qty is not None else good_qty + reject_qty
     if min(good_qty, reject_qty, processed_qty) < 0:
@@ -25,6 +33,7 @@ def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_
         "terminal_user": terminal_user or frappe.session.user,
         "good_qty": good_qty, "reject_qty": reject_qty,
         "processed_qty": processed_qty, "source": source, "linked_job_card": execution.job_card,
+        "material_run": material_run,
         "notes": notes,
     })
     for value in values or []:
@@ -54,6 +63,15 @@ def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_
     record("Operation Progress", cycle=execution.kanban_cycle, execution=execution.name,
            qty=good_qty, reference_doctype=progress.doctype, reference_name=progress.name,
            operator=operator, operator_session=operator_session, terminal_user=terminal_user)
+    if material_run_doc:
+        from cfg_kanban.services.operation_material_runs import close_run_with_progress
+        close_run_with_progress(
+            material_run_doc,
+            progress,
+            operator=operator,
+            operator_session=operator_session,
+            terminal_user=terminal_user,
+        )
     return progress
 
 

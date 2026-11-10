@@ -920,6 +920,12 @@ def _sync_job_cards(work_order, cycle):
             "handoff_mode": profile.handoff_mode, "transfer_multiple": profile.transfer_multiple,
             "destination_operation": profile.destination_operation,
             "operation_profile_revision": master.revision,
+            "material_run_control": profile.material_run_control or "Disabled",
+            "material_run_output_boundary": profile.material_run_output_boundary or "None",
+            "allow_material_carry_forward": profile.allow_material_carry_forward,
+            "material_run_settlement_timing": (
+                profile.material_run_settlement_timing or "At Job Card End"
+            ),
         }).insert(ignore_permissions=True)
         created[job.operation] = execution.name
     for operation, count in lane_counts.items():
