@@ -1,0 +1,16 @@
+{
+ "doctype":"DocType",
+ "name":"CFG Kanban Certificate Output Rule",
+ "module":"CFG Kanban",
+ "istable":1,
+ "editable_grid":1,
+ "field_order":["operation","certificate_type","action","issue_scope","validity_days_override","require_supervisor_verification"],
+ "fields":[
+  {"fieldname":"operation","label":"Operation","fieldtype":"Link","options":"Operation","reqd":1,"in_list_view":1,"columns":2},
+  {"fieldname":"certificate_type","label":"Certificate Type","fieldtype":"Link","options":"CFG Process Certificate Type","reqd":1,"in_list_view":1,"columns":3},
+  {"fieldname":"action","label":"Output Action","fieldtype":"Select","options":"Issue\nRetain\nRevoke","default":"Issue","reqd":1,"in_list_view":1,"columns":2},
+  {"fieldname":"issue_scope","label":"Apply To","fieldtype":"Select","options":"Processed Tagged Quantity\nFinished Output","default":"Processed Tagged Quantity","reqd":1,"in_list_view":1,"columns":2},
+  {"fieldname":"validity_days_override","label":"Validity Override (Days)","fieldtype":"Int","default":"0","columns":2},
+  {"fieldname":"require_supervisor_verification","label":"Supervisor Verify","fieldtype":"Check","default":"0","columns":1}
+ ]
+}

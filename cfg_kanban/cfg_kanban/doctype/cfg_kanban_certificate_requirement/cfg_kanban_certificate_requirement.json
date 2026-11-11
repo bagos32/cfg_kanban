@@ -1,0 +1,17 @@
+{
+ "doctype":"DocType",
+ "name":"CFG Kanban Certificate Requirement",
+ "module":"CFG Kanban",
+ "istable":1,
+ "editable_grid":1,
+ "field_order":["operation","certificate_type","gate_stage","requirement_group","group_logic","minimum_revision","require_unexpired"],
+ "fields":[
+  {"fieldname":"operation","label":"Operation","fieldtype":"Link","options":"Operation","reqd":1,"in_list_view":1,"columns":2},
+  {"fieldname":"certificate_type","label":"Required Certificate","fieldtype":"Link","options":"CFG Process Certificate Type","reqd":1,"in_list_view":1,"columns":3},
+  {"fieldname":"gate_stage","label":"Gate Stage","fieldtype":"Select","options":"Before Operation Start\nBefore Progress\nBefore Material Consumption\nBefore Output Release","default":"Before Operation Start","reqd":1,"in_list_view":1,"columns":2},
+  {"fieldname":"requirement_group","label":"Requirement Group","fieldtype":"Data","default":"DEFAULT","reqd":1,"in_list_view":1,"columns":1,"description":"Rows in the same group use the selected All/Any logic."},
+  {"fieldname":"group_logic","label":"Group Logic","fieldtype":"Select","options":"All Required\nAny in Group","default":"All Required","reqd":1,"in_list_view":1,"columns":2},
+  {"fieldname":"minimum_revision","label":"Minimum Revision","fieldtype":"Int","default":"1","reqd":1,"columns":1},
+  {"fieldname":"require_unexpired","label":"Require Unexpired","fieldtype":"Check","default":"1","columns":1}
+ ]
+}

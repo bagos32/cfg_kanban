@@ -1,0 +1,32 @@
+{
+ "doctype":"DocType",
+ "name":"CFG Process Certificate Set",
+ "module":"CFG Kanban",
+ "title_field":"set_name",
+ "track_changes":1,
+ "search_fields":"set_code,set_name,member_codes",
+ "field_order":["identity_section","set_code","set_name","active","member_codes","signature_hash","members","audit_section","created_by","created_on","deactivation_reason","deactivated_by","deactivated_on","notes"],
+ "fields":[
+  {"fieldname":"identity_section","label":"Immutable Certificate Combination","fieldtype":"Section Break","description":"This exact combination is an ERPNext Inventory Dimension value. Create a new set when the certificate combination changes; never edit historical membership."},
+  {"fieldname":"set_code","label":"Certificate Set Code","fieldtype":"Data","read_only":1,"unique":1,"in_list_view":1,"in_standard_filter":1,"description":"Stable PCS code generated automatically from the exact approved member revisions."},
+  {"fieldname":"set_name","label":"Certificate Set Name","fieldtype":"Data","read_only":1,"in_list_view":1,"description":"Readable stock state generated from member codes, for example SANITISED + PRINTED."},
+  {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"member_codes","label":"Certificate Codes","fieldtype":"Small Text","read_only":1,"in_list_view":1},
+  {"fieldname":"signature_hash","label":"Membership Signature","fieldtype":"Data","read_only":1,"unique":1,"hidden":1},
+  {"fieldname":"members","label":"Approved Certificate Revisions","fieldtype":"Table","options":"CFG Process Certificate Set Member","reqd":1},
+  {"fieldname":"audit_section","label":"Lifecycle Audit","fieldtype":"Section Break"},
+  {"fieldname":"created_by","label":"Created By","fieldtype":"Link","options":"User","read_only":1},
+  {"fieldname":"created_on","label":"Created On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"deactivation_reason","label":"Deactivation Reason","fieldtype":"Small Text"},
+  {"fieldname":"deactivated_by","label":"Deactivated By","fieldtype":"Link","options":"User","read_only":1},
+  {"fieldname":"deactivated_on","label":"Deactivated On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"notes","label":"Notes","fieldtype":"Text"}
+ ],
+ "permissions":[
+  {"role":"Manufacturing User","read":1},
+  {"role":"Stock User","read":1},
+  {"role":"Manufacturing Manager","read":1,"write":1,"create":1},
+  {"role":"Stock Manager","read":1,"write":1,"create":1},
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1}
+ ]
+}

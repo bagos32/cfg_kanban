@@ -77,6 +77,13 @@ class TestDocTypeSchema(TestCase):
                          "CFG Kanban Route Reconciliation")
         self.assertEqual(links["Material Trace Policies"],
                          "CFG Kanban Material Trace Policy")
+        self.assertEqual(links["Process Certificate Types"],
+                         "CFG Process Certificate Type")
+        self.assertEqual(links["Process Certificate Sets"],
+                         "CFG Process Certificate Set")
+        self.assertEqual(links["Issued Process Certificates"],
+                         "CFG Process Certificate")
+        self.assertEqual(links["Native Stock Ledger"], "Stock Ledger")
         self.assertEqual(links["WIP Bin Pools"],
                          "CFG Kanban WIP Bin Pool")
         self.assertEqual(links["WIP Bin Reconciliations"],

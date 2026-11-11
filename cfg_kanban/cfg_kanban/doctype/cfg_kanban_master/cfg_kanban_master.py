@@ -9,6 +9,20 @@ from cfg_kanban.services.uom_conversion import get_item_purchase_uom
 from cfg_kanban.services.crew_policy import assert_approved_crew_profile
 
 
+def _approved_process_certificate_type(name):
+    if not name:
+        frappe.throw("Process Certificate Type is required")
+    certificate = frappe.db.get_value(
+        "CFG Process Certificate Type",
+        name,
+        ["name", "active", "docstatus", "revision"],
+        as_dict=True,
+    )
+    if not certificate or certificate.docstatus != 1 or not certificate.active:
+        frappe.throw(f"Process Certificate Type {name} must be approved and Active")
+    return certificate
+
+
 class CFGKanbanMaster(Document):
     def validate(self):
         self._set_item_and_purchase_uom()
@@ -143,10 +157,77 @@ class CFGKanbanMaster(Document):
             frappe.throw("Dynamic operator fields reference unknown Process Tasks: "
                          + ", ".join(unknown_tasks))
         validate_condition_definitions(self.operator_field_definitions)
+        self._validate_process_certificate_rules(operations)
         self._protect_restricted_material_flow_rules()
         self._validate_production_material_flow()
         self._validate_sales_demand_configuration()
         self._validate_inventory_threshold_configuration()
+
+    def _validate_process_certificate_rules(self, operations):
+        requirements = self.get("certificate_requirements") or []
+        output_rules = self.get("certificate_output_rules") or []
+        if self.control_type != "Production":
+            if requirements or output_rules:
+                frappe.throw(
+                    "Process Certificate rules are available only for Production Masters"
+                )
+            return
+
+        seen_requirements = set()
+        group_logic = {}
+        for row in requirements:
+            if row.operation not in operations:
+                frappe.throw(
+                    f"Certificate requirement row {row.idx} references an operation outside this route"
+                )
+            certificate = _approved_process_certificate_type(row.certificate_type)
+            row.requirement_group = (row.requirement_group or "DEFAULT").strip().upper()
+            row.minimum_revision = cint(row.minimum_revision or 1)
+            if row.minimum_revision < 1:
+                frappe.throw(
+                    f"Certificate requirement row {row.idx} Minimum Revision must be at least 1"
+                )
+            if row.minimum_revision > cint(certificate.revision):
+                frappe.throw(
+                    f"Certificate requirement row {row.idx} requires revision "
+                    f"{row.minimum_revision}, but {row.certificate_type} is revision "
+                    f"{certificate.revision}"
+                )
+            key = (
+                row.operation,
+                row.gate_stage,
+                row.requirement_group,
+                row.certificate_type,
+            )
+            if key in seen_requirements:
+                frappe.throw(
+                    f"Certificate requirement row {row.idx} duplicates an earlier rule"
+                )
+            seen_requirements.add(key)
+            group_key = (row.operation, row.gate_stage, row.requirement_group)
+            prior_logic = group_logic.setdefault(group_key, row.group_logic)
+            if prior_logic != row.group_logic:
+                frappe.throw(
+                    f"Certificate requirement group {row.requirement_group} for "
+                    f"{row.operation} must use one consistent Group Logic"
+                )
+
+        seen_outputs = set()
+        for row in output_rules:
+            if row.operation not in operations:
+                frappe.throw(
+                    f"Certificate output row {row.idx} references an operation outside this route"
+                )
+            _approved_process_certificate_type(row.certificate_type)
+            row.validity_days_override = cint(row.validity_days_override)
+            if row.validity_days_override < 0:
+                frappe.throw(
+                    f"Certificate output row {row.idx} Validity Override cannot be negative"
+                )
+            key = (row.operation, row.certificate_type, row.action, row.issue_scope)
+            if key in seen_outputs:
+                frappe.throw(f"Certificate output row {row.idx} duplicates an earlier rule")
+            seen_outputs.add(key)
 
     def _validate_production_material_flow(self):
         if self.control_type != "Production":

@@ -15,10 +15,58 @@ def after_install():
             field.setdefault("module", "CFG Kanban")
     create_custom_fields(fields_by_doctype, update=True)
     _ensure_responsibilities()
+    _ensure_process_certificate_inventory_dimension()
 
 
 def after_migrate():
     after_install()
+
+
+def _ensure_process_certificate_inventory_dimension():
+    """Expose certificate-qualified stock in native ERPNext inventory documents/reports."""
+    if not frappe.db.exists("DocType", "Inventory Dimension"):
+        return
+    if not frappe.db.table_exists("CFG Process Certificate Set"):
+        return
+
+    dimension_name = "Process Certificate Set"
+    existing_name = frappe.db.get_value(
+        "Inventory Dimension", {"dimension_name": dimension_name}, "name"
+    )
+    if existing_name:
+        existing = frappe.db.get_value(
+            "Inventory Dimension",
+            existing_name,
+            ["reference_document", "source_fieldname", "target_fieldname"],
+            as_dict=True,
+        )
+        if existing.reference_document != "CFG Process Certificate Set":
+            frappe.throw(
+                "Inventory Dimension 'Process Certificate Set' already exists with a different "
+                "Reference Document. Resolve the collision before migrating CFG Kanban."
+            )
+        expected_source = "process_certificate_set"
+        expected_target = "process_certificate_set"
+        if existing.source_fieldname and existing.source_fieldname != expected_source:
+            frappe.throw(
+                "Inventory Dimension 'Process Certificate Set' uses an unexpected source "
+                "fieldname. Resolve the collision before migrating CFG Kanban."
+            )
+        if existing.target_fieldname and existing.target_fieldname != expected_target:
+            frappe.throw(
+                "Inventory Dimension 'Process Certificate Set' uses an unexpected ledger "
+                "fieldname. Resolve the collision before migrating CFG Kanban."
+            )
+        return
+
+    frappe.get_doc({
+        "doctype": "Inventory Dimension",
+        "dimension_name": dimension_name,
+        "reference_document": "CFG Process Certificate Set",
+        "apply_to_all_doctypes": 1,
+        "validate_negative_stock": 1,
+        "reqd": 0,
+    }).insert(ignore_permissions=True)
 
 
 def _ensure_responsibilities():

@@ -1,0 +1,14 @@
+{
+ "doctype":"DocType",
+ "name":"CFG Process Certificate Set Member",
+ "module":"CFG Kanban",
+ "istable":1,
+ "editable_grid":1,
+ "field_order":["certificate_type","certificate_code_snapshot","revision_snapshot","certificate_name_snapshot"],
+ "fields":[
+  {"fieldname":"certificate_type","label":"Certificate Type","fieldtype":"Link","options":"CFG Process Certificate Type","reqd":1,"in_list_view":1,"columns":4},
+  {"fieldname":"certificate_code_snapshot","label":"Code Snapshot","fieldtype":"Data","read_only":1,"in_list_view":1,"columns":3},
+  {"fieldname":"revision_snapshot","label":"Revision","fieldtype":"Int","read_only":1,"in_list_view":1,"columns":2},
+  {"fieldname":"certificate_name_snapshot","label":"Name Snapshot","fieldtype":"Data","read_only":1,"in_list_view":1,"columns":3}
+ ]
+}

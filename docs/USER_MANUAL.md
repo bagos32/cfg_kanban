@@ -1,13 +1,23 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.38
+**Guide version:** 2.39
 
-**Updated:** 10 November 2026
+**Updated:** 11 November 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
 **Canonical file:** `docs/USER_MANUAL.md`
+
+**2.39 Process Certificate foundation:** Approved revision-controlled Process Certificate Types can
+be combined into immutable Certificate Sets, referenced from Production Master input gates and
+output rules, and displayed on Handling Units. Migration creates ERPNext's native **Process
+Certificate Set** Inventory Dimension for all stock documents, so Stock Ledger and Stock Balance
+can filter an exact certificate combination even when a stock document is created directly in
+ERPNext. This package is configuration and stock-visibility foundation only; scanner issuance,
+same-Item Repack, gate enforcement, inheritance, and any-certificate reporting remain the next
+runtime package. Follow `docs/PROCESS_CERTIFICATE_ARCHITECTURE.md` and
+`docs/TEST_PROCESS_CERTIFICATE_FOUNDATION.md`.
 
 **2.38 Skip-WIP Material Run settlement:** Ordinary Skip-WIP inputs are now consumed once by the
 final native ERPNext `Manufacture` entry. CFG Kanban no longer creates an intermediate
@@ -4561,7 +4571,42 @@ Safety and recovery:
   its prepared reservation is retained for a safe retry. A submitted Stock Entry requires controlled
   recovery; do not delete history or manually edit Kanban status fields.
 
-## 26. Guidance rules for another LLM
+## 26. Process Certificates and native ERP stock visibility
+
+Use Process Certificates when an operation changes the controlled usability/state of a physical
+quantity without changing its accounting Item. For example, `PLS_ABC` may remain the same Item
+while its exact stock state changes from blank, to `SANITISED`, to `SANITISED + PRINTED`.
+
+Administrator sequence:
+
+1. Create and submit each revision in **CFG Process Certificate Type**. Use the exact internal
+   records `certificate_code`, `certificate_name`, `revision`, applicability, validity, evidence,
+   supervisor verification, split inheritance, and merge policy.
+2. Create each permitted exact combination in **CFG Process Certificate Set**. Its member revisions,
+   signature, and set code are immutable after insert.
+3. In a Production **CFG Kanban Master**, configure **Input Certificate Requirements**
+   (`certificate_requirements`) and **Output Certificate Rules** (`certificate_output_rules`). Rules
+   must reference Operations already present in that Master and submitted Active Certificate Types.
+4. After migration, confirm ERPNext **Inventory Dimension** contains **Process Certificate Set**
+   referencing `CFG Process Certificate Set`, applied to all inventory documents with negative-stock
+   validation enabled.
+5. In native ERPNext stock documents, select the exact **Process Certificate Set** on each stock row.
+   A state change must conserve quantity and use an accepted stock movement (normally a same-Item
+   Repack), with the old state on outgoing stock and the new state on incoming stock.
+6. Open native **Stock Ledger** or **Stock Balance** and filter **Process Certificate Set**. This
+   works for submitted documents created directly in ERPNext as well as future Kanban-created stock
+   entries.
+
+The native report filters one exact Set. It does not mean “contains this one certificate” across
+several Sets. That broader search belongs to the future CFG Kanban certificate inventory report.
+
+This package does not yet provide floor issuance. Do not tell an operator to issue, retain, revoke,
+split, or merge a certificate until the scanner-first runtime package supplies stable commands,
+printed labels, safe confirmation/cancel, exact tag binding, Repack, genealogy, and kiosk acceptance.
+See `docs/PROCESS_CERTIFICATE_ARCHITECTURE.md` and
+`docs/TEST_PROCESS_CERTIFICATE_FOUNDATION.md`.
+
+## 27. Guidance rules for another LLM
 
 When using this file as context, an assistant must:
 
@@ -4593,10 +4638,11 @@ When using this file as context, an assistant must:
     quarantine, rework, available-stock or disposal decisions; only submitted ERPNext Material
     Receipts change stock.
 
-## 27. Revision history
+## 28. Revision history
 
 | Version | Date | Change |
 |---|---|---|
+| 2.39 | 11 November 2026 | Added the Process Certificate foundation: submitted revision-controlled Certificate Types, immutable exact Certificate Sets and issued-instance schema, Production Master input gates/output rules, Handling Unit certificate-state visibility, automatic idempotent ERPNext `Process Certificate Set` Inventory Dimension creation for all stock documents, native Stock Ledger/Stock Balance exact-set filtering including direct ERP documents, workspace links, and explicit deferral of scanner issuance/Repack/gate enforcement to the next runtime package |
 | 2.38 | 10 November 2026 | Corrected Skip-WIP settlement so ordinary inputs are consumed once in the final Manufacture entry; added immutable Job Card-end versus Work Order-receipt Material Run settlement, automatic reuse of the original source-tag scans without double Kanban consumption, native input-row splitting for multiple scanned Batches, Draft/submit/reversal linkage, and closure gates for orphan production Drafts or unsettled Draws |
 | 2.37 | 10 November 2026 | Added opt-in per-BOM-component Operation Material Draws: immutable release-time rule snapshots, scanner quantity plus physical source-tag capture inside Start Material Run, Warehouse/UOM/Company/quality validation, cross-machine over-reservation protection, BOM-ratio progress gating, FIFO carry-forward, safe pre-progress cancellation, focus recovery, and unchanged simple-operation defaults; exact serial membership and final ERP Material Trace/ERP settlement remain explicit next packages |
 | 2.36 | 10 November 2026 | Corrected scanner Report Progress routing after a Material Run starts: the open-run execution has first priority, the sole In Progress/Paused lane has second priority, downstream Ready lanes no longer cause false ambiguity, and genuine multi-lane ambiguity uses scanner-only numbered selection instead of a screen-only instruction |

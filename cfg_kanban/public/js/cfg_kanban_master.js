@@ -39,6 +39,15 @@ frappe.ui.form.on("CFG Kanban Master", {
 		frm.set_query("crew_requirement_profile", "operation_profiles", () => ({
 			filters: { active: 1, docstatus: 1 },
 		}));
+		for (const table of ["certificate_requirements", "certificate_output_rules"]) {
+			frm.set_query("operation", table, () => ({
+				query: "cfg_kanban.api.form_queries.master_operations",
+				filters: { kanban_master: frm.doc.name || "" },
+			}));
+			frm.set_query("certificate_type", table, () => ({
+				filters: { active: 1, docstatus: 1 },
+			}));
+		}
 	},
 	item_code(frm) {
 		if (!frm.doc.item_code) return;

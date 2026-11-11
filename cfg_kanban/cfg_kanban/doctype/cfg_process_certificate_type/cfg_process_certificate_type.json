@@ -1,0 +1,50 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Process Certificate Type",
+ "module": "CFG Kanban",
+ "title_field": "certificate_name",
+ "is_submittable": 1,
+ "track_changes": 1,
+ "search_fields": "certificate_code,certificate_name,item,item_group,external_standard_identifier",
+ "field_order": [
+  "identity_section", "certificate_code", "certificate_name", "active", "revision",
+  "applicability_section", "item", "item_group", "validity_days", "expiry_required",
+  "control_section", "evidence_required", "supervisor_verification_required",
+  "split_inheritance", "merge_policy", "external_standard_identifier",
+  "external_revision_snapshot", "description", "approval_section", "approved_by",
+  "approved_on", "active_change_reason", "active_changed_by", "active_changed_on"
+ ],
+ "fields": [
+  {"fieldname":"identity_section","label":"Process Certificate Identity","fieldtype":"Section Break"},
+  {"fieldname":"certificate_code","label":"Certificate Code","fieldtype":"Data","reqd":1,"in_list_view":1,"in_standard_filter":1,"description":"Stable short family code printed in operator and stock views, for example SANITISED or PRINTED. Record identity also includes Revision."},
+  {"fieldname":"certificate_name","label":"Certificate Name","fieldtype":"Data","reqd":1,"in_list_view":1},
+  {"fieldname":"active","label":"Active","fieldtype":"Check","default":"1","allow_on_submit":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"revision","label":"Revision","fieldtype":"Int","default":"1","reqd":1,"read_only_depends_on":"eval:!doc.__islocal"},
+  {"fieldname":"applicability_section","label":"Optional Item Applicability","fieldtype":"Section Break"},
+  {"fieldname":"item","label":"Restricted to Item","fieldtype":"Link","options":"Item","in_standard_filter":1,"description":"Leave blank for a reusable certificate type. An exact Item restriction takes precedence over Item Group."},
+  {"fieldname":"item_group","label":"Restricted to Item Group","fieldtype":"Link","options":"Item Group","in_standard_filter":1},
+  {"fieldname":"validity_days","label":"Default Validity (Days)","fieldtype":"Int","default":"0","description":"Zero means no automatic expiry. A runtime rule may apply a shorter validity."},
+  {"fieldname":"expiry_required","label":"Expiry Date Required","fieldtype":"Check","default":"0"},
+  {"fieldname":"control_section","label":"Issuance and Traceability Control","fieldtype":"Section Break"},
+  {"fieldname":"evidence_required","label":"Evidence Required","fieldtype":"Check","default":"0"},
+  {"fieldname":"supervisor_verification_required","label":"Supervisor Verification Required","fieldtype":"Check","default":"0"},
+  {"fieldname":"split_inheritance","label":"Split Inheritance","fieldtype":"Select","options":"Inherit to Child Tags\nDo Not Inherit","default":"Inherit to Child Tags","reqd":1},
+  {"fieldname":"merge_policy","label":"Merge Policy","fieldtype":"Select","options":"Identical Active Set Required\nBlock Merge","default":"Identical Active Set Required","reqd":1},
+  {"fieldname":"external_standard_identifier","label":"External Standard Identifier","fieldtype":"Data","description":"Optional neutral reference to an SOP, QMS record, regulation, or customer standard. It does not create a cross-app dependency."},
+  {"fieldname":"external_revision_snapshot","label":"External Revision Snapshot","fieldtype":"Data","description":"Immutable wording or revision identifier used when this certificate revision was approved."},
+  {"fieldname":"description","label":"Controlled Description","fieldtype":"Text Editor","reqd":1},
+  {"fieldname":"approval_section","label":"Approval and Lifecycle Audit","fieldtype":"Section Break"},
+  {"fieldname":"approved_by","label":"Approved By","fieldtype":"Link","options":"User","read_only":1},
+  {"fieldname":"approved_on","label":"Approved On","fieldtype":"Datetime","read_only":1},
+  {"fieldname":"active_change_reason","label":"Active Status Change Reason","fieldtype":"Small Text","allow_on_submit":1},
+  {"fieldname":"active_changed_by","label":"Active Changed By","fieldtype":"Link","options":"User","read_only":1,"allow_on_submit":1},
+  {"fieldname":"active_changed_on","label":"Active Changed On","fieldtype":"Datetime","read_only":1,"allow_on_submit":1}
+ ],
+ "permissions": [
+  {"role":"Manufacturing User","read":1},
+  {"role":"Stock User","read":1},
+  {"role":"Manufacturing Manager","read":1,"write":1,"create":1,"submit":1,"cancel":1,"amend":1},
+  {"role":"Stock Manager","read":1,"write":1,"create":1,"submit":1,"cancel":1,"amend":1},
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1,"submit":1,"cancel":1,"amend":1}
+ ]
+}
