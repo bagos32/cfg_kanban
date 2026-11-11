@@ -1324,9 +1324,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			return;
 		}
 		const cycle_label = cycle ? `${document_link("cfg-kanban-cycle", cycle.name)}${status_line(cycle.status)}` : __("No active cycle");
-		const work_order_label = effective_work_order
-			? `${document_link("work-order", effective_work_order.name)}${status_line(effective_work_order.status, effective_work_order.docstatus)}`
-			: document_link("work-order", null);
+		const work_order_label = master.control_type === "Certificate Process"
+			? `<span class="text-muted">${__("Not used — no-BOM Certificate Process")}</span>`
+			: effective_work_order
+				? `${document_link("work-order", effective_work_order.name)}${status_line(effective_work_order.status, effective_work_order.docstatus)}`
+				: document_link("work-order", null);
 		const purchase_equivalent = master.control_type === "Purchase Replenishment" && master.purchase_uom
 			? `<div class="text-muted"><small>${__("Planned supplier order")}: ${e(master.purchase_replenishment_qty || 0)} ${e(master.purchase_uom)} · ${__("1 {0} = {1} {2}", [master.purchase_uom, master.purchase_uom_conversion_factor || 1, master.stock_uom || ""])}</small></div>`
 			: "";
@@ -1385,7 +1387,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}
 		const $actions = $root.find(".cfg-card-actions");
 		if (master.control_type === "Certificate Process") {
-			render_certificate_process(certificate_process, $actions);
+			if (!cycle && card.current_state === "Available" && state.operator.permissions.consume) {
+				add_action($actions, __("Consume / Trigger"), "btn-primary", () => consume_card(false));
+			}
+			render_certificate_process(certificate_process, $actions, cycle);
 			render_live_current_action();
 			return;
 		}
@@ -3074,10 +3079,17 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		await load_card(state.context.card.qr_code || state.context.card.card_number);
 	}
 
-	function render_certificate_process(context, $actions) {
+	function render_certificate_process(context, $actions, cycle) {
 		const e = frappe.utils.escape_html;
 		if (!context) {
-			$root.append(`<div class="alert alert-warning">${__("This Certificate Process is waiting for signal approval or release.")}</div>`);
+			if (!cycle) {
+				$root.append(`<div class="alert alert-info"><strong>${__("Ready to activate")}</strong><br>
+					${__("This no-BOM Certificate Process does not create a Work Order. Select Consume / Trigger or scan Activate to create its Cycle and approval Signal.")}</div>`);
+			} else {
+				const signal = cycle.signal ? document_link("cfg-kanban-signal", cycle.signal) : __("Signal pending");
+				$root.append(`<div class="alert alert-warning"><strong>${__("Waiting for Certificate Process release")}</strong><br>
+					${__("Approve the Signal in the Kanban Supervisor Action Centre.")} ${signal}</div>`);
+			}
 			return;
 		}
 		const run = context.run;

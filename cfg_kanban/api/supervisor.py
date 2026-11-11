@@ -79,7 +79,7 @@ def _signal_actions(limit):
             "name", "kanban_name", "company", "control_type", "bom", "default_supplier",
             "source_warehouse", "destination_warehouse", "purchase_uom",
             "purchase_uom_conversion_factor", "purchase_replenishment_qty",
-            "purchase_execution_mode",
+            "purchase_execution_mode", "certificate_process_operation",
         ], limit_page_length=limit,
     )}
     # A Signal has no direct Company field, therefore filter it through the
@@ -111,6 +111,7 @@ def _signal_actions(limit):
             "company": master.get("company"),
             "control_type": master.get("control_type"),
             "bom": master.get("bom"),
+            "certificate_process_operation": master.get("certificate_process_operation"),
             "supplier": master.get("default_supplier"),
             "source_warehouse": master.get("source_warehouse"),
             "destination_warehouse": master.get("destination_warehouse"),
@@ -130,6 +131,8 @@ def _signal_actions(limit):
                 if row.signal_type == "Transfer Replenishment"
                 else "Release Stock Withdrawal"
                 if row.signal_type == "Stock Withdrawal"
+                else "Release Certificate Process"
+                if row.signal_type == "Certificate Process"
                 else "Create Work Order"
             ),
         })

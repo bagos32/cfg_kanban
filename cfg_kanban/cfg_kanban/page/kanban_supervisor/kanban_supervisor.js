@@ -7,7 +7,7 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 	const state = { data: null, timer: null, type: "All", priority: "All", search: "" };
 	const type_field = page.add_field({
 		label: __("Signal Type"), fieldtype: "Select", fieldname: "signal_type",
-		options: ["All", "Production Replenishment", "Purchase Replenishment", "Transfer Replenishment"],
+		options: ["All", "Production Replenishment", "Certificate Process", "Purchase Replenishment", "Transfer Replenishment", "Stock Withdrawal"],
 		default: "All", change: () => { state.type = type_field.get_value() || "All"; render(); },
 	});
 	const priority_field = page.add_field({
@@ -62,7 +62,7 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 	function render_signals() {
 		const signals = (state.data.signals || []).filter(matches_signal);
 		const $section = section(__("Signal Approval Queue"),
-			__("Review the operational context before creating an ERPNext Work Order or Material Request."),
+			__("Review the operational context before releasing production, certificate, purchase, transfer, or withdrawal work."),
 			signals.length, "orange").appendTo($root);
 		const $grid = $("<div class='cfg-action-grid'></div>").appendTo($section);
 		if (!signals.length) return empty($grid, __("No signals match the current filters."));
@@ -72,6 +72,7 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 	function signal_card(row) {
 		const e = frappe.utils.escape_html;
 		const purchase = row.signal_type === "Purchase Replenishment";
+		const certificate_process = row.signal_type === "Certificate Process";
 		const purchase_detail = purchase && row.purchase_uom
 			? `<div><small>${__("Planned supplier order")}</small><strong>${number(row.purchase_replenishment_qty)} ${e(row.purchase_uom)}</strong>
 			<small>1 ${e(row.purchase_uom)} = ${number(row.purchase_uom_conversion_factor || 1)} ${e(row.stock_uom || "")}</small>
@@ -84,7 +85,9 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 		const can_act = state.data.permissions?.can_approve_signals;
 		const can_approve_row = can_act && ["Waiting Approval", "Validated", "Failed"].includes(row.status);
 		const action_label = row.status === "Failed" ? __("Retry {0}", [row.approval_action]) : __("Approve · {0}", [row.approval_action]);
-		const $card = $(`<article class="cfg-action-card signal-${purchase ? "purchase" : "production"}" data-name="${e(row.name)}">
+		const reference_label = purchase ? __("Supplier") : certificate_process ? __("Operation") : __("BOM");
+		const reference_value = purchase ? row.supplier : certificate_process ? row.certificate_process_operation : row.bom;
+		const $card = $(`<article class="cfg-action-card signal-${purchase ? "purchase" : certificate_process ? "certificate" : "production"}" data-name="${e(row.name)}">
 			<header><div><span class="indicator-pill ${priority_indicator(row.priority)}">${e(row.priority || "Normal")}</span>
 			<span class="indicator-pill ${status_indicator(row.status)}">${e(row.status)}</span>${blocked}</div>
 			<small>${e(relative_time(row.requested_on))}</small></header>
@@ -94,7 +97,7 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 				<div><small>${__("Replenishment demand")}</small><strong>${number(row.requested_qty)} ${e(row.stock_uom || "")}</strong><small>${e(row.kanban_card || __("Digital signal"))}</small></div>
 				${threshold_detail}
 				${purchase_detail}
-				<div><small>${purchase ? __("Supplier") : __("BOM")}</small><strong>${e((purchase ? row.supplier : row.bom) || "-")}</strong><small>${e(row.master_name || "")}</small></div>
+				<div><small>${e(reference_label)}</small><strong>${e(reference_value || "-")}</strong><small>${e(row.master_name || "")}</small></div>
 				<div><small>${__("Destination")}</small><strong>${e(row.destination_warehouse || "-")}</strong><small>${e(row.source_warehouse || "")}</small></div>
 			</div>
 			<div class="cfg-action-links">${doc_link("CFG Kanban Signal", row.name)} · ${doc_link("CFG Kanban Cycle", row.kanban_cycle)}
