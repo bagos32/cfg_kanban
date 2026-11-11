@@ -1,13 +1,20 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.42
+**Guide version:** 2.43
 
 **Updated:** 11 November 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
 **Canonical file:** `docs/USER_MANUAL.md`
+
+**2.43 Certificate Process ERP feedback:** Submitting a no-BOM Certificate Process Repack directly
+from ERPNext now invokes the same Kanban reconciliation as scanner-panel submission. The submitted
+ERP transaction must release the source-tag reservation, activate or update the exact output tag,
+issue its Process Certificates, complete the Run/Cycle, and release the Card as one feedback path.
+For a Repack submitted before this feedback was installed, a Manufacturing Manager opens the
+affected Certificate Process Run and uses **Recovery → Reconcile Submitted Repack** once.
 
 **2.42 controlled Certificate Process recovery:** A no-BOM Certificate Process with an ERPNext
 Repack now has a dedicated manager-controlled recovery. The request freezes the Run, Cycle and
@@ -4733,6 +4740,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.43 | 11 November 2026 | Connected direct ERPNext submission of a no-BOM Certificate Process Repack to the authoritative Kanban reconciliation so reservation release, output-tag activation, certificate issuance, Run/Cycle completion and Card release cannot be skipped |
 | 2.42 | 11 November 2026 | Added controlled no-BOM Certificate Process recovery: immutable manager request, Run/Cycle/Card freeze, Draft Repack snapshot/discard, submitted ERPNext Repack cancellation, certificate revocation retention, untouched-output safety checks, source tag/Batch/Warehouse/Certificate Set restoration, separate output-tag merge/void, audited final reconciliation, and Card release |
 | 2.41 | 11 November 2026 | Extended Process Certificates to normal BOM/Work Order/Job Card production: operation-stage gates from prior results or scanned Material Runs, shared Job Card evidence for reusable Process/Station Cards, immutable execution result Set snapshots, final Manufacture output dimension assignment, mandatory exact output identity, submission-only certificate binding, and a dedicated acceptance guide |
 | 2.40 | 11 November 2026 | Added the scanner-first no-BOM Certificate Process runtime: dedicated Master mode and Run audit, exact source-tag and certificate gates, optional Batch behavior inherited from ERPNext Item, full-tag reuse or mandatory partial output tag, quantity-conserving same-Item Repack, submission-only tag/certificate mutation, printable field-arm commands, cancellation safety, workspace visibility, and plastic-bag acceptance guide |

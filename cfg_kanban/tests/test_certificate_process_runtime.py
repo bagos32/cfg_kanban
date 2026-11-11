@@ -43,6 +43,7 @@ class TestCertificateProcessRuntime(TestCase):
 
     def test_runtime_uses_submitted_repack_before_physical_mutation(self):
         service = (APP_ROOT / "services" / "certificate_process.py").read_text()
+        feedback = (APP_ROOT / "integrations" / "erp_feedback.py").read_text()
         self.assertIn('"purpose": "Repack"', service)
         self.assertIn('entry.docstatus != 1', service)
         self.assertIn("def reconcile_certificate_process", service)
@@ -53,6 +54,14 @@ class TestCertificateProcessRuntime(TestCase):
         )
         self.assertIn('event_type="Split"', reconcile)
         self.assertIn("_issue_output_certificates(run, output)", reconcile)
+        self.assertIn('{"repack_stock_entry": doc.name}', feedback)
+        self.assertIn("reconcile_certificate_process(certificate_run)", feedback)
+        self.assertIn("def reconcile_submitted_certificate_process", service)
+        self.assertIn("for update", reconcile)
+
+        run_form = (APP_ROOT / "public" / "js" / "cfg_process_certificate_run.js").read_text()
+        self.assertIn("Reconcile Submitted Repack", run_form)
+        self.assertIn("reconcile_submitted_certificate_process", run_form)
 
     def test_trigger_and_approval_never_create_work_order_for_certificate_process(self):
         triggers = (APP_ROOT / "services" / "triggers.py").read_text()

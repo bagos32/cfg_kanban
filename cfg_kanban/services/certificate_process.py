@@ -225,6 +225,30 @@ def submit_certificate_process(run_name, event_token=None, operator_session_toke
 
 
 @frappe.whitelist()
+def reconcile_submitted_certificate_process(run_name):
+    """Manager repair for a Repack submitted before ERP feedback completed."""
+    frappe.only_for(("Manufacturing Manager", "System Manager"))
+    run = frappe.get_doc("CFG Process Certificate Run", run_name)
+    if run.status == "Completed":
+        return {
+            "run": run.name,
+            "status": run.status,
+            "output_handling_unit": run.output_handling_unit,
+        }
+    if run.status != "Awaiting ERP Submission" or not run.repack_stock_entry:
+        frappe.throw("This Certificate Process has no submitted Repack awaiting reconciliation")
+    entry = frappe.get_doc("Stock Entry", run.repack_stock_entry)
+    if entry.docstatus != 1:
+        frappe.throw(f"Submit ERPNext Repack {entry.name} before reconciliation")
+    run = reconcile_certificate_process(run.name)
+    return {
+        "run": run.name,
+        "status": run.status,
+        "output_handling_unit": run.output_handling_unit,
+    }
+
+
+@frappe.whitelist()
 def cancel_certificate_process(run_name, reason, event_token=None,
                                operator_session_token=None):
     profile, session = require_operator(operator_session_token, "start")
@@ -266,6 +290,10 @@ def cancel_certificate_process(run_name, reason, event_token=None,
 
 
 def reconcile_certificate_process(run_name):
+    frappe.db.sql(
+        "select name from `tabCFG Process Certificate Run` where name=%s for update",
+        (run_name,),
+    )
     run = frappe.get_doc("CFG Process Certificate Run", run_name)
     if run.status == "Completed":
         return run

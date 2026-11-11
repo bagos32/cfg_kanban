@@ -408,6 +408,13 @@ def on_stock_entry_submit(doc, method=None):
         from cfg_kanban.integrations.logistics_feedback import on_internal_stock_entry_submit
         on_internal_stock_entry_submit(doc)
         return
+    certificate_run = frappe.db.get_value(
+        "CFG Process Certificate Run", {"repack_stock_entry": doc.name}, "name"
+    )
+    if certificate_run:
+        from cfg_kanban.services.certificate_process import reconcile_certificate_process
+        reconcile_certificate_process(certificate_run)
+        return
     from cfg_kanban.services.production_trace import confirm_stock_entry_trace
     confirm_stock_entry_trace(doc)
     from cfg_kanban.services.production_certificates import (
