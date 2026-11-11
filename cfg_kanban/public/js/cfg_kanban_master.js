@@ -40,10 +40,10 @@ frappe.ui.form.on("CFG Kanban Master", {
 			filters: { active: 1, docstatus: 1 },
 		}));
 		for (const table of ["certificate_requirements", "certificate_output_rules"]) {
-			frm.set_query("operation", table, () => ({
-				query: "cfg_kanban.api.form_queries.master_operations",
-				filters: { kanban_master: frm.doc.name || "" },
-			}));
+			frm.set_query("operation", table, () => frm.doc.control_type === "Certificate Process"
+				? { filters: { name: frm.doc.certificate_process_operation || "" } }
+				: { query: "cfg_kanban.api.form_queries.master_operations",
+					filters: { kanban_master: frm.doc.name || "" } });
 			frm.set_query("certificate_type", table, () => ({
 				filters: { active: 1, docstatus: 1 },
 			}));
@@ -54,12 +54,13 @@ frappe.ui.form.on("CFG Kanban Master", {
 		frappe.db.get_value("Item", frm.doc.item_code, ["stock_uom", "default_bom", "purchase_uom"])
 			.then(({ message }) => frm.set_value({
 				stock_uom: message.stock_uom,
-				bom: frm.doc.bom || message.default_bom,
+				bom: frm.doc.control_type === "Production" ? (frm.doc.bom || message.default_bom) : null,
 				purchase_uom: frm.doc.control_type === "Purchase Replenishment" ?
 					(message.purchase_uom || message.stock_uom) : frm.doc.purchase_uom,
 			})).then(() => refresh_purchase_uom(frm));
 	},
 	control_type(frm) {
+		if (frm.doc.control_type === "Certificate Process" && frm.doc.bom) frm.set_value("bom", null);
 		refresh_purchase_uom(frm);
 		frm.trigger("refresh");
 	},
@@ -129,6 +130,24 @@ frappe.ui.form.on("CFG Kanban Master", {
 			frm.set_intro(__("MTO mode creates one digital cycle and Batch per Sales Order line. It does not reserve reusable cards or use reorder stock."), "blue");
 		} else if (frm.doc.control_type === "Withdrawal") {
 			frm.set_intro(__("Withdrawal creates a controlled ERPNext Material Issue for consumables or indirect stock. Use a Transfer Master when stock must remain in inventory at another warehouse."), "orange");
+		}
+	},
+});
+
+frappe.ui.form.on("CFG Kanban Certificate Requirement", {
+	certificate_requirements_add(frm, cdt, cdn) {
+		if (frm.doc.control_type === "Certificate Process") {
+			frappe.model.set_value(cdt, cdn, "operation", frm.doc.certificate_process_operation);
+		}
+	},
+});
+
+frappe.ui.form.on("CFG Kanban Certificate Output Rule", {
+	certificate_output_rules_add(frm, cdt, cdn) {
+		if (frm.doc.control_type === "Certificate Process") {
+			frappe.model.set_value(cdt, cdn, "operation", frm.doc.certificate_process_operation);
+		} else if (frm.doc.control_type === "Production") {
+			frappe.model.set_value(cdt, cdn, "issue_scope", "Finished Output");
 		}
 	},
 });

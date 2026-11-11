@@ -1,7 +1,7 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.39
+**Guide version:** 2.41
 
 **Updated:** 11 November 2026
 
@@ -9,14 +9,38 @@
 
 **Canonical file:** `docs/USER_MANUAL.md`
 
+**2.41 Production operation certificates:** Normal **Production** Masters with BOM, Work Order,
+and Job Cards can now enforce Process Certificate rules at their exact Operations. Prior operation
+result Sets and source Stock Tags scanned through Operation Material Runs satisfy configured gates;
+reusable Process/Station Card evidence follows the shared ERP Job Card and is not scanned twice.
+Progress freezes the operation result Set. The final Manufacture entry requires complete physical
+output-tag/container staging, writes the final Set into ERPNext's native Inventory Dimension, and
+binds issued certificates to each confirmed output Handling Unit only after ERPNext submission.
+Different parallel final Certificate Sets are blocked rather than silently merged. Cancelling the
+authoritative output Stock Entry revokes its issued certificates without deleting their history.
+Simple Masters without certificate rules are unchanged. Follow
+`docs/TEST_PRODUCTION_PROCESS_CERTIFICATES.md`.
+
+**2.40 no-BOM Certificate Process runtime:** A Kanban Master can now use **Certificate Process**
+to operate on the same ERPNext Stock Item without a BOM, Work Order, or Job Card. A released
+physical Card starts an immutable Certificate Process Run. The operator scans Material Quantity
+and the exact source Stock Tag, reports Good/Reject quantity, and scans a separate unused output
+tag whenever only part of the source tag changes state. CFG Kanban creates an ERPNext **Repack**
+whose outgoing row carries the old Process Certificate Set and incoming row carries the new set.
+The Handling Unit and issued certificate records change only after ERPNext submits that Repack.
+Batch fields appear only when the Item's `has_batch_no` setting was enabled at run release; blank
+output Batch preserves the source Batch, while a supplied Batch becomes the output identity.
+Use the printable `CFG:CMD:START_CERTIFICATE_PROCESS`,
+`CFG:CMD:COMPLETE_CERTIFICATE_PROCESS`, `CFG:CMD:SUBMIT_CERTIFICATE_PROCESS`, and
+`CFG:CMD:CANCEL_CERTIFICATE_PROCESS` labels. Follow
+`docs/TEST_CERTIFICATE_PROCESS_PRINT_PLASTIC_BAG.md`.
+
 **2.39 Process Certificate foundation:** Approved revision-controlled Process Certificate Types can
 be combined into immutable Certificate Sets, referenced from Production Master input gates and
 output rules, and displayed on Handling Units. Migration creates ERPNext's native **Process
 Certificate Set** Inventory Dimension for all stock documents, so Stock Ledger and Stock Balance
 can filter an exact certificate combination even when a stock document is created directly in
-ERPNext. This package is configuration and stock-visibility foundation only; scanner issuance,
-same-Item Repack, gate enforcement, inheritance, and any-certificate reporting remain the next
-runtime package. Follow `docs/PROCESS_CERTIFICATE_ARCHITECTURE.md` and
+ERPNext. Follow `docs/PROCESS_CERTIFICATE_ARCHITECTURE.md` and
 `docs/TEST_PROCESS_CERTIFICATE_FOUNDATION.md`.
 
 **2.38 Skip-WIP Material Run settlement:** Ordinary Skip-WIP inputs are now consumed once by the
@@ -4594,17 +4618,37 @@ Administrator sequence:
    A state change must conserve quantity and use an accepted stock movement (normally a same-Item
    Repack), with the old state on outgoing stock and the new state on incoming stock.
 6. Open native **Stock Ledger** or **Stock Balance** and filter **Process Certificate Set**. This
-   works for submitted documents created directly in ERPNext as well as future Kanban-created stock
-   entries.
+   works for submitted documents created directly in ERPNext, no-BOM Certificate Process Repack,
+   and certified Work Order Manufacture entries.
+
+Production sequence:
+
+1. Keep **Control Type = Production**, select the normal BOM, and configure Operations normally.
+2. Add certificate requirements to the exact Operation and gate stage. Use **Before Operation
+   Start** for a prior-operation certificate. Use **Before Progress** when the first operation must
+   prove a raw-material certificate from a scanned Material Run.
+3. Add each Production output rule with **Apply To = Finished Output**. Production does not permit
+   Processed Tagged Quantity because an intermediate Job Card result has no independent ERP stock
+   identity.
+4. Enable Operation Material Run tracking for each raw material whose physical tag supplies a
+   certificate gate. The operator uses the existing Material Quantity, Start Material Run, physical
+   source-tag, Report Progress, Confirm, and Cancel scans.
+5. A Process/Station Card may execute the same Job Card. Its Material Draw evidence is joined by
+   Job Card to the main Work Order Cycle; do not scan the material a second time from the main Card.
+6. Complete the Job Cards and stage the entire manufactured output on physical Stock Tags or
+   Production Output Containers through **Scan Material Tags**.
+7. Submit the Manufacture entry through the Kanban panel. ERPNext posts stock and the Inventory
+   Dimension first; CFG Kanban then binds the result Set and issued instances to each output tag.
 
 The native report filters one exact Set. It does not mean “contains this one certificate” across
 several Sets. That broader search belongs to the future CFG Kanban certificate inventory report.
 
-This package does not yet provide floor issuance. Do not tell an operator to issue, retain, revoke,
-split, or merge a certificate until the scanner-first runtime package supplies stable commands,
-printed labels, safe confirmation/cancel, exact tag binding, Repack, genealogy, and kiosk acceptance.
-See `docs/PROCESS_CERTIFICATE_ARCHITECTURE.md` and
-`docs/TEST_PROCESS_CERTIFICATE_FOUNDATION.md`.
+Do not infer acceptance from code presence. Record scanner-only kiosk, ERP submission, output-tag,
+Stock Ledger, negative-gate, and recovery results in the relevant test document. Split/merge,
+revocation, genealogy, and any-certificate reporting must be treated as separate capabilities until
+their own tests pass. See `docs/PROCESS_CERTIFICATE_ARCHITECTURE.md`,
+`docs/TEST_CERTIFICATE_PROCESS_PRINT_PLASTIC_BAG.md`, and
+`docs/TEST_PRODUCTION_PROCESS_CERTIFICATES.md`.
 
 ## 27. Guidance rules for another LLM
 
@@ -4642,7 +4686,9 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
-| 2.39 | 11 November 2026 | Added the Process Certificate foundation: submitted revision-controlled Certificate Types, immutable exact Certificate Sets and issued-instance schema, Production Master input gates/output rules, Handling Unit certificate-state visibility, automatic idempotent ERPNext `Process Certificate Set` Inventory Dimension creation for all stock documents, native Stock Ledger/Stock Balance exact-set filtering including direct ERP documents, workspace links, and explicit deferral of scanner issuance/Repack/gate enforcement to the next runtime package |
+| 2.41 | 11 November 2026 | Extended Process Certificates to normal BOM/Work Order/Job Card production: operation-stage gates from prior results or scanned Material Runs, shared Job Card evidence for reusable Process/Station Cards, immutable execution result Set snapshots, final Manufacture output dimension assignment, mandatory exact output identity, submission-only certificate binding, and a dedicated acceptance guide |
+| 2.40 | 11 November 2026 | Added the scanner-first no-BOM Certificate Process runtime: dedicated Master mode and Run audit, exact source-tag and certificate gates, optional Batch behavior inherited from ERPNext Item, full-tag reuse or mandatory partial output tag, quantity-conserving same-Item Repack, submission-only tag/certificate mutation, printable field-arm commands, cancellation safety, workspace visibility, and plastic-bag acceptance guide |
+| 2.39 | 11 November 2026 | Added the Process Certificate foundation: submitted revision-controlled Certificate Types, immutable exact Certificate Sets and issued-instance schema, Production Master input gates/output rules, Handling Unit certificate-state visibility, automatic idempotent ERPNext `Process Certificate Set` Inventory Dimension creation for all stock documents, and native Stock Ledger/Stock Balance exact-set filtering including direct ERP documents |
 | 2.38 | 10 November 2026 | Corrected Skip-WIP settlement so ordinary inputs are consumed once in the final Manufacture entry; added immutable Job Card-end versus Work Order-receipt Material Run settlement, automatic reuse of the original source-tag scans without double Kanban consumption, native input-row splitting for multiple scanned Batches, Draft/submit/reversal linkage, and closure gates for orphan production Drafts or unsettled Draws |
 | 2.37 | 10 November 2026 | Added opt-in per-BOM-component Operation Material Draws: immutable release-time rule snapshots, scanner quantity plus physical source-tag capture inside Start Material Run, Warehouse/UOM/Company/quality validation, cross-machine over-reservation protection, BOM-ratio progress gating, FIFO carry-forward, safe pre-progress cancellation, focus recovery, and unchanged simple-operation defaults; exact serial membership and final ERP Material Trace/ERP settlement remain explicit next packages |
 | 2.36 | 10 November 2026 | Corrected scanner Report Progress routing after a Material Run starts: the open-run execution has first priority, the sole In Progress/Paused lane has second priority, downstream Ready lanes no longer cause false ambiguity, and genuine multi-lane ambiguity uses scanner-only numbered selection instead of a screen-only instruction |

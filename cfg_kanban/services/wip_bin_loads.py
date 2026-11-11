@@ -84,6 +84,10 @@ def validate_job_card_wip_bin_submission(doc, method=None):
     """
     if doc.docstatus == 2:
         return
+    from cfg_kanban.services.production_certificates import (
+        validate_job_card_certificate_submission,
+    )
+    validate_job_card_certificate_submission(doc)
     readiness = job_card_wip_bin_submit_readiness(doc.name)
     if not readiness["ready"]:
         frappe.throw(readiness["reason"])

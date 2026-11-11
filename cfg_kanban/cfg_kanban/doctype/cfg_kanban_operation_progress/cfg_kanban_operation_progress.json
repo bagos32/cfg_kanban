@@ -20,6 +20,7 @@
   "source",
   "linked_job_card",
   "material_run",
+  "result_certificate_set",
   "correction_request",
   "adjustment_proposal",
   "execution_values",
@@ -129,6 +130,14 @@
    "options": "CFG Kanban Operation Material Run",
    "read_only": 1,
    "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "result_certificate_set",
+   "label": "Result Certificate Set",
+   "fieldtype": "Link",
+   "options": "CFG Process Certificate Set",
+   "read_only": 1,
    "in_standard_filter": 1
   },
   {

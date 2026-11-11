@@ -8,8 +8,28 @@ class CFGProcessCertificate(Document):
         certificate_type = frappe.get_doc(
             "CFG Process Certificate Type", self.certificate_type
         )
-        if certificate_type.docstatus != 1:
-            frappe.throw("Process Certificate Type must be approved")
+        if certificate_type.docstatus != 1 or not certificate_type.active:
+            frappe.throw("Process Certificate Type must be approved and Active")
+        if certificate_type.item and certificate_type.item != self.item_code:
+            frappe.throw(
+                f"Process Certificate Type {certificate_type.name} applies to Item "
+                f"{certificate_type.item}, not {self.item_code}"
+            )
+        if certificate_type.item_group:
+            actual_group = frappe.db.get_value("Item", self.item_code, "item_group")
+            required_bounds = frappe.db.get_value(
+                "Item Group", certificate_type.item_group, ["lft", "rgt"], as_dict=True
+            )
+            actual_bounds = frappe.db.get_value(
+                "Item Group", actual_group, ["lft", "rgt"], as_dict=True
+            )
+            if (not required_bounds or not actual_bounds
+                    or required_bounds.lft > actual_bounds.lft
+                    or required_bounds.rgt < actual_bounds.rgt):
+                frappe.throw(
+                    f"Process Certificate Type {certificate_type.name} does not apply to "
+                    f"Item Group {actual_group}"
+                )
         certificate_set = frappe.get_doc(
             "CFG Process Certificate Set", self.certificate_set
         )

@@ -49,6 +49,7 @@ def consume_card(card_name, *, device_id=None, event_token=None, trusted_operato
         "Purchase Replenishment": "Purchase Replenishment",
         "Transfer": "Transfer Replenishment",
         "Withdrawal": "Stock Withdrawal",
+        "Certificate Process": "Certificate Process",
     }.get(master.control_type, "Production Replenishment")
     signal, created = insert_once(frappe.get_doc({
         "doctype": "CFG Kanban Signal", "signal_type": signal_type,
@@ -68,6 +69,9 @@ def consume_card(card_name, *, device_id=None, event_token=None, trusted_operato
         elif master.control_type == "Withdrawal":
             from cfg_kanban.services.withdrawal import release_withdrawal
             release_withdrawal(signal.name)
+        elif master.control_type == "Certificate Process":
+            from cfg_kanban.services.certificate_process import release_certificate_process
+            release_certificate_process(signal.name)
         else:
             command = (create_material_request_command(signal.name)
                        if master.control_type == "Purchase Replenishment"

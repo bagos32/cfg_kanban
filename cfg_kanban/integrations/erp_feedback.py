@@ -349,6 +349,10 @@ def _sync_job_card_execution(doc, cycle_name, emit_event=False):
             execution_doc, flt(doc.total_completed_qty)
         )
     if became_completed:
+        from cfg_kanban.services.production_certificates import (
+            finalize_execution_certificate_result,
+        )
+        finalize_execution_certificate_result(execution)
         from cfg_kanban.services.progress import complete_execution_handoff
         from cfg_kanban.services.process_tasks import evaluate_gate
         complete_execution_handoff(execution)
@@ -406,6 +410,10 @@ def on_stock_entry_submit(doc, method=None):
         return
     from cfg_kanban.services.production_trace import confirm_stock_entry_trace
     confirm_stock_entry_trace(doc)
+    from cfg_kanban.services.production_certificates import (
+        reconcile_production_output_certificates,
+    )
+    reconcile_production_output_certificates(doc)
     from cfg_kanban.services.wip_bin_loads import confirm_wip_bin_stock_entry
     confirm_wip_bin_stock_entry(doc)
     if doc.get("cfg_return_case"):
@@ -798,6 +806,10 @@ def validate_stock_entry(doc, method=None):
         from cfg_kanban.integrations.logistics_feedback import validate_internal_stock_entry
         validate_internal_stock_entry(doc)
         return
+    from cfg_kanban.services.production_certificates import (
+        validate_production_certificate_stock_entry,
+    )
+    validate_production_certificate_stock_entry(doc)
     from cfg_kanban.services.production_trace import validate_stock_entry_trace
     validate_stock_entry_trace(doc)
     from cfg_kanban.services.wip_bin_loads import validate_wip_bin_stock_entry
@@ -867,6 +879,10 @@ def on_stock_entry_cancel(doc, method=None):
     if doc.get("cfg_movement_manifest"):
         from cfg_kanban.integrations.logistics_feedback import on_internal_stock_entry_cancel
         on_internal_stock_entry_cancel(doc)
+    from cfg_kanban.services.production_certificates import (
+        revoke_cancelled_stock_entry_certificates,
+    )
+    revoke_cancelled_stock_entry_certificates(doc)
     from cfg_kanban.services.production_trace import reverse_stock_entry_trace
     reverse_stock_entry_trace(doc)
     from cfg_kanban.services.wip_bin_loads import reverse_wip_bin_stock_entry
@@ -959,6 +975,13 @@ def _sync_job_cards(work_order, cycle):
             "handoff_mode": profile.handoff_mode, "transfer_multiple": profile.transfer_multiple,
             "destination_operation": profile.destination_operation,
             "operation_profile_revision": master.revision,
+            "certificate_gate_status": (
+                "Pending" if any(
+                    row.operation == profile.operation
+                    for row in list(master.certificate_requirements)
+                    + list(master.certificate_output_rules)
+                ) else "Not Required"
+            ),
             "material_run_control": profile.material_run_control or "Disabled",
             "material_run_output_boundary": profile.material_run_output_boundary or "None",
             "allow_material_carry_forward": profile.allow_material_carry_forward,

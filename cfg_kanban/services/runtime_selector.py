@@ -123,6 +123,13 @@ def allocate(card_name, job_card_name, confirmation, override_reason=None):
         "handoff_mode": profile.handoff_mode, "transfer_multiple": profile.transfer_multiple,
         "destination_operation": profile.destination_operation,
         "operation_profile_revision": master.revision,
+        "certificate_gate_status": (
+            "Pending" if any(
+                row.operation == profile.operation
+                for row in list(master.certificate_requirements)
+                + list(master.certificate_output_rules)
+            ) else "Not Required"
+        ),
         "material_run_control": profile.material_run_control or "Disabled",
         "material_run_output_boundary": profile.material_run_output_boundary or "None",
         "allow_material_carry_forward": profile.allow_material_carry_forward,
@@ -143,6 +150,10 @@ def allocate(card_name, job_card_name, confirmation, override_reason=None):
                   (proposal["short_cycle_reason"] or "Automatic recommendation accepted")))
     settings = frappe.get_single("CFG Kanban Settings")
     if settings.auto_start_job_card and proposal["job_card_status"] != "Work In Progress":
+        from cfg_kanban.services.production_certificates import (
+            assert_execution_certificate_gate,
+        )
+        assert_execution_certificate_gate(execution, "Before Operation Start")
         from cfg_kanban.services.production_material_flow import job_card_material_readiness
         readiness = job_card_material_readiness(proposal["job_card"])
         if readiness["ready"]:

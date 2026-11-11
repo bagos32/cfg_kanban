@@ -26,6 +26,7 @@ def _approved_process_certificate_type(name):
 class CFGKanbanMaster(Document):
     def validate(self):
         self._set_item_and_purchase_uom()
+        self._prepare_certificate_process_configuration()
         if flt(self.replenishment_qty) <= 0 or cint(self.number_of_cards) <= 0:
             frappe.throw("Replenishment quantity and number of cards must be positive")
         if self.control_type == "Purchase Replenishment":
@@ -83,6 +84,8 @@ class CFGKanbanMaster(Document):
         if len(sequences) != len(set(sequences)):
             frappe.throw("Operation profile sequences must be unique")
         operations = {row.operation for row in self.operation_profiles}
+        if self.control_type == "Certificate Process" and self.certificate_process_operation:
+            operations.add(self.certificate_process_operation)
         for row in self.operation_profiles:
             row.allow_parallel = row.execution_mode == "Parallel Workstations"
             row.material_run_control = row.material_run_control or "Disabled"
@@ -166,12 +169,16 @@ class CFGKanbanMaster(Document):
     def _validate_process_certificate_rules(self, operations):
         requirements = self.get("certificate_requirements") or []
         output_rules = self.get("certificate_output_rules") or []
-        if self.control_type != "Production":
+        if self.control_type not in ("Production", "Certificate Process"):
             if requirements or output_rules:
                 frappe.throw(
-                    "Process Certificate rules are available only for Production Masters"
+                    "Process Certificate rules are available only for Production or "
+                    "Certificate Process Masters"
                 )
             return
+
+        if self.control_type == "Certificate Process" and not output_rules:
+            frappe.throw("Add at least one Certificate Output Rule for a Certificate Process")
 
         seen_requirements = set()
         group_logic = {}
@@ -213,21 +220,60 @@ class CFGKanbanMaster(Document):
                 )
 
         seen_outputs = set()
+        output_actions = {}
         for row in output_rules:
             if row.operation not in operations:
                 frappe.throw(
                     f"Certificate output row {row.idx} references an operation outside this route"
                 )
             _approved_process_certificate_type(row.certificate_type)
+            if self.control_type == "Production" and row.issue_scope != "Finished Output":
+                frappe.throw(
+                    f"Certificate output row {row.idx} must apply to Finished Output for "
+                    "Work Order production. Processed Tagged Quantity is reserved for the "
+                    "no-BOM Certificate Process flow."
+                )
             row.validity_days_override = cint(row.validity_days_override)
             if row.validity_days_override < 0:
                 frappe.throw(
                     f"Certificate output row {row.idx} Validity Override cannot be negative"
                 )
+            action_key = (row.operation, row.certificate_type)
+            prior_action = output_actions.setdefault(action_key, row.action)
+            if prior_action != row.action:
+                frappe.throw(
+                    f"Certificate output {row.certificate_type} for {row.operation} cannot "
+                    f"use both {prior_action} and {row.action}"
+                )
             key = (row.operation, row.certificate_type, row.action, row.issue_scope)
             if key in seen_outputs:
                 frappe.throw(f"Certificate output row {row.idx} duplicates an earlier rule")
             seen_outputs.add(key)
+
+    def _prepare_certificate_process_configuration(self):
+        if self.control_type != "Certificate Process":
+            return
+        if self.bom:
+            frappe.throw("Certificate Process does not use a BOM, Work Order, or Job Card")
+        if not self.certificate_process_operation:
+            frappe.throw("Controlled Operation is required for a Certificate Process")
+        if not self.source_warehouse:
+            frappe.throw("Source Warehouse is required for a Certificate Process")
+        if not cint(frappe.db.get_value("Item", self.item_code, "is_stock_item")):
+            frappe.throw(
+                "Certificate Process requires an ERPNext Stock Item because Repack is the "
+                "authoritative certificate-state movement"
+            )
+        self.destination_warehouse = self.destination_warehouse or self.source_warehouse
+        for warehouse in {self.source_warehouse, self.destination_warehouse}:
+            _validate_warehouse_company(warehouse, self.company, "Certificate Process")
+        self.certificate_process_posting_mode = (
+            self.certificate_process_posting_mode or "Create Draft for Review"
+        )
+        for row in self.get("certificate_requirements") or []:
+            row.operation = self.certificate_process_operation
+        for row in self.get("certificate_output_rules") or []:
+            row.operation = self.certificate_process_operation
 
     def _validate_production_material_flow(self):
         if self.control_type != "Production":

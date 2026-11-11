@@ -44,7 +44,8 @@ class CFGKanbanCard(Document):
         self._validate_doctype_action_card()
         if self.kanban_master:
             master = frappe.get_cached_doc("CFG Kanban Master", self.kanban_master)
-            if (master.control_type in ("Purchase Replenishment", "Transfer", "Withdrawal")
+            if ((master.control_type in ("Purchase Replenishment", "Transfer", "Withdrawal")
+                    or master.control_type == "Certificate Process")
                     and self.card_type not in ("Physical Unit Card", "Physical Batch Card")):
                 frappe.throw(
                     f"{master.control_type} Master {master.name} requires a Physical Unit Card "

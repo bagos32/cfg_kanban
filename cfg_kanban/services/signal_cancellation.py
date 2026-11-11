@@ -25,6 +25,7 @@ def cancel_and_rollback(signal_name, reason):
     _assert_no_purchase_activity(cycle)
     _cancel_transfer_manifest(cycle, signal, reason)
     _cancel_withdrawal(cycle, signal, reason)
+    _cancel_certificate_process(cycle, reason)
     _assert_no_production_activity(cycle, work_order_name)
     if work_order_name and frappe.db.exists("Work Order", work_order_name):
         work_order = frappe.get_doc("Work Order", work_order_name)
@@ -216,3 +217,31 @@ def _cancel_withdrawal(cycle, signal, reason):
         update_modified=False,
     )
     cycle.db_set("withdrawal_status", "Cancelled", update_modified=False)
+
+
+def _cancel_certificate_process(cycle, reason):
+    run_name = frappe.db.get_value(
+        "CFG Process Certificate Run", {"kanban_cycle": cycle.name}, "name"
+    )
+    if not run_name:
+        return
+    run = frappe.get_doc("CFG Process Certificate Run", run_name)
+    if run.status == "Cancelled":
+        return
+    if run.status == "Awaiting ERP Submission":
+        frappe.throw(
+            f"Certificate Process {run.name} already has Repack {run.repack_stock_entry}. "
+            "Use controlled Certificate Process recovery."
+        )
+    if run.status == "Completed":
+        frappe.throw(f"Certificate Process {run.name} is already Completed")
+    if run.status == "In Progress" and flt(run.selected_qty) > 0:
+        post_quantity_event(
+            event_type="Unreserve", qty=run.selected_qty, stock_uom=run.stock_uom,
+            idempotency_key=canonical_key("certificate-signal-cancel", run.name),
+            source_handling_unit=run.source_handling_unit, item_code=run.item_code,
+            batch_no=run.source_batch, source_company=run.company,
+            source_warehouse=run.source_warehouse,
+            reference_doctype=run.doctype, reference_name=run.name, reason=reason,
+        )
+    run.db_set({"status": "Cancelled", "exception_notes": reason}, update_modified=True)

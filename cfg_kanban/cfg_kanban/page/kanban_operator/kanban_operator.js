@@ -12,7 +12,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	const state = { context: null, operator: null, access: null,
 		session_token: localStorage.getItem(session_key), awaiting_operator_scan: false,
 		active_progress_dialog: null, active_material_trace_dialog: null,
-		active_command_dialog: null, active_crew_dialog: null,
+		active_command_dialog: null, active_crew_dialog: null, active_certificate_dialog: null,
 		pending_process_task: null, scanner_message: __("Scanner ready"),
 		modal_scan_buffer: "", modal_scan_at: 0, live_revision: null,
 		live_request: false, live_timer: null, live_checked_at: null,
@@ -308,6 +308,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (crew_dialog?.$wrapper?.is(":visible")) {
 			return handle_crew_dialog_scan(crew_dialog, value);
 		}
+		const certificate_dialog = state.active_certificate_dialog?.dialog;
+		if (certificate_dialog?.$wrapper?.is(":visible")) {
+			return handle_certificate_dialog_scan(certificate_dialog, value);
+		}
 		if (await dispatch_scanner_command(value)) return;
 		if (!state.operator || state.awaiting_operator_scan) {
 			state.awaiting_operator_scan = false;
@@ -372,6 +376,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			PREPARE_RECEIPT: open_scanner_manufacture_receipt,
 			SCAN_MATERIALS: open_scanner_material_trace,
 			SUBMIT_MATERIALS: submit_scanner_material_entry,
+			START_CERTIFICATE_PROCESS: open_certificate_process_start,
+			COMPLETE_CERTIFICATE_PROCESS: open_certificate_process_completion,
+			SUBMIT_CERTIFICATE_PROCESS: submit_certificate_process,
+			CANCEL_CERTIFICATE_PROCESS: cancel_certificate_process,
 			PPHU_HOPPER_CHANGE: () => open_pphu_event_dialog("PPHU Hopper Boundary"),
 			PPHU_BATCH_CHANGE: () => open_pphu_event_dialog("PPHU Material Batch Boundary"),
 			PPHU_OUTPUT_SERIAL: () => open_pphu_event_dialog("PPHU Output Serial Start"),
@@ -1014,6 +1022,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			</tbody></table>
 			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:ACCEPT_OWNER</code>, <code>CFG:CMD:TRANSFER_OWNER</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
 			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:START_MATERIAL_RUN</code>, <code>CFG:CMD:CANCEL_MATERIAL_RUN</code>, <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:RECORD_WIP_BIN_USE</code>, <code>CFG:CMD:RECORD_LOOSE_WIP_USE</code>, <code>CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
+			<p><strong>${__("Certificate Process commands")}</strong>: <code>CFG:CMD:START_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:COMPLETE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:SUBMIT_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:CANCEL_CERTIFICATE_PROCESS</code>. Field-arm commands are <code>CFG:CMD:CERTIFICATE_OUTPUT_TAG</code>, <code>CFG:CMD:CERTIFICATE_BATCH</code>, <code>CFG:CMD:CERTIFICATE_EXPIRY</code>, <code>CFG:CMD:CERTIFICATE_SERIAL_START</code>, and <code>CFG:CMD:CERTIFICATE_SERIAL_END</code>. Scan the field command and then its physical/value barcode.</p>
+			<p><strong>${__("Work Order Process Certificates")}</strong>: ${__("Use the normal Start Operation, Start Material Run, Material Quantity, physical source-tag, Report Progress, Scan Material Tags, Submit Material Entry, Confirm, Cancel, and numbered Select labels. Certificate gates run automatically for the configured Operation; do not scan the same material again from the main Production Card after a Process/Station Card recorded it against the shared Job Card.")}</p>
 			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then scan Material Quantity and the physical source Stock Tag for each tracked component. Confirm opens the run. Ordinary operations and No Run Tracking components remain unchanged.")}</small></p>
 			<p><strong>${__("PPHU trace commands")}</strong>: <code>CFG:CMD:PPHU_HOPPER_CHANGE</code>, <code>CFG:CMD:PPHU_BATCH_CHANGE</code>, <code>CFG:CMD:PPHU_OUTPUT_SERIAL</code>. Select an operation with <code>CFG:SELECT:n</code>, scan the physical Hopper/material tag when requested, scan the first affected output serial, then scan <code>CFG:CMD:CONFIRM</code>.</p>
 			<p><strong>${__("Crew commands")}</strong>: <code>CFG:CMD:CREW</code>, <code>CFG:CMD:CREW_OPEN</code>, <code>CFG:CMD:CREW_JOIN</code>, <code>CFG:CMD:CREW_JOIN_SENIOR</code>, <code>CFG:CMD:CREW_JOIN_OVERSIGHT</code>, <code>CFG:CMD:CREW_JOIN_TEMP</code>, <code>CFG:CMD:CREW_BREAK</code>, <code>CFG:CMD:CREW_RESUME</code>, <code>CFG:CMD:CREW_LEAVE</code>, <code>CFG:CMD:CREW_MAIN</code>, <code>CFG:CMD:CREW_CONTEXT</code>, <code>CFG:CMD:CREW_CLOSE</code>.</p>
@@ -1305,7 +1315,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}
 		const { card, master, cycle, effective_work_order, work_order_attention, selected_job_card,
 			executions, operation_summaries, production_progress, production_stock_entries, production_material_flow,
-			process_tasks, service_tasks, pphu_events,
+			process_tasks, service_tasks, pphu_events, certificate_process,
 			service_identity_card, workstation_queue_card, workstation_queue,
 			work_orders, route_warnings, production_reconciliation } = state.context;
 		if (workstation_queue_card) {
@@ -1374,6 +1384,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				`${document_link("work-order", row.name)} · ${e(row.status)}`).join("<br>")}</div></div>`);
 		}
 		const $actions = $root.find(".cfg-card-actions");
+		if (master.control_type === "Certificate Process") {
+			render_certificate_process(certificate_process, $actions);
+			render_live_current_action();
+			return;
+		}
 		if (service_identity_card) {
 			$actions.append(`<a class="btn btn-primary mr-2" href="/app/kanban-tasks">${__("Open Service Tasks")}</a>`);
 			if (card.card_type === "Task Card" && state.operator.permissions.task_start) {
@@ -3059,6 +3074,201 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		await load_card(state.context.card.qr_code || state.context.card.card_number);
 	}
 
+	function render_certificate_process(context, $actions) {
+		const e = frappe.utils.escape_html;
+		if (!context) {
+			$root.append(`<div class="alert alert-warning">${__("This Certificate Process is waiting for signal approval or release.")}</div>`);
+			return;
+		}
+		const run = context.run;
+		const batch_line = context.batch_controlled
+			? `${__("ERPNext Batch control")}: <strong>${e(run.source_batch || __("captured when source tag is scanned"))}</strong>`
+			: `${__("ERPNext Batch control")}: <strong>${__("Not enabled for this Item")}</strong>`;
+		$root.append(`<div class="frappe-card p-4 mb-3" data-live-focus="certificate-process:${e(run.name)}">
+			<div class="d-flex justify-content-between flex-wrap"><div><h4>${e(run.operation)}</h4>
+				<div>${document_link("cfg-process-certificate-run", run.name)} · ${e(run.item_code)} · ${e(run.planned_qty)} ${e(run.stock_uom)}</div></div>
+				<span class="indicator-pill ${indicator(run.status)}">${e(run.status)}</span></div><hr>
+			<div class="row"><div class="col-md-4"><small>${__("Source Tag")}</small><div>${document_link("cfg-kanban-handling-unit", run.source_handling_unit)}</div></div>
+			<div class="col-md-4"><small>${__("Output Tag")}</small><div>${document_link("cfg-kanban-handling-unit", run.output_handling_unit) || e(run.pending_output_tag_code || "-")}</div></div>
+			<div class="col-md-4"><small>${__("ERPNext Repack")}</small><div>${document_link("stock-entry", run.repack_stock_entry)}</div></div></div>
+			<div class="mt-3"><small>${batch_line}</small><br><small>${__("Selected / Good / Reject")}: ${e(run.selected_qty || 0)} / ${e(run.good_qty || 0)} / ${e(run.reject_qty || 0)} ${e(run.stock_uom)}</small></div>
+		</div>`);
+		if (run.status === "Ready" && state.operator.permissions.start) {
+			add_action($actions, __("Start Certificate Process"), "btn-primary", open_certificate_process_start);
+		}
+		if (run.status === "In Progress" && state.operator.permissions.complete) {
+			add_action($actions, __("Complete Certificate Process"), "btn-success", open_certificate_process_completion);
+		}
+		if (run.status === "Awaiting ERP Submission" && state.operator.permissions.complete) {
+			add_action($actions, __("Submit ERPNext Repack"), "btn-primary", submit_certificate_process);
+		}
+		if (["Ready", "In Progress"].includes(run.status) && state.operator.permissions.start) {
+			add_action($actions, __("Cancel Certificate Process"), "btn-danger", cancel_certificate_process);
+		}
+	}
+
+	function open_certificate_process_start() {
+		const context = state.context?.certificate_process;
+		if (!context || context.run.status !== "Ready") {
+			return scanner_command_message(__("No released Certificate Process is ready to start."));
+		}
+		const dialog = new frappe.ui.Dialog({
+			title: __("Start Certificate Process"),
+			fields: [
+				{ fieldname: "instruction", fieldtype: "HTML", options: `<div class="alert alert-info">${__("Scan Material Quantity, then scan the exact source Stock Tag. Batch control is read automatically from the ERPNext Item.")}</div>` },
+				{ fieldname: "selected_qty", label: __("Selected Quantity"), fieldtype: "Float", reqd: 1, default: context.run.planned_qty },
+				{ fieldname: "source_tag", label: __("Source Stock Tag"), fieldtype: "Data", reqd: 1, read_only: 1 },
+				{ fieldname: "scanner_command", label: __("Scanner Input"), fieldtype: "Data" },
+			],
+			primary_action_label: __("Start"),
+			primary_action: async (values) => {
+				await frappe.call({ method: "cfg_kanban.services.certificate_process.start_certificate_process", args: {
+					cycle_name: context.run.kanban_cycle, source_scan: values.source_tag,
+					qty: values.selected_qty, event_token: frappe.utils.get_random(24),
+					operator_session_token: state.session_token,
+				}, freeze: true, freeze_message: __("Starting Certificate Process...") });
+				dialog.hide();
+				await load_card(state.context.card.qr_code || state.context.card.card_number);
+			},
+		});
+		activate_certificate_dialog(dialog, "start");
+	}
+
+	function open_certificate_process_completion() {
+		const context = state.context?.certificate_process;
+		if (!context || context.run.status !== "In Progress") {
+			return scanner_command_message(__("No Certificate Process is ready to complete."));
+		}
+		const run = context.run;
+		const dialog = new frappe.ui.Dialog({
+			title: __("Complete Certificate Process"), size: "large",
+			fields: [
+				{ fieldname: "instruction", fieldtype: "HTML", options: `<div class="alert alert-info">${__("Scan Good and Reject quantities. A partial result requires a separate unused output tag. Use a Certificate field-arm command before scanning Batch, expiry, or serial values.")}</div>` },
+				{ fieldname: "good_qty", label: __("Good Quantity"), fieldtype: "Float", reqd: 1, default: run.selected_qty },
+				{ fieldname: "reject_qty", label: __("Reject Quantity"), fieldtype: "Float", default: 0 },
+				{ fieldname: "output_tag", label: __("Unused Output Tag (partial result)"), fieldtype: "Data", read_only: 1 },
+				{ fieldname: "output_batch", label: __("Output Batch"), fieldtype: "Data", depends_on: "eval:" + (context.batch_controlled ? "1" : "0") },
+				{ fieldname: "printed_expiry", label: __("Printed Expiry"), fieldtype: "Date", depends_on: "eval:" + (context.capture_expiry ? "1" : "0") },
+				{ fieldname: "first_output_serial", label: __("First Printed Serial"), fieldtype: "Data", depends_on: "eval:" + (context.capture_serial_boundary ? "1" : "0") },
+				{ fieldname: "last_output_serial", label: __("Last Printed Serial"), fieldtype: "Data", depends_on: "eval:" + (context.capture_serial_boundary ? "1" : "0") },
+				{ fieldname: "scanner_target", label: __("Next Scan Target"), fieldtype: "Data", read_only: 1, default: __("Output Tag") },
+				{ fieldname: "scanner_command", label: __("Scanner Input"), fieldtype: "Data" },
+			],
+			primary_action_label: __("Create ERPNext Repack"),
+			primary_action: async (values) => {
+				await frappe.call({ method: "cfg_kanban.services.certificate_process.complete_certificate_process", args: {
+					cycle_name: run.kanban_cycle, good_qty: values.good_qty,
+					reject_qty: values.reject_qty, output_tag_scan: values.output_tag,
+					output_batch: values.output_batch, printed_expiry: values.printed_expiry,
+					first_output_serial: values.first_output_serial,
+					last_output_serial: values.last_output_serial,
+					event_token: frappe.utils.get_random(24),
+					operator_session_token: state.session_token,
+				}, freeze: true, freeze_message: __("Creating controlled ERPNext Repack...") });
+				dialog.hide();
+				await load_card(state.context.card.qr_code || state.context.card.card_number);
+			},
+		});
+		activate_certificate_dialog(dialog, "complete");
+	}
+
+	function activate_certificate_dialog(dialog, mode) {
+		state.active_certificate_dialog = { dialog, mode, target: mode === "start" ? "source_tag" :
+			(mode === "cancel" ? "reason" : "output_tag") };
+		dialog.onhide = () => {
+			if (state.active_certificate_dialog?.dialog === dialog) state.active_certificate_dialog = null;
+			focus_scanner();
+		};
+		dialog.show();
+		const scanner_field = dialog.get_field("scanner_command");
+		scanner_field.$input.off(".cfg-certificate-scan")
+			.on("change.cfg-certificate-scan", async () => {
+				const value = scanner_field.get_value();
+				if (!value) return;
+				await handle_certificate_dialog_scan(dialog, value);
+			})
+			.on("keydown.cfg-certificate-scan", (event) => {
+				if (event.key !== "Enter") return;
+				event.preventDefault();
+				event.stopPropagation();
+				scanner_field.$input.trigger("change");
+			});
+		window.setTimeout(() => scanner_field.set_focus(), 80);
+	}
+
+	async function handle_certificate_dialog_scan(dialog, raw_value) {
+		const active = state.active_certificate_dialog;
+		const value = String(raw_value || "").trim();
+		await dialog.set_value("scanner_command", "");
+		const upper = value.toUpperCase();
+		if (upper === "CFG:CMD:CANCEL") return dialog.hide();
+		if (upper === "CFG:CMD:CONFIRM") return dialog.get_primary_btn().trigger("click");
+		const quantity = /^CFG:QTY:(MATERIAL|GOOD|REJECT):([+-]?\d+(?:\.\d+)?)$/i.exec(value);
+		if (quantity) {
+			const fieldname = active.mode === "start" ? "selected_qty" :
+				(quantity[1].toUpperCase() === "REJECT" ? "reject_qty" : "good_qty");
+			const current = Number(dialog.get_value(fieldname) || 0);
+			const instruction = quantity[2];
+			await dialog.set_value(fieldname, Math.max(0, instruction.startsWith("+") || instruction.startsWith("-")
+				? current + Number(instruction) : Number(instruction)));
+			return window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 50);
+		}
+		const targets = {
+			"CFG:CMD:CERTIFICATE_OUTPUT_TAG": ["output_tag", __("Output Tag")],
+			"CFG:CMD:CERTIFICATE_BATCH": ["output_batch", __("Output Batch")],
+			"CFG:CMD:CERTIFICATE_EXPIRY": ["printed_expiry", __("Printed Expiry")],
+			"CFG:CMD:CERTIFICATE_SERIAL_START": ["first_output_serial", __("First Printed Serial")],
+			"CFG:CMD:CERTIFICATE_SERIAL_END": ["last_output_serial", __("Last Printed Serial")],
+		};
+		if (targets[upper]) {
+			active.target = targets[upper][0];
+			if (dialog.get_field("scanner_target")) await dialog.set_value("scanner_target", targets[upper][1]);
+			return window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 50);
+		}
+		await dialog.set_value(active.target, value);
+		if (active.mode === "start") active.target = "source_tag";
+		else if (active.mode === "cancel") active.target = "reason";
+		else active.target = "output_tag";
+		if (dialog.get_field("scanner_target")) await dialog.set_value("scanner_target", __("Output Tag"));
+		window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 50);
+	}
+
+	async function submit_certificate_process() {
+		const run = state.context?.certificate_process?.run;
+		if (!run || run.status !== "Awaiting ERP Submission") {
+			return scanner_command_message(__("No Certificate Process Repack is ready to submit."));
+		}
+		await frappe.call({ method: "cfg_kanban.services.certificate_process.submit_certificate_process", args: {
+			run_name: run.name, event_token: frappe.utils.get_random(24),
+			operator_session_token: state.session_token,
+		}, freeze: true, freeze_message: __("Submitting ERPNext Repack...") });
+		await load_card(state.context.card.qr_code || state.context.card.card_number);
+	}
+
+	function cancel_certificate_process() {
+		const run = state.context?.certificate_process?.run;
+		if (!run || !["Ready", "In Progress"].includes(run.status)) {
+			return scanner_command_message(__("This Certificate Process requires controlled supervisor recovery."));
+		}
+		const dialog = new frappe.ui.Dialog({
+			title: __("Cancel Certificate Process"),
+			fields: [
+				{ fieldname: "reason", label: __("Reason"), fieldtype: "Small Text", reqd: 1 },
+				{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data" },
+			],
+			primary_action_label: __("Cancel Process"),
+			primary_action: async (values) => {
+				await frappe.call({ method: "cfg_kanban.services.certificate_process.cancel_certificate_process", args: {
+					run_name: run.name, reason: values.reason, event_token: frappe.utils.get_random(24),
+					operator_session_token: state.session_token,
+				}, freeze: true });
+				dialog.hide();
+				clear_for_next_card();
+			},
+		});
+		activate_certificate_dialog(dialog, "cancel");
+	}
+
 	function scanner_command_message(message) {
 		frappe.msgprint({ title: __("Scanner Command Not Applied"), message, indicator: "orange" });
 		return false;
@@ -4550,6 +4760,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			}
 		}
 		executions.forEach((row) => {
+			const certificate = row.certificate_control || {};
 			const crew = row.crew || {};
 			const crew_colour = crew.compliance_status === "Compliant" ? "green" :
 				crew.compliance_status === "Hold" ? "red" : crew.session ? "blue" : "grey";
@@ -4567,6 +4778,16 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				<div class="col-md-3">${__("Allocated")}: ${e(row.allocated_qty || row.target_qty || 0)}<br>${__("Good")}: ${e(row.good_qty || 0)}<br>${__("Released")}: ${e(row.released_qty || 0)}<br><small>${__("Completion")}: ${e(row.completion_rule || "Full Qty")}</small></div>
 				<div class="col-md-4 text-right cfg-execution-actions"></div>
 				</div></div>`).appendTo($section);
+			if (certificate.enabled) {
+				const certificate_colour = certificate.gate_status === "Passed" ? "green" :
+					certificate.gate_status === "Failed" ? "red" : "orange";
+				$row.append(`<div class="mt-2 px-2 py-1 border rounded">
+					<small><strong>${__("Process Certificate")}</strong> ·
+					<span class="indicator-pill ${certificate_colour}">${e(certificate.gate_status || "Pending")}</span>
+					${certificate.result_certificate_set ? ` · ${document_link("cfg-process-certificate-set", certificate.result_certificate_set)}` :
+						` · ${__("Scan certified material through the normal Material Run when required.")}`}</small>
+				</div>`);
+			}
 			$(`<div class="cfg-execution-crew-strip ${crew_colour}">
 				<div><strong>${__("Workstation Crew")}</strong><span>${e(crew_text)}</span></div>
 				<div><span class="indicator-pill ${crew_colour}">${e(crew.compliance_status || __("Not Checked"))}</span>

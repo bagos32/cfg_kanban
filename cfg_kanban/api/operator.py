@@ -156,6 +156,17 @@ def _scanner_command_catalog(quantity_steps=None):
             ("WIP Bin: Restore Full-bin Mode", "CFG:CMD:FULL_BIN", ""),
             ("Submit Material Entry", "CFG:CMD:SUBMIT_MATERIALS", ""),
         ]),
+        ("Certificate Process", [
+            ("Start Certificate Process", "CFG:CMD:START_CERTIFICATE_PROCESS", ""),
+            ("Complete Certificate Process", "CFG:CMD:COMPLETE_CERTIFICATE_PROCESS", ""),
+            ("Submit Certificate Repack", "CFG:CMD:SUBMIT_CERTIFICATE_PROCESS", ""),
+            ("Cancel Certificate Process", "CFG:CMD:CANCEL_CERTIFICATE_PROCESS", ""),
+            ("Certificate: Scan Output Tag Next", "CFG:CMD:CERTIFICATE_OUTPUT_TAG", ""),
+            ("Certificate: Scan Batch Next", "CFG:CMD:CERTIFICATE_BATCH", ""),
+            ("Certificate: Scan Expiry Next", "CFG:CMD:CERTIFICATE_EXPIRY", ""),
+            ("Certificate: Scan First Serial Next", "CFG:CMD:CERTIFICATE_SERIAL_START", ""),
+            ("Certificate: Scan Last Serial Next", "CFG:CMD:CERTIFICATE_SERIAL_END", ""),
+        ]),
         ("PPHU Traceability", [
             ("PPHU: Set / Change Hopper", "CFG:CMD:PPHU_HOPPER_CHANGE", ""),
             ("PPHU: Record Material Batch Change", "CFG:CMD:PPHU_BATCH_CHANGE", ""),
@@ -182,6 +193,9 @@ def _scanner_command_catalog(quantity_steps=None):
             for number in range(1, 11)
         ]),
         ("Good Quantity", [
+            (f"Good Qty {number:g}", f"CFG:QTY:GOOD:{number:g}", "")
+            for number in normalized_steps
+        ] + [
             (f"Good +{number:g}", f"CFG:QTY:GOOD:+{number:g}", "")
             for number in normalized_steps
         ]),
@@ -476,7 +490,11 @@ def get_card_context(token, operator_session_token=None):
         frappe.throw("Kanban card was not found")
     card = frappe.get_doc("CFG Kanban Card", card_name)
     production_reconciliation = None
-    if card.active_cycle and card.card_type in ("Physical Unit Card", "Physical Batch Card"):
+    card_master_type = (frappe.db.get_value(
+        "CFG Kanban Master", card.kanban_master, "control_type"
+    ) if card.kanban_master else None)
+    if (card.active_cycle and card.card_type in ("Physical Unit Card", "Physical Batch Card")
+            and card_master_type != "Certificate Process"):
         from cfg_kanban.integrations.erp_feedback import reconcile_physical_production_cycle
         production_reconciliation = reconcile_physical_production_cycle(card.active_cycle)
         card.reload()
@@ -532,6 +550,32 @@ def get_card_context(token, operator_session_token=None):
         }
     master = frappe.get_doc("CFG Kanban Master", card.kanban_master)
     cycle = frappe.get_doc("CFG Kanban Cycle", card.active_cycle) if card.active_cycle else None
+    if master.control_type == "Certificate Process":
+        from cfg_kanban.services.certificate_process import get_certificate_process_context
+        certificate_process = (
+            get_certificate_process_context(cycle.name, operator_session_token)
+            if cycle else None
+        )
+        return {
+            "card": card.as_dict(),
+            "master": {
+                "name": master.name, "kanban_name": master.kanban_name,
+                "item_code": master.item_code, "stock_uom": master.stock_uom,
+                "automation_level": master.automation_level,
+                "control_type": master.control_type,
+                "card_representation": master.card_representation,
+            },
+            "cycle": cycle.as_dict() if cycle else None,
+            "certificate_process": certificate_process,
+            "effective_work_order": None, "work_order_attention": None,
+            "selected_job_card": None, "executions": [], "work_orders": [],
+            "route_warnings": [], "operation_summaries": [],
+            "production_stock_entries": [], "production_material_flow": None,
+            "process_tasks": [], "service_tasks": [], "job_ownership": None,
+            "job_role_compliance": None, "correction_requests": [],
+            "pphu_events": [], "service_identity_card": False,
+            "workstation_queue_card": False, "production_reconciliation": None,
+        }
     executions = []
     work_orders = []
     route_warnings = []
@@ -586,6 +630,8 @@ def get_card_context(token, operator_session_token=None):
                     "allow_material_carry_forward", "material_run_settlement_timing",
                     "material_run_rules_json",
                     "open_material_run",
+                    "certificate_gate_status", "result_certificate_set",
+                    "certificate_checked_on",
                     "crew_compliance_status", "last_crew_compliance_check",
                     "crew_compliance_hold"],
             order_by="sequence asc",
@@ -604,6 +650,8 @@ def get_card_context(token, operator_session_token=None):
             )
         }
         for execution in executions:
+            from cfg_kanban.services.production_certificates import certificate_context
+            execution["certificate_control"] = certificate_context(execution.name)
             execution["completion_rule"] = _execution_completion_rule(execution)
             job = frappe.db.get_value("Job Card", execution.job_card,
                 ["name", "status", "docstatus", "for_quantity", "total_completed_qty"], as_dict=True)
@@ -870,6 +918,7 @@ def get_card_live_revision(token, operator_session_token=None):
             ("CFG Kanban Cycle Role Assignment", {"kanban_cycle": cycle.name}),
             ("CFG Kanban Correction Request", {"kanban_cycle": cycle.name}),
             ("CFG Kanban Operation Material Run", {"kanban_cycle": cycle.name}),
+            ("CFG Process Certificate Run", {"kanban_cycle": cycle.name}),
             ("CFG Kanban Event", {
                 "kanban_cycle": cycle.name, "event_type": ["like", "PPHU %"]
             }),
@@ -1662,6 +1711,11 @@ def approve_signal(signal_name):
         cycle = release_withdrawal(signal.name)
         return {"signal": signal.name, "cycle": cycle.name,
                 "erp_document": None, "duplicate": False}
+    if master.control_type == "Certificate Process":
+        from cfg_kanban.services.certificate_process import release_certificate_process
+        run = release_certificate_process(signal.name)
+        return {"signal": signal.name, "certificate_process_run": run.name,
+                "erp_document": None, "duplicate": False}
     command = (create_material_request_command(signal.name)
                if master.control_type == "Purchase Replenishment"
                else create_work_order_command(signal.name))
@@ -1715,6 +1769,11 @@ def submit_progress(execution_name, good_qty, reject_qty=0, processed_qty=None,
                     values=None, notes=None, event_token=None, operator_session_token=None):
     execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
     profile, session = require_operator(operator_session_token, "report_progress", execution=execution)
+    from cfg_kanban.services.production_certificates import (
+        assert_execution_certificate_gate,
+        finalize_execution_certificate_result,
+    )
+    assert_execution_certificate_gate(execution, "Before Progress")
     crew_result = enforce_execution_crew(
         execution.name, "Progress", actor=_crew_actor(profile, session)
     )
@@ -1738,6 +1797,11 @@ def submit_progress(execution_name, good_qty, reject_qty=0, processed_qty=None,
                       values=values, notes=notes, operator=profile.employee,
                       operator_session=session.name, terminal_user=session.terminal_user,
                       material_run=material_run.name if material_run else None)
+    result_certificate_set = finalize_execution_certificate_result(execution.name)
+    if result_certificate_set:
+        progress.db_set(
+            "result_certificate_set", result_certificate_set, update_modified=False
+        )
     from cfg_kanban.services.job_participation import sync_execution_participation
     sync_execution_participation(
         execution.name,
@@ -1806,6 +1870,10 @@ def run_job_card_action(execution_name, action, event_token=None, operator_sessi
         actor=_crew_actor(profile, session),
     )
     if action == "start":
+        from cfg_kanban.services.production_certificates import (
+            assert_execution_certificate_gate,
+        )
+        assert_execution_certificate_gate(execution, "Before Operation Start")
         _assert_materials_ready_for_job_card(execution.job_card)
         assert_gate_open(execution.kanban_cycle, "Before Operation Start", execution.operation)
         master = frappe.get_doc("CFG Kanban Master", execution.kanban_master)
@@ -1854,6 +1922,11 @@ def run_job_card_action(execution_name, action, event_token=None, operator_sessi
             actor=_crew_actor(profile, session),
             source_event="Job Card Started",
         )
+    elif action == "complete":
+        from cfg_kanban.services.production_certificates import (
+            finalize_execution_certificate_result,
+        )
+        finalize_execution_certificate_result(execution.name)
     record(f"Operator Job Card {action.title()}", cycle=execution.kanban_cycle,
            execution=execution.name, reference_doctype="Job Card", reference_name=result.name,
            operator=profile.employee, operator_session=session.name,
