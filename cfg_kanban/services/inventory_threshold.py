@@ -3,6 +3,7 @@ from frappe.utils import cint, flt, now_datetime
 
 from cfg_kanban.integrations.erp_gateway import execute_command
 from cfg_kanban.services.demand_math import calculate_threshold_replenishment
+from cfg_kanban.services.automation_policy import get_effective_automation_level
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key, insert_once
 from cfg_kanban.services.process_tasks import ensure_tasks, evaluate_gate
@@ -109,7 +110,8 @@ def evaluate_master(master_name):
     }).insert(ignore_permissions=True)
     ensure_tasks(cycle.name)
     gate = evaluate_gate(cycle.name, "Before Cycle Start")
-    automatic = master.automation_level == "Automatic" and gate["open"]
+    effective_automation_level = get_effective_automation_level(master)
+    automatic = effective_automation_level == "Automatic" and gate["open"]
     sequence = frappe.db.count("CFG Kanban Signal", {"kanban_master": master.name}) + 1
     key = canonical_key("inventory-threshold", master.name, sequence)
     signal_type = {
@@ -131,7 +133,7 @@ def evaluate_master(master_name):
         "stock_uom": master.stock_uom,
         "status": "Validated" if automatic else "Waiting Approval",
         "priority": master.default_priority,
-        "automation_level": master.automation_level,
+        "automation_level": effective_automation_level,
         "requested_on": now_datetime(),
         "validated_on": now_datetime() if automatic else None,
     }), key, ignore_permissions=True)

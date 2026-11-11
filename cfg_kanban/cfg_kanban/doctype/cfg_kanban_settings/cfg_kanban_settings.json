@@ -83,7 +83,8 @@
    "label": "Default Automation Level",
    "fieldtype": "Select",
    "options": "Automatic\nApproval\nSignal Only",
-   "default": "Approval"
+   "default": "Approval",
+   "description": "Used only by Kanban Masters whose Automation Policy Source is Use Global Default. A Master Override is never replaced by this setting."
   },
   {
    "fieldname": "allow_manual_wo_for_kanban_item",

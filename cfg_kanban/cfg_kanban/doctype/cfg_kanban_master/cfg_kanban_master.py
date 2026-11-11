@@ -7,6 +7,11 @@ from cfg_kanban.services.hidden_items import get_hidden_item_policy
 from cfg_kanban.services.purchase_uom import calculate_purchase_quantities
 from cfg_kanban.services.uom_conversion import get_item_purchase_uom
 from cfg_kanban.services.crew_policy import assert_approved_crew_profile
+from cfg_kanban.services.automation_policy import (
+    AUTOMATION_LEVELS,
+    AUTOMATION_POLICY_SOURCES,
+    MASTER_OVERRIDE,
+)
 
 
 def _approved_process_certificate_type(name):
@@ -25,6 +30,13 @@ def _approved_process_certificate_type(name):
 
 class CFGKanbanMaster(Document):
     def validate(self):
+        self.automation_policy_source = (
+            self.get("automation_policy_source") or MASTER_OVERRIDE
+        )
+        if self.automation_policy_source not in AUTOMATION_POLICY_SOURCES:
+            frappe.throw("Select a valid Automation Policy Source")
+        if (self.automation_level or "Approval") not in AUTOMATION_LEVELS:
+            frappe.throw("Select a valid Master Automation Override")
         self._set_item_and_purchase_uom()
         self._prepare_certificate_process_configuration()
         if flt(self.replenishment_qty) <= 0 or cint(self.number_of_cards) <= 0:

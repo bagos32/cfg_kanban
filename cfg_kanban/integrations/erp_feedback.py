@@ -885,6 +885,10 @@ def on_stock_entry_cancel(doc, method=None):
     revoke_cancelled_stock_entry_certificates(doc)
     from cfg_kanban.services.production_trace import reverse_stock_entry_trace
     reverse_stock_entry_trace(doc)
+    from cfg_kanban.services.certificate_process_recovery import (
+        sync_recovery_from_stock_entry,
+    )
+    sync_recovery_from_stock_entry(doc)
     from cfg_kanban.services.wip_bin_loads import reverse_wip_bin_stock_entry
     reverse_wip_bin_stock_entry(doc)
     if doc.get("cfg_return_case"):

@@ -75,8 +75,16 @@ def get_certificate_process_context(cycle_name, operator_session_token=None):
         reconcile_certificate_process(run.name)
         run.reload()
     master = frappe.get_doc("CFG Kanban Master", run.kanban_master)
+    recovery = (
+        frappe.db.get_value(
+            "CFG Process Certificate Recovery",
+            {"certificate_process_run": run.name}, "name",
+        )
+        if frappe.db.table_exists("CFG Process Certificate Recovery") else None
+    )
     return {
         "run": run.as_dict(),
+        "recovery": recovery,
         "allow_partial_qty": bool(cint(master.certificate_process_allow_partial_qty)),
         "reuse_source_tag": bool(cint(master.certificate_process_reuse_source_tag)),
         "capture_expiry": bool(cint(master.certificate_process_capture_expiry)),

@@ -10,6 +10,7 @@ from cfg_kanban.services.purchase_replenishment import (
     continue_purchase_execution,
     create_material_request_command,
 )
+from cfg_kanban.services.automation_policy import get_effective_automation_level
 
 
 def consume_card(card_name, *, device_id=None, event_token=None, trusted_operator=False):
@@ -44,7 +45,8 @@ def consume_card(card_name, *, device_id=None, event_token=None, trusted_operato
     card.db_set("active_cycle", cycle.name)
     ensure_tasks(cycle.name)
     cycle_start_gate = evaluate_gate(cycle.name, "Before Cycle Start")
-    automatic_release = master.automation_level == "Automatic" and cycle_start_gate["open"]
+    effective_automation_level = get_effective_automation_level(master)
+    automatic_release = effective_automation_level == "Automatic" and cycle_start_gate["open"]
     signal_type = {
         "Purchase Replenishment": "Purchase Replenishment",
         "Transfer": "Transfer Replenishment",
@@ -57,7 +59,7 @@ def consume_card(card_name, *, device_id=None, event_token=None, trusted_operato
         "trigger_source": "Physical Card",
         "item_code": master.item_code, "requested_qty": cycle.planned_qty, "stock_uom": master.stock_uom,
         "status": "Validated" if automatic_release else "Waiting Approval",
-        "priority": master.default_priority, "automation_level": master.automation_level,
+        "priority": master.default_priority, "automation_level": effective_automation_level,
         "requested_on": now_datetime(), "validated_on": now_datetime(),
     }), event_key, ignore_permissions=trusted_operator)
     cycle.db_set({"signal": signal.name, "status": "Signalled"})

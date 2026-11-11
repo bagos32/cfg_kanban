@@ -20,6 +20,8 @@ doctype_js = {
     "CFG Kanban Process Execution": "public/js/cfg_kanban_process_execution.js",
     "CFG Kanban Cycle": "public/js/cfg_kanban_cycle.js",
     "CFG Kanban Production Cancellation": "public/js/cfg_kanban_production_cancellation.js",
+    "CFG Process Certificate Run": "public/js/cfg_process_certificate_run.js",
+    "CFG Process Certificate Recovery": "public/js/cfg_process_certificate_recovery.js",
     "CFG Kanban Handling Unit": "public/js/cfg_kanban_handling_unit.js",
     "CFG Kanban Stock Adoption": "public/js/cfg_kanban_stock_adoption.js",
     "CFG Kanban Tag Range Registry": "public/js/cfg_kanban_tag_range_registry.js",

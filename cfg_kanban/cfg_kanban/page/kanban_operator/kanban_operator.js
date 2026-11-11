@@ -1355,7 +1355,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<div class="row">
 				<div class="col-sm-2"><small>${__("Master")}</small><div>${e(master.kanban_name || __("Service identity"))}</div></div>
 				<div class="col-sm-2"><small>${__("Quantity")}</small><div>${e(card.kanban_qty)} ${e(card.stock_uom || master.stock_uom || "")}</div></div>
-				<div class="col-sm-2"><small>${__("Automation")}</small><div>${e(master.automation_level)}</div></div>
+				<div class="col-sm-2"><small>${__("Automation")}</small><div>${e(master.automation_level)}</div>
+					<small class="text-muted">${e(master.automation_policy_source || __("Master Override"))}</small></div>
 				<div class="col-sm-3"><small>${__("Cycle")}</small><div>${cycle_label}</div></div>
 				<div class="col-sm-3"><small>${__("Effective Work Order")}</small><div>${work_order_label}</div></div>
 			</div>${overall_progress}<div class="cfg-card-actions mt-4"></div>
@@ -3105,6 +3106,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<div class="col-md-4"><small>${__("ERPNext Repack")}</small><div>${document_link("stock-entry", run.repack_stock_entry)}</div></div></div>
 			<div class="mt-3"><small>${batch_line}</small><br><small>${__("Selected / Good / Reject")}: ${e(run.selected_qty || 0)} / ${e(run.good_qty || 0)} / ${e(run.reject_qty || 0)} ${e(run.stock_uom)}</small></div>
 		</div>`);
+		if (context.recovery) {
+			$root.append(`<div class="alert alert-danger"><strong>${__("Controlled recovery in progress")}</strong><br>
+				${__("This Certificate Process and Card are frozen. A Manufacturing Manager must complete ERP and physical reconciliation.")}
+				${document_link("cfg-process-certificate-recovery", context.recovery)}</div>`);
+		} else if (["Awaiting ERP Submission", "Completed", "Exception"].includes(run.status)) {
+			$root.append(`<div class="alert alert-warning"><strong>${__("Normal cancellation is no longer available")}</strong><br>
+				${__("Open the Certificate Process Run and request Controlled Recovery if this Repack must be reversed.")}</div>`);
+		}
 		if (run.status === "Ready" && state.operator.permissions.start) {
 			add_action($actions, __("Start Certificate Process"), "btn-primary", open_certificate_process_start);
 		}

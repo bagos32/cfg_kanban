@@ -234,7 +234,10 @@ def _cancel_certificate_process(cycle, reason):
             "Use controlled Certificate Process recovery."
         )
     if run.status == "Completed":
-        frappe.throw(f"Certificate Process {run.name} is already Completed")
+        frappe.throw(
+            f"Certificate Process {run.name} is already Completed and has an ERPNext Repack. "
+            "Open the Certificate Process Run and use controlled Certificate Process recovery."
+        )
     if run.status == "In Progress" and flt(run.selected_qty) > 0:
         post_quantity_event(
             event_type="Unreserve", qty=run.selected_qty, stock_uom=run.stock_uom,

@@ -33,6 +33,7 @@ from cfg_kanban.services.crew_authorization import (
     evaluate_execution_crew,
     evaluate_operation_crew,
 )
+from cfg_kanban.services.automation_policy import get_automation_policy_snapshot
 
 
 @frappe.whitelist()
@@ -549,6 +550,7 @@ def get_card_context(token, operator_session_token=None):
             "service_tasks": service_tasks, "service_identity_card": True,
         }
     master = frappe.get_doc("CFG Kanban Master", card.kanban_master)
+    automation_policy = get_automation_policy_snapshot(master)
     cycle = frappe.get_doc("CFG Kanban Cycle", card.active_cycle) if card.active_cycle else None
     if master.control_type == "Certificate Process":
         from cfg_kanban.services.certificate_process import get_certificate_process_context
@@ -561,7 +563,9 @@ def get_card_context(token, operator_session_token=None):
             "master": {
                 "name": master.name, "kanban_name": master.kanban_name,
                 "item_code": master.item_code, "stock_uom": master.stock_uom,
-                "automation_level": master.automation_level,
+                "automation_level": automation_policy["effective_level"],
+                "automation_policy_source": automation_policy["source"],
+                "configured_automation_level": automation_policy["configured_level"],
                 "control_type": master.control_type,
                 "card_representation": master.card_representation,
             },
@@ -800,7 +804,10 @@ def get_card_context(token, operator_session_token=None):
     return {
         "card": card.as_dict(),
         "master": {"name": master.name, "kanban_name": master.kanban_name,
-                   "item_code": master.item_code, "automation_level": master.automation_level,
+                   "item_code": master.item_code,
+                   "automation_level": automation_policy["effective_level"],
+                   "automation_policy_source": automation_policy["source"],
+                   "configured_automation_level": automation_policy["configured_level"],
                    "control_type": master.control_type,
                    "card_representation": master.card_representation,
                    "stock_uom": master.stock_uom,

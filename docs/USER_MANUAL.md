@@ -1,13 +1,22 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.41
+**Guide version:** 2.42
 
 **Updated:** 11 November 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
 **Canonical file:** `docs/USER_MANUAL.md`
+
+**2.42 controlled Certificate Process recovery:** A no-BOM Certificate Process with an ERPNext
+Repack now has a dedicated manager-controlled recovery. The request freezes the Run, Cycle and
+Card; a submitted Repack must be cancelled through ERPNext; finalization verifies that the exact
+output tag has not moved, been reserved or reused. It then restores the source quantity, Batch,
+Warehouse and Certificate Set, voids a separate output tag where applicable, retains revoked
+certificate and ERP audit history, cancels the Run/Cycle/Signal, and releases the Card. A Draft
+Repack is discarded only through this recovery while its full JSON snapshot remains in the immutable
+recovery record. Follow `docs/TEST_CERTIFICATE_PROCESS_RECOVERY.md`.
 
 **2.41 Production operation certificates:** Normal **Production** Masters with BOM, Work Order,
 and Job Cards can now enforce Process Certificate rules at their exact Operations. Prior operation
@@ -834,7 +843,7 @@ Recommended pilot configuration:
 | Default Company (`default_company`) | Production company | Default business context |
 | Default WIP Warehouse (`default_wip_warehouse`) | Pilot WIP warehouse | Intermediate production location |
 | Default FG Warehouse (`default_fg_warehouse`) | Pilot FG warehouse | Completed-product location |
-| Default Automation Level (`default_automation_level`) | Approval | Options: Automatic, Approval, Signal Only |
+| Default Automation Level (`default_automation_level`) | Approval | Used by Masters whose Automation Policy Source is **Use Global Default**. Options: Automatic, Approval, Signal Only |
 | Allow Manual WO for Kanban Item (`allow_manual_wo_for_kanban_item`) | No initially | Policy flag against bypassing Kanban |
 | Require Manual Override Reason (`require_manual_override_reason`) | Yes | Preserves exception reasons |
 | Auto-submit Work Order (`auto_submit_work_order`) | No initially | When enabled, the created Work Order is submitted by the ERP gateway |
@@ -1111,11 +1120,19 @@ have passed live-site acceptance. The repeatable procedure remains in
 **DocType Action Card** can be configured, validated, replaced, printed, scanned and used to Resume
 or Start separate Action Runs without entering any production lifecycle.
 
-The runtime trigger uses the **Master's Automation Level** (`automation_level`). `Automatic`
-creates/executes the Work Order command immediately only when the Before Cycle Start gate is open.
+The runtime trigger resolves its automation policy from the Kanban Master:
+
+- **Master Override** (`automation_policy_source`) uses that Master's **Master Automation
+  Override** (`automation_level`). This is the compatibility default for existing Masters.
+- **Use Global Default** reads **Default Automation Level** from CFG Kanban Settings when the new
+  Signal is created.
+
+The resolved value is copied into the Signal as an audit snapshot. A later global-setting change
+therefore controls future Signals only and does not rewrite an existing Signal. `Automatic`
+creates/executes the ERP command immediately only when the Before Cycle Start gate is open.
 `Approval` creates a Waiting Approval Signal. In the current code, `Signal Only` also remains
 Waiting Approval and can still be released through the same manager approval action; it is not a
-hard technical prohibition against Work Order creation. Treat the distinction as policy until a
+hard technical prohibition against ERP document creation. Treat the distinction as policy until a
 separate Signal-Only release restriction is implemented.
 
 ## 7. Guided setup: create the first stock-replenishment Kanban
@@ -1141,7 +1158,8 @@ Open **CFG Kanban Master → New** and complete:
 | Source Warehouse (`source_warehouse`) | Raw-material/source | Work Order source |
 | WIP Warehouse (`wip_warehouse`) | Production WIP | ERP manufacturing WIP location |
 | Destination Warehouse (`destination_warehouse`) | Finished Goods | Finished output/stock target warehouse |
-| Automation Level (`automation_level`) | Approval | Automatic, Approval, or Signal Only |
+| Automation Policy Source (`automation_policy_source`) | Master Override | Use this Master's policy, or select Use Global Default |
+| Master Automation Override (`automation_level`) | Approval | Visible when Master Override is selected; choose Automatic to avoid routine signal approval for this Master |
 | Default Priority (`default_priority`) | Normal | Low, Normal, High, or Urgent |
 | Allow Partial Output (`allow_partial_output`) | As required | Loop policy |
 | Use ERP BOM Operations (`use_erp_bom_operations`) | Yes | ERPNext route remains authoritative |
@@ -3533,7 +3551,8 @@ Configure these exact fields on **CFG Kanban Master**:
 | Reorder Point (Stock UOM) | `inventory_reorder_point_qty` | Trigger when observed balance is strictly below this value |
 | Replenish Up To (Stock UOM) | `inventory_target_qty` | Quantity the generated demand attempts to reach |
 | Maximum Replenishment Quantities per Trigger | `inventory_max_cards_per_run` | Caps one generated Signal |
-| Automation Level | `automation_level` | Automatic, Approval, or Signal Only behaviour inherited by the generated Signal |
+| Automation Policy Source | `automation_policy_source` | Select the individual Master override or the global default |
+| Master Automation Override | `automation_level` | Automatic, Approval, or Signal Only; used when Master Override is selected |
 
 For an ERPNext stock Item, the balance source is **ERPNext Projected Quantity** from the Item and
 destination Warehouse `Bin`. The threshold can come from the Master override or from the exact
@@ -4542,7 +4561,8 @@ Configuration:
    No Physical Tag.
 3. Create **CFG Kanban Master** with **Control Type** (`control_type`) = **Withdrawal**. Set the exact
    Company, Item, Card quantity in Stock UOM, source Warehouse, **Standard Withdrawal Reason**
-   (`withdrawal_reason`), and Automation Level. Destination Warehouse, Logistics Route, BOM and WIP
+   (`withdrawal_reason`), Automation Policy Source, and (when applicable) Master Automation
+   Override. Destination Warehouse, Logistics Route, BOM and WIP
    Warehouse are not part of this transaction.
 4. Leave **Submit Material Issue on Operator Confirmation**
    (`auto_submit_withdrawal_stock_entry`) off during rollout. When enabled, the operator's final
@@ -4643,6 +4663,33 @@ Production sequence:
 The native report filters one exact Set. It does not mean “contains this one certificate” across
 several Sets. That broader search belongs to the future CFG Kanban certificate inventory report.
 
+### Controlled no-BOM Certificate Process recovery
+
+Normal **Cancel Certificate Process** is available only while the Run is **Ready** or **In
+Progress** and no ERPNext Repack exists. Once the Run is **Awaiting ERP Submission** or
+**Completed**, use the following manager path:
+
+1. Open the linked **CFG Process Certificate Run**.
+2. Select **Recovery → Request Controlled Recovery**, enter the exact reason, and confirm. The Run,
+   Cycle and reusable Card are frozen immediately.
+3. Open the generated **CFG Process Certificate Recovery**.
+4. For a Draft Repack, status is **Ready to Finalize**. For a submitted Repack, select **ERP
+   Reversal → Cancel ERPNext Repack** first. Native ERPNext cancellation remains the stock
+   authority and revokes issued certificate instances without deleting them.
+5. Select **Refresh Assessment**. A moved, reserved, consumed, split, reused, Batch-changed, or
+   certificate-changed output tag blocks recovery; reconcile the downstream activity rather than
+   forcing the Card state.
+6. At **Ready to Finalize**, select **Recovery → Finalize and Release Card**. Record the Repack
+   reference, physical source/output count and location, and verifier in **Final Reconciliation
+   Evidence**.
+
+Finalization releases a Draft reservation or reverses the untouched submitted physical projection.
+For full-tag reuse it restores the source tag's prior Batch, Warehouse and Certificate Set. For a
+separate output tag it records an audited Merge back to the source and marks the output tag Void.
+The original Run, ERP document name/snapshot, certificates, quantity ledger and Events remain
+available. If the reusable Card has already entered a later Cycle, recovery is refused until that
+later Cycle is resolved.
+
 Do not infer acceptance from code presence. Record scanner-only kiosk, ERP submission, output-tag,
 Stock Ledger, negative-gate, and recovery results in the relevant test document. Split/merge,
 revocation, genealogy, and any-certificate reporting must be treated as separate capabilities until
@@ -4686,6 +4733,7 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.42 | 11 November 2026 | Added controlled no-BOM Certificate Process recovery: immutable manager request, Run/Cycle/Card freeze, Draft Repack snapshot/discard, submitted ERPNext Repack cancellation, certificate revocation retention, untouched-output safety checks, source tag/Batch/Warehouse/Certificate Set restoration, separate output-tag merge/void, audited final reconciliation, and Card release |
 | 2.41 | 11 November 2026 | Extended Process Certificates to normal BOM/Work Order/Job Card production: operation-stage gates from prior results or scanned Material Runs, shared Job Card evidence for reusable Process/Station Cards, immutable execution result Set snapshots, final Manufacture output dimension assignment, mandatory exact output identity, submission-only certificate binding, and a dedicated acceptance guide |
 | 2.40 | 11 November 2026 | Added the scanner-first no-BOM Certificate Process runtime: dedicated Master mode and Run audit, exact source-tag and certificate gates, optional Batch behavior inherited from ERPNext Item, full-tag reuse or mandatory partial output tag, quantity-conserving same-Item Repack, submission-only tag/certificate mutation, printable field-arm commands, cancellation safety, workspace visibility, and plastic-bag acceptance guide |
 | 2.39 | 11 November 2026 | Added the Process Certificate foundation: submitted revision-controlled Certificate Types, immutable exact Certificate Sets and issued-instance schema, Production Master input gates/output rules, Handling Unit certificate-state visibility, automatic idempotent ERPNext `Process Certificate Set` Inventory Dimension creation for all stock documents, and native Stock Ledger/Stock Balance exact-set filtering including direct ERP documents |
