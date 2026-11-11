@@ -95,8 +95,10 @@ class TestProcessCertificateFoundation(TestCase):
         self.assertIn('"reference_document": "CFG Process Certificate Set"', installer)
         self.assertIn('"apply_to_all_doctypes": 1', installer)
         self.assertIn('"validate_negative_stock": 1', installer)
-        self.assertIn('expected_source = "process_certificate_set"', installer)
-        self.assertIn('expected_target = "process_certificate_set"', installer)
+        self.assertIn("expected_source = frappe.scrub(dimension_name)", installer)
+        self.assertIn("accepted_targets = {", installer)
+        self.assertIn("frappe.scrub(existing.reference_document)", installer)
+        self.assertIn("existing.target_fieldname not in accepted_targets", installer)
         self.assertIn("_ensure_process_certificate_inventory_dimension()", installer)
 
     def test_workspace_exposes_configuration_audit_and_native_stock_ledger(self):

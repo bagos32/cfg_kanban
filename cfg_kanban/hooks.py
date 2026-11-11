@@ -7,6 +7,7 @@ app_license = "MIT"
 required_apps = ["erpnext"]
 
 app_include_css = "/assets/cfg_kanban/css/kanban_operator.css"
+app_include_js = "/assets/cfg_kanban/js/cfg_kanban_navigation.js"
 
 doctype_js = {
     "BOM": "public/js/bom.js",

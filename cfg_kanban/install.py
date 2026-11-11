@@ -45,14 +45,20 @@ def _ensure_process_certificate_inventory_dimension():
                 "Inventory Dimension 'Process Certificate Set' already exists with a different "
                 "Reference Document. Resolve the collision before migrating CFG Kanban."
             )
-        expected_source = "process_certificate_set"
-        expected_target = "process_certificate_set"
-        if existing.source_fieldname and existing.source_fieldname != expected_source:
+        expected_source = frappe.scrub(dimension_name)
+        # ERPNext 15.65 derives the Stock Ledger Entry field from the Reference
+        # Document, while later v15 releases derive it from the Dimension Name.
+        # Both are framework-owned, valid fieldnames for this same dimension.
+        accepted_targets = {
+            expected_source,
+            frappe.scrub(existing.reference_document),
+        }
+        if existing.source_fieldname != expected_source:
             frappe.throw(
                 "Inventory Dimension 'Process Certificate Set' uses an unexpected source "
                 "fieldname. Resolve the collision before migrating CFG Kanban."
             )
-        if existing.target_fieldname and existing.target_fieldname != expected_target:
+        if existing.target_fieldname not in accepted_targets:
             frappe.throw(
                 "Inventory Dimension 'Process Certificate Set' uses an unexpected ledger "
                 "fieldname. Resolve the collision before migrating CFG Kanban."
