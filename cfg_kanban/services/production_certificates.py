@@ -182,10 +182,11 @@ def validate_production_certificate_stock_entry(doc):
     result_set = _final_production_result_set(cycle, master)
     if not result_set:
         return
-    if not frappe.get_meta("Stock Entry Detail").has_field("process_certificate_set"):
+    detail_meta = frappe.get_meta("Stock Entry Detail")
+    if not detail_meta.has_field("to_process_certificate_set"):
         frappe.throw(
-            "Process Certificate Set Inventory Dimension is missing. Run the CFG Kanban "
-            "migration before submitting certified production output."
+            "Target Process Certificate Set Inventory Dimension is missing. Run the CFG "
+            "Kanban migration before submitting certified production output."
         )
     output_rows = [
         row for row in doc.items
@@ -213,7 +214,7 @@ def validate_production_certificate_stock_entry(doc):
                 f"Certified output Item {row.item_code} requires physical output tags for "
                 f"the complete quantity. Staged {staged} of {output_qty}."
             )
-        row.process_certificate_set = result_set
+        row.to_process_certificate_set = result_set
 
 
 def reconcile_production_output_certificates(doc):
@@ -243,7 +244,7 @@ def reconcile_production_output_certificates(doc):
         row = output_rows.get(line.stock_entry_detail)
         if not row or row.item_code != cycle.item_code or not line.handling_unit:
             continue
-        result_set = row.get("process_certificate_set")
+        result_set = row.get("to_process_certificate_set")
         if not result_set:
             continue
         frappe.db.set_value(

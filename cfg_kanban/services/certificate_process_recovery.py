@@ -191,11 +191,25 @@ def finalize_certificate_process_recovery(recovery_name, reconciliation_evidence
     card = frappe.get_doc("CFG Kanban Card", recovery.kanban_card)
     run.db_set({
         "status": "Cancelled",
+        "output_claim_key": None,
         "repack_stock_entry": None if draft_discarded else run.repack_stock_entry,
         "exception_notes": _append_note(
             run.exception_notes, f"Recovery {recovery.name} completed: {evidence}"
         ),
     }, update_modified=True)
+    if frappe.db.table_exists("CFG Certificate Process Progress"):
+        frappe.db.set_value(
+            "CFG Certificate Process Progress",
+            {
+                "certificate_process_run": run.name,
+                "status": ["in", ["Recorded", "ERP Posted"]],
+            },
+            {
+                "status": "Cancelled", "cancelled_on": now_datetime(),
+                "cancellation_reason": f"Controlled recovery {recovery.name}: {evidence}",
+            },
+            update_modified=False,
+        )
     cycle.db_set("blocked", 0, update_modified=False)
     set_cycle_state(
         cycle, "Cancelled", event_type="Certificate Process Recovery Completed",
@@ -290,11 +304,12 @@ def _reverse_physical_projection(recovery, run):
         "current_warehouse": run.source_warehouse,
         "identity_state": "Active", "movement_state": "Received",
     }, update_modified=True)
-    frappe.db.set_value("CFG Kanban Handling Unit", output.name, {
-        "state": "Void", "identity_state": "Void", "movement_state": "Empty",
-        "process_certificate_set": None,
-        "void_reason": f"Certificate Process Recovery {recovery.name}",
-    }, update_modified=True)
+    if run.output_tag_mode != "Merge Existing":
+        frappe.db.set_value("CFG Kanban Handling Unit", output.name, {
+            "state": "Void", "identity_state": "Void", "movement_state": "Empty",
+            "process_certificate_set": None,
+            "void_reason": f"Certificate Process Recovery {recovery.name}",
+        }, update_modified=True)
 
 
 def _release_run_reservation(run, recovery):
@@ -339,8 +354,12 @@ def _physical_reversal_blocker(run):
         cutoff = run.completed_on
         units = [source.name]
     else:
+        expected_output_qty = flt(run.good_qty) + (
+            flt(run.output_tag_qty_before)
+            if run.output_tag_mode == "Merge Existing" else 0
+        )
         problems = _unit_mismatches(
-            output, run.good_qty, run.output_warehouse, run.output_batch,
+            output, expected_output_qty, run.output_warehouse, run.output_batch,
             run.result_certificate_set,
         )
         if source.current_warehouse != run.source_warehouse:
@@ -349,9 +368,13 @@ def _physical_reversal_blocker(run):
             problems.append("source tag Batch changed")
         if (source.process_certificate_set or None) != (run.source_certificate_set or None):
             problems.append("source tag certificate state changed")
+        ledger_key = (
+            "certificate-process-merge-existing"
+            if run.output_tag_mode == "Merge Existing" else "certificate-process-split"
+        )
         cutoff = frappe.db.get_value(
             "CFG Kanban Handling Unit Quantity Ledger",
-            {"idempotency_key": canonical_key("certificate-process-split", run.name)},
+            {"idempotency_key": canonical_key(ledger_key, run.name)},
             "creation",
         )
         units = [source.name, output.name]

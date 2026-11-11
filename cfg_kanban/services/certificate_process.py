@@ -42,6 +42,9 @@ def release_certificate_process(signal_name):
         "item_code": master.item_code,
         "stock_uom": item.stock_uom,
         "operation": master.certificate_process_operation,
+        "progress_mode": (
+            master.certificate_process_progress_mode or "Single Completion"
+        ),
         "planned_qty": signal.requested_qty,
         "item_batch_controlled": cint(item.has_batch_no),
         "source_warehouse": master.source_warehouse,
@@ -84,6 +87,19 @@ def get_certificate_process_context(cycle_name, operator_session_token=None):
     )
     return {
         "run": run.as_dict(),
+        "progress_rows": frappe.get_all(
+            "CFG Certificate Process Progress",
+            filters={"certificate_process_run": run.name, "status": ["!=", "Cancelled"]},
+            fields=[
+                "name", "sequence", "status", "good_qty", "reject_qty",
+                "output_tag_code", "output_handling_unit", "output_tag_mode",
+                "result_certificate_set", "output_batch", "printed_expiry",
+                "first_output_serial", "last_output_serial", "recorded_on",
+                "recorded_by_operator", "repack_stock_entry",
+            ],
+            order_by="sequence asc",
+            limit_page_length=0,
+        ) if frappe.db.table_exists("CFG Certificate Process Progress") else [],
         "recovery": recovery,
         "allow_partial_qty": bool(cint(master.certificate_process_allow_partial_qty)),
         "reuse_source_tag": bool(cint(master.certificate_process_reuse_source_tag)),
@@ -158,6 +174,11 @@ def complete_certificate_process(cycle_name, good_qty, reject_qty=0,
     if run.status == "Awaiting ERP Submission":
         return get_certificate_process_context(cycle_name, operator_session_token)
     master = frappe.get_doc("CFG Kanban Master", run.kanban_master)
+    if run.progress_mode == "Consolidated Partial Progress":
+        frappe.throw(
+            "Use Report Certificate Progress for each partial result, then Close Certificate "
+            "Process to create the consolidated Repack"
+        )
     good_qty, reject_qty = flt(good_qty), flt(reject_qty)
     if good_qty <= 0:
         frappe.throw("Good quantity must be positive")
@@ -169,10 +190,6 @@ def complete_certificate_process(cycle_name, good_qty, reject_qty=0,
         and reject_qty <= TOLERANCE
         and abs(good_qty - flt(source.current_qty)) <= TOLERANCE
     )
-    pending_output = None
-    if not full_reuse:
-        pending_output = normalize_physical_code(output_tag_scan)
-        _validate_unused_output_tag(pending_output)
     if not cint(run.item_batch_controlled) and output_batch:
         frappe.throw("Output Batch is not accepted because this Item is not Batch controlled")
     _validate_retain_evidence(master, source)
@@ -180,11 +197,20 @@ def complete_certificate_process(cycle_name, good_qty, reject_qty=0,
         run.item_code, run.source_batch, output_batch, printed_expiry
     ) if cint(run.item_batch_controlled) else None
     result_set = _result_certificate_set(master, run.source_certificate_set)
+    output_identity = {
+        "mode": "Reuse Source", "pending_code": None,
+        "handling_unit": source.name, "qty_before": flt(source.current_qty),
+    } if full_reuse else _resolve_output_tag(
+        output_tag_scan, run, source, result_set.name, resolved_batch
+    )
+    _claim_output_identity(run, output_identity)
     entry = _create_repack_entry(run, good_qty, result_set.name, resolved_batch)
     run.db_set({
         "good_qty": good_qty, "reject_qty": reject_qty,
-        "pending_output_tag_code": pending_output,
-        "output_handling_unit": source.name if full_reuse else None,
+        "pending_output_tag_code": output_identity["pending_code"],
+        "output_handling_unit": output_identity["handling_unit"],
+        "output_tag_mode": output_identity["mode"],
+        "output_tag_qty_before": output_identity["qty_before"],
         "result_certificate_set": result_set.name,
         "output_batch": resolved_batch,
         "printed_expiry": printed_expiry if cint(master.certificate_process_capture_expiry) else None,
@@ -199,6 +225,157 @@ def complete_certificate_process(cycle_name, good_qty, reject_qty=0,
            cycle=run.kanban_cycle, handling_unit=source.name, qty=good_qty,
            reference_doctype="Stock Entry", reference_name=entry.name,
            operator=profile.employee, operator_session=session.name)
+    if master.certificate_process_posting_mode == "Submit on Operator Confirmation":
+        return submit_certificate_process(
+            run.name, event_token=event_token,
+            operator_session_token=operator_session_token,
+        )
+    return get_certificate_process_context(cycle_name, operator_session_token)
+
+
+@frappe.whitelist()
+def report_certificate_process_progress(
+        cycle_name, good_qty, reject_qty=0, output_tag_scan=None,
+        output_batch=None, printed_expiry=None, first_output_serial=None,
+        last_output_serial=None, event_token=None, operator_session_token=None):
+    profile, session = require_operator(operator_session_token, "complete")
+    run = _locked_run(cycle_name)
+    if run.status != "In Progress":
+        frappe.throw(f"Certificate Process progress cannot be reported while it is {run.status}")
+    if run.progress_mode != "Consolidated Partial Progress":
+        frappe.throw("This Certificate Process uses Single Completion")
+    master = frappe.get_doc("CFG Kanban Master", run.kanban_master)
+    good_qty, reject_qty = flt(good_qty), flt(reject_qty)
+    if good_qty <= 0 or reject_qty < 0:
+        frappe.throw("Partial progress requires positive Good and non-negative Reject quantity")
+    next_total = flt(run.good_qty) + flt(run.reject_qty) + good_qty + reject_qty
+    if next_total > flt(run.selected_qty) + TOLERANCE:
+        frappe.throw(
+            f"Partial progress exceeds the selected quantity by "
+            f"{next_total - flt(run.selected_qty)} {run.stock_uom}"
+        )
+    if not cint(run.item_batch_controlled) and output_batch:
+        frappe.throw("Output Batch is not accepted because this Item is not Batch controlled")
+    source = frappe.get_doc("CFG Kanban Handling Unit", run.source_handling_unit)
+    _validate_retain_evidence(master, source)
+    resolved_batch = _resolve_output_batch(
+        run.item_code, run.source_batch, output_batch, printed_expiry
+    ) if cint(run.item_batch_controlled) else None
+    result_set = _result_certificate_set(master, run.source_certificate_set)
+    if run.result_certificate_set and run.result_certificate_set != result_set.name:
+        frappe.throw("Certificate output rules changed after partial progress started")
+    output_identity = _progress_output_identity(
+        run, source, output_tag_scan, result_set.name, resolved_batch
+    )
+    _validate_progress_output_details(
+        run, resolved_batch, printed_expiry, output_identity
+    )
+    _claim_output_identity(run, output_identity)
+    key = canonical_key("certificate-process-progress", run.name, event_token)
+    existing = frappe.db.get_value(
+        "CFG Certificate Process Progress", {"idempotency_key": key}, "name"
+    )
+    if existing:
+        return get_certificate_process_context(cycle_name, operator_session_token)
+    sequence = cint(frappe.db.get_value(
+        "CFG Certificate Process Progress",
+        {"certificate_process_run": run.name}, "max(sequence)",
+    )) + 1
+    progress = frappe.get_doc({
+        "doctype": "CFG Certificate Process Progress",
+        "status": "Recorded", "sequence": sequence,
+        "certificate_process_run": run.name, "kanban_cycle": run.kanban_cycle,
+        "kanban_master": run.kanban_master, "kanban_card": run.kanban_card,
+        "company": run.company, "item_code": run.item_code,
+        "stock_uom": run.stock_uom, "operation": run.operation,
+        "good_qty": good_qty, "reject_qty": reject_qty,
+        "source_handling_unit": source.name,
+        "output_tag_code": output_identity["visible_code"],
+        "output_handling_unit": output_identity["handling_unit"],
+        "output_tag_mode": output_identity["mode"],
+        "result_certificate_set": result_set.name,
+        "output_batch": resolved_batch,
+        "printed_expiry": (
+            printed_expiry if cint(master.certificate_process_capture_expiry) else None
+        ),
+        "first_output_serial": (
+            first_output_serial
+            if cint(master.certificate_process_capture_serial_boundary) else None
+        ),
+        "last_output_serial": (
+            last_output_serial
+            if cint(master.certificate_process_capture_serial_boundary) else None
+        ),
+        "recorded_on": now_datetime(), "recorded_by_operator": profile.employee,
+        "operator_session": session.name, "terminal_user": frappe.session.user,
+        "idempotency_key": key,
+    }).insert(ignore_permissions=True)
+    run.db_set({
+        "good_qty": flt(run.good_qty) + good_qty,
+        "reject_qty": flt(run.reject_qty) + reject_qty,
+        "pending_output_tag_code": output_identity["pending_code"],
+        "output_handling_unit": output_identity["handling_unit"],
+        "output_tag_mode": output_identity["mode"],
+        "output_tag_qty_before": output_identity["qty_before"],
+        "result_certificate_set": result_set.name,
+        "output_batch": resolved_batch,
+        "printed_expiry": printed_expiry or run.printed_expiry,
+        "first_output_serial": run.first_output_serial or first_output_serial,
+        "last_output_serial": last_output_serial or run.last_output_serial,
+    }, update_modified=True)
+    record(
+        "Certificate Process Partial Progress Recorded", card=run.kanban_card,
+        cycle=run.kanban_cycle, handling_unit=source.name, qty=good_qty,
+        reference_doctype=progress.doctype, reference_name=progress.name,
+        operator=profile.employee, operator_session=session.name,
+        notes=(f"Partial run {sequence}; pending output {output_identity['visible_code']}; "
+               f"result set {result_set.name}; ERP consolidation pending"),
+    )
+    return get_certificate_process_context(cycle_name, operator_session_token)
+
+
+@frappe.whitelist()
+def close_consolidated_certificate_process(
+        cycle_name, event_token=None, operator_session_token=None):
+    profile, session = require_operator(operator_session_token, "complete")
+    run = _locked_run(cycle_name)
+    if run.status == "Awaiting ERP Submission":
+        return get_certificate_process_context(cycle_name, operator_session_token)
+    if run.status != "In Progress" or run.progress_mode != "Consolidated Partial Progress":
+        frappe.throw("No consolidated Certificate Process is ready to close")
+    master = frappe.get_doc("CFG Kanban Master", run.kanban_master)
+    reported = flt(run.good_qty) + flt(run.reject_qty)
+    if flt(run.good_qty) <= 0 or reported <= TOLERANCE:
+        frappe.throw("Record at least one positive Certificate Process partial result first")
+    if reported > flt(run.selected_qty) + TOLERANCE:
+        frappe.throw("Recorded Certificate Process progress exceeds selected quantity")
+    if not cint(master.certificate_process_allow_partial_qty) and (
+            abs(reported - flt(run.selected_qty)) > TOLERANCE):
+        frappe.throw("This Certificate Process requires the complete selected quantity")
+    if not run.result_certificate_set or not (
+            run.pending_output_tag_code or run.output_handling_unit):
+        frappe.throw("Recorded partial progress has no controlled output identity")
+    _validate_consolidated_output_at_close(run)
+    entry = _create_repack_entry(
+        run, run.good_qty, run.result_certificate_set, run.output_batch
+    )
+    run.db_set({
+        "repack_stock_entry": entry.name,
+        "status": "Awaiting ERP Submission",
+    }, update_modified=True)
+    frappe.db.set_value(
+        "CFG Certificate Process Progress",
+        {"certificate_process_run": run.name, "status": "Recorded"},
+        "repack_stock_entry", entry.name, update_modified=False,
+    )
+    record(
+        "Certificate Process Consolidated Repack Created", card=run.kanban_card,
+        cycle=run.kanban_cycle, handling_unit=run.source_handling_unit,
+        qty=run.good_qty, reference_doctype="Stock Entry", reference_name=entry.name,
+        operator=profile.employee, operator_session=session.name,
+        notes=(f"Consolidated partial progress; reject {run.reject_qty} {run.stock_uom}; "
+               f"unprocessed {max(flt(run.selected_qty) - reported, 0)} {run.stock_uom}"),
+    )
     if master.certificate_process_posting_mode == "Submit on Operator Confirmation":
         return submit_certificate_process(
             run.name, event_token=event_token,
@@ -272,7 +449,20 @@ def cancel_certificate_process(run_name, reason, event_token=None,
             reference_name=run.name, operator=profile.employee,
             operator_session=session.name, reason=reason.strip(),
         )
-    run.db_set({"status": "Cancelled", "exception_notes": reason.strip()})
+    if frappe.db.table_exists("CFG Certificate Process Progress"):
+        frappe.db.set_value(
+            "CFG Certificate Process Progress",
+            {"certificate_process_run": run.name, "status": "Recorded"},
+            {
+                "status": "Cancelled", "cancelled_on": now_datetime(),
+                "cancellation_reason": reason.strip(),
+            },
+            update_modified=False,
+        )
+    run.db_set({
+        "status": "Cancelled", "exception_notes": reason.strip(),
+        "output_claim_key": None,
+    })
     cycle = frappe.get_doc("CFG Kanban Cycle", run.kanban_cycle)
     set_cycle_state(cycle, "Cancelled", event_type="Certificate Process Cancelled",
                     reference_doctype=run.doctype, reference_name=run.name)
@@ -318,6 +508,19 @@ def reconcile_certificate_process(run_name):
             "current_warehouse": run.output_warehouse,
         }, update_modified=True)
         output = frappe.get_doc("CFG Kanban Handling Unit", source.name)
+    elif run.output_tag_mode == "Merge Existing":
+        output = frappe.get_doc("CFG Kanban Handling Unit", run.output_handling_unit)
+        post_quantity_event(
+            event_type="Merge", qty=run.good_qty, stock_uom=run.stock_uom,
+            idempotency_key=canonical_key("certificate-process-merge-existing", run.name),
+            source_handling_unit=source.name, destination_handling_unit=output.name,
+            item_code=run.item_code, batch_no=run.output_batch,
+            source_company=run.company, destination_company=run.company,
+            source_warehouse=run.source_warehouse,
+            destination_warehouse=run.output_warehouse,
+            reference_doctype=run.doctype, reference_name=run.name,
+            reason="ERPNext Repack submitted; certified output merged into compatible tag",
+        )
     else:
         output = _activate_output_unit(run, source)
         post_quantity_event(
@@ -332,8 +535,20 @@ def reconcile_certificate_process(run_name):
             reason="ERPNext Repack submitted; output certificate state activated",
         )
     _issue_output_certificates(run, output)
-    run.db_set({"status": "Completed", "output_handling_unit": output.name,
-                "completed_on": now_datetime()})
+    if frappe.db.table_exists("CFG Certificate Process Progress"):
+        frappe.db.set_value(
+            "CFG Certificate Process Progress",
+            {"certificate_process_run": run.name, "status": "Recorded"},
+            {
+                "status": "ERP Posted", "repack_stock_entry": entry.name,
+                "posted_on": now_datetime(),
+            },
+            update_modified=False,
+        )
+    run.db_set({
+        "status": "Completed", "output_handling_unit": output.name,
+        "output_claim_key": None, "completed_on": now_datetime(),
+    })
     cycle = frappe.get_doc("CFG Kanban Cycle", run.kanban_cycle)
     cycle.db_set({"actual_good_qty": run.good_qty, "reject_qty": run.reject_qty})
     set_cycle_state(cycle, "Completed", event_type="Certificate Process Completed",
@@ -463,8 +678,42 @@ def _result_certificate_set(master, source_set_name):
     }).insert(ignore_permissions=True)
 
 
-def _validate_unused_output_tag(code):
+def _resolve_output_tag(scan_value, run, source, result_set, output_batch):
+    code = normalize_physical_code(scan_value)
     identity = resolve_logistics_scan(code)
+    if identity and identity.get("identity_type") == "Handling Unit":
+        output = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
+        if output.name == source.name:
+            frappe.throw(
+                "The source tag can be reused only when the complete source quantity is processed"
+            )
+        expected = (
+            run.item_code, run.stock_uom, run.company, run.output_warehouse,
+            output_batch or None, result_set,
+        )
+        actual = (
+            output.item_code, output.stock_uom, output.inventory_company,
+            output.current_warehouse, output.batch_no or None,
+            output.process_certificate_set or None,
+        )
+        if actual != expected:
+            frappe.throw(
+                "Existing output tag must match the Item, UOM, Company, Output Warehouse, "
+                "Batch, and resulting Process Certificate Set"
+            )
+        if output.identity_state != "Active" or output.quality_state != "Released":
+            frappe.throw("Existing output tag must be Active and Released")
+        if flt(output.current_qty) <= TOLERANCE:
+            frappe.throw("Existing output tag has no active quantity; use an unused output tag")
+        if flt(output.reserved_qty) > TOLERANCE:
+            frappe.throw(
+                f"Existing output tag has {output.reserved_qty} {output.stock_uom} reserved"
+            )
+        return {
+            "mode": "Merge Existing", "pending_code": None,
+            "handling_unit": output.name, "qty_before": flt(output.current_qty),
+            "visible_code": output.handling_unit_id,
+        }
     if not identity or identity.get("identity_type") not in (
             "Registered Tag Identity", "Tag Range Candidate"):
         frappe.throw("Output tag is not covered by an active Tag Family or Tag Range")
@@ -472,6 +721,123 @@ def _validate_unused_output_tag(code):
         frappe.throw("Certificate Process output requires an unused main Stock Tag")
     if identity.get("state") not in ("Unused", "Unmaterialized"):
         frappe.throw(f"Output tag is {identity.get('state')}")
+    return {
+        "mode": "New Tag", "pending_code": code,
+        "handling_unit": None, "qty_before": 0, "visible_code": code,
+    }
+
+
+def _progress_output_identity(run, source, scan_value, result_set, output_batch):
+    if run.pending_output_tag_code or run.output_handling_unit:
+        code = normalize_physical_code(scan_value)
+        if run.output_handling_unit:
+            identity = resolve_logistics_scan(code)
+            if not identity or identity.get("identity_type") != "Handling Unit" or (
+                    identity.get("name") != run.output_handling_unit):
+                frappe.throw(
+                    "Every partial report in one consolidated Certificate Process must scan "
+                    "the same existing output tag"
+                )
+            output = frappe.get_doc("CFG Kanban Handling Unit", run.output_handling_unit)
+            return {
+                "mode": "Merge Existing", "pending_code": None,
+                "handling_unit": output.name,
+                "qty_before": flt(run.output_tag_qty_before),
+                "visible_code": output.handling_unit_id,
+            }
+        if code != run.pending_output_tag_code:
+            frappe.throw(
+                "Every partial report in one consolidated Certificate Process must scan "
+                "the same unused output tag"
+            )
+        _validate_pending_unused_output_tag(code)
+        return {
+            "mode": "New Tag", "pending_code": code, "handling_unit": None,
+            "qty_before": 0, "visible_code": code,
+        }
+    identity = _resolve_output_tag(scan_value, run, source, result_set, output_batch)
+    if identity["handling_unit"]:
+        output = frappe.get_doc("CFG Kanban Handling Unit", identity["handling_unit"])
+        identity["visible_code"] = output.handling_unit_id
+    return identity
+
+
+def _validate_pending_unused_output_tag(code):
+    identity = resolve_logistics_scan(code)
+    if not identity or identity.get("identity_type") not in (
+            "Registered Tag Identity", "Tag Range Candidate"):
+        frappe.throw("Pending output tag is no longer covered by its Tag Family or Tag Range")
+    if identity.get("tag_role") != "Main" or identity.get("state") not in (
+            "Unused", "Unmaterialized"):
+        frappe.throw("Pending consolidated output tag is no longer an unused main Stock Tag")
+
+
+def _validate_progress_output_details(run, output_batch, printed_expiry, identity):
+    if run.result_certificate_set and identity["mode"] != run.output_tag_mode:
+        frappe.throw("Output tag mode changed after partial progress was recorded")
+    if run.output_batch and (run.output_batch or None) != (output_batch or None):
+        frappe.throw("Output Batch must remain the same across consolidated partial progress")
+    if run.printed_expiry and printed_expiry and run.printed_expiry != printed_expiry:
+        frappe.throw("Printed Expiry must remain the same across consolidated partial progress")
+
+
+def _claim_output_identity(run, identity):
+    visible_identity = identity.get("pending_code") or identity.get("handling_unit")
+    claim_key = (
+        f"NEW:{visible_identity}"
+        if identity.get("pending_code") else f"HU:{visible_identity}"
+    )
+    if run.output_claim_key:
+        if run.output_claim_key != claim_key:
+            frappe.throw("This Certificate Process already claimed a different output tag")
+        return
+    existing = frappe.db.get_value(
+        "CFG Process Certificate Run",
+        {"output_claim_key": claim_key, "name": ["!=", run.name]},
+        "name",
+    )
+    if existing:
+        frappe.throw(
+            f"Output tag is already claimed by open Certificate Process Run {existing}"
+        )
+    try:
+        run.db_set("output_claim_key", claim_key, update_modified=True)
+    except frappe.UniqueValidationError:
+        frappe.throw("Output tag was claimed by another Certificate Process; rescan another tag")
+
+
+def _validate_consolidated_output_at_close(run):
+    expected_claim = (
+        f"NEW:{run.pending_output_tag_code}"
+        if run.pending_output_tag_code else f"HU:{run.output_handling_unit}"
+    )
+    if run.output_claim_key != expected_claim:
+        frappe.throw("The consolidated output-tag claim is missing or changed")
+    if run.pending_output_tag_code:
+        _validate_pending_unused_output_tag(run.pending_output_tag_code)
+        return
+    output = frappe.get_doc("CFG Kanban Handling Unit", run.output_handling_unit)
+    expected = (
+        run.item_code, run.stock_uom, run.company, run.output_warehouse,
+        run.output_batch or None, run.result_certificate_set,
+    )
+    actual = (
+        output.item_code, output.stock_uom, output.inventory_company,
+        output.current_warehouse, output.batch_no or None,
+        output.process_certificate_set or None,
+    )
+    if actual != expected or output.identity_state != "Active" or (
+            output.quality_state != "Released"):
+        frappe.throw(
+            "The consolidated output tag changed after partial progress was recorded; "
+            "use controlled cancellation and investigate the physical tag"
+        )
+    if abs(flt(output.current_qty) - flt(run.output_tag_qty_before)) > TOLERANCE or (
+            flt(output.reserved_qty) > TOLERANCE):
+        frappe.throw(
+            "The consolidated output tag quantity or reservation changed after partial "
+            "progress was recorded; use controlled cancellation and investigate"
+        )
 
 
 def _resolve_output_batch(item_code, source_batch, requested_batch, printed_expiry):
@@ -507,7 +873,13 @@ def _create_repack_entry(run, qty, result_set, output_batch):
     detail_meta = frappe.get_meta("Stock Entry Detail")
     if detail_meta.has_field("process_certificate_set"):
         source_row["process_certificate_set"] = run.source_certificate_set
-        output_row["process_certificate_set"] = result_set
+    if detail_meta.has_field("to_process_certificate_set"):
+        output_row["to_process_certificate_set"] = result_set
+    else:
+        frappe.throw(
+            "Target Process Certificate Set Inventory Dimension is missing. "
+            "Run the CFG Kanban migration before creating a certified Repack."
+        )
     entry.append("items", source_row)
     entry.append("items", output_row)
     entry.insert(ignore_permissions=True)

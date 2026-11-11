@@ -37,7 +37,8 @@ Batch, when Batch control is enabled.
 5. Set Replenishment Qty to `1000` and Number of Cards to `1`.
 6. Set Source and Destination Warehouse to `Printing Store - TEST`.
 7. Select Controlled Operation `Print Plastic Bag`.
-8. Start with ERP Posting Mode **Create Draft for Review**.
+8. Start with ERP Posting Mode **Create Draft for Review** and **Progress and ERP
+   Consolidation = Consolidated Partial Progress**.
 9. Enable Allow Partial Quantity, Reuse Source Tag for Full Quantity, Capture Printed Expiry,
    and Capture First / Last Printed Serial as required.
 10. Add an Input Certificate Requirement: Operation `Print Plastic Bag`, Certificate
@@ -54,6 +55,8 @@ Batch, when Batch control is enabled.
    - `CFG:CMD:ACTIVATE`
    - `CFG:CMD:START_CERTIFICATE_PROCESS`
    - `CFG:CMD:COMPLETE_CERTIFICATE_PROCESS`
+   - `CFG:CMD:REPORT_CERTIFICATE_PROGRESS`
+   - `CFG:CMD:CLOSE_CERTIFICATE_PROCESS`
    - `CFG:CMD:SUBMIT_CERTIFICATE_PROCESS`
    - `CFG:CMD:CANCEL_CERTIFICATE_PROCESS`
    - `CFG:CMD:CERTIFICATE_OUTPUT_TAG`
@@ -68,30 +71,46 @@ Batch, when Batch control is enabled.
    refresh or wait for the panel's live update.
 4. Expected: one Cycle and one `CFG Process Certificate Run` in **Ready** state; there is no Work Order or Job Card.
 
-## D. Partial process test
+## D. Consolidated partial-progress test
 
 1. Scan Start Certificate Process.
 2. Scan `CFG:QTY:MATERIAL:1000` and then scan the source Stock Tag.
 3. Scan Confirm.
 4. Expected: Run is **In Progress** and exactly `1000 Nos` is reserved on the source tag.
-5. Scan Complete Certificate Process.
-6. Scan Good quantity `1000` and Reject quantity `0`.
-7. Scan Certificate Output Tag, then scan one unused preprinted main Stock Tag.
+5. Scan Report Certificate Progress.
+6. Scan Good quantity `400` and Reject quantity `0`.
+7. Scan Certificate Output Tag, then scan either one unused preprinted main Stock Tag or an active
+   compatible output tag already holding the exact result Certificate Set.
 8. When Batch control is enabled, optionally scan Certificate Batch and the output Batch. When it
    is disabled, verify Batch input is absent/rejected.
 9. Scan expiry and first/last printed serial using their field-arm commands when configured.
-10. Scan Confirm.
-11. Expected: one Draft ERPNext Repack exists; source tag still shows its old quantity/set, the
-    output tag is not yet activated, and no PRINTED certificate has been issued.
-12. Review Repack rows: outgoing `1000 PLS_ABC` from the old Set; incoming `1000 PLS_ABC` to the
+10. Scan Confirm. Expected: no Repack yet. Operational Inventory Balance shows `400 Nos` and the
+    output tag as **Pending ERP Consolidation**, but Total/Available/ERP Actual stock is unchanged.
+11. Repeat Report Certificate Progress with `600 Nos`, the same output tag, and compatible
+    Batch/expiry values. Expected pending total: `1000 Nos`; still no ERPNext Repack.
+12. Scan Close Consolidated Certificate Process and Confirm.
+13. Expected: exactly one Draft ERPNext Repack exists; source tag still shows its old quantity/set,
+    the output tag is not yet activated/increased, and no PRINTED certificate has been issued.
+14. Review Repack rows: outgoing `1000 PLS_ABC` from the old Set; incoming `1000 PLS_ABC` to the
     result Set. Total stock quantity is conserved.
-13. Scan Submit Certificate Repack.
-14. Expected after ERP submission:
+15. Scan Submit Certificate Repack.
+16. Expected after ERP submission:
     - source tag quantity reduced from `3000` to `2000`;
     - output tag activated with `1000` and `SANITISED + PRINTED`;
     - one active PRINTED certificate is linked to the output tag;
     - Cycle is Completed and Card returns to Available;
     - native Stock Ledger shows the submitted Repack and exact Certificate Set dimensions.
+    - both progress rows show **ERP Posted**, and Operational Inventory Balance no longer shows a
+      separate pending quantity for this Run.
+
+### D2. Early partial Card closure
+
+1. Start a new cycle with selected quantity `1000 Nos` and ensure **Allow Partial Quantity** is on.
+2. Report one partial good quantity of `400 Nos` against one controlled output tag.
+3. Close the consolidated Certificate Process.
+4. Expected: one Repack for `400 Nos`, not `1000`; the remaining `600 Nos` stays on the source tag
+   after ERP submission and can be processed in a later Card cycle.
+5. Repeat with Allow Partial Quantity off. Expected: early closure is rejected.
 
 ## E. Full tag reuse test
 
@@ -105,7 +124,9 @@ Certificate Set; it does not create a second Handling Unit.
 - Missing, expired, or too-old SANITISED certificate: gate is rejected.
 - Selected quantity above tagged or ERPNext balance: rejected.
 - Partial result without unused output tag: rejected.
-- Already active/revoked/child output tag: rejected.
+- Active output tag with a different Item, UOM, Company, Warehouse, Batch, Certificate Set, Hold
+  state, or reservation: rejected.
+- Revoked/child output tag: rejected.
 - Batch-controlled Item with source tag lacking Batch: rejected.
 - Non-Batch Item with Batch input: rejected.
 - Cancel before ERP Draft: reservation released and Card reusable.
@@ -118,7 +139,10 @@ Certificate Set; it does not create a second Handling Unit.
 | Deployed Git revision | |
 | Site | |
 | Tester/date | |
-| Partial process | Pass / Fail |
+| Consolidated partial progress | Pass / Fail |
+| Pending inventory visibility without double count | Pass / Fail |
+| Early partial Card closure policy | Pass / Fail |
+| Compatible existing-tag accumulation | Pass / Fail |
 | Full tag reuse | Pass / Fail |
 | Batch-enabled behavior | Pass / Fail / Not tested |
 | Batch-disabled behavior | Pass / Fail / Not tested |

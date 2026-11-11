@@ -111,11 +111,29 @@ exact certificate set.
 2. Filter Item = `PLS_ABC`.
 3. Filter **Process Certificate Set** = the `SANITISED` set.
 4. Confirm only submitted entries carrying that exact set appear.
-5. Open **Stock Balance** and repeat the exact-set filter.
-6. Clear the filter and confirm ordinary total Item balance remains visible.
+5. Open the submitted Repack and confirm its outgoing row uses **Source Process Certificate Set**
+   while its incoming row uses **Target Process Certificate Set**. A value shown only in the Source
+   field does not qualify the positive Stock Ledger row.
+6. Open **Stock Balance** and repeat the exact-set filter.
+7. Clear the filter and confirm ordinary total Item balance remains visible.
 
 Expected: native reports filter certificate-qualified stock even though the transaction was created
 directly in ERPNext.
+
+## 7A. Verify Kanban operational certificate visibility
+
+1. Open **CFG Kanban > Operational Inventory Balance**.
+2. Clear Inventory Control Mode, select Item `PLS_ABC`, and filter the submitted Process
+   Certificate Set.
+3. Confirm Summary and Tag Detail show the posted Certificate Set code/name and **ERP Posted** status.
+4. During a consolidated Certificate Process partial run, filter **Certificate Posting Status =
+   Pending ERP Consolidation**.
+5. Confirm the pending output tag and quantity are visible, but Total, Available and ERP Actual do
+   not increase.
+6. Submit the final consolidated Repack and refresh.
+
+Expected: pending state changes to ERP-posted tag/certificate evidence only after native ERPNext
+submission, with no moment where provisional and authoritative quantity are added together.
 
 ## 8. Negative stock-dimension test
 

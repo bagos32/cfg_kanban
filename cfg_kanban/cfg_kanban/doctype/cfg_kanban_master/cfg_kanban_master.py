@@ -282,6 +282,12 @@ class CFGKanbanMaster(Document):
         self.certificate_process_posting_mode = (
             self.certificate_process_posting_mode or "Create Draft for Review"
         )
+        self.certificate_process_progress_mode = (
+            self.certificate_process_progress_mode or "Single Completion"
+        )
+        if self.certificate_process_progress_mode not in (
+                "Single Completion", "Consolidated Partial Progress"):
+            frappe.throw("Unsupported Certificate Process progress and ERP consolidation mode")
         for row in self.get("certificate_requirements") or []:
             row.operation = self.certificate_process_operation
         for row in self.get("certificate_output_rules") or []:

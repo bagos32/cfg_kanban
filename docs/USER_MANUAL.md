@@ -1,13 +1,34 @@
 # CFG Kanban Code-Verified Operating Guide
 
 **Application:** CFG Kanban for ERPNext/Frappe v15  
-**Guide version:** 2.43
+**Guide version:** 2.45
 
 **Updated:** 11 November 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
 **Canonical file:** `docs/USER_MANUAL.md`
+
+**2.45 consolidated Certificate Process progress:** A Certificate Process Master can select
+**Progress and ERP Consolidation = Consolidated Partial Progress**. Every scanner-reported
+micro-lot creates immutable Kanban progress against one controlled output tag and appears
+immediately in **Kanban Operational Inventory Balance** as **Pending ERP Consolidation**. Pending
+quantity is an operational state allocation, not additional stock: it is excluded from Total,
+Available and ERP Actual quantities. Closing the Card creates one ERPNext Repack for the accumulated
+good quantity; ERP submission then activates or increases the output tag, attaches the resulting
+Certificate Set, changes each progress row to **ERP Posted**, and releases the Card. Report
+Certificate Progress and Close Consolidated Certificate Process are both printable scanner
+commands with scanner-ready Confirm/Cancel handling. The same source/output identities can be
+captured with the dialog camera buttons on a mobile terminal.
+
+**2.44 Certificate inventory and output-tag correction:** Certificate Process Repack output now
+uses ERPNext's generated **Target Process Certificate Set** field so the positive Stock Ledger row
+can be filtered by its exact certificate state. A partial result may be accumulated into an active
+compatible output tag as well as a new unused tag; the Run snapshots mode and prior quantity so
+controlled recovery removes only the new quantity. Start, Complete and Cancel dialogs now expose a
+persistent **Scanner Ready** status and restore scanner focus after commands, errors and nested
+messages. **Allow Partial Quantity** remains one authoritative micro-lot per reusable Card cycle;
+multi-progress settlement inside one open Certificate Process Run remains a separate package.
 
 **2.43 Certificate Process ERP feedback:** Submitting a no-BOM Certificate Process Repack directly
 from ERPNext now invokes the same Kanban reconciliation as scanner-panel submission. The submitted
@@ -4200,7 +4221,7 @@ intercompany location/ownership transition.
 
 Open **CFG Kanban → Operational Inventory Balance** when a combined quantity is required rather
 than one row per physical tag. The report groups active Handling Units by Inventory Company,
-Current Warehouse, Item and Stock UOM and displays:
+Current Warehouse, Item, Stock UOM and Process Certificate Set and displays:
 
 - **Total Quantity** — combined current quantity across all included tags;
 - **Reserved Quantity** — quantity committed to open controlled transactions;
@@ -4208,15 +4229,23 @@ Current Warehouse, Item and Stock UOM and displays:
 - **Released Available** and **Hold / Restricted** quantities; and
 - the number of physical tags included in the balance.
 
+Certificate columns show the posted **Process Certificate Set**, its readable codes, and its posting
+status. An open consolidated Certificate Process adds a separate **Pending ERP Consolidation** row
+with **Pending Output Tags** and **Pending Certificate Qty**. This provisional quantity is visible
+for floor control but is deliberately zero in Total, Reserved, Available and ERP Actual columns, so
+one physical quantity is never counted twice before the final Repack is submitted. Filter by
+**Process Certificate Set** and **Certificate Posting Status** to audit posted or pending state.
+
 For an ERP stock Item the report also displays **ERP Actual Qty**, **All Active Tagged**,
 **Untagged ERP Qty**, and **Tagged Excess**. These columns are the stock-adoption control:
 `Untagged ERP Qty = max(ERP Actual Qty - all active tagged quantity, 0)`. A positive Tagged Excess
 is an exception that must be investigated; it is not another source of stock.
 
-The default **Inventory Control Mode** filter is **Kanban Operational Inventory**, meaning Items
-whose ERPNext **Maintain Stock** setting is disabled. Select **ERP Stock** or clear the filter to
-review tagged stock Items. When all displayed rows use one UOM, the report header also shows the
-combined Total, Reserved and Available quantities. It deliberately does not combine unlike UOMs.
+The default **Inventory Control Mode** is **Kanban Operational Inventory** for Items whose ERPNext
+**Maintain Stock** setting is disabled. Select **ERP Stock** for certificate-controlled native stock
+Items, or clear the filter to review both modes. When all displayed rows use one UOM, the report
+header also shows combined Total, Reserved, Available and separately labelled Pending Certificate
+quantities. It deliberately does not combine unlike UOMs.
 
 The default **Display Mode** is **Summary**. Select **Tag Detail**, or click **View Tags** beside an
 **Active Tags** count, to list the exact active physical identities behind that balance. Drill-down
@@ -4643,10 +4672,31 @@ Administrator sequence:
    validation enabled.
 5. In native ERPNext stock documents, select the exact **Process Certificate Set** on each stock row.
    A state change must conserve quantity and use an accepted stock movement (normally a same-Item
-   Repack), with the old state on outgoing stock and the new state on incoming stock.
+   Repack), with the old state in **Source Process Certificate Set** and the new state in **Target
+   Process Certificate Set**. The positive Stock Ledger row is populated from the Target field.
 6. Open native **Stock Ledger** or **Stock Balance** and filter **Process Certificate Set**. This
    works for submitted documents created directly in ERPNext, no-BOM Certificate Process Repack,
    and certified Work Order Manufacture entries.
+
+For a no-BOM Certificate Process, the operator may scan either an unused main output tag or an
+existing compatible output tag. Existing-tag accumulation is accepted only when Item, UOM,
+Company, Warehouse, Batch, result Certificate Set and Released state match and the tag has no
+reservation. The Run records **Output Tag Mode = Merge Existing** and the quantity that existed
+before the merge. Controlled recovery removes only the quantity added by that Run and never voids
+the older tag.
+
+Use **Progress and ERP Consolidation = Single Completion** when each Card cycle should create one
+Repack from one completion report. Use **Consolidated Partial Progress** for high-frequency
+micro-lots: scan **Report Certificate Progress** after each partial result, always scanning the same
+new or compatible existing output tag, then scan **Close Consolidated Certificate Process** once.
+Each progress row is immediately visible in Kanban as pending certificate state, while one ERPNext
+Repack is created only at Card closure. Enable **Allow Partial Quantity** when closure may leave part
+of the selected source quantity unprocessed. ERP submission is still the only point at which
+authoritative stock, tag quantity and issued certificates change.
+
+Start, Complete and Cancel Certificate Process dialogs show **Scanner Ready** and keep their
+scanner field armed. Quantity, field-arm, physical identity, Confirm and Cancel scans restore focus
+after success, validation error and message dismissal.
 
 Production sequence:
 
@@ -4692,7 +4742,9 @@ Progress** and no ERPNext Repack exists. Once the Run is **Awaiting ERP Submissi
 
 Finalization releases a Draft reservation or reverses the untouched submitted physical projection.
 For full-tag reuse it restores the source tag's prior Batch, Warehouse and Certificate Set. For a
-separate output tag it records an audited Merge back to the source and marks the output tag Void.
+new output tag it records an audited Merge back to the source and marks that new tag Void. For an
+existing compatible output tag it removes only this Run's added quantity and leaves the earlier tag
+active.
 The original Run, ERP document name/snapshot, certificates, quantity ledger and Events remain
 available. If the reusable Card has already entered a later Cycle, recovery is refused until that
 later Cycle is resolved.
@@ -4740,6 +4792,8 @@ When using this file as context, an assistant must:
 
 | Version | Date | Change |
 |---|---|---|
+| 2.45 | 11 November 2026 | Added scanner-first consolidated Certificate Process partial progress, immutable micro-lot audit, one Repack at Card closure, immediate Pending ERP Consolidation visibility, compatible output-tag accumulation, and Process Certificate Set/posting filters in Kanban Operational Inventory Balance without double-counting provisional quantity |
+| 2.44 | 11 November 2026 | Corrected Certificate Process Repack target Inventory Dimension, enabled compatible existing output-tag accumulation with recovery-safe prior-quantity snapshots, and restored persistent scanner-ready focus in Certificate dialogs |
 | 2.43 | 11 November 2026 | Connected direct ERPNext submission of a no-BOM Certificate Process Repack to the authoritative Kanban reconciliation so reservation release, output-tag activation, certificate issuance, Run/Cycle completion and Card release cannot be skipped |
 | 2.42 | 11 November 2026 | Added controlled no-BOM Certificate Process recovery: immutable manager request, Run/Cycle/Card freeze, Draft Repack snapshot/discard, submitted ERPNext Repack cancellation, certificate revocation retention, untouched-output safety checks, source tag/Batch/Warehouse/Certificate Set restoration, separate output-tag merge/void, audited final reconciliation, and Card release |
 | 2.41 | 11 November 2026 | Extended Process Certificates to normal BOM/Work Order/Job Card production: operation-stage gates from prior results or scanned Material Runs, shared Job Card evidence for reusable Process/Station Cards, immutable execution result Set snapshots, final Manufacture output dimension assignment, mandatory exact output identity, submission-only certificate binding, and a dedicated acceptance guide |

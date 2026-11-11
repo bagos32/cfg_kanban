@@ -16,7 +16,7 @@ def execute(filters=None):
     if not cint(filters.include_zero_balance):
         having = "having abs(sum(hu.current_qty)) > 0.000001 or abs(sum(hu.reserved_qty)) > 0.000001"
 
-    data = frappe.db.sql(
+    data = [] if filters.certificate_posting_status == "Pending ERP Consolidation" else frappe.db.sql(
         f"""
         select
             hu.inventory_company as company,
@@ -24,6 +24,12 @@ def execute(filters=None):
             hu.item_code,
             max(item.item_name) as item_name,
             hu.stock_uom,
+            hu.process_certificate_set,
+            max(pcs.set_name) as certificate_set_name,
+            max(pcs.member_codes) as certificate_codes,
+            'ERP Posted' as certificate_posting_status,
+            0 as pending_certificate_qty,
+            0 as pending_tag_count,
             case when coalesce(item.is_stock_item, 0) = 1
                  then 'ERP Stock' else 'Kanban Operational Inventory' end
                  as inventory_control_mode,
@@ -38,9 +44,12 @@ def execute(filters=None):
             max(hu.last_reconciled_on) as last_reconciled_on
         from `tabCFG Kanban Handling Unit` hu
         left join `tabItem` item on item.name = hu.item_code
+        left join `tabCFG Process Certificate Set` pcs
+          on pcs.name = hu.process_certificate_set
         where {' and '.join(conditions)}
         group by hu.inventory_company, hu.current_warehouse, hu.item_code,
-                 hu.stock_uom, coalesce(item.is_stock_item, 0)
+                 hu.stock_uom, hu.process_certificate_set,
+                 coalesce(item.is_stock_item, 0)
         {having}
         order by hu.inventory_company, hu.current_warehouse, hu.item_code, hu.stock_uom
         """,
@@ -70,6 +79,7 @@ def execute(filters=None):
         row["all_active_tagged_qty"] = tagged_qty
         row["untagged_erp_qty"] = max(erp_qty - tagged_qty, 0)
         row["tagged_excess_qty"] = max(tagged_qty - erp_qty, 0)
+    data.extend(_pending_summary_rows(filters))
     return columns, data, None, None, _summary(data)
 
 
@@ -89,6 +99,7 @@ def _conditions(filters):
         ("item_code", "hu.item_code"),
         ("stock_uom", "hu.stock_uom"),
         ("quality_state", "hu.quality_state"),
+        ("process_certificate_set", "hu.process_certificate_set"),
     ):
         if filters.get(filter_name):
             conditions.append(f"{column} = %({filter_name})s")
@@ -106,7 +117,7 @@ def _tag_detail_data(filters, conditions, values):
         conditions.append(
             "(abs(hu.current_qty) > 0.000001 or abs(hu.reserved_qty) > 0.000001)"
         )
-    return frappe.db.sql(
+    data = [] if filters.certificate_posting_status == "Pending ERP Consolidation" else frappe.db.sql(
         f"""
         select
             hu.name as handling_unit,
@@ -136,6 +147,11 @@ def _tag_detail_data(filters, conditions, values):
                  then 'ERP Stock' else 'Kanban Operational Inventory' end
                  as inventory_control_mode,
             hu.batch_no,
+            hu.process_certificate_set,
+            pcs.set_name as certificate_set_name,
+            pcs.member_codes as certificate_codes,
+            'ERP Posted' as certificate_posting_status,
+            0 as pending_certificate_qty,
             hu.quality_state,
             hu.movement_state,
             hu.current_qty,
@@ -149,6 +165,8 @@ def _tag_detail_data(filters, conditions, values):
         from `tabCFG Kanban Handling Unit` hu
         left join `tabItem` item on item.name = hu.item_code
         left join `tabCFG Kanban Handling Unit` pc on pc.name = hu.physical_container
+        left join `tabCFG Process Certificate Set` pcs
+          on pcs.name = hu.process_certificate_set
         where {' and '.join(conditions)}
         order by hu.inventory_company, hu.current_warehouse, hu.item_code,
                  hu.stock_uom, hu.handling_unit_id
@@ -156,6 +174,155 @@ def _tag_detail_data(filters, conditions, values):
         values,
         as_dict=True,
     )
+    pending = _pending_tag_rows(filters)
+    existing = {row.handling_unit: row for row in data if row.handling_unit}
+    for row in pending:
+        if row.handling_unit and row.handling_unit in existing:
+            base = existing[row.handling_unit]
+            base.pending_certificate_qty = flt(base.pending_certificate_qty) + flt(
+                row.pending_certificate_qty
+            )
+            base.pending_result_certificate_set = row.pending_result_certificate_set
+            base.pending_certificate_set_name = row.pending_certificate_set_name
+            base.pending_certificate_codes = row.pending_certificate_codes
+            base.certificate_posting_status = "ERP Posted + Pending ERP Consolidation"
+        else:
+            data.append(row)
+    if filters.certificate_posting_status:
+        wanted = filters.certificate_posting_status
+        data = [row for row in data if wanted in (row.certificate_posting_status or "")]
+    return data
+
+
+def _pending_summary_rows(filters):
+    if not frappe.db.table_exists("CFG Certificate Process Progress"):
+        return []
+    conditions, values = _pending_conditions(filters)
+    return frappe.db.sql(
+        f"""
+        select
+            p.company,
+            run.output_warehouse as warehouse,
+            p.item_code,
+            max(item.item_name) as item_name,
+            p.stock_uom,
+            p.result_certificate_set as process_certificate_set,
+            max(pcs.set_name) as certificate_set_name,
+            max(pcs.member_codes) as certificate_codes,
+            case when coalesce(item.is_stock_item, 0) = 1
+                 then 'ERP Stock' else 'Kanban Operational Inventory' end
+                 as inventory_control_mode,
+            'Pending ERP Consolidation' as certificate_posting_status,
+            0 as tag_count,
+            count(distinct p.output_tag_code) as pending_tag_count,
+            0 as total_qty,
+            0 as reserved_qty,
+            0 as available_qty,
+            0 as released_available_qty,
+            0 as restricted_qty,
+            sum(p.good_qty) as pending_certificate_qty,
+            null as erp_actual_qty,
+            null as all_active_tagged_qty,
+            null as untagged_erp_qty,
+            null as tagged_excess_qty,
+            max(p.recorded_on) as last_reconciled_on
+        from `tabCFG Certificate Process Progress` p
+        inner join `tabCFG Process Certificate Run` run
+          on run.name = p.certificate_process_run
+        left join `tabItem` item on item.name = p.item_code
+        left join `tabCFG Process Certificate Set` pcs
+          on pcs.name = p.result_certificate_set
+        where {' and '.join(conditions)}
+        group by p.company, run.output_warehouse, p.item_code, p.stock_uom,
+                 p.result_certificate_set, coalesce(item.is_stock_item, 0)
+        order by p.company, run.output_warehouse, p.item_code, p.stock_uom
+        """,
+        values,
+        as_dict=True,
+    )
+
+
+def _pending_tag_rows(filters):
+    if not frappe.db.table_exists("CFG Certificate Process Progress"):
+        return []
+    conditions, values = _pending_conditions(filters)
+    return frappe.db.sql(
+        f"""
+        select
+            p.output_handling_unit as handling_unit,
+            p.output_tag_code as handling_unit_id,
+            p.output_tag_code as container_tag_label,
+            null as physical_container,
+            p.output_tag_code as physical_scan_code,
+            case when p.output_handling_unit is null then 'Pending Stock Tag'
+                 else 'Existing Stock Tag' end as tag_kind,
+            p.company,
+            run.output_warehouse as warehouse,
+            p.item_code,
+            max(item.item_name) as item_name,
+            p.stock_uom,
+            case when coalesce(item.is_stock_item, 0) = 1
+                 then 'ERP Stock' else 'Kanban Operational Inventory' end
+                 as inventory_control_mode,
+            p.output_batch as batch_no,
+            null as process_certificate_set,
+            null as certificate_set_name,
+            null as certificate_codes,
+            p.result_certificate_set as pending_result_certificate_set,
+            max(pcs.set_name) as pending_certificate_set_name,
+            max(pcs.member_codes) as pending_certificate_codes,
+            'Pending ERP Consolidation' as certificate_posting_status,
+            sum(p.good_qty) as pending_certificate_qty,
+            0 as current_qty,
+            0 as reserved_qty,
+            0 as available_qty,
+            'Pending ERP' as quality_state,
+            'Pending ERP Consolidation' as movement_state,
+            null as physical_custodian,
+            p.source_handling_unit as source_location,
+            p.output_tag_code as destination_location,
+            max(p.recorded_on) as last_reconciled_on,
+            max(p.recorded_on) as last_scan_time
+        from `tabCFG Certificate Process Progress` p
+        inner join `tabCFG Process Certificate Run` run
+          on run.name = p.certificate_process_run
+        left join `tabItem` item on item.name = p.item_code
+        left join `tabCFG Process Certificate Set` pcs
+          on pcs.name = p.result_certificate_set
+        where {' and '.join(conditions)}
+        group by p.output_handling_unit, p.output_tag_code, p.company,
+                 run.output_warehouse, p.item_code, p.stock_uom, p.output_batch,
+                 p.result_certificate_set, p.source_handling_unit,
+                 coalesce(item.is_stock_item, 0)
+        order by max(p.recorded_on) desc
+        """,
+        values,
+        as_dict=True,
+    )
+
+
+def _pending_conditions(filters):
+    conditions = ["p.status = 'Recorded'"]
+    values = {}
+    for filter_name, column in (
+        ("company", "p.company"),
+        ("warehouse", "run.output_warehouse"),
+        ("item_code", "p.item_code"),
+        ("stock_uom", "p.stock_uom"),
+        ("process_certificate_set", "p.result_certificate_set"),
+    ):
+        if filters.get(filter_name):
+            conditions.append(f"{column} = %({filter_name})s")
+            values[filter_name] = filters.get(filter_name)
+    if filters.inventory_control_mode == "Kanban Operational Inventory":
+        conditions.append("coalesce(item.is_stock_item, 0) = 0")
+    elif filters.inventory_control_mode == "ERP Stock":
+        conditions.append("coalesce(item.is_stock_item, 0) = 1")
+    if filters.certificate_posting_status == "ERP Posted":
+        conditions.append("1 = 0")
+    if filters.quality_state:
+        conditions.append("1 = 0")
+    return conditions, values
 
 
 def _columns():
@@ -166,7 +333,13 @@ def _columns():
         {"label": _("Item Name"), "fieldname": "item_name", "width": 220},
         {"label": _("UOM"), "fieldname": "stock_uom", "fieldtype": "Link", "options": "UOM", "width": 85},
         {"label": _("Inventory Control"), "fieldname": "inventory_control_mode", "width": 190},
+        {"label": _("Process Certificate Set"), "fieldname": "process_certificate_set", "fieldtype": "Link", "options": "CFG Process Certificate Set", "width": 175},
+        {"label": _("Certificate Set Name"), "fieldname": "certificate_set_name", "width": 180},
+        {"label": _("Certificate Codes"), "fieldname": "certificate_codes", "width": 200},
+        {"label": _("Certificate Posting"), "fieldname": "certificate_posting_status", "width": 175},
         {"label": _("Active Tags"), "fieldname": "tag_count", "fieldtype": "Int", "width": 95},
+        {"label": _("Pending Output Tags"), "fieldname": "pending_tag_count", "fieldtype": "Int", "width": 135},
+        {"label": _("Pending Certificate Qty"), "fieldname": "pending_certificate_qty", "fieldtype": "Float", "width": 155},
         {"label": _("ERP Actual Qty"), "fieldname": "erp_actual_qty", "fieldtype": "Float", "width": 120},
         {"label": _("All Active Tagged"), "fieldname": "all_active_tagged_qty", "fieldtype": "Float", "width": 130},
         {"label": _("Untagged ERP Qty"), "fieldname": "untagged_erp_qty", "fieldtype": "Float", "width": 130},
@@ -194,6 +367,14 @@ def _tag_detail_columns():
         {"label": _("Item Name"), "fieldname": "item_name", "width": 190},
         {"label": _("Batch"), "fieldname": "batch_no", "fieldtype": "Link", "options": "Batch", "width": 125},
         {"label": _("UOM"), "fieldname": "stock_uom", "fieldtype": "Link", "options": "UOM", "width": 80},
+        {"label": _("Posted Certificate Set"), "fieldname": "process_certificate_set", "fieldtype": "Link", "options": "CFG Process Certificate Set", "width": 175},
+        {"label": _("Posted Certificate Name"), "fieldname": "certificate_set_name", "width": 175},
+        {"label": _("Posted Certificate Codes"), "fieldname": "certificate_codes", "width": 190},
+        {"label": _("Pending Certificate Set"), "fieldname": "pending_result_certificate_set", "fieldtype": "Link", "options": "CFG Process Certificate Set", "width": 180},
+        {"label": _("Pending Certificate Name"), "fieldname": "pending_certificate_set_name", "width": 180},
+        {"label": _("Pending Certificate Codes"), "fieldname": "pending_certificate_codes", "width": 195},
+        {"label": _("Certificate Posting"), "fieldname": "certificate_posting_status", "width": 185},
+        {"label": _("Pending Certificate Qty"), "fieldname": "pending_certificate_qty", "fieldtype": "Float", "width": 155},
         {"label": _("Current Qty"), "fieldname": "current_qty", "fieldtype": "Float", "width": 105},
         {"label": _("Reserved Qty"), "fieldname": "reserved_qty", "fieldtype": "Float", "width": 105},
         {"label": _("Available Qty"), "fieldname": "available_qty", "fieldtype": "Float", "width": 105},
@@ -209,7 +390,11 @@ def _tag_detail_columns():
 
 def _summary(data):
     tag_count = sum(int(row.tag_count or 0) for row in data)
-    summary = [{"value": tag_count, "label": _("Tags Included"), "datatype": "Int"}]
+    pending_tag_count = sum(int(row.pending_tag_count or 0) for row in data)
+    summary = [
+        {"value": tag_count, "label": _("ERP-Posted Tags Included"), "datatype": "Int"},
+        {"value": pending_tag_count, "label": _("Pending Certificate Output Tags"), "datatype": "Int", "indicator": "Orange"},
+    ]
     uoms = {row.stock_uom for row in data if row.stock_uom}
     if len(uoms) == 1:
         uom = next(iter(uoms))
@@ -224,11 +409,22 @@ def _summary(data):
                 "datatype": "Float",
                 "indicator": indicator,
             })
+        summary.append({
+            "value": sum(flt(row.get("pending_certificate_qty")) for row in data),
+            "label": f"{_('Pending Certificate Qty')} ({uom})",
+            "datatype": "Float",
+            "indicator": "Orange",
+        })
     return summary
 
 
 def _tag_detail_summary(data):
-    summary = [{"value": len(data), "label": _("Active Tags Listed"), "datatype": "Int"}]
+    posted_count = sum(1 for row in data if flt(row.current_qty) or row.handling_unit)
+    pending_count = sum(1 for row in data if flt(row.pending_certificate_qty))
+    summary = [
+        {"value": posted_count, "label": _("Posted Tags Listed"), "datatype": "Int"},
+        {"value": pending_count, "label": _("Pending Certificate Tags"), "datatype": "Int", "indicator": "Orange"},
+    ]
     uoms = {row.stock_uom for row in data if row.stock_uom}
     if len(uoms) == 1:
         uom = next(iter(uoms))
@@ -243,4 +439,10 @@ def _tag_detail_summary(data):
                 "datatype": "Float",
                 "indicator": indicator,
             })
+        summary.append({
+            "value": sum(flt(row.get("pending_certificate_qty")) for row in data),
+            "label": f"{_('Pending Certificate Qty')} ({uom})",
+            "datatype": "Float",
+            "indicator": "Orange",
+        })
     return summary

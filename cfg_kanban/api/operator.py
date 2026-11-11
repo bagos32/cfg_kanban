@@ -160,6 +160,8 @@ def _scanner_command_catalog(quantity_steps=None):
         ("Certificate Process", [
             ("Start Certificate Process", "CFG:CMD:START_CERTIFICATE_PROCESS", ""),
             ("Complete Certificate Process", "CFG:CMD:COMPLETE_CERTIFICATE_PROCESS", ""),
+            ("Report Certificate Progress", "CFG:CMD:REPORT_CERTIFICATE_PROGRESS", ""),
+            ("Close Consolidated Certificate Process", "CFG:CMD:CLOSE_CERTIFICATE_PROCESS", ""),
             ("Submit Certificate Repack", "CFG:CMD:SUBMIT_CERTIFICATE_PROCESS", ""),
             ("Cancel Certificate Process", "CFG:CMD:CANCEL_CERTIFICATE_PROCESS", ""),
             ("Certificate: Scan Output Tag Next", "CFG:CMD:CERTIFICATE_OUTPUT_TAG", ""),

@@ -12,6 +12,10 @@ frappe.query_reports["Kanban Operational Inventory Balance"] = {
 		{ fieldname: "stock_uom", label: __("Stock UOM"), fieldtype: "Link", options: "UOM" },
 		{ fieldname: "inventory_control_mode", label: __("Inventory Control Mode"), fieldtype: "Select",
 			options: "\nKanban Operational Inventory\nERP Stock", default: "Kanban Operational Inventory" },
+		{ fieldname: "process_certificate_set", label: __("Process Certificate Set"),
+			fieldtype: "Link", options: "CFG Process Certificate Set" },
+		{ fieldname: "certificate_posting_status", label: __("Certificate Posting Status"),
+			fieldtype: "Select", options: "\nERP Posted\nPending ERP Consolidation" },
 		{ fieldname: "quality_state", label: __("Quality State"), fieldtype: "Select",
 			options: "\nReleased\nHold\nQuarantined\nRejected" },
 		{ fieldname: "include_zero_balance", label: __("Include Empty / Zero Balance"), fieldtype: "Check", default: 0 },
@@ -37,13 +41,16 @@ frappe.query_reports["Kanban Operational Inventory Balance"] = {
 	},
 	formatter(value, row, column, data, default_formatter) {
 		const rendered = default_formatter(value, row, column, data);
-		if (column.fieldname !== "tag_count" || !data || !Number(value)) return rendered;
+		if (!["tag_count", "pending_tag_count"].includes(column.fieldname)
+			|| !data || !Number(value)) return rendered;
 		const payload = encodeURIComponent(JSON.stringify({
 			company: data.company,
 			warehouse: data.warehouse,
 			item_code: data.item_code,
 			stock_uom: data.stock_uom,
+			process_certificate_set: data.process_certificate_set,
+			certificate_posting_status: data.certificate_posting_status,
 		}));
-		return `<a href="#" data-cfg-inventory-tag-detail="${payload}" title="${__("List the exact active physical tags in this balance")}">${rendered} · ${__("View Tags")}</a>`;
+		return `<a href="#" data-cfg-inventory-tag-detail="${payload}" title="${__("List the exact posted or pending physical tags in this balance")}">${rendered} · ${__("View Tags")}</a>`;
 	},
 };

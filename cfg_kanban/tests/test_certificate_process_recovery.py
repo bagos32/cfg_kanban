@@ -33,6 +33,8 @@ class TestCertificateProcessRecovery(TestCase):
         self.assertIn('entry.docstatus == 1', service)
         self.assertIn("entry.flags.ignore_links = True", service)
         self.assertIn('event_type="Merge"', service)
+        self.assertIn('run.output_tag_mode != "Merge Existing"', service)
+        self.assertIn("run.output_tag_qty_before", service)
         self.assertIn('"process_certificate_set": run.source_certificate_set', service)
         self.assertIn('"identity_state": "Void"', service)
         self.assertIn('"status": "Cancelled"', service)
