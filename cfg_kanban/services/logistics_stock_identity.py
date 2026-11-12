@@ -270,36 +270,106 @@ def _certificate_sources(source):
         rows = frappe.get_all("CFG Process Certificate",
             filters={"handling_unit": source.name, "certificate_type": member.certificate_type,
              "certificate_set": source.process_certificate_set, "status": "Active"},
-            pluck="name", order_by="issued_on desc", limit_page_length=0)
-        proof = None
+            pluck="name", order_by="issued_on asc, name asc", limit_page_length=0)
+        proofs = []
         for name in rows:
             candidate = frappe.get_doc("CFG Process Certificate", name)
             if certificate_root(candidate, require_unexpired=False):
-                proof = candidate
-                break
-        if not proof:
+                proofs.append(candidate)
+        if not proofs:
             frappe.throw("Certified quantity has no intact issued evidence; reconcile it before splitting or repacking")
-        result.append(proof)
+        result.extend(proofs)
     return result
 
 
+def _available_certificate_qty(proof, lock=True):
+    # Issued evidence is immutable. Child allocations consume its coverage even if
+    # later revoked: revocation alone cannot authorize allocating the quantity again.
+    if lock:
+        frappe.db.sql("select name from `tabCFG Process Certificate` where name=%s for update", proof.name)
+    suffix = "for update" if lock else ""
+    allocated = frappe.db.sql(f"""
+        select certified_qty from `tabCFG Process Certificate`
+        where source_reference_doctype='CFG Process Certificate' and source_reference_name=%s
+        {suffix}
+    """, proof.name)
+    return max(0, flt(proof.certified_qty) - sum(flt(row[0]) for row in allocated))
+
+
+def certificate_quantity_coverage(unit, certificate_type, minimum_revision=1, require_unexpired=True):
+    names = frappe.get_all("CFG Process Certificate", filters={
+        "handling_unit": unit.name, "certificate_set": unit.process_certificate_set,
+        "certificate_type": certificate_type, "status": "Active",
+        "revision_snapshot": [">=", minimum_revision]}, pluck="name", limit_page_length=0)
+    total = 0
+    for name in names:
+        proof = frappe.get_doc("CFG Process Certificate", name)
+        if certificate_is_effective(name, require_unexpired=require_unexpired):
+            total += _available_certificate_qty(proof, lock=False)
+    return total
+
+
+
+def certificate_requirement_covered(unit, certificate_type, minimum_revision=1, require_unexpired=True):
+    if flt(unit.current_qty) > 0.000001:
+        return certificate_quantity_coverage(unit, certificate_type, minimum_revision,
+            require_unexpired=require_unexpired) + 0.000001 >= flt(unit.current_qty)
+    # A completed material trace refers to consumed stock. Do not require its
+    # old tag to retain a live balance, but still reject revoked/invalid lineage.
+    names = frappe.get_all("CFG Process Certificate", filters={
+        "handling_unit": unit.name, "certificate_set": unit.process_certificate_set,
+        "certificate_type": certificate_type, "status": "Active",
+        "revision_snapshot": [">=", minimum_revision]}, pluck="name", limit_page_length=0)
+    return any(certificate_is_effective(name, require_unexpired=require_unexpired) for name in names)
+
+
 def inherit_split_certificates(source, destination, qty, event_key, replacement=False):
-    """Bind the same evidence to split stock; never grant a new process or new validity."""
+    """Allocate bulk coverage across issued records, preserving each original proof."""
     if (source.get("process_certificate_set") or None) != (destination.get("process_certificate_set") or None):
         frappe.throw("A logistics split cannot change the Process Certificate Set")
+    qty = flt(qty)
+    if qty <= 0:
+        frappe.throw("Split certificate quantity must be positive")
+    grouped = {}
     for proof in _certificate_sources(source):
-        definition = frappe.get_doc("CFG Process Certificate Type", proof.certificate_type)
+        grouped.setdefault(proof.certificate_type, []).append(proof)
+    plan = []
+    for certificate_type, proofs in grouped.items():
+        # Respect records created by the previous single-proof implementation.
+        legacy = frappe.db.get_value("CFG Process Certificate", {"idempotency_key": canonical_key(
+            "logistics-certificate-inheritance", event_key, destination.name, certificate_type)}, "name")
+        keys = [(proof, canonical_key("logistics-certificate-inheritance", event_key,
+                                     destination.name, certificate_type, proof.name)) for proof in proofs]
+        existing = [name for _proof, key in keys if (name := frappe.db.get_value(
+            "CFG Process Certificate", {"idempotency_key": key}, "name"))]
+        if legacy:
+            existing.append(legacy)
+        if existing:
+            rows = [frappe.get_doc("CFG Process Certificate", name) for name in set(existing)]
+            if (abs(sum(flt(row.certified_qty) for row in rows) - qty) > 0.000001
+                    or any(row.handling_unit != destination.name for row in rows)):
+                frappe.throw("Split retry differs from its recorded certificate allocation")
+            continue
+        definition = frappe.get_doc("CFG Process Certificate Type", certificate_type)
         if not replacement and definition.split_inheritance != "Inherit to Child Tags":
             frappe.throw("Certificate policy prohibits split inheritance; keep this certified quantity on its original tag")
-        if flt(proof.certified_qty) + 0.000001 < flt(qty):
-            frappe.throw("Source certificate does not cover the split quantity")
-        key = canonical_key("logistics-certificate-inheritance", event_key, destination.name, proof.certificate_type)
-        if frappe.db.exists("CFG Process Certificate", {"idempotency_key": key}):
-            continue
+        remaining = qty
+        for proof, key in keys:
+            take = min(remaining, _available_certificate_qty(proof))
+            if take > 0.000001:
+                plan.append((proof, take, key))
+                remaining -= take
+            if remaining <= 0.000001:
+                break
+        if remaining > 0.000001:
+            frappe.throw(f"Source certificate does not cover the split quantity for {certificate_type}: "
+                         f"requested {qty}; unallocated evidence {qty - remaining} {source.stock_uom}")
+    # Validate every required type before creating any inherited certificate.
+    for proof, take, key in plan:
         inherited = frappe.copy_doc(proof)
         inherited.name = None
         inherited.handling_unit = destination.name
-        inherited.certified_qty = qty
+        inherited.certified_qty = take
         inherited.inventory_company = destination.inventory_company
         inherited.warehouse = destination.current_warehouse
         inherited.batch_no = destination.batch_no
@@ -318,14 +388,14 @@ def assert_merge_compatible(source, destination):
         if str(source.get(field) or "") != str(destination.get(field) or ""):
             frappe.throw("Do not merge stock with different Process Certificate Sets or expiry dates")
     def signature(unit):
-        result = []
+        result = set()
         for proof in _certificate_sources(unit):
             definition = frappe.get_doc("CFG Process Certificate Type", proof.certificate_type)
             if definition.merge_policy == "Block Merge":
                 frappe.throw("Certificate policy blocks this merge; retain separate stock identities")
             root = certificate_root(proof, require_unexpired=False)
-            result.append((proof.certificate_type, root.name, str(proof.valid_from or ""), str(proof.valid_until or "")))
+            result.add((proof.certificate_type, root.name, str(proof.valid_from or ""), str(proof.valid_until or "")))
         return sorted(result)
-    if signature(source) != signature(destination):
+    if not set(signature(source)).issubset(signature(destination)):
         frappe.throw("Certified tags have different evidence provenance; retain separate tags or fills instead of merging their certificates")
 

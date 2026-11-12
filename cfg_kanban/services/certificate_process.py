@@ -680,12 +680,9 @@ def _validate_certificate_requirements(master, unit):
     for row in requirements:
         passed = members.get(row.certificate_type, 0) >= cint(row.minimum_revision)
         if passed:
-            issued = frappe.get_all("CFG Process Certificate", filters={
-                "handling_unit": unit.name, "certificate_type": row.certificate_type,
-                "status": "Active",
-            }, fields=["name", "valid_until"], limit_page_length=0)
-            from cfg_kanban.services.logistics_stock_identity import certificate_is_effective
-            passed = any(certificate_is_effective(certificate.name, require_unexpired=bool(cint(row.require_unexpired))) for certificate in issued)
+            from cfg_kanban.services.logistics_stock_identity import certificate_requirement_covered
+            passed = certificate_requirement_covered(unit, row.certificate_type, cint(row.minimum_revision),
+                                                     require_unexpired=bool(cint(row.require_unexpired)))
         groups.setdefault(row.requirement_group, {"logic": row.group_logic, "checks": []})[
             "checks"
         ].append((row.certificate_type, passed))

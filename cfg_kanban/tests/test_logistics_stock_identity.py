@@ -57,7 +57,7 @@ class TestLogisticsStockIdentity(unittest.TestCase):
         frappe.get_all=Mock(side_effect=self.get_all)
         frappe.get_doc=Mock(side_effect=self.get_doc)
         frappe.get_meta=Mock(return_value=Row(has_field=lambda field: True))
-        frappe.db=Row(get_value=Mock(side_effect=self.get_value),exists=Mock(side_effect=self.exists),sql=Mock(return_value=[]))
+        frappe.db=Row(get_value=Mock(side_effect=self.get_value),exists=Mock(side_effect=self.exists),sql=Mock(side_effect=self.query))
         frappe.copy_doc=Mock(side_effect=self.copy_doc)
         self.line=Row(name='LINE-1',doctype='CFG Kanban Manifest Line',handling_unit='SOURCE',
             item_code='RAW',batch_no='BATCH',stock_uom='Kg',source_company='TEST',source_warehouse='Raw Store',
@@ -85,7 +85,17 @@ class TestLogisticsStockIdentity(unittest.TestCase):
         if doctype=='CFG Kanban Manifest Line':return self.line
         return self.other_docs[(doctype,name)]
 
+    def query(self, sql, params=None, **kwargs):
+        if 'select certified_qty from' in sql:
+            return [(proof.certified_qty,) for proof in self.proofs.values()
+                    if proof.get('source_reference_doctype')=='CFG Process Certificate'
+                    and proof.get('source_reference_name')==params]
+        return []
+
     def get_value(self,doctype,name,fields=None,**kwargs):
+        if doctype=='CFG Process Certificate':
+            return next((row.name for row in self.proofs.values()
+                         if all(row.get(key)==value for key,value in name.items())),None)
         if doctype=='Item':return self.serial_controlled
         if doctype=='CFG Kanban Handling Unit':return self.units[name].get(fields)
         if doctype=='CFG Kanban Manifest Line':return 'DN-ROW'
@@ -191,6 +201,63 @@ class TestLogisticsStockIdentity(unittest.TestCase):
             self.assertEqual(derived[field],self.proof[field])
         self.assertEqual(derived.certified_qty,20)
 
+    def test_bulk_split_combines_partial_certificates_for_new_main_or_child_tag(self):
+        for tag_kind in ('Main Stock Tag','Child Stock Tag'):
+            with self.subTest(tag_kind=tag_kind):
+                self.setUp(); self.proof.certified_qty=60
+                self.proofs['CERT-2']=Row(self.proof,name='CERT-2',certified_qty=40,
+                    source_reference_name='REPACK-2',valid_until='2027-02-01 10:00:00')
+                self.destination.tag_kind=tag_kind; self.destination.current_qty=80
+                self.service.inherit_split_certificates(self.unit,self.destination,80,'BULK-SPLIT')
+                children=[row for row in self.proofs.values() if row.handling_unit=='DEST']
+                self.assertEqual(sorted(row.certified_qty for row in children),[20,60])
+                self.assertEqual({row.source_reference_name for row in children},{'CERT-1','CERT-2'})
+                self.assertEqual(sum(row.certified_qty for row in children),80)
+                self.service.inherit_split_certificates(self.unit,self.destination,80,'BULK-SPLIT')
+                self.assertEqual(len(self.proofs),4)
+
+    def test_consumed_source_keeps_historical_validity_but_revocation_still_blocks_it(self):
+        self.destination.current_qty=100
+        self.service.inherit_split_certificates(self.unit,self.destination,100,'ALL')
+        self.unit.current_qty=0
+        self.assertTrue(self.service.certificate_requirement_covered(self.unit,'TYPE',3))
+        self.proof.status='Revoked'
+        self.assertFalse(self.service.certificate_requirement_covered(self.unit,'TYPE',3))
+
+    def test_small_valid_certificate_cannot_cover_a_mixed_bulk_with_expired_evidence(self):
+        self.proof.certified_qty=60; self.proof.valid_until='2026-01-01 10:00:00'
+        self.proofs['CERT-2']=Row(self.proof,name='CERT-2',certified_qty=40,valid_until='2027-01-01 10:00:00')
+        self.destination.current_qty=80
+        self.service.inherit_split_certificates(self.unit,self.destination,80,'MIXED')
+        self.assertFalse(self.service.certificate_requirement_covered(self.destination,'TYPE',3))
+        self.assertTrue(self.service.certificate_requirement_covered(self.destination,'TYPE',3,require_unexpired=False))
+
+    def test_raw_split_tag_keeps_certificate_dimension_for_warehouse_transfer(self):
+        self.destination.current_qty=20
+        self.service.inherit_split_certificates(self.unit,self.destination,20,'RAW-SPLIT')
+        line=Row(name='NEW-LINE',handling_unit='DEST',item_code='RAW',batch_no='BATCH',stock_uom='Kg')
+        self.service.capture_manifest_line(line)
+        fields=self.service.erp_identity_fields(line,'Stock Entry Detail',transfer=True)
+        self.assertEqual(fields['process_certificate_set'],'SET')
+        self.assertEqual(fields['to_process_certificate_set'],'SET')
+        self.assertTrue(self.service.certificate_requirement_covered(self.destination,'TYPE',3))
+
+    def test_repeated_splits_cannot_spend_original_certificate_quantity_twice(self):
+        self.destination.current_qty=80
+        self.service.inherit_split_certificates(self.unit,self.destination,80,'FIRST')
+        other=Row(self.destination,name='OTHER',current_qty=30)
+        with self.assertRaisesRegex(ValueError,'unallocated evidence 20'):
+            self.service.inherit_split_certificates(self.unit,other,30,'SECOND')
+        self.assertEqual(len(self.proofs),2)
+
+    def test_returned_quantity_restores_coverage_by_preserving_its_return_lineage(self):
+        self.destination.current_qty=80
+        self.service.inherit_split_certificates(self.unit,self.destination,80,'FIRST')
+        self.service.inherit_split_certificates(self.destination,self.unit,30,'RETURN')
+        other=Row(self.destination,name='OTHER',current_qty=50)
+        self.service.inherit_split_certificates(self.unit,other,50,'SECOND')
+        self.assertEqual(sum(row.certified_qty for row in self.proofs.values() if row.handling_unit=='OTHER'),50)
+
     def test_split_retry_does_not_duplicate_certificates(self):
         self.service.inherit_split_certificates(self.unit,self.destination,20,'SPLIT-1')
         self.service.inherit_split_certificates(self.unit,self.destination,20,'SPLIT-1')
@@ -223,6 +290,7 @@ class TestLogisticsStockIdentity(unittest.TestCase):
 
     def test_untagged_transfer_cannot_hide_certified_erp_balance(self):
         self.line.handling_unit=None
+        self.frappe.db.sql.side_effect=None
         self.frappe.db.sql.return_value=[('SET',)]
         with self.assertRaisesRegex(ValueError,'Certified ERP stock exists'):
             self.service.erp_identity_fields(self.line,'Stock Entry Detail',True)
@@ -274,7 +342,7 @@ class TestLogisticsStockIdentity(unittest.TestCase):
     def test_actual_production_gate_accepts_transferred_proof_and_rejects_revoked_parent(self):
         self.service.inherit_split_certificates(self.unit,self.destination,20,'SPLIT-1')
         namespace=self._actual_function('services/production_certificates.py',['_requirement_passes'],
-            {'frappe':self.frappe,'cint':lambda value:int(value or 0),
+            {'frappe':self.frappe,'flt':lambda value:float(value or 0),'TOLERANCE':0.000001,'cint':lambda value:int(value or 0),
              '_member_union':lambda names:{'TYPE':3} if names else {}})
         evidence={'internal_set_names':[],'unit_names':['DEST']}
         rule=Row(certificate_type='TYPE',minimum_revision=1,require_unexpired=1)
@@ -288,7 +356,7 @@ class TestLogisticsStockIdentity(unittest.TestCase):
     def test_actual_certificate_process_gate_accepts_transferred_proof_and_rejects_revoked_parent(self):
         self.service.inherit_split_certificates(self.unit,self.destination,20,'SPLIT-1')
         namespace=self._actual_function('services/certificate_process.py',['_validate_certificate_requirements'],
-            {'frappe':self.frappe,'cint':lambda value:int(value or 0)})
+            {'frappe':self.frappe,'flt':lambda value:float(value or 0),'TOLERANCE':0.000001,'cint':lambda value:int(value or 0)})
         master=Row(certificate_process_operation='Print',certificate_requirements=[Row(
             operation='Print',gate_stage='Before Operation Start',certificate_type='TYPE',
             minimum_revision=1,require_unexpired=1,requirement_group='Input',group_logic='All Required')])

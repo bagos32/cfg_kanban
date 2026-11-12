@@ -5075,3 +5075,14 @@ proof and native ERP recovery path, retaining all original audit records.
 Migration is required for the new Manifest line snapshot fields. Local dependency-double tests
 do not verify live ERP dimension posting, serial/batch bundles, concurrency or scanner-only kiosk
 operation. Complete the isolated-site scenarios in TEST_LOGISTICS_STOCK_IDENTITY.md.
+
+
+Bulk splitting to a new main or child tag allocates certificate coverage across all intact
+issued records for that source tag and certificate set. A certificate recorded for one micro-lot
+does not have to cover the entire bulk split on its own. Each inherited portion retains its
+original proof, dates and revision. Prior descendant allocations are deducted, including revoked
+records, so revocation alone cannot make physical quantity available again. Returns to the
+original compatible source retain a return-proof link that restores its allocatable coverage.
+Production gates check the unallocated, valid coverage of the tag; one small valid certificate
+cannot make a partly expired or revoked bulk quantity fully usable. Missing coverage still
+requires evidence reconciliation and is never created simply to let the split proceed.

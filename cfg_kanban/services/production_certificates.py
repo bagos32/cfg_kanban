@@ -574,7 +574,7 @@ def _member_union(set_names):
 
 
 def _requirement_passes(evidence, row):
-    from cfg_kanban.services.logistics_stock_identity import certificate_is_effective
+    from cfg_kanban.services.logistics_stock_identity import certificate_requirement_covered
     certificate_type = row.certificate_type
     minimum_revision = cint(row.minimum_revision or 1)
     trusted = _member_union(evidence["internal_set_names"])
@@ -589,20 +589,9 @@ def _requirement_passes(evidence, row):
         members = _member_union([set_name])
         if members.get(certificate_type, 0) < minimum_revision:
             continue
-        certificates = frappe.get_all(
-            "CFG Process Certificate",
-            filters={
-                "handling_unit": unit_name,
-                "certificate_type": certificate_type,
-                "status": "Active",
-                "revision_snapshot": [">=", minimum_revision],
-            },
-            fields=["name", "valid_until"], limit_page_length=0,
-        )
-        if any(
-            certificate_is_effective(certificate.name, require_unexpired=bool(cint(row.require_unexpired)))
-            for certificate in certificates
-        ):
+        unit = frappe.get_doc("CFG Kanban Handling Unit", unit_name)
+        if certificate_requirement_covered(unit, certificate_type, minimum_revision,
+                                         require_unexpired=bool(cint(row.require_unexpired))):
             return True
     return False
 

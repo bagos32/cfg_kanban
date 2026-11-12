@@ -210,6 +210,8 @@ def return_quantity_to_source(
     )
     fill.reload()
     source.reload()
+    from cfg_kanban.services.logistics_stock_identity import inherit_split_certificates
+    inherit_split_certificates(fill, source, qty, return_key)
     if source.identity_state == "Empty":
         source.db_set(
             {"identity_state": "Active", "movement_state": "Received"},
