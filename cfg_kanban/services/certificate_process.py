@@ -116,6 +116,7 @@ def start_certificate_process(cycle_name, source_scan, qty, event_token,
                               operator_session_token=None):
     profile, session = require_operator(operator_session_token, "start")
     run = _locked_run(cycle_name)
+    profile, session = _require_run_operator(run, operator_session_token, "start")
     if run.status == "In Progress":
         return get_certificate_process_context(cycle_name, operator_session_token)
     if run.status != "Ready":
@@ -169,6 +170,7 @@ def complete_certificate_process(cycle_name, good_qty, reject_qty=0,
                                  operator_session_token=None):
     profile, session = require_operator(operator_session_token, "complete")
     run = _locked_run(cycle_name)
+    profile, session = _require_run_operator(run, operator_session_token, "complete")
     if run.status not in ("In Progress", "Awaiting ERP Submission"):
         frappe.throw(f"Certificate Process cannot complete while it is {run.status}")
     if run.status == "Awaiting ERP Submission":
@@ -234,12 +236,70 @@ def complete_certificate_process(cycle_name, good_qty, reject_qty=0,
 
 
 @frappe.whitelist()
+def record_certificate_process_progress(
+        cycle_name, good_qty, reject_qty=0, output_tag_scan=None,
+        output_batch=None, printed_expiry=None, first_output_serial=None,
+        last_output_serial=None, event_token=None, operator_session_token=None):
+    """UI outcome envelope: only rolled-back, absent events permit correction.
+
+    Unexpected errors propagate and remain ambiguous to the client. Existing-token
+    conflicts (including legacy evidence) never become permission to start again.
+    No explicit commit: Frappe commits this POST before delivering the response.
+    """
+    require_operator(operator_session_token, "complete")
+    run = _locked_run(cycle_name)
+    _require_run_operator(run, operator_session_token, "complete")
+    if not isinstance(event_token, str) or not event_token.strip():
+        frappe.throw("Certificate partial progress requires a non-empty event token")
+    # Acquire the run lock BEFORE the savepoint so rollback retains serialization.
+    savepoint = "certificate_progress_attempt"
+    frappe.db.savepoint(savepoint)
+    try:
+        context = report_certificate_process_progress(
+            cycle_name, good_qty, reject_qty, output_tag_scan, output_batch,
+            printed_expiry, first_output_serial, last_output_serial,
+            event_token, operator_session_token,
+        )
+    except frappe.ValidationError:
+        frappe.db.rollback(save_point=savepoint)
+        key = canonical_key("certificate-process-progress", run.name, event_token)
+        if frappe.db.get_value("CFG Certificate Process Progress", {"idempotency_key": key}, "name"):
+            raise
+        return {"outcome": "rejected", "event_token": event_token}
+    return {"outcome": "recorded", "event_token": event_token, "context": context}
+
+
+@frappe.whitelist()
 def report_certificate_process_progress(
         cycle_name, good_qty, reject_qty=0, output_tag_scan=None,
         output_batch=None, printed_expiry=None, first_output_serial=None,
         last_output_serial=None, event_token=None, operator_session_token=None):
     profile, session = require_operator(operator_session_token, "complete")
     run = _locked_run(cycle_name)
+    profile, session = _require_run_operator(run, operator_session_token, "complete")
+    if not isinstance(event_token, str) or not event_token.strip():
+        frappe.throw("Certificate partial progress requires a non-empty event token")
+    good_qty, reject_qty = flt(good_qty), flt(reject_qty)
+    request_fingerprint = canonical_key(
+        "certificate-progress-request-v1", good_qty, reject_qty,
+        str(output_tag_scan or "").strip(), str(output_batch or "").strip(),
+        str(printed_expiry or "").strip(), str(first_output_serial or "").strip(),
+        str(last_output_serial or "").strip(),
+    )
+    key = canonical_key("certificate-process-progress", run.name, event_token)
+    existing = frappe.db.get_value(
+        "CFG Certificate Process Progress", {"idempotency_key": key},
+        ["name", "request_fingerprint"], as_dict=True,
+    )
+    if existing:
+        if not existing.request_fingerprint:
+            frappe.throw(
+                "This earlier progress record has no request fingerprint. "
+                "Review its recorded evidence; do not retry it with a new token."
+            )
+        if existing.request_fingerprint != request_fingerprint:
+            frappe.throw("This progress event token was already used with different request data")
+        return get_certificate_process_context(cycle_name, operator_session_token)
     if run.status != "In Progress":
         frappe.throw(f"Certificate Process progress cannot be reported while it is {run.status}")
     if run.progress_mode != "Consolidated Partial Progress":
@@ -271,12 +331,6 @@ def report_certificate_process_progress(
         run, resolved_batch, printed_expiry, output_identity
     )
     _claim_output_identity(run, output_identity)
-    key = canonical_key("certificate-process-progress", run.name, event_token)
-    existing = frappe.db.get_value(
-        "CFG Certificate Process Progress", {"idempotency_key": key}, "name"
-    )
-    if existing:
-        return get_certificate_process_context(cycle_name, operator_session_token)
     sequence = cint(frappe.db.get_value(
         "CFG Certificate Process Progress",
         {"certificate_process_run": run.name}, "max(sequence)",
@@ -308,7 +362,7 @@ def report_certificate_process_progress(
         ),
         "recorded_on": now_datetime(), "recorded_by_operator": profile.employee,
         "operator_session": session.name, "terminal_user": frappe.session.user,
-        "idempotency_key": key,
+        "idempotency_key": key, "request_fingerprint": request_fingerprint,
     }).insert(ignore_permissions=True)
     run.db_set({
         "good_qty": flt(run.good_qty) + good_qty,
@@ -339,6 +393,7 @@ def close_consolidated_certificate_process(
         cycle_name, event_token=None, operator_session_token=None):
     profile, session = require_operator(operator_session_token, "complete")
     run = _locked_run(cycle_name)
+    profile, session = _require_run_operator(run, operator_session_token, "complete")
     if run.status == "Awaiting ERP Submission":
         return get_certificate_process_context(cycle_name, operator_session_token)
     if run.status != "In Progress" or run.progress_mode != "Consolidated Partial Progress":
@@ -388,6 +443,7 @@ def close_consolidated_certificate_process(
 def submit_certificate_process(run_name, event_token=None, operator_session_token=None):
     require_operator(operator_session_token, "complete")
     run = frappe.get_doc("CFG Process Certificate Run", run_name)
+    _require_run_operator(run, operator_session_token, "complete")
     if run.status == "Completed":
         return get_certificate_process_context(run.kanban_cycle, operator_session_token)
     if run.status != "Awaiting ERP Submission" or not run.repack_stock_entry:
@@ -432,6 +488,7 @@ def cancel_certificate_process(run_name, reason, event_token=None,
     if not (reason or "").strip():
         frappe.throw("Cancellation reason is required")
     run = frappe.get_doc("CFG Process Certificate Run", run_name)
+    profile, session = _require_run_operator(run, operator_session_token, "start")
     if run.status == "Cancelled":
         return {"cancelled": True, "run": run.name}
     if run.status not in ("Ready", "In Progress"):
@@ -560,6 +617,13 @@ def reconcile_certificate_process(run_name):
                     cycle=run.kanban_cycle)
     card.db_set("active_cycle", None, update_modified=True)
     return frappe.get_doc("CFG Process Certificate Run", run.name)
+
+
+def _require_run_operator(run, session_token, action):
+    return require_operator(
+        session_token, action, operation=run.operation,
+        workstation=getattr(run, "workstation", None),
+    )
 
 
 def _locked_run(cycle_name):

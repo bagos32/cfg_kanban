@@ -4694,6 +4694,23 @@ Repack is created only at Card closure. Enable **Allow Partial Quantity** when c
 of the selected source quantity unprocessed. ERP submission is still the only point at which
 authoritative stock, tag quantity and issued certificates change.
 
+Report Certificate Progress saves the micro-lot token, quantities and evidence in this browser
+before sending. If acknowledgement is lost, the dialog locks those inputs: scan Confirm to retry
+the original request, or Cancel and reopen it later. Refresh retains the request. A fresh operator
+session must still be authorized for the operation. A confirmed server rejection enables corrections
+and the next confirmation creates a new attempt. Network errors, unexpected responses, conflicts
+and legacy rows without fingerprints never authorize a new attempt. Cancel does not discard an
+uncertain request. After acknowledgement, reopen the dialog for the next physical micro-lot.
+
+Use HTTPS (or localhost) and a browser supporting Web Locks; this serializes submissions across
+tabs on the same browser origin. Browser storage must be available. Do not clear storage or switch
+browser/device/origin to repeat an uncertain micro-lot. If storage is lost, corrupt, or a saved request
+cannot be resolved, review immutable progress evidence with a supervisor before further reporting.
+This safeguard cannot identify the same physical micro-lot submitted independently from another
+device. A closed-run replay requires its saved request and the original Run context. If the Card
+has already been released or reused and that context is no longer accessible, stop and have a
+supervisor reconcile the saved Cycle/token against progress evidence; do not enter it as a new lot.
+
 Start, Complete and Cancel Certificate Process dialogs show **Scanner Ready** and keep their
 scanner field armed. Quantity, field-arm, physical identity, Confirm and Cancel scans restore focus
 after success, validation error and message dismissal.

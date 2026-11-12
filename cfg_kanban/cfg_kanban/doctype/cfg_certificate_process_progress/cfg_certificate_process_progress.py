@@ -10,7 +10,7 @@ IMMUTABLE_FIELDS = (
     "output_tag_mode", "good_qty", "reject_qty", "result_certificate_set",
     "output_batch", "printed_expiry", "first_output_serial", "last_output_serial",
     "recorded_on", "recorded_by_operator", "operator_session", "terminal_user",
-    "idempotency_key",
+    "idempotency_key", "request_fingerprint",
 )
 
 

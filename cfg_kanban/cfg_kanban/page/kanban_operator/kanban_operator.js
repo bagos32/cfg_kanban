@@ -1024,6 +1024,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			</tbody></table>
 			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:ACCEPT_OWNER</code>, <code>CFG:CMD:TRANSFER_OWNER</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
 			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:START_MATERIAL_RUN</code>, <code>CFG:CMD:CANCEL_MATERIAL_RUN</code>, <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:RECORD_WIP_BIN_USE</code>, <code>CFG:CMD:RECORD_LOOSE_WIP_USE</code>, <code>CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
+			<p>${__("An unacknowledged Certificate Progress report is saved in this browser. Reopen and scan Confirm to retry the same micro-lot unchanged; Cancel and refresh retain it. Corrections are enabled only after the server confirms rejection. Do not clear browser storage or repeat the micro-lot in another browser.")}</p>
 			<p><strong>${__("Certificate Process commands")}</strong>: <code>CFG:CMD:START_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:COMPLETE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:REPORT_CERTIFICATE_PROGRESS</code>, <code>CFG:CMD:CLOSE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:SUBMIT_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:CANCEL_CERTIFICATE_PROCESS</code>. Field-arm commands are <code>CFG:CMD:CERTIFICATE_OUTPUT_TAG</code>, <code>CFG:CMD:CERTIFICATE_BATCH</code>, <code>CFG:CMD:CERTIFICATE_EXPIRY</code>, <code>CFG:CMD:CERTIFICATE_SERIAL_START</code>, and <code>CFG:CMD:CERTIFICATE_SERIAL_END</code>. Scan the field command and then its physical/value barcode.</p>
 			<p><strong>${__("Work Order Process Certificates")}</strong>: ${__("Use the normal Start Operation, Start Material Run, Material Quantity, physical source-tag, Report Progress, Scan Material Tags, Submit Material Entry, Confirm, Cancel, and numbered Select labels. Certificate gates run automatically for the configured Operation; do not scan the same material again from the main Production Card after a Process/Station Card recorded it against the shared Job Card.")}</p>
 			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then scan Material Quantity and the physical source Stock Tag for each tracked component. Confirm opens the run. Ordinary operations and No Run Tracking components remain unchanged.")}</small></p>
@@ -3220,13 +3221,67 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		activate_certificate_dialog(dialog, "complete");
 	}
 
-	function open_certificate_process_progress() {
+	// Durable intent, shared by tabs on this origin. Never persist operator credentials.
+	function certificate_progress_key(cycle) {
+		return `cfg_certificate_progress_v1:${cycle}`;
+	}
+
+	function read_certificate_progress(cycle) {
+		const raw = localStorage.getItem(certificate_progress_key(cycle));
+		if (!raw) return null;
+		const saved = JSON.parse(raw);
+		if (saved.version !== 1 || saved.payload?.cycle_name !== cycle ||
+			!saved.payload.event_token || !["pending", "recorded", "rejected"].includes(saved.status)) {
+			throw new Error(__("Saved certificate progress needs supervisor review. Do not clear browser storage or resubmit elsewhere."));
+		}
+		return saved;
+	}
+
+	function save_certificate_progress(cycle, saved) {
+		const raw = JSON.stringify(saved);
+		localStorage.setItem(certificate_progress_key(cycle), raw);
+		if (localStorage.getItem(certificate_progress_key(cycle)) !== raw) {
+			throw new Error(__("Cannot preserve certificate progress safely. Submission stopped."));
+		}
+	}
+
+	function certificate_progress_values(saved) {
+		const { good_qty, reject_qty, output_tag_scan, output_batch, printed_expiry,
+			first_output_serial, last_output_serial } = saved.payload;
+		return { good_qty, reject_qty, output_tag: output_tag_scan, output_batch,
+			printed_expiry, first_output_serial, last_output_serial };
+	}
+
+	function lock_certificate_progress_fields(dialog, locked) {
+		dialog.certificate_progress_pending = locked;
+		for (const field of ["good_qty", "reject_qty", "output_batch", "printed_expiry",
+			"first_output_serial", "last_output_serial"]) {
+			dialog.set_df_property(field, "read_only", locked ? 1 : 0);
+		}
+		dialog.set_df_property("output_camera", "hidden", locked ? 1 : 0);
+	}
+
+	async function open_certificate_process_progress() {
 		const context = state.context?.certificate_process;
-		if (!context || context.run.status !== "In Progress" ||
-			context.run.progress_mode !== "Consolidated Partial Progress") {
+		if (!context || context.run.progress_mode !== "Consolidated Partial Progress") {
 			return scanner_command_message(__("No consolidated Certificate Process is ready for partial progress."));
 		}
 		const run = context.run;
+		let saved;
+		try {
+			saved = read_certificate_progress(run.kanban_cycle);
+		} catch (error) {
+			return scanner_command_message(error.message);
+		}
+		if (run.status !== "In Progress" && saved?.status !== "pending") {
+			return scanner_command_message(__("No consolidated Certificate Process is ready for partial progress."));
+		}
+		if (!navigator.locks?.request) {
+			return scanner_command_message(__("Safe certificate retry requires a browser with Web Locks on HTTPS or localhost."));
+		}
+		let baseline = saved?.payload.event_token || null;
+		let busy = false, finished = false;
+		let recovering = saved?.status === "pending";
 		const remaining = Math.max(Number(run.selected_qty || 0) - Number(run.good_qty || 0) - Number(run.reject_qty || 0), 0);
 		const dialog = new frappe.ui.Dialog({
 			title: __("Report Certificate Progress"), size: "large",
@@ -3247,24 +3302,85 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			],
 			primary_action_label: __("Record Partial Progress"),
 			primary_action: async (values) => {
+				if (busy || finished) return;
+				busy = true;
 				try {
-					await frappe.call({ method: "cfg_kanban.services.certificate_process.report_certificate_process_progress", args: {
-						cycle_name: run.kanban_cycle, good_qty: values.good_qty,
-						reject_qty: values.reject_qty, output_tag_scan: values.output_tag,
-						output_batch: values.output_batch, printed_expiry: values.printed_expiry,
-						first_output_serial: values.first_output_serial,
-						last_output_serial: values.last_output_serial,
-						event_token: frappe.utils.get_random(24),
-						operator_session_token: state.session_token,
-					}, freeze: true, freeze_message: __("Recording provisional certificate progress...") });
+					await navigator.locks.request(certificate_progress_key(run.kanban_cycle),
+						{ ifAvailable: true }, async (lock) => {
+						if (!lock) throw new Error(__("Certificate progress is being submitted in another tab. Reopen after it finishes."));
+						const current = read_certificate_progress(run.kanban_cycle);
+						if ((current?.payload.event_token || null) !== baseline) {
+							throw new Error(__("Certificate progress changed in another dialog. Cancel and reopen to review it."));
+						}
+						if (recovering && current?.status === "recorded") {
+							finished = true;
+							return;
+						}
+						if (recovering && current?.status === "rejected") {
+							recovering = false;
+							lock_certificate_progress_fields(dialog, false);
+							frappe.msgprint(__("This attempt was rejected in another dialog. Review and correct the inputs before confirming again."));
+							return;
+						}
+						if (current?.status === "pending") {
+							saved = current;
+						} else {
+							saved = { version: 1, status: "pending", payload: {
+								cycle_name: run.kanban_cycle, good_qty: Number(values.good_qty || 0),
+								reject_qty: Number(values.reject_qty || 0), output_tag_scan: values.output_tag || "",
+								output_batch: values.output_batch || "", printed_expiry: values.printed_expiry || "",
+								first_output_serial: values.first_output_serial || "", last_output_serial: values.last_output_serial || "",
+								event_token: frappe.utils.get_random(24),
+							} };
+							save_certificate_progress(run.kanban_cycle, saved);
+							baseline = saved.payload.event_token;
+						}
+						recovering = true;
+						lock_certificate_progress_fields(dialog, true);
+						await dialog.set_values(certificate_progress_values(saved));
+						const response = await frappe.call({
+							method: "cfg_kanban.services.certificate_process.record_certificate_process_progress",
+							args: { ...saved.payload, operator_session_token: state.session_token },
+							freeze: true, freeze_message: __("Recording provisional certificate progress..."),
+						});
+						const result = response.message;
+						if (response.exc || result?.event_token !== saved.payload.event_token ||
+							!["recorded", "rejected"].includes(result?.outcome)) {
+							throw new Error(__("Certificate progress outcome is uncertain."));
+						}
+						saved = { ...saved, status: result.outcome };
+						save_certificate_progress(run.kanban_cycle, saved);
+						if (result.outcome === "rejected") {
+							recovering = false;
+							lock_certificate_progress_fields(dialog, false);
+							frappe.msgprint(__("The server confirmed that this attempt was rejected and nothing was recorded. Correct the inputs and confirm again."));
+							return;
+						}
+						finished = true;
+					});
+					if (!finished) return;
 					dialog.hide();
 					await load_card(state.context.card.qr_code || state.context.card.card_number);
+				} catch (error) {
+					if (finished) {
+						frappe.msgprint(__("Progress was acknowledged, but the panel could not refresh. Refresh before reporting the next micro-lot."));
+					} else {
+						frappe.msgprint(__("Progress was not acknowledged. Keep this browser's saved request; cancel/reopen or refresh and scan Confirm to retry the original micro-lot. Do not record it in another browser. Review recorded progress with a supervisor if it cannot be resolved."));
+					}
 				} finally {
+					busy = false;
 					rearm_certificate_scanner(dialog);
 				}
 			},
 		});
+		if (saved?.status === "pending") {
+			await dialog.set_values(certificate_progress_values(saved));
+			lock_certificate_progress_fields(dialog, true);
+		}
 		activate_certificate_dialog(dialog, "progress");
+		if (saved?.status === "pending") {
+			dialog.get_field("scanner_status").$wrapper.text(__("Unacknowledged micro-lot restored. Confirm retries its original quantities and evidence; Cancel keeps it saved."));
+		}
 	}
 
 	function close_consolidated_certificate_process() {
@@ -3355,6 +3471,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (upper === "CFG:CMD:CANCEL") return dialog.hide();
 		if (upper === "CFG:CMD:CONFIRM") {
 			dialog.get_primary_btn().trigger("click");
+			return rearm_certificate_scanner(dialog);
+		}
+		if (dialog.certificate_progress_pending) {
+			frappe.show_alert({ message: __("This micro-lot is awaiting acknowledgement. Scan Confirm to retry unchanged, or Cancel to keep it saved."), indicator: "orange" });
 			return rearm_certificate_scanner(dialog);
 		}
 		const quantity = /^CFG:QTY:(MATERIAL|GOOD|REJECT):([+-]?\d+(?:\.\d+)?)$/i.exec(value);

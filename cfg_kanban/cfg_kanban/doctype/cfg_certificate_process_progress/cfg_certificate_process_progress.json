@@ -1,7 +1,7 @@
 {
  "doctype":"DocType","name":"CFG Certificate Process Progress","module":"CFG Kanban","autoname":"CPRG-.YYYY.-.#####","title_field":"output_tag_code","track_changes":1,
  "search_fields":"certificate_process_run,kanban_cycle,item_code,output_tag_code,output_handling_unit,result_certificate_set",
- "field_order":["status","sequence","context_section","certificate_process_run","kanban_cycle","kanban_master","kanban_card","company","item_code","stock_uom","operation","quantity_section","good_qty","reject_qty","source_handling_unit","output_tag_code","output_handling_unit","output_tag_mode","result_certificate_set","output_batch","printed_expiry","first_output_serial","last_output_serial","erp_section","repack_stock_entry","audit_section","recorded_on","recorded_by_operator","operator_session","terminal_user","posted_on","cancelled_on","cancellation_reason","idempotency_key"],
+ "field_order":["status","sequence","context_section","certificate_process_run","kanban_cycle","kanban_master","kanban_card","company","item_code","stock_uom","operation","quantity_section","good_qty","reject_qty","source_handling_unit","output_tag_code","output_handling_unit","output_tag_mode","result_certificate_set","output_batch","printed_expiry","first_output_serial","last_output_serial","erp_section","repack_stock_entry","audit_section","recorded_on","recorded_by_operator","operator_session","terminal_user","posted_on","cancelled_on","cancellation_reason","idempotency_key","request_fingerprint"],
  "fields":[
   {"fieldname":"status","label":"Progress Status","fieldtype":"Select","options":"Recorded\nERP Posted\nCancelled","default":"Recorded","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"sequence","label":"Partial Run","fieldtype":"Int","reqd":1,"read_only":1,"in_list_view":1},
@@ -36,6 +36,7 @@
   {"fieldname":"posted_on","label":"ERP Posted On","fieldtype":"Datetime","read_only":1},
   {"fieldname":"cancelled_on","label":"Cancelled On","fieldtype":"Datetime","read_only":1},
   {"fieldname":"cancellation_reason","label":"Cancellation Reason","fieldtype":"Small Text","read_only":1},
+  {"fieldname":"request_fingerprint","label":"Request Fingerprint","fieldtype":"Data","read_only":1,"hidden":1,"description":"Immutable canonical request digest for safe identical-event replay. Legacy rows remain empty."},
   {"fieldname":"idempotency_key","label":"Idempotency Key","fieldtype":"Data","reqd":1,"unique":1,"read_only":1,"hidden":1}
  ],
  "permissions":[
