@@ -1,0 +1,162 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Material Rotation Override",
+ "module": "CFG Kanban",
+ "autoname": "MRO-.YYYY.-.#####",
+ "title_field": "work_order",
+ "track_changes": 1,
+ "fields": [
+  {
+   "fieldname": "status",
+   "label": "Status",
+   "fieldtype": "Select",
+   "options": "Active\nRevoked",
+   "default": "Active",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "work_order",
+   "label": "Work Order",
+   "fieldtype": "Link",
+   "options": "Work Order",
+   "reqd": 1,
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "reason",
+   "label": "Work Order-wide FEFO Override Reason",
+   "fieldtype": "Small Text",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_by_operator",
+   "label": "Approved by Operator",
+   "fieldtype": "Link",
+   "options": "Employee",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "operator_session",
+   "label": "Approval Operator Session",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Operator Session",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "terminal_user",
+   "label": "Approval Terminal User",
+   "fieldtype": "Link",
+   "options": "User",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_on",
+   "label": "Approved On",
+   "fieldtype": "Datetime",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "active_work_order_key",
+   "label": "Active Work Order Key",
+   "fieldtype": "Data",
+   "unique": 1,
+   "hidden": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "idempotency_key",
+   "label": "Approval Idempotency Key",
+   "fieldtype": "Data",
+   "unique": 1,
+   "hidden": 1,
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "revocation_reason",
+   "label": "Revocation Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "revoked_by_operator",
+   "label": "Revoked by Operator",
+   "fieldtype": "Link",
+   "options": "Employee",
+   "read_only": 1
+  },
+  {
+   "fieldname": "revoked_operator_session",
+   "label": "Revocation Operator Session",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Operator Session",
+   "read_only": 1
+  },
+  {
+   "fieldname": "revoked_on",
+   "label": "Revoked On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "revocation_key",
+   "label": "Revocation Idempotency Key",
+   "fieldtype": "Data",
+   "unique": 1,
+   "hidden": 1,
+   "read_only": 1
+  }
+ ],
+ "field_order": [
+  "status",
+  "work_order",
+  "company",
+  "reason",
+  "approved_by_operator",
+  "operator_session",
+  "terminal_user",
+  "approved_on",
+  "active_work_order_key",
+  "idempotency_key",
+  "revocation_reason",
+  "revoked_by_operator",
+  "revoked_operator_session",
+  "revoked_on",
+  "revocation_key"
+ ],
+ "permissions": [
+  {
+   "role": "Manufacturing User",
+   "read": 1,
+   "report": 1,
+   "print": 1
+  },
+  {
+   "role": "Manufacturing Manager",
+   "read": 1,
+   "report": 1,
+   "print": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "print": 1
+  }
+ ]
+}

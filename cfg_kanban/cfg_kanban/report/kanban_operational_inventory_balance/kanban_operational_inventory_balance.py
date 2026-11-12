@@ -6,6 +6,7 @@ from frappe.utils import cint, flt
 def execute(filters=None):
     filters = frappe._dict(filters or {})
     conditions, values = _conditions(filters)
+    material_run_join = _material_run_join()
     if filters.display_mode == "Tag Detail":
         data = _tag_detail_data(filters, conditions, values)
         return _tag_detail_columns(), data, None, None, _tag_detail_summary(data)
@@ -37,12 +38,17 @@ def execute(filters=None):
             sum(hu.current_qty) as total_qty,
             sum(hu.reserved_qty) as reserved_qty,
             sum(hu.available_qty) as available_qty,
+            sum(coalesce(mr.remaining_qty, 0)) as material_run_reserved_qty,
+            sum(coalesce(mr.pending_used_qty, 0)) as material_run_pending_consumed_qty,
+            sum(greatest(hu.current_qty - coalesce(mr.pending_used_qty, 0), 0)) as operational_qty,
+            sum(greatest(hu.available_qty - coalesce(mr.additional_reserved_qty, 0), 0)) as operational_available_qty,
             sum(case when hu.quality_state = 'Released' then hu.available_qty else 0 end)
                 as released_available_qty,
             sum(case when hu.quality_state in ('Hold', 'Quarantined', 'Rejected')
                      then hu.current_qty else 0 end) as restricted_qty,
             max(hu.last_reconciled_on) as last_reconciled_on
         from `tabCFG Kanban Handling Unit` hu
+        {material_run_join}
         left join `tabItem` item on item.name = hu.item_code
         left join `tabCFG Process Certificate Set` pcs
           on pcs.name = hu.process_certificate_set
@@ -83,6 +89,31 @@ def execute(filters=None):
     return columns, data, None, None, _summary(data)
 
 
+
+def _material_run_join():
+    """Use the same reservation boundary as Material Run allocation.
+
+    Used quantities stay pending until ERP submission. Draft Material Trace already
+    reserves its used quantity on the HU; subtract only remaining_qty in that case.
+    Bound/Cancelled draws contribute nothing because ERP has settled/released them.
+    """
+    if not frappe.db.table_exists("CFG Kanban Operation Material Draw"):
+        return """left join (select null as source_handling_unit, 0 as remaining_qty,
+                  0 as pending_used_qty, 0 as additional_reserved_qty) mr on 1=0"""
+    return """
+        left join (
+            select source_handling_unit,
+                   sum(remaining_qty) as remaining_qty,
+                   sum(used_qty) as pending_used_qty,
+                   sum(case when ifnull(material_trace, '') = '' then drawn_qty
+                            else remaining_qty end) as additional_reserved_qty
+            from `tabCFG Kanban Operation Material Draw`
+            where status in ('Open', 'Partially Used', 'Carry Forward', 'Used')
+            group by source_handling_unit
+        ) mr on mr.source_handling_unit=hu.name
+    """
+
+
 def _conditions(filters):
     conditions = [
         "hu.tag_kind != 'Reusable Container'",
@@ -113,6 +144,7 @@ def _conditions(filters):
 
 
 def _tag_detail_data(filters, conditions, values):
+    material_run_join = _material_run_join()
     if not cint(filters.include_zero_balance):
         conditions.append(
             "(abs(hu.current_qty) > 0.000001 or abs(hu.reserved_qty) > 0.000001)"
@@ -157,12 +189,17 @@ def _tag_detail_data(filters, conditions, values):
             hu.current_qty,
             hu.reserved_qty,
             hu.available_qty,
+            coalesce(mr.remaining_qty, 0) as material_run_reserved_qty,
+            coalesce(mr.pending_used_qty, 0) as material_run_pending_consumed_qty,
+            greatest(hu.current_qty - coalesce(mr.pending_used_qty, 0), 0) as operational_qty,
+            greatest(hu.available_qty - coalesce(mr.additional_reserved_qty, 0), 0) as operational_available_qty,
             hu.physical_custodian,
             hu.source_location,
             hu.destination_location,
             hu.last_reconciled_on,
             hu.last_scan_time
         from `tabCFG Kanban Handling Unit` hu
+        {material_run_join}
         left join `tabItem` item on item.name = hu.item_code
         left join `tabCFG Kanban Handling Unit` pc on pc.name = hu.physical_container
         left join `tabCFG Process Certificate Set` pcs
@@ -216,6 +253,10 @@ def _pending_summary_rows(filters):
             0 as tag_count,
             count(distinct p.output_tag_code) as pending_tag_count,
             0 as total_qty,
+            0 as material_run_reserved_qty,
+            0 as material_run_pending_consumed_qty,
+            0 as operational_qty,
+            0 as operational_available_qty,
             0 as reserved_qty,
             0 as available_qty,
             0 as released_available_qty,
@@ -274,6 +315,10 @@ def _pending_tag_rows(filters):
             'Pending ERP Consolidation' as certificate_posting_status,
             sum(p.good_qty) as pending_certificate_qty,
             0 as current_qty,
+            0 as material_run_reserved_qty,
+            0 as material_run_pending_consumed_qty,
+            0 as operational_qty,
+            0 as operational_available_qty,
             0 as reserved_qty,
             0 as available_qty,
             'Pending ERP' as quality_state,
@@ -347,6 +392,10 @@ def _columns():
         {"label": _("Total Quantity"), "fieldname": "total_qty", "fieldtype": "Float", "width": 125},
         {"label": _("Reserved Quantity"), "fieldname": "reserved_qty", "fieldtype": "Float", "width": 135},
         {"label": _("Available Quantity"), "fieldname": "available_qty", "fieldtype": "Float", "width": 135},
+        {"label": _("Material Run Reserved"), "fieldname": "material_run_reserved_qty", "fieldtype": "Float", "width": 155},
+        {"label": _("Consumed Pending ERP"), "fieldname": "material_run_pending_consumed_qty", "fieldtype": "Float", "width": 165},
+        {"label": _("Operational Remaining"), "fieldname": "operational_qty", "fieldtype": "Float", "width": 165},
+        {"label": _("Operationally Available"), "fieldname": "operational_available_qty", "fieldtype": "Float", "width": 170},
         {"label": _("Released Available"), "fieldname": "released_available_qty", "fieldtype": "Float", "width": 135},
         {"label": _("Hold / Restricted"), "fieldname": "restricted_qty", "fieldtype": "Float", "width": 125},
         {"label": _("Last Reconciled"), "fieldname": "last_reconciled_on", "fieldtype": "Datetime", "width": 155},
@@ -378,6 +427,10 @@ def _tag_detail_columns():
         {"label": _("Current Qty"), "fieldname": "current_qty", "fieldtype": "Float", "width": 105},
         {"label": _("Reserved Qty"), "fieldname": "reserved_qty", "fieldtype": "Float", "width": 105},
         {"label": _("Available Qty"), "fieldname": "available_qty", "fieldtype": "Float", "width": 105},
+        {"label": _("Material Run Reserved"), "fieldname": "material_run_reserved_qty", "fieldtype": "Float", "width": 155},
+        {"label": _("Consumed Pending ERP"), "fieldname": "material_run_pending_consumed_qty", "fieldtype": "Float", "width": 165},
+        {"label": _("Operational Remaining"), "fieldname": "operational_qty", "fieldtype": "Float", "width": 165},
+        {"label": _("Operationally Available"), "fieldname": "operational_available_qty", "fieldtype": "Float", "width": 170},
         {"label": _("Quality"), "fieldname": "quality_state", "width": 100},
         {"label": _("Movement State"), "fieldname": "movement_state", "width": 125},
         {"label": _("Custodian / Vehicle"), "fieldname": "physical_custodian", "width": 150},
@@ -402,6 +455,10 @@ def _summary(data):
             ("total_qty", _("Combined Total"), "Blue"),
             ("reserved_qty", _("Combined Reserved"), "Orange"),
             ("available_qty", _("Combined Available"), "Green"),
+            ("material_run_reserved_qty", _("Material Run Reserved"), "Orange"),
+            ("material_run_pending_consumed_qty", _("Consumed Pending ERP"), "Orange"),
+            ("operational_qty", _("Operational Remaining"), "Blue"),
+            ("operational_available_qty", _("Operationally Available"), "Green"),
         ):
             summary.append({
                 "value": sum(flt(row.get(fieldname)) for row in data),
@@ -432,6 +489,10 @@ def _tag_detail_summary(data):
             ("current_qty", _("Listed Total"), "Blue"),
             ("reserved_qty", _("Listed Reserved"), "Orange"),
             ("available_qty", _("Listed Available"), "Green"),
+            ("material_run_reserved_qty", _("Material Run Reserved"), "Orange"),
+            ("material_run_pending_consumed_qty", _("Consumed Pending ERP"), "Orange"),
+            ("operational_qty", _("Operational Remaining"), "Blue"),
+            ("operational_available_qty", _("Operationally Available"), "Green"),
         ):
             summary.append({
                 "value": sum(flt(row.get(fieldname)) for row in data),

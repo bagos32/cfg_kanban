@@ -146,6 +146,8 @@ def _scanner_command_catalog(quantity_steps=None):
         ]),
         ("Production Material and WIP", [
             ("Start Operation Material Run", "CFG:CMD:START_MATERIAL_RUN", ""),
+            ("Approve Full Work Order FEFO Override", "CFG:CMD:APPROVE_MATERIAL_FEFO_OVERRIDE", ""),
+            ("Revoke Full Work Order FEFO Override", "CFG:CMD:REVOKE_MATERIAL_FEFO_OVERRIDE", ""),
             ("Cancel Open Material Run", "CFG:CMD:CANCEL_MATERIAL_RUN", ""),
             ("Prepare / Settle Materials", "CFG:CMD:PREPARE_MATERIALS", ""),
             ("Record Standard WIP Bin Use", "CFG:CMD:RECORD_WIP_BIN_USE", ""),

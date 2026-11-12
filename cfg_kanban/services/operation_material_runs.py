@@ -14,6 +14,10 @@ from frappe.utils import flt, now_datetime
 
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key, get_existing
+from cfg_kanban.services.material_rotation import (
+    active_work_order_override, assert_material_not_expired, validate_material_rotation,
+    lock_material_rotation,
+)
 from cfg_kanban.services.operator_auth import require_operator
 
 
@@ -401,7 +405,9 @@ def preview_material_draw(execution_name, scan_value, quantity, operator_session
                 unit.handling_unit_id, available, unit.stock_uom, qty
             )
         )
-    return _draw_preview_payload(rule, unit, physical_container, qty, available)
+    rotation = validate_material_rotation(execution, unit)
+    return {**_draw_preview_payload(rule, unit, physical_container, qty, available),
+            "material_rotation": rotation}
 
 
 @frappe.whitelist()
@@ -475,6 +481,10 @@ def start_scanner_run(
             return _run_payload(active, already_open=True)
         raise
 
+    # Serialize start against approval/revocation and other lanes of this Work Order.
+    if draw_requests or execution.allow_material_carry_forward:
+        lock_material_rotation(execution)
+    _assert_carry_forward_expiry(execution)
     created_draws = _create_material_draws(
         execution, run, draw_requests, profile=profile, session=session,
         event_token=event_token,
@@ -708,6 +718,8 @@ def validate_progress_materials(execution, run, processed_qty):
         for draw in draws:
             take = min(remaining, flt(draw.remaining_qty))
             if take > TOLERANCE:
+                unit_name = frappe.db.get_value("CFG Kanban Operation Material Draw", draw.name, "source_handling_unit")
+                assert_material_not_expired(frappe.get_doc("CFG Kanban Handling Unit", unit_name))
                 plan.append({"draw": draw.name, "qty": take, "rule": rule})
                 remaining -= take
             if remaining <= TOLERANCE:
@@ -780,7 +792,35 @@ def _context_payload(execution):
         "open_run": _run_payload(open_run) if open_run else None,
         "prior_run_count": prior_count,
         "material_rules": _material_rule_context(execution),
+        "work_order": frappe.db.get_value("Job Card", execution.job_card, "work_order") if execution.job_card else None,
+        "material_rotation_override": _rotation_override_context(execution),
     }
+
+
+def _rotation_override_context(execution):
+    # Completed lanes remain visible in the operator panel; their expired authority
+    # is not an active permission. Never make historic context rendering fail.
+    order_name = frappe.db.get_value("Job Card", execution.job_card, "work_order") if execution.job_card else None
+    if not order_name:
+        return None
+    state = frappe.db.get_value("Work Order", order_name, ["docstatus", "status"], as_dict=True)
+    if not state or state.docstatus != 1 or state.status in ("Completed", "Closed", "Stopped", "Cancelled"):
+        return None
+    approval = active_work_order_override(execution)
+    return dict(approval) if approval else None
+
+
+def _assert_carry_forward_expiry(execution):
+    if not execution.allow_material_carry_forward:
+        return
+    units = frappe.get_all(
+        "CFG Kanban Operation Material Draw",
+        {"process_execution": execution.name, "status": ["in", ACTIVE_DRAW_STATUSES],
+         "remaining_qty": [">", TOLERANCE]},
+        pluck="source_handling_unit", limit_page_length=0,
+    )
+    for name in sorted(set(units)):
+        assert_material_not_expired(frappe.get_doc("CFG Kanban Handling Unit", name))
 
 
 def _material_rule_context(execution):
@@ -955,6 +995,13 @@ def _create_material_draws(execution, run, requests, *, profile, session, event_
             unit.name,
         )
         unit.reload()
+        locked_unit_name = unit.name
+        # Repeat identity/rule and expiry/rotation checks at confirmation, not just preview.
+        unit, physical_container = _resolve_material_source(request["scan_value"])
+        if unit.name != locked_unit_name:
+            frappe.throw(_("The container source changed during confirmation; cancel and rescan its current fill"))
+        rule = _match_source_rule(execution, unit)
+        rotation = validate_material_rotation(execution, unit)
         available = _operationally_available_source_qty(unit)
         qty = flt(request["qty"])
         if available + TOLERANCE < qty:
@@ -985,6 +1032,8 @@ def _create_material_draws(execution, run, requests, *, profile, session, event_
             "physical_container": physical_container.name if physical_container else None,
             "qty_per_output": rule.qty_per_output,
             "drawn_qty": qty,
+            "material_rotation_override": rotation["rotation_override"],
+            "material_rotation_evidence": frappe.as_json(rotation),
             "used_qty": 0,
             "remaining_qty": qty,
             "drawn_on": now_datetime(),

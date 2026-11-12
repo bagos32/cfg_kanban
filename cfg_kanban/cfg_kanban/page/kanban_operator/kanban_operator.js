@@ -368,6 +368,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			GO_TO_CURRENT_WORK: go_to_current_work,
 			CLOSE_CYCLE: close_context_runtime_cycle,
 			START_MATERIAL_RUN: open_material_run_dialog,
+            APPROVE_MATERIAL_FEFO_OVERRIDE: () => open_material_rotation_override(false),
+            REVOKE_MATERIAL_FEFO_OVERRIDE: () => open_material_rotation_override(true),
 			CANCEL_MATERIAL_RUN: cancel_open_material_run,
 			PREPARE_MATERIALS: open_scanner_material_preparation,
 			RECORD_WIP_BIN_USE: open_scanner_standard_wip_usage,
@@ -1025,6 +1027,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<p><strong>${__("Card and operation commands")}</strong>: <code>CFG:CMD:ACTIVATE</code>, <code>CFG:CMD:ACCEPT_OWNER</code>, <code>CFG:CMD:TRANSFER_OWNER</code>, <code>CFG:CMD:START</code>, <code>CFG:CMD:REPORT_PROGRESS</code>, <code>CFG:CMD:GO_TO_CURRENT_WORK</code>, <code>CFG:CMD:CLOSE_CYCLE</code>.</p>
 			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:START_MATERIAL_RUN</code>, <code>CFG:CMD:CANCEL_MATERIAL_RUN</code>, <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:RECORD_WIP_BIN_USE</code>, <code>CFG:CMD:RECORD_LOOSE_WIP_USE</code>, <code>CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
 			<p>${__("An unacknowledged Certificate Progress report is saved in this browser. Reopen and scan Confirm to retry the same micro-lot unchanged; Cancel and refresh retain it. Corrections are enabled only after the server confirms rejection. Do not clear browser storage or repeat the micro-lot in another browser.")}</p>
+			<p>${__("Start Material Run enforces warehouse-local FEFO and rejects expired tags. An unrestricted supervisor can scan CFG:CMD:APPROVE_MATERIAL_FEFO_OVERRIDE, select the Work Order context with CFG:SELECT:n, scan a reason, then Confirm. The approval covers the entire Work Order and all later micro-runs/cards; CFG:CMD:REVOKE_MATERIAL_FEFO_OVERRIDE revokes it. Expired material is never allowed. Cancel safely closes either dialog.")}</p>
 			<p><strong>${__("Certificate Process commands")}</strong>: <code>CFG:CMD:START_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:COMPLETE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:REPORT_CERTIFICATE_PROGRESS</code>, <code>CFG:CMD:CLOSE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:SUBMIT_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:CANCEL_CERTIFICATE_PROCESS</code>. Field-arm commands are <code>CFG:CMD:CERTIFICATE_OUTPUT_TAG</code>, <code>CFG:CMD:CERTIFICATE_BATCH</code>, <code>CFG:CMD:CERTIFICATE_EXPIRY</code>, <code>CFG:CMD:CERTIFICATE_SERIAL_START</code>, and <code>CFG:CMD:CERTIFICATE_SERIAL_END</code>. Scan the field command and then its physical/value barcode.</p>
 			<p><strong>${__("Work Order Process Certificates")}</strong>: ${__("Use the normal Start Operation, Start Material Run, Material Quantity, physical source-tag, Report Progress, Scan Material Tags, Submit Material Entry, Confirm, Cancel, and numbered Select labels. Certificate gates run automatically for the configured Operation; do not scan the same material again from the main Production Card after a Process/Station Card recorded it against the shared Job Card.")}</p>
 			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then scan Material Quantity and the physical source Stock Tag for each tracked component. Confirm opens the run. Ordinary operations and No Run Tracking components remain unchanged.")}</small></p>
@@ -2073,6 +2076,51 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			["In Progress", "Paused"].includes(row.status));
 	}
 
+	function open_material_rotation_override(revoke = false) {
+		if (!state.operator?.permissions?.override) {
+			return scanner_command_message(__("Supervisor Override authority is required."));
+		}
+		const eligible = material_run_candidates().filter(row => !revoke || row.material_run_context?.material_rotation_override);
+		const choices = [...new Map(eligible.filter(row => row.job_card).map(row =>
+			[row.material_run_context?.work_order || row.effective_work_order || row.work_order || row.job_card, row])).values()];
+		if (!choices.length || choices.length > 10) {
+			return scanner_command_message(__("Scan the exact active Work Order's Process or Station Card before changing its FEFO approval."));
+		}
+		const names = choices.map(row => row.name);
+		const event_token = frappe.utils.get_random(24);
+		let submitting = false;
+		const dialog = new frappe.ui.Dialog({
+			title: revoke ? __("Revoke Work Order FEFO Override") : __("Approve Work Order FEFO Override"),
+			fields: [
+				{ fieldtype: "HTML", options: `<div class="alert alert-warning">${__("This applies to the full Work Order, all its operation cards and subsequent Material Runs. Expired material remains prohibited. An unrestricted supervisor must scan a reason, then Confirm.")}<br>${choices.map((row, index) => `${index + 1}. ${frappe.utils.escape_html(row.material_run_context?.work_order || row.job_card)} · ${frappe.utils.escape_html(row.operation)}`).join("<br>")}</div>` },
+				{ fieldname: "execution_name", label: __("Work Order Context"), fieldtype: "Select", options: (names.length === 1 ? names : ["", ...names]).join("\n"), default: names.length === 1 ? names[0] : "", read_only: names.length === 1, reqd: 1 },
+				{ fieldname: "reason", label: __("Reason"), fieldtype: "Small Text", reqd: 1 },
+				{ fieldname: "scanner_command", label: __("Scanner Input"), fieldtype: "Data" },
+			],
+			primary_action_label: revoke ? __("Revoke") : __("Approve for Full Work Order"),
+			primary_action: async values => {
+				if (submitting) return;
+				const selected = choices.find(row => row.name === values.execution_name);
+				if (!selected) return scanner_command_message(__("Select the exact Work Order context using CFG:SELECT:n before confirming."));
+				submitting = true;
+				try {
+					await frappe.call({ method: `cfg_kanban.services.material_rotation.${revoke ? "revoke" : "approve"}_work_order_material_rotation`,
+						args: { ...values, event_token, operator_session_token: state.session_token,
+							...(revoke ? { approval_name: selected.material_run_context.material_rotation_override.name } : {}) }, freeze: true });
+					dialog.hide();
+					await load_card(state.context.card.qr_code || state.context.card.card_number);
+				} finally {
+					submitting = false;
+					if (dialog.$wrapper.is(":visible")) window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 80);
+				}
+			},
+		});
+		dialog.cfg_require_prefixed_selection = true;
+		dialog.cfg_raw_scanner_handler = value => dialog.set_value("reason", value);
+		dialog.show();
+		bind_confirmation_scanner(dialog, true, names, "execution_name");
+	}
+
 	async function open_material_run_dialog(preferred_execution = null) {
 		if (!state.context?.cycle || !state.context?.card) {
 			return scanner_command_message(__("Scan an active production or Process Card first."));
@@ -2241,6 +2289,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				freeze_message: __("Checking source material..."),
 			});
 			const preview = response.message;
+			if (preview.material_rotation?.rotation_override) {
+				frappe.show_alert({ message: __("Using active full Work Order FEFO override {0}", [preview.material_rotation.rotation_override]), indicator: "orange" }, 8);
+			}
 			if ((dialog.cfg_material_draws || []).some((row) => row.rule_row === preview.rule_row)) {
 				frappe.throw(__("{0} already has a source tag in this run. Use Material +quantity before scanning, or report progress and start the next run when the source changes.", [preview.item_code]));
 			}
@@ -2303,6 +2354,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}).join("<br>")}` : "";
 		dialog.get_field("material_run_guide").$wrapper.html(`<div class="alert alert-info">
 			<strong>${__("High-frequency Material Run")}</strong><br>
+			${context.material_rotation_override ? `<div class="alert alert-warning">${e(__("Full Work Order FEFO override active"))}: ${e(context.material_rotation_override.work_order)} · ${e(context.material_rotation_override.reason)}</div>` : `<small>${e(__("Warehouse-local FEFO is enforced. Expired tags are prohibited."))}</small><br>`}
 			${options.length > 1 ? `${__("Select the operation first")}:<br>${options.map((row) => e(row)).join("<br>")}<br>` : ""}
 			<strong>${__("Next step")}</strong>: ${e(next_step)}${requirement_html}<br>
 			<small>${__("Source scans create protected operational reservations. They do not post ERP stock or reduce the Handling Unit ledger. Progress consumes the reservation; final ERP binding remains a separate controlled step.")}</small>
@@ -5084,6 +5136,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					add_action($buttons, __("Cancel Material Run"), "btn-warning", () => cancel_open_material_run(row.name));
 				} else if (["In Progress", "Paused"].includes(row.status) && state.operator.permissions.report_progress) {
 					add_action($buttons, __("Start Material Run"), "btn-info", () => open_material_run_dialog(row.name));
+					if (state.operator.permissions.override) {
+						add_action($buttons, __("Approve WO FEFO Override"), "btn-warning", () => open_material_rotation_override(false));
+						add_action($buttons, __("Revoke WO FEFO Override"), "btn-default", () => open_material_rotation_override(true));
+					}
 				}
 			}
 			if (row.status === "Ready" && state.operator.permissions.start) {

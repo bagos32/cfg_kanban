@@ -199,5 +199,33 @@ class TestOperationMaterialRunContract(unittest.TestCase):
         )
 
 
+    def test_material_rotation_is_checked_at_preview_and_confirmation(self):
+        service = (ROOT / "services" / "operation_material_runs.py").read_text()
+        self.assertEqual(service.count("rotation = validate_material_rotation(execution, unit)"), 2)
+        self.assertIn("_assert_carry_forward_expiry(execution)", service)
+        self.assertIn("lock_material_rotation(execution)", service)
+        self.assertIn("assert_material_not_expired(frappe.get_doc", service)
+        controller = (DOCTYPE_ROOT / "cfg_kanban_operation_material_draw" /
+                      "cfg_kanban_operation_material_draw.py").read_text()
+        self.assertIn('"material_rotation_override", "material_rotation_evidence"', controller)
+
+    def test_work_order_override_is_scanner_accessible_and_audited(self):
+        panel = (ROOT / "cfg_kanban/page/kanban_operator/kanban_operator.js").read_text()
+        api = (ROOT / "api/operator.py").read_text()
+        manual = (ROOT.parent / "docs/USER_MANUAL.md").read_text()
+        for command in ("APPROVE_MATERIAL_FEFO_OVERRIDE", "REVOKE_MATERIAL_FEFO_OVERRIDE"):
+            self.assertIn(command, panel)
+            self.assertIn("CFG:CMD:" + command, api)
+            self.assertIn("CFG:CMD:" + command, manual)
+        self.assertIn('bind_confirmation_scanner(dialog, true, names, "execution_name")', panel)
+        schema = json.loads((DOCTYPE_ROOT / "cfg_kanban_material_rotation_override" /
+                             "cfg_kanban_material_rotation_override.json").read_text())
+        fields = {row["fieldname"]: row for row in schema["fields"]}
+        self.assertEqual(fields["active_work_order_key"]["unique"], 1)
+        self.assertEqual(fields["work_order"]["options"], "Work Order")
+        self.assertTrue(all(not permission.get("write") and not permission.get("create")
+                            for permission in schema["permissions"]))
+
+
 if __name__ == "__main__":
     unittest.main()

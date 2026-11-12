@@ -113,3 +113,72 @@ Follow `docs/TEST_OPERATION_MATERIAL_RUN_DRAWS.md` for scanner evidence and
 `docs/TEST_OPERATION_MATERIAL_RUN_SETTLEMENT.md` for ERP settlement. A Draw remains only an
 operational reservation until its linked native Stock Entry is submitted. Exact serial membership
 is not included; do not enable Source Tag Quantity for an ERPNext serial-controlled Item.
+
+
+## Warehouse-local FEFO and full Work Order override
+
+Material Run source preview and final Start confirmation now reject expired source material.
+For Batch-controlled Items, the Batch must exist, belong to the Item and not be disabled. When
+both the tag and Batch have expiry dates, the earlier date wins; a later printed/tag date cannot
+extend native Batch validity. An expiry equal to today's site date remains valid through today.
+Carry-forward sources are checked again when starting a run and selected sources are checked
+again before progress consumption, so an overnight run does not bypass expiry protection.
+
+FEFO is evaluated inside the exact Company, Item, source Warehouse, stock UOM and compatible
+Process Certificate Set. Held, inactive, unavailable, in-transit, incompatible Batch and active
+manifest stock is excluded. Loaded production-container content is eligible only with a valid
+single active fill in the same Company/Warehouse. Dates sort earliest first; undated stock is
+last. Receipt/packed time and internal identity break ties. A smaller earlier balance is not
+silently skipped to satisfy a larger requested quantity: use the smaller balance first.
+
+An exception requires a supervisor with Override permission and unrestricted operation and
+workstation scope, because the approval applies to the **entire Work Order**, including every
+operation card, lane and later micro-run. It is not scoped to the initiating micro-run or Card.
+It never allows expired/disabled/incompatible material or bypasses quantity/identity checks.
+The approval is valid only while that exact Work Order is submitted and active. It does not
+apply to another Work Order or automatically approve a new order when a reusable Card is reused.
+
+On the active production Card, use **Approve WO FEFO Override**, or print and scan
+`CFG:CMD:APPROVE_MATERIAL_FEFO_OVERRIDE`. If several orders are eligible, scan `CFG:SELECT:n`,
+then scan the reason text and Confirm. Touch users can enter the same reason in the dialog.
+The supervisor records one active approval; subsequent operators use it without repeating the
+approval for each micro-run. The Material Run guide shows the active Work Order and reason.
+Every draw that bypasses priority stores the approval link and immutable rotation evidence.
+
+To stop the exception, use **Revoke WO FEFO Override** or
+`CFG:CMD:REVOKE_MATERIAL_FEFO_OVERRIDE`, select the exact context, scan a revocation reason,
+and Confirm. Revocation targets the exact displayed approval so a stale request cannot revoke
+a newer replacement approval. Cancel safely exits either dialog. Scanner focus is restored
+after errors/cancel, using the shared confirmation scanner. Approval/revocation records and
+events remain in the audit history. Revocation affects new draws, not deletion/reversal of
+previously authorized physical consumption.
+
+## Material Run quantities in Operational Inventory Balance
+
+Both Summary and Tag Detail show four additional quantities:
+
+- **Material Run Reserved**: unused quantity held in active Material Draws.
+- **Consumed Pending ERP**: used quantity not yet bound to a submitted ERP transaction.
+- **Operational Remaining**: posted tag balance less consumption awaiting ERP.
+- **Operationally Available**: tag availability less outstanding Material Run reservations,
+  accounting for the used portion already reserved by a Draft Material Trace.
+
+Example: posted tag quantity 1000, drawn 100, used 60, unused 40 gives operational remaining
+940 and operationally available 900. ERP/tag quantity stays 1000 until submission. After the
+60 units are adopted into an ERP Draft, the trace reserves those 60; the report subtracts only
+the additional 40 and still shows operational availability 900. After submission changes
+the tag to 940 and marks the draw Bound to ERP, it contributes no second deduction. Cancelled
+draws contribute nothing. Unused balances on settled draws follow the existing release rules.
+
+For raw materials controlled by ERPNext, select **Inventory Control Mode = ERP Stock**, or
+clear that filter to include both inventory modes. The existing default **Kanban Operational
+Inventory** excludes ERP Stock Items. Refresh the report after floor activity.
+
+Existing Total, Reserved, Available and ERP Actual fields remain posted/ledger values. The new
+fields are operational views and do not post stock. Certificate pending-output rows do not add
+raw-material reservations again. Company, Warehouse, Item, UOM, quality and certificate filters
+apply to the same source-tag scope. Quantity summary cards are suppressed for mixed UOMs.
+
+Migration is required for the approval DocType and immutable draw evidence fields. Local tests
+are not site acceptance: verify native transaction rollback, concurrent starts/revocation,
+settlement/cancellation and scanner-only kiosk behavior on the isolated test site.

@@ -8,6 +8,7 @@ IMMUTABLE_FIELDS = (
     "job_card", "operation", "workstation", "material_flow_rule_row", "item_code",
     "batch_no", "stock_uom", "source_warehouse", "source_handling_unit",
     "source_visible_code", "physical_container", "qty_per_output", "drawn_qty",
+    "material_rotation_override", "material_rotation_evidence",
     "drawn_on", "drawn_by_operator", "operator_session", "terminal_user", "idempotency_key",
 )
 
