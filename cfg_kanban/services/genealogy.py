@@ -2,13 +2,18 @@ from collections import deque
 
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, get_datetime
 
 from cfg_kanban.services.logistics_foundation import resolve_logistics_scan
 
 
 MAX_GRAPH_NODES = 100
 MAX_TIMELINE_EVENTS = 250
+
+
+def _date_sort_key(value):
+    """Sort native/text dates together; keep undated relationships first without inventing a date."""
+    return get_datetime(value).isoformat(sep=" ") if value else ""
 
 
 @frappe.whitelist()
@@ -54,8 +59,12 @@ def get_handling_unit_genealogy(scan_value=None, handling_unit=None, max_depth=8
         elif row["level"] > 0:
             downstream.append(row)
 
-    upstream.sort(key=lambda row: (abs(row["level"]), row.get("packed_on") or "", row["visible_code"]))
-    downstream.sort(key=lambda row: (row["level"], row.get("packed_on") or "", row["visible_code"]))
+    upstream.sort(key=lambda row: (
+        abs(row["level"]), _date_sort_key(row.get("packed_on")), row["visible_code"],
+    ))
+    downstream.sort(key=lambda row: (
+        row["level"], _date_sort_key(row.get("packed_on")), row["visible_code"],
+    ))
 
     return {
         "identity": identity,
@@ -370,7 +379,7 @@ def _serialise_edges(edges, summaries):
         row["target_code"] = summaries[edge["target"]]["visible_code"]
         result.append(row)
     result.sort(key=lambda row: (
-        row.get("posting_datetime") or "",
+        _date_sort_key(row.get("posting_datetime")),
         row.get("reference_name") or "",
         row["source_code"],
         row["target_code"],
