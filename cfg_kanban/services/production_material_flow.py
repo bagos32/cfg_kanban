@@ -317,7 +317,11 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
         pluck="name",
         order_by="creation asc",
     )
+    from cfg_kanban.services.material_run_receipts import material_run_receipt_summary
+    receipt_actuals = material_run_receipt_summary(work_order)
     return {
+        "material_run_receipt_actuals": [row for row in receipt_actuals
+            if row["item_code"] not in restricted_items],
         "cycle": cycle.name,
         "work_order": work_order.name,
         "work_order_status": work_order.status,
@@ -1323,6 +1327,15 @@ def submit_production_stock_entry(stock_entry, event_token=None,
         "Material Consumption for Manufacture",
     ) else "production_receipt")
     profile, session = require_operator(operator_session_token, action)
+    if entry.purpose == "Manufacture":
+        from cfg_kanban.services.production_trace import _lock_stock_entry
+        _lock_stock_entry(entry.name)
+        entry.reload()
+        if entry.docstatus != 0:
+            frappe.throw("The Manufacture Draft changed; reload it before submission")
+        from cfg_kanban.services.material_run_receipts import reconcile_manufacture_material_runs
+        if reconcile_manufacture_material_runs(entry):
+            entry.save(ignore_permissions=True)
     key = canonical_key("submit-production-stock-entry", entry.name,
                         event_token or entry.modified)
     command, created = insert_once(frappe.get_doc({

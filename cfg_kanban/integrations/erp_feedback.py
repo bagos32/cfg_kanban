@@ -106,6 +106,8 @@ def prepare_stock_entry(doc, method=None):
         # validation as well as through the Kanban command path.
         from cfg_kanban.integrations.erp_gateway import _exclude_submitted_wip_bin_returns
         _exclude_submitted_wip_bin_returns(doc, doc.work_order, cycle.name)
+        from cfg_kanban.services.material_run_receipts import reconcile_manufacture_material_runs
+        reconcile_manufacture_material_runs(doc)
 
 
 @frappe.whitelist()

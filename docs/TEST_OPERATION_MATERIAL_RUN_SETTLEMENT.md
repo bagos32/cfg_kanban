@@ -112,3 +112,32 @@ message and restore scanner focus.
 - Stock Ledger evidence showing one consumption only;
 - screenshots of automatic trace adoption and both closure rejections;
 - any accepted exception or deferred risk.
+
+
+## Unused BOM residual regression — live tests NOT RUN
+
+1. Require 5 Kg in the BOM; record approved actual use 3 Kg and finish/submit the Job Cards.
+   Settle 3 Kg at Job Card end and submit its native consumption. Prepare Manufacture: no 2 Kg
+   residual input/tag allocation is requested, 3 Kg is consumed once, and 2 Kg remains in stock.
+2. Repeat with settlement at Manufacture receipt: native input/adopted trace are exactly 3 Kg,
+   not the mapped 5 Kg. Check over-BOM actuals, multiple Batches and differing UOM conversion.
+3. Check the receipt confirmation shows used/posted/pending actuals and omits tracked inputs from
+   manual entry. Untracked inputs remain editable and retain their physical-tag requirements.
+4. Save an old unsubmitted residual Draft, reopen Scan Material Tags and submit with the scanner.
+   Verify valid allocations remain bound to the same rows. Reject quantity below existing trace
+   reservations until controlled cancellation; retain posted stock and audit unchanged.
+5. Negative: missing draws, partial snapshot coverage, another Warehouse, incomplete Job Card,
+   open run, cancelled/mismatched ERP consumption, another Company and unrelated input rows.
+   No missing-consumption check may be bypassed merely because a tag was not scanned.
+6. Repeated save/preparation and a second/partial receipt must not consume actuals twice.
+   Verify native rollback/concurrency and the Manufacturing actual-cost/valuation behavior.
+
+Record deployed SHA, exact Work Order/Job Card/Draw/Trace/Stock Entry/Event names and before/after
+ERP stock plus tag balances. Offline source/behavior checks do not establish live ERP acceptance.
+
+
+Local validation, 2026-11-12: 305 Python checks passed, including 21 new receipt-actuals
+checks; all 44 JavaScript checks passed, including 6 new receipt scanner checks. Operator
+JavaScript syntax, changed Python syntax and whitespace checks passed. These results use
+dependency doubles and source contracts; no live ERP stock, valuation, rollback, concurrent
+posting or physical scanner behavior was verified. No commit or deployment was performed.

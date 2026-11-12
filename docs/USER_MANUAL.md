@@ -5148,3 +5148,26 @@ Migration is required for the new Work Order approval DocType. No historical Job
 Material Draw, trace or ERP posting is silently rewritten. Offline test success is not live
 acceptance; verify stock posting, native ERP quantity tolerances, rollback, concurrent correction,
 permissions and scanner-only kiosk behavior on the isolated test site.
+
+
+### Unused BOM balance at Manufacture receipt
+
+For fully tracked components with completed/submitted Job Cards and complete Material Draw
+history, **Prepare Manufacture Receipt** uses recorded actual consumption. The confirmation
+shows total used, already posted and still to post; those inputs are managed from the Material
+Runs. Ordinary/untracked components remain in the editable actual-input table.
+
+Example: BOM requirement 5 Kg, actual use 3 Kg, and Job Card-end ERP consumption already
+submitted for 3 Kg. The remaining 2 Kg is unused, stays on its source tag and is excluded from
+the Manufacture inputs. Do not scan or consume it merely to satisfy the BOM estimate. If the
+3 Kg instead settles at Manufacture receipt, the receipt input and adopted trace are both 3 Kg.
+
+Corrections belong in **Correct Material Use** before settlement, or controlled ERP recovery
+for submitted entries. Incomplete tracking, mismatched/cancelled ERP evidence and unrelated
+inputs retain normal validation. Required tags and certificates for actual consumption still
+apply. No source-tag balance or submitted stock is rewritten by receipt preparation.
+
+For an existing unsubmitted Manufacture Draft with this old residual, save the Draft and reopen
+**Scan Material Tags** to refresh its inputs. The existing **Submit Materials** scanner action
+also reconciles eligible actuals before native submission. Reconciliation retains existing valid
+trace allocations and rejects a reduction below an allocation until it is cancelled properly.

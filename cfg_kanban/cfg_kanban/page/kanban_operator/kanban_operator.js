@@ -1040,7 +1040,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<p>${__("Work Order yield/quantity exceptions: scan CFG:CMD:APPROVE_WO_YIELD or CFG:CMD:REVOKE_WO_YIELD, choose context, scan reason and Confirm. Corrections: CFG:CMD:CORRECT_MATERIAL_USE, choose operation then allocation with CFG:SELECT:n, scan CFG:QTY:MATERIAL:n and a reason, then Confirm. Cancel is safe. Submitted ERP records require controlled recovery. For certificate-controlled material, prepare Start Material Run with Quantity, source tag and Confirm while Ready, then Start Operation. Both input gate stages are checked before each run and again at progress. Progress actual material quantities use each component stock UOM. Lists use ten numbered choices per page; CFG:CMD:NEXT_MATERIALS and CFG:CMD:PREVIOUS_MATERIALS change pages.")}</p>
 			<p><strong>${__("Certificate Process commands")}</strong>: <code>CFG:CMD:START_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:COMPLETE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:REPORT_CERTIFICATE_PROGRESS</code>, <code>CFG:CMD:CLOSE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:SUBMIT_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:CANCEL_CERTIFICATE_PROCESS</code>. Field-arm commands are <code>CFG:CMD:CERTIFICATE_OUTPUT_TAG</code>, <code>CFG:CMD:CERTIFICATE_BATCH</code>, <code>CFG:CMD:CERTIFICATE_EXPIRY</code>, <code>CFG:CMD:CERTIFICATE_SERIAL_START</code>, and <code>CFG:CMD:CERTIFICATE_SERIAL_END</code>. Scan the field command and then its physical/value barcode.</p>
 			<p><strong>${__("Work Order Process Certificates")}</strong>: ${__("Use the normal Start Operation, Start Material Run, Material Quantity, physical source-tag, Report Progress, Scan Material Tags, Submit Material Entry, Confirm, Cancel, and numbered Select labels. Certificate gates run automatically for the configured Operation; do not scan the same material again from the main Production Card after a Process/Station Card recorded it against the shared Job Card.")}</p>
-			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then scan Material Quantity and the physical source Stock Tag for each tracked component. Confirm opens the run. Ordinary operations and No Run Tracking components remain unchanged.")}</small></p>
+			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then scan Material Quantity and the physical source Stock Tag for each tracked component. Confirm opens the run. Prepare Receipt uses finalized Material Run actuals; unused BOM balances stay in stock. Save an older Manufacture Draft and reopen Scan Material Tags to refresh its inputs. Ordinary operations and No Run Tracking components retain normal material confirmation.")}</small></p>
 			<p><strong>${__("PPHU trace commands")}</strong>: <code>CFG:CMD:PPHU_HOPPER_CHANGE</code>, <code>CFG:CMD:PPHU_BATCH_CHANGE</code>, <code>CFG:CMD:PPHU_OUTPUT_SERIAL</code>. Select an operation with <code>CFG:SELECT:n</code>, scan the physical Hopper/material tag when requested, scan the first affected output serial, then scan <code>CFG:CMD:CONFIRM</code>.</p>
 			<p><strong>${__("Crew commands")}</strong>: <code>CFG:CMD:CREW</code>, <code>CFG:CMD:CREW_OPEN</code>, <code>CFG:CMD:CREW_JOIN</code>, <code>CFG:CMD:CREW_JOIN_SENIOR</code>, <code>CFG:CMD:CREW_JOIN_OVERSIGHT</code>, <code>CFG:CMD:CREW_JOIN_TEMP</code>, <code>CFG:CMD:CREW_BREAK</code>, <code>CFG:CMD:CREW_RESUME</code>, <code>CFG:CMD:CREW_LEAVE</code>, <code>CFG:CMD:CREW_MAIN</code>, <code>CFG:CMD:CREW_CONTEXT</code>, <code>CFG:CMD:CREW_CLOSE</code>.</p>
 			<p><small>${__("On an Available Process/Station Card, choose the exact numbered Job Card before Crew Controls when several targets are eligible. On a Workstation Queue Card, Crew Controls uses the selected Active/Ready work row.")}</small></p>
@@ -2922,7 +2922,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	function manufacture_receipt_dialog(flow, scanner_mode = false) {
 		const direct = flow.mode === "Skip WIP Transfer";
 		const adopts_material_runs = Boolean(flow.material_run_receipt_pending_count);
-		const data = (flow.materials || []).map((row) => ({
+		const actuals = flow.material_run_receipt_actuals || [];
+		const data = (flow.materials || []).filter(row => !actuals.some(actual =>
+			actual.item_code === row.item_code && actual.source_warehouse === row.source_warehouse)).map((row) => ({
 			item_code: row.item_code, operation: row.operation,
 			source_warehouse: direct ? row.source_warehouse : flow.wip_warehouse,
 			available_qty: direct ? row.available_qty : row.wip_available_qty,
@@ -2933,6 +2935,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			title: __("Confirm Manufacture Receipt"), size: "extra-large",
 			fields: [
 				{ fieldtype: "HTML", options: `<div class="alert alert-warning">${__("Verify actual input consumption and accepted finished quantity before creating the ERPNext Manufacture entry. Posting policy")}: <strong>${frappe.utils.escape_html(flow.manufacture_posting_mode)}</strong>${adopts_material_runs ? `<br><strong>${__("Material Run settlement")}</strong>: ${__("The earlier source-tag scans will be attached automatically. The Manufacture entry will remain Draft until its complete Material Trace is submitted; do not scan those same source quantities again.")}` : ""}</div>` },
+				...(actuals.length ? [{ fieldtype: "HTML", options: `<div class="alert alert-info"><strong>${__("Recorded Material Run consumption")}</strong><br>${actuals.map(actual => `${frappe.utils.escape_html(actual.item_code)}: ${actual.used_qty} ${frappe.utils.escape_html(actual.stock_uom)} ${__("used")}, ${actual.settled_qty} ${__("already posted")}, ${actual.pending_qty} ${__("to post now")}`).join("<br>")}<br>${__("Unused BOM balances remain in stock and are excluded. Correct recorded usage through Correct Material Use before preparation.")}</div>` }] : []),
 				{ fieldname: "output_qty", label: __("Accepted Finished Quantity"), fieldtype: "Float", reqd: 1, default: flow.remaining_output_qty },
 				{ fieldname: "target_warehouse", label: __("Finished Goods Warehouse"), fieldtype: "Link", options: "Warehouse", reqd: 1, default: flow.output_warehouse },
 				{ fieldname: "batch_no", label: __("Finished Batch (Optional)"), fieldtype: "Data", default: flow.planned_batch,
@@ -2950,17 +2953,24 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			],
 			primary_action_label: flow.manufacture_posting_mode === "Submit on Operator Confirmation" && !adopts_material_runs ? __("Confirm and Submit Manufacture") : __("Create Draft Manufacture"),
 			primary_action: async (values) => {
-				const lines = (values.materials || []).map((row) => ({ item_code: row.item_code,
-					source_warehouse: row.source_warehouse, qty: row.qty }));
-				await frappe.call({ method: "cfg_kanban.services.production_material_flow.prepare_manufacture_receipt", args: {
-					cycle_name: flow.cycle, output_qty: values.output_qty, target_warehouse: values.target_warehouse,
-					batch_no: values.batch_no, lines, confirmation: values.confirmation,
-					defer_submit_for_scanning: (scanner_mode || dialog.cfg_scanner_confirmed) ? 1 : 0,
-					event_token: frappe.utils.get_random(24),
-					operator_session_token: state.session_token,
-				}, freeze: true, freeze_message: __("Preparing ERPNext Manufacture receipt...") });
-				dialog.hide();
-				await load_card(state.context.card.qr_code);
+				if (dialog.cfg_receipt_submitting) return;
+				dialog.cfg_receipt_submitting = true;
+				try {
+					const lines = (values.materials || []).map((row) => ({ item_code: row.item_code,
+						source_warehouse: row.source_warehouse, qty: row.qty }));
+					await frappe.call({ method: "cfg_kanban.services.production_material_flow.prepare_manufacture_receipt", args: {
+						cycle_name: flow.cycle, output_qty: values.output_qty, target_warehouse: values.target_warehouse,
+						batch_no: values.batch_no, lines, confirmation: values.confirmation,
+						defer_submit_for_scanning: (scanner_mode || dialog.cfg_scanner_confirmed) ? 1 : 0,
+						event_token: frappe.utils.get_random(24),
+						operator_session_token: state.session_token,
+					}, freeze: true, freeze_message: __("Preparing ERPNext Manufacture receipt...") });
+					dialog.hide();
+					await load_card(state.context.card.qr_code);
+				} finally {
+					dialog.cfg_receipt_submitting = false;
+					if (dialog.$wrapper.is(":visible")) window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 80);
+				}
 			},
 		});
 		dialog.onhide = restore_scanner_focus;
