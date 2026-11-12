@@ -4718,15 +4718,21 @@ after success, validation error and message dismissal.
 Production sequence:
 
 1. Keep **Control Type = Production**, select the normal BOM, and configure Operations normally.
-2. Add certificate requirements to the exact Operation and gate stage. Use **Before Operation
-   Start** for a prior-operation certificate. Use **Before Progress** when the first operation must
-   prove a raw-material certificate from a scanned Material Run.
+2. Add certificate requirements to the exact Operation and gate stage. **Before Operation Start**
+   supports both prior-operation certificates and certified raw source tags. **Before Progress**
+   is also checked before each Material Run opens and before Operation Start, then checked again
+   at Report Progress. It is not permission to use unverified material during the physical process.
 3. Add each Production output rule with **Apply To = Finished Output**. Production does not permit
    Processed Tagged Quantity because an intermediate Job Card result has no independent ERP stock
    identity.
 4. Enable Operation Material Run tracking for each raw material whose physical tag supplies a
-   certificate gate. The operator uses the existing Material Quantity, Start Material Run, physical
-   source-tag, Report Progress, Confirm, and Cancel scans.
+   certificate gate. While the operation is **Ready**, scan **Start Material Run**, Material Quantity,
+   the physical source tag, then Confirm. Both input-certificate gate stages must pass before the
+   run opens. Preparation reserves sources but does not start the ERP Job Card or consume stock.
+   Next scan **Start Operation**, then begin physical work. Report Progress checks the certificates
+   again. Repeat Start Material Run when the source changes; an earlier used tag or another lane's
+   scan cannot authorize the new source. Allowed carry-forward is rechecked. Cancel is scanner-safe.
+   Automatic Job Card start waits for certificate preparation without discarding the allocation.
 5. A Process/Station Card may execute the same Job Card. Its Material Draw evidence is joined by
    Job Card to the main Work Order Cycle; do not scan the material a second time from the main Card.
 6. Complete the Job Cards and stage the entire manufactured output on physical Stock Tags or

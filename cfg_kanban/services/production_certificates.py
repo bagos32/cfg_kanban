@@ -45,8 +45,9 @@ def certificate_context(execution):
     }
 
 
-def assert_execution_certificate_gate(execution, stage, stock_entry=None):
-    """Enforce one configured operation gate from immutable scanned/source evidence."""
+def evaluate_execution_certificate_gate(execution, stage, stock_entry=None, *,
+                                        material_run=None, available_only=False):
+    """Evaluate one configured operation gate from immutable scanned/source evidence."""
     execution = _execution(execution)
     master = frappe.get_doc("CFG Kanban Master", execution.kanban_master)
     rows = [
@@ -54,9 +55,10 @@ def assert_execution_certificate_gate(execution, stage, stock_entry=None):
         if row.operation == execution.operation and row.gate_stage == stage
     ]
     if not rows:
-        return {"required": False, "passed": True, "sets": []}
+        return {"required": False, "passed": True, "sets": [], "failed": []}
 
-    evidence = _certificate_evidence(execution, stock_entry=stock_entry)
+    evidence = _certificate_evidence(execution, stock_entry=stock_entry,
+                                     material_run=material_run, available_only=available_only)
     groups = {}
     for row in rows:
         passed = _requirement_passes(evidence, row)
@@ -79,25 +81,49 @@ def assert_execution_certificate_gate(execution, stage, stock_entry=None):
                     certificate for certificate, value in checks if not value
                 )
             )
-    if failed:
-        execution.db_set({
-            "certificate_gate_status": "Failed",
-            "certificate_checked_on": now_datetime(),
-            "input_certificate_sets_json": frappe.as_json(evidence["set_names"]),
-        }, update_modified=True)
+    return {"required": True, "passed": not failed, "sets": evidence["set_names"], "failed": failed}
+
+
+def assert_execution_certificate_gate(execution, stage, stock_entry=None, *,
+                                      material_run=None, available_only=False):
+    """Enforce a configured gate; pre-use checks use only the current source reservations."""
+    execution = _execution(execution)
+    result = evaluate_execution_certificate_gate(
+        execution, stage, stock_entry=stock_entry, material_run=material_run,
+        available_only=available_only,
+    )
+    if not result["required"]:
+        return result
+    execution.db_set({
+        "certificate_gate_status": "Passed" if result["passed"] else "Failed",
+        "certificate_checked_on": now_datetime(),
+        "input_certificate_sets_json": frappe.as_json(result["sets"]),
+    }, update_modified=True)
+    if not result["passed"]:
         frappe.throw(
             f"{execution.operation} cannot pass the {stage} Certificate gate. "
-            + "; ".join(failed)
-            + ". Scan the certified source tag in the operation Material Run, or complete "
-              "the prerequisite operation that produces the required certificate."
+            + "; ".join(result["failed"])
+            + ". Prepare the certified source tag through Start Material Run before starting "
+              "physical work, or complete the prerequisite operation that issues the certificate."
         )
+    return result
 
-    execution.db_set({
-        "certificate_gate_status": "Passed",
-        "certificate_checked_on": now_datetime(),
-        "input_certificate_sets_json": frappe.as_json(evidence["set_names"]),
-    }, update_modified=True)
-    return {"required": True, "passed": True, "sets": evidence["set_names"]}
+
+def assert_pre_use_certificate_gates(execution, material_run=None):
+    """Check both input-certificate stages before operation/material use and at progress."""
+    return [assert_execution_certificate_gate(
+        execution, stage, material_run=material_run, available_only=True,
+    ) for stage in ("Before Operation Start", "Before Progress")]
+
+
+def operation_start_certificate_readiness(execution):
+    """Allow allocation/setup to persist when automatic start must wait for source scans."""
+    checks = [evaluate_execution_certificate_gate(execution, stage, available_only=True)
+              for stage in ("Before Operation Start", "Before Progress")]
+    failed = [value for check in checks for value in check["failed"]]
+    return {"ready": not failed, "reason": (
+        "Prepare certified sources with Start Material Run, then Start Operation: " + "; ".join(failed)
+    ) if failed else "Input certificate gates are ready"}
 
 
 def finalize_execution_certificate_result(execution):
@@ -467,7 +493,7 @@ def _apply_input_certificate_dimensions(doc):
         row.process_certificate_set = sets[0]
 
 
-def _certificate_evidence(execution, stock_entry=None):
+def _certificate_evidence(execution, stock_entry=None, *, material_run=None, available_only=False):
     unit_names = []
     set_names = []
     internal_sets = []
@@ -487,11 +513,28 @@ def _certificate_evidence(execution, stock_entry=None):
             "operation": execution.operation,
             "status": ["!=", "Cancelled"],
         }
+    if available_only:
+        # Historical Used/Bound draws prove past consumption, not the next run's source.
+        # A run's own execution owns its reservations; another lane of the same Job Card
+        # must not authorize a fresh source. Native settlement still uses shared history.
+        if material_run is None:
+            run_name = frappe.db.get_value("CFG Kanban Operation Material Run",
+                {"process_execution": execution.name, "status": "Open"}, "name")
+            material_run = frappe.get_doc("CFG Kanban Operation Material Run", run_name) if run_name else None
+        if material_run and (material_run.process_execution != execution.name or material_run.status != "Open"):
+            frappe.throw("Certificate source evidence must belong to this execution's open Material Run")
+        draw_filters = {
+            "process_execution": execution.name,
+            "status": ["in", ["Open", "Partially Used", "Carry Forward"]],
+            "remaining_qty": [">", TOLERANCE],
+        }
+        if material_run and not execution.allow_material_carry_forward:
+            draw_filters["material_run"] = material_run.name
     draws = frappe.get_all(
         "CFG Kanban Operation Material Draw",
         filters=draw_filters,
         pluck="source_handling_unit", limit_page_length=0,
-    )
+    ) if not available_only or material_run else []
     unit_names.extend(draws)
     if stock_entry:
         trace = frappe.db.get_value(

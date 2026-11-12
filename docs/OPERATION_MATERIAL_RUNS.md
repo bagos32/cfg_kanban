@@ -82,7 +82,9 @@ the originating Job Card in CFG Kanban's audit field.
 
 ## Scanner-only pilot
 
-1. Release the production and start the relevant operation normally.
+1. Release/allocate production. For certified inputs, prepare the Material Run while the operation
+   is **Ready**, then Start Operation after confirmation passes; begin physical work only after that.
+   Operations without input certificate requirements may retain their normal start-first sequence.
 2. Scan `CFG:CMD:START_MATERIAL_RUN`.
 3. If several enabled operations are active, scan the displayed `CFG:SELECT:n` label.
 4. If requested, scan the first output serial or other printed output boundary.
@@ -238,3 +240,25 @@ Migration is required for the new Work Order approval DocType. No historical Job
 Material Draw, trace or ERP posting is silently rewritten. Offline test success is not live
 acceptance; verify stock posting, native ERP quantity tolerances, rollback, concurrent correction,
 permissions and scanner-only kiosk behavior on the isolated test site.
+
+
+## Certificates before physical use
+
+The same Start Material Run scanner action works while an operation is **Ready**, **In Progress**
+or **Paused**. A Ready operation stays Ready after preparation; the operator must still Start
+Operation before physical work or reporting progress from that run. Other blocked/not-ready or
+terminal states cannot prepare a run.
+
+Both **Before Operation Start** and **Before Progress** input-certificate requirements are checked
+at Material Run confirmation, before the run is authorized. Both are also checked at Operation
+Start and again before progress. Certificate groups, minimum revisions, unexpired/active evidence
+and prior-operation result rules are preserved. Only that execution's current open source draws
+and permitted remaining carry-forward can prove the pre-use raw-material gate. Used, cancelled,
+empty or unrelated-lane draws do not authorize new work. Final ERP settlement still uses the
+shared Job Card consumption history; source material does not need to be scanned a second time.
+
+If automatic Job Card start needs an unscanned source certificate, allocation remains Ready and
+records an automatic-start deferral. Scan the sources and Confirm, then Start Operation. An
+uncertified source is rejected at run confirmation, not first discovered after physical work.
+No ERP stock is posted by preparation. Verify real transaction rollback, revocation/expiry between
+preparation and start/progress, and scanner-only focus on the test site before acceptance.

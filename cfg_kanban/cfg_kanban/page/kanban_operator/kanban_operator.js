@@ -1037,7 +1037,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:START_MATERIAL_RUN</code>, <code>CFG:CMD:CANCEL_MATERIAL_RUN</code>, <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:RECORD_WIP_BIN_USE</code>, <code>CFG:CMD:RECORD_LOOSE_WIP_USE</code>, <code>CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
 			<p>${__("An unacknowledged Certificate Progress report is saved in this browser. Reopen and scan Confirm to retry the same micro-lot unchanged; Cancel and refresh retain it. Corrections are enabled only after the server confirms rejection. Do not clear browser storage or repeat the micro-lot in another browser.")}</p>
 			<p>${__("Start Material Run enforces warehouse-local FEFO and rejects expired tags. An unrestricted supervisor can scan CFG:CMD:APPROVE_MATERIAL_FEFO_OVERRIDE, select the Work Order context with CFG:SELECT:n, scan a reason, then Confirm. The approval covers the entire Work Order and all later micro-runs/cards; CFG:CMD:REVOKE_MATERIAL_FEFO_OVERRIDE revokes it. Expired material is never allowed. Cancel safely closes either dialog.")}</p>
-			<p>${__("Work Order yield/quantity exceptions: scan CFG:CMD:APPROVE_WO_YIELD or CFG:CMD:REVOKE_WO_YIELD, choose context, scan reason and Confirm. Corrections: CFG:CMD:CORRECT_MATERIAL_USE, choose operation then allocation with CFG:SELECT:n, scan CFG:QTY:MATERIAL:n and a reason, then Confirm. Cancel is safe. Submitted ERP records require controlled recovery. Progress actual material quantities use each component stock UOM. Lists use ten numbered choices per page; CFG:CMD:NEXT_MATERIALS and CFG:CMD:PREVIOUS_MATERIALS change pages.")}</p>
+			<p>${__("Work Order yield/quantity exceptions: scan CFG:CMD:APPROVE_WO_YIELD or CFG:CMD:REVOKE_WO_YIELD, choose context, scan reason and Confirm. Corrections: CFG:CMD:CORRECT_MATERIAL_USE, choose operation then allocation with CFG:SELECT:n, scan CFG:QTY:MATERIAL:n and a reason, then Confirm. Cancel is safe. Submitted ERP records require controlled recovery. For certificate-controlled material, prepare Start Material Run with Quantity, source tag and Confirm while Ready, then Start Operation. Both input gate stages are checked before each run and again at progress. Progress actual material quantities use each component stock UOM. Lists use ten numbered choices per page; CFG:CMD:NEXT_MATERIALS and CFG:CMD:PREVIOUS_MATERIALS change pages.")}</p>
 			<p><strong>${__("Certificate Process commands")}</strong>: <code>CFG:CMD:START_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:COMPLETE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:REPORT_CERTIFICATE_PROGRESS</code>, <code>CFG:CMD:CLOSE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:SUBMIT_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:CANCEL_CERTIFICATE_PROCESS</code>. Field-arm commands are <code>CFG:CMD:CERTIFICATE_OUTPUT_TAG</code>, <code>CFG:CMD:CERTIFICATE_BATCH</code>, <code>CFG:CMD:CERTIFICATE_EXPIRY</code>, <code>CFG:CMD:CERTIFICATE_SERIAL_START</code>, and <code>CFG:CMD:CERTIFICATE_SERIAL_END</code>. Scan the field command and then its physical/value barcode.</p>
 			<p><strong>${__("Work Order Process Certificates")}</strong>: ${__("Use the normal Start Operation, Start Material Run, Material Quantity, physical source-tag, Report Progress, Scan Material Tags, Submit Material Entry, Confirm, Cancel, and numbered Select labels. Certificate gates run automatically for the configured Operation; do not scan the same material again from the main Production Card after a Process/Station Card recorded it against the shared Job Card.")}</p>
 			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then scan Material Quantity and the physical source Stock Tag for each tracked component. Confirm opens the run. Ordinary operations and No Run Tracking components remain unchanged.")}</small></p>
@@ -2122,7 +2122,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	function material_run_candidates() {
 		return (state.context?.executions || []).filter((row) =>
 			["Optional", "Required Before Progress"].includes(row.material_run_control) &&
-			["In Progress", "Paused"].includes(row.status));
+			["Ready", "In Progress", "Paused"].includes(row.status));
 	}
 
 	function open_material_rotation_override(revoke = false) {
@@ -2302,7 +2302,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			? available.filter((row) => row.name === preferred_execution)
 			: available;
 		if (!candidates.length) {
-			return scanner_command_message(__("No started operation on this Card has Material Run Control enabled."));
+			return scanner_command_message(__("No Ready or started operation on this Card has Material Run Control enabled."));
 		}
 		if (candidates.length > 10) {
 			return scanner_command_message(__("More than ten operations are eligible. Open the exact Process or Station Card first."));
@@ -2326,7 +2326,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			fields: [
 				{ fieldname: "material_run_guide", fieldtype: "HTML" },
 				{ fieldname: "execution_name", label: __("Operation Context"), fieldtype: "Select",
-					options: values.join("\n"), default: values[0], read_only: candidates.length === 1 },
+					options: (candidates.length === 1 ? values : ["", ...values]).join("\n"), default: candidates.length === 1 ? values[0] : "", read_only: candidates.length === 1 },
 				{ fieldname: "output_serial_boundary", label: __("First Output Serial / Boundary"),
 					fieldtype: "Data", read_only: 1 },
 				{ fieldname: "material_draw_summary", fieldtype: "HTML" },
@@ -2367,7 +2367,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					frappe.show_alert({
 						message: response.message.already_open
 							? __("Material Run {0} was already open", [response.message.name])
-							: __("Material Run {0} started", [response.message.name]),
+							: context.execution_status === "Ready"
+								? __("Material Run {0} prepared. Start Operation before physical work.", [response.message.name])
+								: __("Material Run {0} started; input certificates checked", [response.message.name]),
 						indicator: response.message.already_open ? "blue" : "green",
 					}, 7);
 					await load_card(state.context.card.qr_code || state.context.card.card_number);
@@ -2487,7 +2489,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			});
 		}
 		bind_confirmation_scanner(dialog, true, values, "execution_name");
-		await load_context(values[0]);
+		if (candidates.length === 1) await load_context(values[0]);
+		else dialog.get_field("material_run_guide").$wrapper.html(`<div class="alert alert-info">${__("Select the exact operation using CFG:SELECT:1 through CFG:SELECT:10.")}<br>${options.map(value => frappe.utils.escape_html(value)).join("<br>")}</div>`);
 		window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 80);
 	}
 
@@ -2502,7 +2505,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			Number(rule.carry_forward_qty || 0) <= 0 && !draws.some((draw) => draw.rule_row === rule.rule_row));
 		let next_step;
 		if (context.open_run) {
-			next_step = __("Material Run {0} is already open. Continue floor work or scan Cancel to return.", [context.open_run.name]);
+			next_step = context.execution_status === "Ready"
+				? __("Material Run {0} is prepared. Start Operation before physical work; Cancel returns to the Card.", [context.open_run.name])
+				: __("Material Run {0} is already open. Continue floor work or scan Cancel to return.", [context.open_run.name]);
 		} else if (context.boundary_required && !boundary) {
 			next_step = __("Scan the first output serial or other production boundary for this run.");
 		} else if (outstanding.length && pending <= 0) {
@@ -2526,7 +2531,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			${context.material_rotation_override ? `<div class="alert alert-warning">${e(__("Full Work Order FEFO override active"))}: ${e(context.material_rotation_override.work_order)} · ${e(context.material_rotation_override.reason)}</div>` : `<small>${e(__("Warehouse-local FEFO is enforced. Expired tags are prohibited."))}</small><br>`}
 			${options.length > 1 ? `${__("Select the operation first")}:<br>${options.map((row) => e(row)).join("<br>")}<br>` : ""}
 			<strong>${__("Next step")}</strong>: ${e(next_step)}${requirement_html}<br>
-			<small>${__("Source scans create protected operational reservations. They do not post ERP stock or reduce the Handling Unit ledger. Progress consumes the reservation; final ERP binding remains a separate controlled step.")}</small>
+			<small>${__("Source scans create protected operational reservations. Confirm checks input certificates before authorizing the Material Run. If the operation is Ready, Start Operation is still required before physical work. ERP stock posts only at settlement.")}</small>
 		</div>`);
 		dialog.get_field("material_draw_summary").$wrapper.html(draws.length
 			? `<div class="alert alert-success"><strong>${__("Ready to confirm")}</strong><br>${draws.map((row) =>
@@ -5309,7 +5314,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					$row.append(`<div class="mt-2 alert alert-info py-2"><strong>${__("Material Run")}: ${e(row.material_run.name)}</strong> · ${__("Run")} ${e(row.material_run.run_number)}
 						${row.material_run.output_serial_boundary ? ` · ${__("Boundary")}: ${e(row.material_run.output_serial_boundary)}` : ""}</div>`);
 					add_action($buttons, __("Cancel Material Run"), "btn-warning", () => cancel_open_material_run(row.name));
-				} else if (["In Progress", "Paused"].includes(row.status) && state.operator.permissions.report_progress) {
+				} else if (["Ready", "In Progress", "Paused"].includes(row.status) && state.operator.permissions.report_progress) {
 					add_action($buttons, __("Start Material Run"), "btn-info", () => open_material_run_dialog(row.name));
 					if (state.operator.permissions.override) {
 						add_action($buttons, __("Approve WO FEFO Override"), "btn-warning", () => open_material_rotation_override(false));

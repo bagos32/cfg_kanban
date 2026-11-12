@@ -1789,10 +1789,10 @@ def submit_progress(execution_name, good_qty, reject_qty=0, processed_qty=None,
     execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
     profile, session = require_operator(operator_session_token, "report_progress", execution=execution)
     from cfg_kanban.services.production_certificates import (
-        assert_execution_certificate_gate,
+        assert_pre_use_certificate_gates,
         finalize_execution_certificate_result,
     )
-    assert_execution_certificate_gate(execution, "Before Progress")
+    assert_pre_use_certificate_gates(execution)
     crew_result = enforce_execution_crew(
         execution.name, "Progress", actor=_crew_actor(profile, session)
     )
@@ -1890,9 +1890,9 @@ def run_job_card_action(execution_name, action, event_token=None, operator_sessi
     )
     if action == "start":
         from cfg_kanban.services.production_certificates import (
-            assert_execution_certificate_gate,
+            assert_pre_use_certificate_gates,
         )
-        assert_execution_certificate_gate(execution, "Before Operation Start")
+        assert_pre_use_certificate_gates(execution)
         _assert_materials_ready_for_job_card(execution.job_card)
         assert_gate_open(execution.kanban_cycle, "Before Operation Start", execution.operation)
         master = frappe.get_doc("CFG Kanban Master", execution.kanban_master)

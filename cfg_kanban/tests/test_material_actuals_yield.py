@@ -35,7 +35,7 @@ class TestActualMaterialPlan(unittest.TestCase):
     def setUp(self):
         self.frappe=frappe_double()
         self.frappe.get_all.return_value=[Row(name='DRAW',material_run='RUN',remaining_qty=3)]
-        self.execution=Row(name='EXEC',material_run_control='Required Before Progress',allow_material_carry_forward=1)
+        self.execution=Row(name='EXEC',status='In Progress',material_run_control='Required Before Progress',allow_material_carry_forward=1)
         self.run=Row(name='RUN',status='Open',process_execution='EXEC',reload=Mock())
         self.rule=Row(rule_row='RULE',qty_per_output=1,stock_uom='Kg',item_code='RAW')
         self.control=types.ModuleType('cfg_kanban.services.material_quantity_control')
@@ -43,7 +43,8 @@ class TestActualMaterialPlan(unittest.TestCase):
         self.control._assert_material_visible=Mock()
         self.ns=functions('services/operation_material_runs.py',['validate_progress_materials'],{
             'frappe':self.frappe,'flt':lambda x:float(x or 0),'TOLERANCE':0.000001,'_':lambda x:x,
-            'material_run_rules':lambda x:[self.rule],'assert_material_not_expired':Mock()})
+            'material_run_rules':lambda x:[self.rule],'assert_material_not_expired':Mock(),
+            'ACTIVE_EXECUTION_STATES':{'In Progress','Paused'}})
 
     def plan(self,output,actuals=None):
         with patch.dict(sys.modules,{'cfg_kanban.services.material_quantity_control':self.control}):

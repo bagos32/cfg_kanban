@@ -22,6 +22,7 @@ from cfg_kanban.services.operator_auth import require_operator
 
 
 ACTIVE_EXECUTION_STATES = {"In Progress", "Paused"}
+PREPARATION_EXECUTION_STATES = ACTIVE_EXECUTION_STATES | {"Ready"}
 CONTROL_MODES = {"Optional", "Required Before Progress"}
 BOUNDARY_MODES = {"None", "First Run Only", "Every Material Run"}
 TRACKED_MODE = "Source Tag Quantity"
@@ -426,9 +427,10 @@ def start_scanner_run(
         operator_session_token, "report_progress", execution=execution
     )
     _assert_enabled(execution)
-    if execution.status not in ACTIVE_EXECUTION_STATES:
+    from cfg_kanban.services.production_certificates import assert_pre_use_certificate_gates
+    if execution.status not in PREPARATION_EXECUTION_STATES:
         frappe.throw(
-            _("Start the operation before opening a Material Run. {0} is currently {1}.").format(
+            _("Prepare a Material Run only for a Ready or started operation. {0} is currently {1}.").format(
                 execution.operation, execution.status
             )
         )
@@ -443,10 +445,14 @@ def start_scanner_run(
     existing = get_existing("CFG Kanban Operation Material Run", key)
     if existing:
         _assert_idempotent_match(existing, execution.name, boundary, draw_fingerprint)
+        # Historical replay is an audit response, not permission to begin another run.
+        if existing.status == "Open":
+            assert_pre_use_certificate_gates(execution, material_run=existing)
         return _run_payload(existing, duplicate=True)
 
     active = _open_run(execution.name)
     if active:
+        assert_pre_use_certificate_gates(execution, material_run=active)
         return _run_payload(active, already_open=True)
 
     work_order = frappe.db.get_value("Job Card", execution.job_card, "work_order") \
@@ -478,9 +484,12 @@ def start_scanner_run(
         existing = get_existing("CFG Kanban Operation Material Run", key)
         if existing:
             _assert_idempotent_match(existing, execution.name, boundary, draw_fingerprint)
+            if existing.status == "Open":
+                assert_pre_use_certificate_gates(execution, material_run=existing)
             return _run_payload(existing, duplicate=True)
         active = _open_run(execution.name)
         if active:
+            assert_pre_use_certificate_gates(execution, material_run=active)
             return _run_payload(active, already_open=True)
         raise
 
@@ -493,6 +502,7 @@ def start_scanner_run(
         event_token=event_token,
     )
     _assert_tracked_materials_ready(execution, run)
+    assert_pre_use_certificate_gates(execution, material_run=run)
     if created_draws:
         run.db_set({
             "material_draw_count": len(created_draws),
@@ -674,6 +684,8 @@ def validate_progress_materials(execution, run, processed_qty, material_usage=No
                 execution.operation
             )
         )
+    if run and execution.status not in ACTIVE_EXECUTION_STATES:
+        frappe.throw("The Material Run is prepared. Start Operation before physical work and reporting progress")
     if not run:
         if provided_actuals:
             frappe.throw("Start a Material Run and scan the source materials before declaring actual use")

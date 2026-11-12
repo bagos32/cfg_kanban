@@ -151,12 +151,13 @@ def allocate(card_name, job_card_name, confirmation, override_reason=None):
     settings = frappe.get_single("CFG Kanban Settings")
     if settings.auto_start_job_card and proposal["job_card_status"] != "Work In Progress":
         from cfg_kanban.services.production_certificates import (
-            assert_execution_certificate_gate,
+            assert_pre_use_certificate_gates, operation_start_certificate_readiness,
         )
-        assert_execution_certificate_gate(execution, "Before Operation Start")
         from cfg_kanban.services.production_material_flow import job_card_material_readiness
         readiness = job_card_material_readiness(proposal["job_card"])
-        if readiness["ready"]:
+        certificate_readiness = operation_start_certificate_readiness(execution)
+        if readiness["ready"] and certificate_readiness["ready"]:
+            assert_pre_use_certificate_gates(execution)
             from cfg_kanban.integrations.erp_gateway import execute_command
 
             key = canonical_key("job-card-action", proposal["job_card"], "Start Job Card", allocation.name)
@@ -180,7 +181,7 @@ def allocate(card_name, job_card_name, confirmation, override_reason=None):
                 "Automatic Job Card Start Deferred",
                 card=card.name, cycle=cycle.name, execution=execution.name,
                 reference_doctype="Job Card", reference_name=proposal["job_card"],
-                notes=readiness["reason"],
+                notes=certificate_readiness["reason"] if not certificate_readiness["ready"] else readiness["reason"],
             )
     if not proposal["is_recommended"]:
         record("Runtime Selection Overridden", card=card.name, cycle=cycle.name,
