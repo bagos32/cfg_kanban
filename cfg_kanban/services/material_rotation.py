@@ -7,8 +7,10 @@ from frappe import _
 from frappe.utils import cint, flt, getdate, now_datetime, today
 
 from cfg_kanban.services.events import record
+from cfg_kanban.services.certificate_output_evidence import certificate_output_evidence, printed_expiry_dates
 from cfg_kanban.services.idempotency import canonical_key
 from cfg_kanban.services.operator_auth import require_operator
+from cfg_kanban.services.manufacture_expiry import assert_process_cycle_printed_expiry
 
 OVERRIDE_DOCTYPE = "CFG Kanban Material Rotation Override"
 TERMINAL_WORK_ORDER_STATES = ("Completed", "Closed", "Stopped", "Cancelled")
@@ -160,6 +162,8 @@ def material_expiry(unit):
         frappe.throw(_("Batch-controlled material {0} requires a Batch on its source tag").format(unit.item_code))
     dates = [getdate(value) for value in (getattr(unit, "expiry_date", None),
              batch.expiry_date if batch else None) if value]
+    dates.extend(getdate(value) for value in printed_expiry_dates(certificate_output_evidence(
+        unit.name, getattr(unit, "process_certificate_set", None), unit.item_code, unit.stock_uom)))
     return min(dates) if dates else None
 
 
@@ -226,8 +230,9 @@ def _rotation_candidates(unit):
           "certificate_set": getattr(unit, "process_certificate_set", None) or ""}, as_dict=True)
 
 
-def validate_material_rotation(execution, unit):
+def validate_material_rotation(execution, unit, current=False):
     expiry = assert_material_not_expired(unit)
+    cohort = assert_process_cycle_printed_expiry(execution, unit, current=current)
     batch_controlled = cint(frappe.db.get_value("Item", unit.item_code, "has_batch_no"))
     eligible = []
     for row in _rotation_candidates(unit):
@@ -237,6 +242,8 @@ def validate_material_rotation(execution, unit):
         elif batch_controlled:
             continue
         dates = [getdate(value) for value in (row.expiry_date, row.batch_expiry) if value]
+        dates.extend(getdate(value) for value in printed_expiry_dates(certificate_output_evidence(
+            row.name, getattr(unit, "process_certificate_set", None), unit.item_code, unit.stock_uom)))
         candidate_expiry = min(dates) if dates else None
         if candidate_expiry and candidate_expiry < getdate(today()):
             continue
@@ -253,6 +260,7 @@ def validate_material_rotation(execution, unit):
             first.scan_code, first.effective_available))
     return {
         "expiry_date": str(expiry) if expiry else None,
+        **cohort,
         "priority_source": first.name, "priority_scan_code": first.scan_code,
         "priority_available_qty": flt(first.effective_available),
         "rotation_override": approval.name if bypassed else None,

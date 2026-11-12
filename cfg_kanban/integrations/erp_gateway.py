@@ -2,7 +2,7 @@ import json
 
 import frappe
 from frappe.model.naming import get_default_naming_series
-from frappe.utils import add_days, add_to_date, cint, cstr, flt, get_datetime, now_datetime, today
+from frappe.utils import add_days, add_to_date, cint, cstr, flt, getdate, get_datetime, now_datetime, today
 from erpnext.manufacturing.doctype.work_order.work_order import get_item_details
 
 from cfg_kanban.services.state_machine import set_cycle_state, transition_card
@@ -1459,9 +1459,14 @@ def create_production_manufacture_receipt(command, payload):
             server_managed_keys=managed_keys,
         )
     target = payload["target_warehouse"]
-    batch_no = _resolve_manufacture_batch(
-        work_order.production_item, payload.get("batch_no")
-    )
+    if cint(payload.get("use_printed_expiry")):
+        from cfg_kanban.services.manufacture_expiry import selected_manufacture_printed_expiry
+        expiry, evidence = selected_manufacture_printed_expiry(work_order.name,work_order.company)
+        if expiry != payload.get("printed_expiry") or evidence != payload.get("printed_expiry_evidence"):
+            frappe.throw("Printed expiry evidence changed before Manufacture preparation; review the source usage")
+        batch_no = _resolve_manufacture_batch(work_order.production_item,payload.get("batch_no"),expiry)
+    else:
+        batch_no = _resolve_manufacture_batch(work_order.production_item, payload.get("batch_no"))
     for row in entry.items:
         if row.t_warehouse and not row.s_warehouse:
             row.t_warehouse = target
@@ -1552,20 +1557,24 @@ def _exclude_submitted_wip_bin_returns(entry, work_order, kanban_cycle):
         entry._cfg_wip_return_adjustments = adjustments
 
 
-def _resolve_manufacture_batch(item_code, requested_batch):
+def _resolve_manufacture_batch(item_code, requested_batch, printed_expiry=None):
     """Resolve/create an explicit Batch; a blank value remains native ERPNext territory."""
     requested = cstr(requested_batch).strip()
     if not requested:
+        if printed_expiry:
+            frappe.throw("A Finished Batch is required to use printed expiry")
         return None
     existing = (
-        frappe.db.get_value("Batch", requested, ["name", "item"], as_dict=True)
+        frappe.db.get_value("Batch", requested, ["name", "item", "expiry_date"], as_dict=True)
         or frappe.db.get_value(
-            "Batch", {"batch_id": requested}, ["name", "item"], as_dict=True
+            "Batch", {"batch_id": requested}, ["name", "item", "expiry_date"], as_dict=True
         )
     )
     if existing:
         if existing.item != item_code:
             frappe.throw(f"Batch {requested} does not belong to Item {item_code}")
+        if printed_expiry and (not existing.expiry_date or getdate(existing.expiry_date)!=getdate(printed_expiry)):
+            frappe.throw("Existing Finished Batch has a different or blank expiry. Choose a new Batch or one with the same printed expiry")
         return existing.name
 
     item = frappe.db.get_value(
@@ -1579,7 +1588,9 @@ def _resolve_manufacture_batch(item_code, requested_batch):
         "item": item_code,
         "manufacturing_date": today(),
     }
-    if cint(item.shelf_life_in_days):
+    if printed_expiry:
+        values["expiry_date"] = printed_expiry
+    elif cint(item.shelf_life_in_days):
         values["expiry_date"] = add_days(today(), cint(item.shelf_life_in_days))
     return frappe.get_doc(values).insert(ignore_permissions=True).name
 

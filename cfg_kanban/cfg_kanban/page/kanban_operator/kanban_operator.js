@@ -377,6 +377,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
             APPROVE_WO_YIELD: () => open_work_order_yield_override(false),
             REVOKE_WO_YIELD: () => open_work_order_yield_override(true),
             CORRECT_MATERIAL_USE: open_material_use_correction,
+            RECEIPT_USE_PRINTED_EXPIRY: () => receipt_expiry_command("CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY"),
+            RECEIPT_STANDARD_EXPIRY: () => receipt_expiry_command("CFG:CMD:RECEIPT_STANDARD_EXPIRY"),
+            RECEIPT_BATCH: () => receipt_expiry_command("CFG:CMD:RECEIPT_BATCH"),
             APPROVE_MATERIAL_FEFO_OVERRIDE: () => open_material_rotation_override(false),
             REVOKE_MATERIAL_FEFO_OVERRIDE: () => open_material_rotation_override(true),
 			CANCEL_MATERIAL_RUN: cancel_open_material_run,
@@ -1040,7 +1043,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<p>${__("Work Order yield/quantity exceptions: scan CFG:CMD:APPROVE_WO_YIELD or CFG:CMD:REVOKE_WO_YIELD, choose context, scan reason and Confirm. Corrections: CFG:CMD:CORRECT_MATERIAL_USE, choose operation then allocation with CFG:SELECT:n, scan CFG:QTY:MATERIAL:n and a reason, then Confirm. Cancel is safe. Submitted ERP records require controlled recovery. For certificate-controlled material, prepare Start Material Run with Quantity, source tag and Confirm while Ready, then Start Operation. Both input gate stages are checked before each run and again at progress. Progress actual material quantities use each component stock UOM. Lists use ten numbered choices per page; CFG:CMD:NEXT_MATERIALS and CFG:CMD:PREVIOUS_MATERIALS change pages.")}</p>
 			<p><strong>${__("Certificate Process commands")}</strong>: <code>CFG:CMD:START_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:COMPLETE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:REPORT_CERTIFICATE_PROGRESS</code>, <code>CFG:CMD:CLOSE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:SUBMIT_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:CANCEL_CERTIFICATE_PROCESS</code>. Field-arm commands are <code>CFG:CMD:CERTIFICATE_OUTPUT_TAG</code>, <code>CFG:CMD:CERTIFICATE_BATCH</code>, <code>CFG:CMD:CERTIFICATE_EXPIRY</code>, <code>CFG:CMD:CERTIFICATE_SERIAL_START</code>, and <code>CFG:CMD:CERTIFICATE_SERIAL_END</code>. Scan the field command and then its physical/value barcode.</p>
 			<p><strong>${__("Work Order Process Certificates")}</strong>: ${__("Use the normal Start Operation, Start Material Run, Material Quantity, physical source-tag, Report Progress, Scan Material Tags, Submit Material Entry, Confirm, Cancel, and numbered Select labels. Certificate gates run automatically for the configured Operation; do not scan the same material again from the main Production Card after a Process/Station Card recorded it against the shared Job Card.")}</p>
-			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then scan Material Quantity and the physical source Stock Tag for each tracked component. Confirm opens the run. Prepare Receipt uses finalized Material Run actuals; unused BOM balances stay in stock. Save an older Manufacture Draft and reopen Scan Material Tags to refresh its inputs. Ordinary operations and No Run Tracking components retain normal material confirmation.")}</small></p>
+			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then scan Material Quantity and the physical source Stock Tag for each tracked component. Confirm opens the run. Prepare Receipt uses finalized Material Run actuals; unused BOM balances stay in stock. Printed expiry stays consistent within each Process Card cycle. At receipt, scan CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY or CFG:CMD:RECEIPT_STANDARD_EXPIRY; CFG:CMD:RECEIPT_BATCH arms the next Finished Batch ID scan. Automatic expiry copying requires one matching consumed printed date. Save an older Manufacture Draft and reopen Scan Material Tags to refresh its inputs. Ordinary operations and No Run Tracking components retain normal material confirmation.")}</small></p>
 			<p><strong>${__("PPHU trace commands")}</strong>: <code>CFG:CMD:PPHU_HOPPER_CHANGE</code>, <code>CFG:CMD:PPHU_BATCH_CHANGE</code>, <code>CFG:CMD:PPHU_OUTPUT_SERIAL</code>. Select an operation with <code>CFG:SELECT:n</code>, scan the physical Hopper/material tag when requested, scan the first affected output serial, then scan <code>CFG:CMD:CONFIRM</code>.</p>
 			<p><strong>${__("Crew commands")}</strong>: <code>CFG:CMD:CREW</code>, <code>CFG:CMD:CREW_OPEN</code>, <code>CFG:CMD:CREW_JOIN</code>, <code>CFG:CMD:CREW_JOIN_SENIOR</code>, <code>CFG:CMD:CREW_JOIN_OVERSIGHT</code>, <code>CFG:CMD:CREW_JOIN_TEMP</code>, <code>CFG:CMD:CREW_BREAK</code>, <code>CFG:CMD:CREW_RESUME</code>, <code>CFG:CMD:CREW_LEAVE</code>, <code>CFG:CMD:CREW_MAIN</code>, <code>CFG:CMD:CREW_CONTEXT</code>, <code>CFG:CMD:CREW_CLOSE</code>.</p>
 			<p><small>${__("On an Available Process/Station Card, choose the exact numbered Job Card before Crew Controls when several targets are eligible. On a Workstation Queue Card, Crew Controls uses the selected Active/Ready work row.")}</small></p>
@@ -2919,6 +2922,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<small>${__("Scan Select Option, then scan Material Quantity. Example: CFG:SELECT:2 then CFG:QTY:MATERIAL:5. Scan Confirm / Submit when finished.")}</small></div>`);
 	}
 
+	function receipt_expiry_command(value) {
+		const dialog = state.active_command_dialog;
+		if (!dialog?.$wrapper?.is(":visible") || !dialog.cfg_receipt_expiry_dialog) return scanner_command_message(__("Open Prepare Manufacture Receipt before selecting expiry or Finished Batch."));
+		return handle_confirmation_scanner_value(dialog, value);
+	}
+
 	function manufacture_receipt_dialog(flow, scanner_mode = false) {
 		const direct = flow.mode === "Skip WIP Transfer";
 		const adopts_material_runs = Boolean(flow.material_run_receipt_pending_count);
@@ -2938,6 +2947,9 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				...(actuals.length ? [{ fieldtype: "HTML", options: `<div class="alert alert-info"><strong>${__("Recorded Material Run consumption")}</strong><br>${actuals.map(actual => `${frappe.utils.escape_html(actual.item_code)}: ${actual.used_qty} ${frappe.utils.escape_html(actual.stock_uom)} ${__("used")}, ${actual.settled_qty} ${__("already posted")}, ${actual.pending_qty} ${__("to post now")}`).join("<br>")}<br>${__("Unused BOM balances remain in stock and are excluded. Correct recorded usage through Correct Material Use before preparation.")}</div>` }] : []),
 				{ fieldname: "output_qty", label: __("Accepted Finished Quantity"), fieldtype: "Float", reqd: 1, default: flow.remaining_output_qty },
 				{ fieldname: "target_warehouse", label: __("Finished Goods Warehouse"), fieldtype: "Link", options: "Warehouse", reqd: 1, default: flow.output_warehouse },
+				{ fieldname: "use_printed_expiry", fieldtype: "Check", label: __("Use consumed material's printed expiry for Finished Batch"), default: 0, read_only: !flow.finished_batch_controlled,
+					description: __("Requires a Batch-controlled finished Item and one matching printed date. Existing Batches must already match. Mixed dates require separate production batches.") },
+				{ fieldtype: "HTML", options: `<small>${__("Consumed printed expiry dates")}: ${frappe.utils.escape_html((flow.manufacture_printed_expiry_dates || []).join(", ") || "-")}<br>CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY · CFG:CMD:RECEIPT_STANDARD_EXPIRY · CFG:CMD:RECEIPT_BATCH (${__("then scan the Finished Batch ID")})</small>` },
 				{ fieldname: "batch_no", label: __("Finished Batch (Optional)"), fieldtype: "Data", default: flow.planned_batch,
 					read_only: Boolean(flow.planned_batch),
 					description: flow.planned_batch ?
@@ -2960,7 +2972,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 						source_warehouse: row.source_warehouse, qty: row.qty }));
 					await frappe.call({ method: "cfg_kanban.services.production_material_flow.prepare_manufacture_receipt", args: {
 						cycle_name: flow.cycle, output_qty: values.output_qty, target_warehouse: values.target_warehouse,
-						batch_no: values.batch_no, lines, confirmation: values.confirmation,
+						batch_no: values.batch_no, use_printed_expiry: values.use_printed_expiry, lines, confirmation: values.confirmation,
 						defer_submit_for_scanning: (scanner_mode || dialog.cfg_scanner_confirmed) ? 1 : 0,
 						event_token: frappe.utils.get_random(24),
 						operator_session_token: state.session_token,
@@ -2973,6 +2985,29 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				}
 			},
 		});
+		dialog.cfg_receipt_expiry_dialog = true;
+		dialog.cfg_raw_scanner_handler = async value => {
+			const command = String(value).toUpperCase();
+			if (command === "CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY") {
+				dialog.cfg_finished_batch_scan = false;
+				if (!flow.finished_batch_controlled) return frappe.msgprint(__("The finished Item must use ERPNext Batch tracking."));
+				return dialog.set_value("use_printed_expiry", 1);
+			}
+			if (command === "CFG:CMD:RECEIPT_STANDARD_EXPIRY") {
+				dialog.cfg_finished_batch_scan = false;
+				return dialog.set_value("use_printed_expiry", 0);
+			}
+			if (command === "CFG:CMD:RECEIPT_BATCH") {
+				dialog.cfg_finished_batch_scan = true;
+				return frappe.show_alert({message:__("Scan the Finished Batch ID next."),indicator:"blue"});
+			}
+			if (dialog.cfg_finished_batch_scan && !/^CFG:/i.test(value)) {
+				if (flow.planned_batch && value !== flow.planned_batch) return frappe.msgprint(__("Use the Cycle's planned Finished Batch."));
+				dialog.cfg_finished_batch_scan = false;
+				return dialog.set_value("batch_no", value);
+			}
+			frappe.show_alert({message:__("Scan a receipt expiry choice, Finished Batch command, Confirm or Cancel."),indicator:"orange"});
+		};
 		dialog.onhide = restore_scanner_focus;
 		dialog.show();
 		bind_confirmation_scanner(dialog, true);

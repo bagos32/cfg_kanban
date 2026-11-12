@@ -8,6 +8,7 @@ import frappe
 from frappe.utils import flt, get_datetime, now_datetime
 
 from cfg_kanban.services.idempotency import canonical_key
+from cfg_kanban.services.certificate_output_evidence import certificate_output_evidence, printed_expiry_dates
 
 COPY_FIELDS = (
     "process_certificate_set", "expiry_date", "packed_on", "short_description",
@@ -37,6 +38,9 @@ def identity_snapshot(unit):
         fields=["name", "certificate_type", "revision_snapshot", "valid_from", "valid_until",
                 "status", "source_reference_doctype", "source_reference_name"],
         limit_page_length=0), key=lambda row: row.name) if unit.get("process_certificate_set") else []
+    printing = certificate_output_evidence(unit.name, unit.get("process_certificate_set"), unit.item_code, unit.stock_uom)
+    if printing:
+        result["certificate_output_evidence"] = printing
     return json.loads(_json(result))
 
 
@@ -57,7 +61,9 @@ def capture_manifest_line(line):
 
 
 def _expiry(snapshot):
-    return min(str(value)[:10] for value in (snapshot.get("expiry_date"), snapshot.get("batch_expiry_date")) if value) if snapshot.get("expiry_date") or snapshot.get("batch_expiry_date") else ""
+    dates = [snapshot.get("expiry_date"), snapshot.get("batch_expiry_date"),
+             *printed_expiry_dates(snapshot.get("certificate_output_evidence", []))]
+    return min(str(value)[:10] for value in dates if value) if any(dates) else ""
 
 
 

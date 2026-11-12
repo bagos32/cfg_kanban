@@ -201,7 +201,8 @@ class TestOperationMaterialRunContract(unittest.TestCase):
 
     def test_material_rotation_is_checked_at_preview_and_confirmation(self):
         service = (ROOT / "services" / "operation_material_runs.py").read_text()
-        self.assertEqual(service.count("rotation = validate_material_rotation(execution, unit)"), 2)
+        self.assertEqual(service.count("rotation = validate_material_rotation(execution, unit)"), 1)
+        self.assertEqual(service.count("rotation = validate_material_rotation(execution, unit, current=True)"), 1)
         self.assertIn("_assert_carry_forward_expiry(execution)", service)
         self.assertIn("lock_material_rotation(execution)", service)
         self.assertIn("assert_material_not_expired(frappe.get_doc", service)

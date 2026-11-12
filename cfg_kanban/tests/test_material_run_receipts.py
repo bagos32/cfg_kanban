@@ -198,7 +198,7 @@ class TestMaterialRunReceiptActuals(unittest.TestCase):
         original_get_doc=self.get_doc
         self.frappe.get_doc.side_effect=lambda doctype,name=None:doctype if isinstance(doctype,Document) else original_get_doc(doctype,name)
         ns=functions('integrations/erp_gateway.py',['create_production_manufacture_receipt','_apply_confirmed_production_lines'],{
-            'frappe':self.frappe,'flt':lambda x:float(x or 0),
+            'frappe':self.frappe,'flt':lambda x:float(x or 0),'cint':lambda x:int(x or 0),
             '_exclude_submitted_wip_bin_returns':Mock(),'_resolve_manufacture_batch':lambda *args:None})
         with patch.dict(sys.modules,{mapper.__name__:mapper,stock.__name__:stock,actuals.__name__:actuals}):
             result=ns['create_production_manufacture_receipt'](Row(kanban_cycle='CYCLE',source_signal=None),{

@@ -28,9 +28,14 @@ class TestLogisticsStockIdentity(unittest.TestCase):
         utils.get_datetime=lambda value: value if isinstance(value,datetime.datetime) else datetime.datetime.fromisoformat(str(value))
         idem=types.ModuleType('cfg_kanban.services.idempotency')
         idem.canonical_key=lambda *parts: hashlib.sha256(json.dumps(parts).encode()).hexdigest()
+        printing=types.ModuleType('cfg_kanban.services.certificate_output_evidence')
+        printing.certificate_output_evidence=Mock(return_value=[])
+        printing.printed_expiry_dates=lambda evidence:[row['printed_expiry'] for run in evidence
+            for row in [run,*run.get('progress',[])] if row.get('printed_expiry')]
         spec=importlib.util.spec_from_file_location('logistics_identity_subject',ROOT/'services/logistics_stock_identity.py')
         self.service=importlib.util.module_from_spec(spec)
-        with patch.dict(sys.modules,{'frappe':frappe,'frappe.utils':utils,'cfg_kanban.services.idempotency':idem}):
+        with patch.dict(sys.modules,{'frappe':frappe,'frappe.utils':utils,'cfg_kanban.services.idempotency':idem,
+                                     'cfg_kanban.services.certificate_output_evidence':printing}):
             spec.loader.exec_module(self.service)
         self.frappe=frappe
         self.unit=Row(name='SOURCE',handling_unit_id='RAW-1',item_code='RAW',stock_uom='Kg',

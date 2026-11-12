@@ -819,6 +819,8 @@ def validate_stock_entry(doc, method=None):
         validate_production_certificate_stock_entry,
     )
     validate_production_certificate_stock_entry(doc)
+    from cfg_kanban.services.manufacture_expiry import validate_manufacture_printed_expiry
+    validate_manufacture_printed_expiry(doc)
     from cfg_kanban.services.production_trace import validate_stock_entry_trace
     validate_stock_entry_trace(doc)
     from cfg_kanban.services.wip_bin_loads import validate_wip_bin_stock_entry

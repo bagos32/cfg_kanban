@@ -319,7 +319,11 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
     )
     from cfg_kanban.services.material_run_receipts import material_run_receipt_summary
     receipt_actuals = material_run_receipt_summary(work_order)
+    from cfg_kanban.services.manufacture_expiry import manufacture_printed_expiry_sources
+    printed_dates = manufacture_printed_expiry_sources(work_order.name,work_order.company,strict=False)["dates"] if all_job_cards_completed else []
     return {
+        "finished_batch_controlled": bool(frappe.db.get_value("Item",work_order.production_item,"has_batch_no")),
+        "manufacture_printed_expiry_dates": printed_dates,
         "material_run_receipt_actuals": [row for row in receipt_actuals
             if row["item_code"] not in restricted_items],
         "cycle": cycle.name,
@@ -1032,7 +1036,7 @@ def prepare_material_consumption(cycle_name, lines, job_card=None, event_token=N
 def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
                                 target_warehouse=None, batch_no=None, event_token=None,
                                 confirmation=None, operator_session_token=None,
-                                defer_submit_for_scanning=0):
+                                defer_submit_for_scanning=0, use_printed_expiry=0):
     cycle, master, work_order = _production_context(cycle_name)
     if work_order.docstatus != 1:
         frappe.throw("Submit the effective Work Order before preparing Manufacture receipt")
@@ -1097,6 +1101,15 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
     target = target_warehouse or master.destination_warehouse or work_order.fg_warehouse
     _assert_warehouse_company(target, work_order.company)
     batch_no = _validated_finished_batch(cycle, work_order, batch_no)
+    printed_expiry, printed_evidence = None, []
+    use_printed_expiry = cint(use_printed_expiry)
+    if use_printed_expiry:
+        if not cint(frappe.db.get_value("Item",work_order.production_item,"has_batch_no")):
+            frappe.throw("Use printed expiry requires ERPNext Batch tracking on the finished Item")
+        if not batch_no:
+            frappe.throw("Scan or enter a Finished Batch before selecting printed expiry")
+        from cfg_kanban.services.manufacture_expiry import selected_manufacture_printed_expiry
+        printed_expiry, printed_evidence = selected_manufacture_printed_expiry(work_order.name,work_order.company)
     _assert_no_open_production_entry(
         cycle.name, work_order.name, "Manufacture"
     )
@@ -1106,7 +1119,7 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
     # exists; the ordinary Submit Materials scanner action remains the posting authority.
     submit = (master.get("manufacture_posting_mode") == "Submit on Operator Confirmation"
               and not cint(defer_submit_for_scanning) and not receipt_draws)
-    identity = event_token or f"{qty}:{target}:{batch_no or ''}:{frappe.as_json(normalized)}"
+    identity = event_token or f"{qty}:{target}:{batch_no or ''}:{use_printed_expiry}:{printed_expiry or ''}:{frappe.as_json(normalized)}"
     key = canonical_key("production-manufacture-receipt", cycle.name, identity)
     command, created = insert_once(frappe.get_doc({
         "doctype": "CFG ERP Command",
@@ -1118,6 +1131,9 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
         "request_payload": frappe.as_json({
             "work_order": work_order.name,
             "output_qty": qty,
+            "use_printed_expiry": use_printed_expiry,
+            "printed_expiry": printed_expiry,
+            "printed_expiry_evidence": printed_evidence,
             "target_warehouse": target,
             "batch_no": batch_no,
             "lines": normalized,

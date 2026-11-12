@@ -331,6 +331,26 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			.attr("aria-hidden", show_compact ? "false" : "true");
 	}
 
+	function certificate_printing_details_html(row) {
+		let snapshot;
+		try { snapshot = JSON.parse(row.stock_identity_snapshot || "{}"); }
+		catch (_error) { return ""; }
+		const evidence = (Array.isArray(snapshot?.certificate_output_evidence) ? snapshot.certificate_output_evidence : []).filter(run => run && typeof run === "object");
+		const ranges = [];
+		for (const run of evidence) {
+			const episodes = Array.isArray(run.progress) && run.progress.length ? run.progress : [run];
+			for (const episode of episodes) {
+				if (!episode.first_output_serial && !episode.last_output_serial) continue;
+				ranges.push([episode.first_output_serial || "?", episode.last_output_serial || "?"].join(" – "));
+			}
+		}
+		const dates = [...new Set(evidence.flatMap(run =>
+			[run, ...(Array.isArray(run.progress) ? run.progress : [])].map(episode => episode?.printed_expiry).filter(Boolean)))];
+		const expiry = dates.length ? `<small>${__("Printed expiry")}: ${dates.map(value => frappe.utils.escape_html(value)).join("; ")}</small>` : "";
+		const serials = ranges.length ? `<small>${__("Printed serial boundaries (source evidence)")}: ${[...new Set(ranges)].map(value => frappe.utils.escape_html(value)).join("; ")}</small>` : "";
+		return expiry + serials;
+	}
+
 	function render_active() {
 		if (!state.manifest) {
 			$active.html(`<div class="frappe-card cfg-logistics-empty"><h3>${__("No Manifest selected")}</h3>
@@ -364,7 +384,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				!rendered_container_actions.has(row.container_handling_unit);
 			if (show_container_remove) rendered_container_actions.add(row.container_handling_unit);
 			return `<div class="cfg-logistics-line">
-			<div><strong>${e(row.visible_code || row.line_kind || __("ERP Stock"))}</strong><small>${e(row.item_code)} · ${e(row.batch_no || __("No Batch"))}</small><small>${__("Certificate Set")}: ${e(row.process_certificate_set || "-")} · ${__("Expiry")}: ${e(row.expiry_date || "-")}</small>
+			<div><strong>${e(row.visible_code || row.line_kind || __("ERP Stock"))}</strong><small>${e(row.item_code)} · ${e(row.batch_no || __("No Batch"))}</small><small>${__("Certificate Set")}: ${e(row.process_certificate_set || "-")} · ${__("Expiry")}: ${e(row.expiry_date || "-")}</small>${certificate_printing_details_html(row)}
 				${row.container_visible_code ? `<small>${__("Inside container")}: <strong>${e(row.container_visible_code)}</strong></small>` : ""}</div>
 			<div><strong>${format_number(row.dispatch_qty)} ${e(row.stock_uom)}</strong>
 				<small>${row.receipt_scanned ? __("Receipt scan confirmed") :

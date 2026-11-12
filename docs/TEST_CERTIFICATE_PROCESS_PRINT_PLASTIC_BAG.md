@@ -149,3 +149,37 @@ Certificate Set; it does not create a second Handling Unit.
 | Scanner-only kiosk run | Pass / Fail |
 | Native Stock Ledger evidence | |
 | Accepted exceptions/deferred risks | |
+
+
+## Printed metadata and finished Batch expiry acceptance — live scenarios NOT RUN
+
+1. Certify a non-Batch Item onto a new tag, capturing printed expiry and serial boundaries; submit
+   its Repack. Scan it into dispatch. Check Certificate Set, effective/printed expiry, source serial
+   boundaries and exact Run/Repack references in the frozen snapshot. Repeat direct/GIT transfers,
+   intercompany receipt, split child and reusable-container paths; no metadata may be invented.
+2. Capture gapped partial-progress serial episodes: show each recorded range separately. Exact ERP
+   Serial Number membership remains separate. Reject stale evidence and do not rewrite old snapshots.
+3. FEFO compares captured printed dates of eligible No-Batch tags; expired printed stock is blocked.
+   An earlier native/tag date wins. In one Process Card cycle, switch to another printed date:
+   reject before use, suggest matching eligible tags or controlled close/new-cycle guidance. Confirm
+   that a new cycle resets the group and parallel confirmations cannot mix dates in one cycle.
+4. Finish production using one printed date. Opt in at Manufacture Receipt, scan a new finished
+   Batch ID and Confirm. Verify native Batch expiry, Stock Entry output Batch, output tag/FEFO,
+   ERP Command evidence and scanner-only touch/error/Cancel behavior. Existing same-date Batch
+   is allowed; different/blank-date existing Batch and unbatched finished Item are rejected.
+5. Opt out: retain ordinary native Batch/shelf-life behavior. Multiple consumed printed dates,
+   changed/revoked posting evidence, unused draws, missing sources and an expired date must not
+   authorize automatic expiry copying. Check native direct Draft submission rechecks the selection.
+
+Record deployed SHA, actual source/child tags, Run/progress/certificate/Repack/Manifest/Stock Entry/
+finished Batch IDs, before/after expiry and stock balances, tester and accepted exceptions. Offline
+checks do not establish database concurrency, real scanner focus or live ERP stock acceptance.
+
+
+Offline validation, 2026-11-12: 346 Python checks passed, including 13 printing-provenance/
+logistics/FEFO checks and 21 manufacture-expiry/cohort checks. All 53 JavaScript checks passed,
+including 6 dispatch printing-metadata checks and 9 receipt scanner checks. Changed Python
+syntax, Operator/Logistics JavaScript syntax and whitespace checks passed. Dependency doubles
+and source contracts were used. Live stock, native Batch valuation/posting, scanner hardware,
+transaction rollback, performance and concurrent confirmation/revocation are NOT RUN. No
+commit, push, migration, deployment or live-site mutation was performed for this work.

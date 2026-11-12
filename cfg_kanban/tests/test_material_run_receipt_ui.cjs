@@ -7,7 +7,7 @@ async function runTests(root=path.resolve(__dirname,'../..')) {
  const dialogCode=panel.slice(panel.indexOf('\tfunction manufacture_receipt_dialog('),panel.indexOf('\tfunction bind_confirmation_scanner('));
  const scannerCode=panel.slice(panel.indexOf('\tasync function handle_confirmation_scanner_value('),panel.indexOf('\tfunction scanner_selection_dialog('));
  function harness() {
-  const h={calls:[],focus:0};
+  const h={calls:[],focus:0,messages:[]};
   h.flow={cycle:'CYCLE',mode:'Skip WIP Transfer',remaining_output_qty:5,output_warehouse:'Finished',
    manufacture_posting_mode:'Create Draft for Tag / Batch Review',materials:[
     {item_code:'RAW',source_warehouse:'Store',manufacture_pending_qty:2},
@@ -15,7 +15,7 @@ async function runTests(root=path.resolve(__dirname,'../..')) {
    material_run_receipt_actuals:[{item_code:'RAW',source_warehouse:'Store',stock_uom:'Kg',used_qty:3,settled_qty:3,pending_qty:0}]};
   h.respond=async()=>({message:{stock_entry:'RECEIPT'}});
   const frappe={utils:{escape_html:value=>String(value),get_random:()=>'TOKEN'},
-   call:async request=>{h.calls.push(request);return h.respond(request);},show_alert:()=>{},ui:{Dialog:class {
+   call:async request=>{h.calls.push(request);return h.respond(request);},show_alert:()=>{},msgprint:value=>h.messages.push(value),ui:{Dialog:class {
     constructor(options){h.dialog=this;this.options=options;this.values={};this.visible=true;
      for(const field of options.fields)if(field.fieldname)this.values[field.fieldname]=field.fieldtype==='Table'?field.data:field.default;
      this.$wrapper={is:()=>this.visible};}
@@ -59,6 +59,21 @@ async function runTests(root=path.resolve(__dirname,'../..')) {
   const h=harness();h.open(h.flow,true);let finish;h.respond=()=>new Promise(resolve=>{finish=resolve;});
   const first=h.scan('CFG:CMD:CONFIRM');await h.scan('CFG:CMD:CONFIRM');assert.equal(h.calls.length,1);
   finish({message:{stock_entry:'RECEIPT'}});await first;
+ });
+ test('scanner selects printed expiry and captures a new Finished Batch ID',async()=>{
+  const h=harness();h.flow.finished_batch_controlled=true;h.flow.manufacture_printed_expiry_dates=['2027-06-01'];h.open(h.flow,true);
+  await h.scan('CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY');await h.scan('CFG:CMD:RECEIPT_BATCH');await h.scan('FG-2027-06');
+  await h.scan('CFG:CMD:CONFIRM');assert.equal(h.calls[0].args.use_printed_expiry,1);assert.equal(h.calls[0].args.batch_no,'FG-2027-06');
+ });
+ test('scanner can retain standard expiry and cannot change a planned Batch',async()=>{
+  const h=harness();h.flow.finished_batch_controlled=true;h.flow.planned_batch='PLANNED';h.open(h.flow,true);
+  await h.scan('CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY');await h.scan('CFG:CMD:RECEIPT_STANDARD_EXPIRY');
+  assert.equal(h.dialog.values.use_printed_expiry,0);await h.scan('CFG:CMD:RECEIPT_BATCH');await h.scan('OTHER');
+  assert.equal(h.dialog.values.batch_no,'PLANNED');assert(h.messages.length>0);
+ });
+ test('unbatched finished Items cannot opt in through scanner controls',async()=>{
+  const h=harness();h.flow.finished_batch_controlled=false;h.open(h.flow,true);await h.scan('CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY');
+  assert.equal(h.dialog.values.use_printed_expiry,0);assert(h.messages.length>0);
  });
  const passed=[];for(const[name,fn]of cases){await fn();passed.push(name);}return passed;
 }

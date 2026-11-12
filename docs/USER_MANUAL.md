@@ -5171,3 +5171,43 @@ For an existing unsubmitted Manufacture Draft with this old residual, save the D
 **Scan Material Tags** to refresh its inputs. The existing **Submit Materials** scanner action
 also reconciles eligible actuals before native submission. Reconciliation retains existing valid
 trace allocations and rejects a reduction below an allocation until it is cancelled properly.
+
+
+### Printed expiry, Process Card cycles and optional finished Batch date
+
+Certificate Process **Printed Expiry** and printed serial boundaries are separate from issued
+certificate validity. Logistics resolves these captured values from the completed Run, submitted
+Repack and exact certificate provenance, including inherited child tags. Dispatch/receipt snapshots
+retain that evidence. The Manifest shows **Printed expiry** and **Printed serial boundaries
+(source evidence)**. A boundary is not an invented list of ERPNext Serial Numbers for a split tag.
+A certified No-Batch Item can therefore show its captured expiry without enabling Batch tracking.
+
+Material Run FEFO includes captured printed expiry. Its effective stock expiry remains the earliest
+of tag, native Batch and captured printed dates; certificate Valid Until is not substituted.
+Within one **Process Card cycle**, printing dates must match across its Material Runs. A different
+date is rejected before material use with suggestions for matching eligible tags in the same
+warehouse, or guidance to report completed work and close the current cycle/batch through the
+normal controls. A new Process Card cycle starts a new expiry group. A Work Order FEFO override does not permit
+mixing printed dates in one Process Card cycle. FEFO/expired-stock rules and
+native quantity/closure checks continue to apply; this warning does not automatically close ERP
+Work Orders or create/split output Batches.
+
+At **Prepare Manufacture Receipt**, **Use consumed material's printed expiry for Finished Batch**
+is optional and defaults off. The finished Item must be Batch-controlled in ERPNext. Select/scan
+a Finished Batch ID: a new Batch receives the single proven printed date; an existing Batch must
+already have the same date. Existing Batch dates are never overwritten. Standard mode retains
+normal Batch/shelf-life handling. Multiple consumed printed dates are rejected for automatic copy;
+separate production batches and their source/output allocations first. Unused draws and BOM-only
+quantities cannot provide finished expiry. The selection/evidence stays in the ERP Command audit
+and is checked again when an opted-in Draft is submitted.
+
+Scanner commands, available in Print Command Labels:
+
+- CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY — opt in while the receipt dialog is open.
+- CFG:CMD:RECEIPT_STANDARD_EXPIRY — retain ordinary expiry handling.
+- CFG:CMD:RECEIPT_BATCH — scan this label, then the Finished Batch ID.
+- Confirm submits the existing receipt action; Cancel exits safely.
+
+For a Draft Manifest selected before this metadata fix, remove and rescan the affected line to
+capture the date. Frozen prepared/submitted Manifest snapshots and historical ERP postings are
+not silently rewritten. No re-certification is needed when intact posted evidence already exists.

@@ -1042,7 +1042,7 @@ def _create_material_draws(execution, run, requests, *, profile, session, event_
         if unit.name != locked_unit_name:
             frappe.throw(_("The container source changed during confirmation; cancel and rescan its current fill"))
         rule = _match_source_rule(execution, unit)
-        rotation = validate_material_rotation(execution, unit)
+        rotation = validate_material_rotation(execution, unit, current=True)
         available = _operationally_available_source_qty(unit)
         qty = flt(request["qty"])
         if available + TOLERANCE < qty:

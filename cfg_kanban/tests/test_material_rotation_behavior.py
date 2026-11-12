@@ -40,7 +40,13 @@ def load_service():
     ))
     idem = types.ModuleType('cfg_kanban.services.idempotency')
     idem.canonical_key = lambda *parts: hashlib.sha256(json.dumps(parts).encode()).hexdigest()
-    modules = {'frappe': frappe, 'frappe.utils': utils,
+    printing = types.ModuleType('cfg_kanban.services.certificate_output_evidence')
+    printing.certificate_output_evidence = Mock(return_value=[])
+    printing.printed_expiry_dates = lambda evidence: [row['printed_expiry'] for run in evidence
+        for row in [run,*run.get('progress',[])] if row.get('printed_expiry')]
+    expiry = types.ModuleType('cfg_kanban.services.manufacture_expiry')
+    expiry.assert_process_cycle_printed_expiry = Mock(return_value={"printed_expiry_date":None})
+    modules = {'cfg_kanban.services.manufacture_expiry': expiry, 'cfg_kanban.services.certificate_output_evidence': printing, 'frappe': frappe, 'frappe.utils': utils,
                'cfg_kanban.services.events': events, 'cfg_kanban.services.operator_auth': auth,
                'cfg_kanban.services.idempotency': idem}
     spec = importlib.util.spec_from_file_location('material_rotation_subject', ROOT/'services/material_rotation.py')

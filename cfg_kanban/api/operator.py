@@ -146,6 +146,9 @@ def _scanner_command_catalog(quantity_steps=None):
         ]),
         ("Production Material and WIP", [
             ("Start Operation Material Run", "CFG:CMD:START_MATERIAL_RUN", ""),
+            ("Receipt: Use Printed Expiry", "CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY", ""),
+            ("Receipt: Use Standard Expiry", "CFG:CMD:RECEIPT_STANDARD_EXPIRY", ""),
+            ("Receipt: Scan Finished Batch Next", "CFG:CMD:RECEIPT_BATCH", ""),
             ("Approve Work Order Yield / Quantity", "CFG:CMD:APPROVE_WO_YIELD", ""),
             ("Revoke Work Order Yield / Quantity", "CFG:CMD:REVOKE_WO_YIELD", ""),
             ("Correct Actual Material Use", "CFG:CMD:CORRECT_MATERIAL_USE", ""),
