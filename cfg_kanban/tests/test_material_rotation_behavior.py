@@ -70,7 +70,13 @@ class TestMaterialRotationBehavior(unittest.TestCase):
                              sql=Mock(side_effect=self.sql), set_value=Mock(side_effect=self.set_value),
                              table_exists=lambda doctype: True)
         self.frappe.get_doc = Mock(side_effect=self.get_doc)
-        self.frappe.get_all = Mock(return_value=self.order.operations)
+        self.frappe.get_all = Mock(side_effect=self.get_all)
+
+    def get_all(self, doctype, fields=None, filters=None, **kwargs):
+        self.assertEqual(doctype, 'Job Card')
+        self.assertIsInstance(filters, dict)
+        self.assertEqual(fields, ['operation', 'workstation'])
+        return self.order.operations
 
     def candidate(self, name, expiry=None, received='2026-01-01', batch='BATCH', available=100):
         return Row(name=name, handling_unit_id=name, batch_no=batch, expiry_date=expiry,

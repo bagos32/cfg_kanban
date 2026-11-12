@@ -63,7 +63,7 @@ class TestLogisticsStockIdentity(unittest.TestCase):
             item_code='RAW',batch_no='BATCH',stock_uom='Kg',source_company='TEST',source_warehouse='Raw Store',
             dispatch_qty=100)
 
-    def get_all(self,doctype,filters,fields=None,pluck=None,**kwargs):
+    def get_all(self,doctype,fields=None,filters=None,pluck=None,**kwargs):
         if doctype=='CFG Kanban Handling Unit Serial': return list(self.serials)
         def matches(row):
             for key,value in filters.items():
@@ -89,7 +89,7 @@ class TestLogisticsStockIdentity(unittest.TestCase):
         if doctype=='Item':return self.serial_controlled
         if doctype=='CFG Kanban Handling Unit':return self.units[name].get(fields)
         if doctype=='CFG Kanban Manifest Line':return 'DN-ROW'
-        if doctype=='Delivery Note Item':return 'DN-1' 
+        if doctype=='Delivery Note Item':return 'DN-1'
         if doctype=='Batch':return self.batch_expiry
         if doctype=='Stock Entry Detail':return 'OUTWARD-ROW'
         raise AssertionError((doctype,name,fields))
@@ -342,6 +342,21 @@ class TestLogisticsStockIdentity(unittest.TestCase):
 
 
 class TestLogisticsIdentityWiring(unittest.TestCase):
+    def test_frappe_list_queries_use_explicit_filter_and_field_keywords(self):
+        # Frappe v15 DatabaseQuery.execute receives fields before filters. A positional
+        # filters dict plus fields= raises TypeError; two positional arguments can
+        # silently query the wrong scope when using pluck instead.
+        for relative in ('services/logistics_stock_identity.py', 'services/material_rotation.py',
+                         'services/operation_material_runs.py'):
+            tree=ast.parse((ROOT/relative).read_text())
+            for call in ast.walk(tree):
+                if (isinstance(call,ast.Call) and isinstance(call.func,ast.Attribute)
+                        and isinstance(call.func.value,ast.Name) and call.func.value.id=='frappe'
+                        and call.func.attr in ('get_all','get_list')):
+                    with self.subTest(path=relative,line=call.lineno):
+                        self.assertEqual(len(call.args),1)
+                        self.assertIn('filters',{keyword.arg for keyword in call.keywords})
+
     def test_manifest_and_gateways_snapshot_and_preserve_controlled_identity(self):
         schema=json.loads((ROOT/'cfg_kanban/doctype/cfg_kanban_manifest_line/cfg_kanban_manifest_line.json').read_text())
         fields={field['fieldname']:field for field in schema['fields']}

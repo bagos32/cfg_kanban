@@ -64,8 +64,8 @@ def _require_order_override_authority(execution, order, token):
     # The approval covers the whole WO, so checking only the initiating lane is insufficient.
     profile, session = require_operator(token, "override", execution=execution)
     scopes = {(row.operation, row.workstation) for row in frappe.get_all(
-        "Job Card", {"work_order": order.name, "docstatus": ["<", 2]},
-        ["operation", "workstation"], limit_page_length=0,
+        "Job Card", filters={"work_order": order.name, "docstatus": ["<", 2]},
+        fields=["operation", "workstation"], limit_page_length=0,
     )}
     scopes.update((row.operation, row.workstation) for row in order.operations)
     for operation, workstation in sorted(scopes, key=lambda scope: (scope[0] or "", scope[1] or "")):

@@ -58,8 +58,8 @@ def material_run_settlement_context(work_order, job_card=None):
             row.name: (row.material_run_settlement_timing or "At Job Card End")
             for row in frappe.get_all(
                 "CFG Kanban Process Execution",
-                {"name": ["in", execution_names]},
-                ["name", "material_run_settlement_timing"],
+                filters={"name": ["in", execution_names]},
+                fields=["name", "material_run_settlement_timing"],
                 limit_page_length=0,
             )
         }
@@ -125,7 +125,7 @@ def adopt_material_run_draws(stock_entry, timing, operator_session_token, kanban
         )
         before = set(frappe.get_all(
             "CFG Kanban Material Trace Line",
-            {"parent": trace_name},
+            filters={"parent": trace_name},
             pluck="name",
         )) if trace_name else set()
         plan = allocate_input_tag(
@@ -282,7 +282,7 @@ def confirm_material_run_settlement(trace_name):
         return
     draws = frappe.get_all(
         "CFG Kanban Operation Material Draw",
-        {"material_trace": trace_name, "status": ["in", ACTIVE_DRAW_STATUSES]},
+        filters={"material_trace": trace_name, "status": ["in", ACTIVE_DRAW_STATUSES]},
         pluck="name",
         limit_page_length=0,
     )
@@ -297,8 +297,8 @@ def reverse_material_run_settlement(trace_name):
     """Restore the prior operational reservation after ERP Stock Entry cancellation."""
     draws = frappe.get_all(
         "CFG Kanban Operation Material Draw",
-        {"material_trace": trace_name, "status": "Bound to ERP"},
-        ["name", "remaining_qty"],
+        filters={"material_trace": trace_name, "status": "Bound to ERP"},
+        fields=["name", "remaining_qty"],
         limit_page_length=0,
     )
     for draw in draws:
@@ -320,7 +320,7 @@ def release_material_run_draft_line(trace_line):
         return
     draws = frappe.get_all(
         "CFG Kanban Operation Material Draw",
-        {"material_trace_line": trace_line, "status": ["in", ACTIVE_DRAW_STATUSES]},
+        filters={"material_trace_line": trace_line, "status": ["in", ACTIVE_DRAW_STATUSES]},
         pluck="name",
         limit_page_length=0,
     )
@@ -336,7 +336,7 @@ def unresolved_material_run_settlement(work_order):
     """List used scanner draws that have not reached a submitted ERP Stock Entry."""
     return frappe.get_all(
         "CFG Kanban Operation Material Draw",
-        {
+        filters={
             "work_order": work_order,
             "used_qty": [">", TOLERANCE],
             "status": ["in", ACTIVE_DRAW_STATUSES],
@@ -815,7 +815,7 @@ def _assert_carry_forward_expiry(execution):
         return
     units = frappe.get_all(
         "CFG Kanban Operation Material Draw",
-        {"process_execution": execution.name, "status": ["in", ACTIVE_DRAW_STATUSES],
+        filters={"process_execution": execution.name, "status": ["in", ACTIVE_DRAW_STATUSES],
          "remaining_qty": [">", TOLERANCE]},
         pluck="source_handling_unit", limit_page_length=0,
     )

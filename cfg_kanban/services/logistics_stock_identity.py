@@ -22,7 +22,7 @@ def _json(value):
 
 def _serials(unit):
     return sorted(frappe.get_all("CFG Kanban Handling Unit Serial",
-        {"handling_unit": unit.name, "state": "Active"}, pluck="serial_no", limit_page_length=0))
+        filters={"handling_unit": unit.name, "state": "Active"}, pluck="serial_no", limit_page_length=0))
 
 
 def identity_snapshot(unit):
@@ -33,7 +33,7 @@ def identity_snapshot(unit):
         frappe.throw("Serial-controlled stock requires complete exact serial assignments on its tag before logistics movement")
     result["batch_expiry_date"] = str(frappe.db.get_value("Batch", unit.batch_no, "expiry_date") or "") if unit.batch_no else ""
     result["certificates"] = sorted(frappe.get_all("CFG Process Certificate",
-        {"handling_unit": unit.name, "certificate_set": unit.get("process_certificate_set")},
+        filters={"handling_unit": unit.name, "certificate_set": unit.get("process_certificate_set")},
         fields=["name", "certificate_type", "revision_snapshot", "valid_from", "valid_until",
                 "status", "source_reference_doctype", "source_reference_name"],
         limit_page_length=0), key=lambda row: row.name) if unit.get("process_certificate_set") else []
@@ -268,7 +268,7 @@ def _certificate_sources(source):
     result = []
     for member in certificate_set.members:
         rows = frappe.get_all("CFG Process Certificate",
-            {"handling_unit": source.name, "certificate_type": member.certificate_type,
+            filters={"handling_unit": source.name, "certificate_type": member.certificate_type,
              "certificate_set": source.process_certificate_set, "status": "Active"},
             pluck="name", order_by="issued_on desc", limit_page_length=0)
         proof = None
