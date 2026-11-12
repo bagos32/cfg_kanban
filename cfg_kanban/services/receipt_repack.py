@@ -154,6 +154,8 @@ def repack_receipt_quantity(
     )
     source.reload()
     destination.reload()
+    from cfg_kanban.services.logistics_stock_identity import inherit_split_certificates
+    inherit_split_certificates(source, destination, qty, ledger.name)
     if flt(source.current_qty) <= TOLERANCE:
         source.db_set(
             {"identity_state": "Empty", "movement_state": "Empty"},

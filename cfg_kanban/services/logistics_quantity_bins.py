@@ -91,6 +91,10 @@ def load_quantity_into_bin(
         device_id=event_token,
         reason=f"Load partial quantity into permanent logistics bin: {reason}",
     )
+    source.reload()
+    fill.reload()
+    from cfg_kanban.services.logistics_stock_identity import inherit_split_certificates
+    inherit_split_certificates(source, fill, qty, load_key)
     _create_membership(container, fill, source, qty, actor, load_key)
     source.reload()
     if flt(source.current_qty) <= TOLERANCE:
@@ -292,6 +296,8 @@ def _validate_existing_fill(container, source):
             frappe.throw(
                 _("This quantity bin contains an incompatible physical Stock Tag. Empty it first.")
             )
+        if str(fill.get("process_certificate_set") or "") != str(source.get("process_certificate_set") or "") or str(fill.expiry_date or "") != str(source.expiry_date or ""):
+            frappe.throw(_("A quantity bin cannot mix different certificate sets or expiry dates"))
         if (
             fill.item_code != source.item_code
             or (fill.batch_no or "") != (source.batch_no or "")
@@ -318,6 +324,8 @@ def _new_fill(container, source, qty, load_key):
         "stock_uom": source.stock_uom,
         "batch_no": source.batch_no,
         "expiry_date": source.expiry_date,
+        "packed_on": source.packed_on,
+        "process_certificate_set": source.get("process_certificate_set"),
         "work_order": source.work_order,
         "current_operation": source.current_operation,
         "inventory_company": container.inventory_company,
@@ -365,6 +373,8 @@ def _create_membership(container, fill, source, qty, actor, load_key):
 
 
 def _validate_return(container, fill, source, qty):
+    from cfg_kanban.services.logistics_stock_identity import assert_merge_compatible
+    assert_merge_compatible(fill, source)
     if fill.physical_container != container.name or not fill.get("virtual_content"):
         frappe.throw(_("The selected content is not an internal fill for this bin"))
     if flt(fill.reserved_qty):

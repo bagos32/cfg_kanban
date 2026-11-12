@@ -574,12 +574,12 @@ def _member_union(set_names):
 
 
 def _requirement_passes(evidence, row):
+    from cfg_kanban.services.logistics_stock_identity import certificate_is_effective
     certificate_type = row.certificate_type
     minimum_revision = cint(row.minimum_revision or 1)
     trusted = _member_union(evidence["internal_set_names"])
     if trusted.get(certificate_type, 0) >= minimum_revision:
         return True
-    now = now_datetime()
     for unit_name in evidence["unit_names"]:
         set_name = frappe.db.get_value(
             "CFG Kanban Handling Unit", unit_name, "process_certificate_set"
@@ -589,8 +589,6 @@ def _requirement_passes(evidence, row):
         members = _member_union([set_name])
         if members.get(certificate_type, 0) < minimum_revision:
             continue
-        if not cint(row.require_unexpired):
-            return True
         certificates = frappe.get_all(
             "CFG Process Certificate",
             filters={
@@ -599,10 +597,10 @@ def _requirement_passes(evidence, row):
                 "status": "Active",
                 "revision_snapshot": [">=", minimum_revision],
             },
-            fields=["valid_until"], limit_page_length=0,
+            fields=["name", "valid_until"], limit_page_length=0,
         )
         if any(
-            not certificate.valid_until or certificate.valid_until >= now
+            certificate_is_effective(certificate.name, require_unexpired=bool(cint(row.require_unexpired)))
             for certificate in certificates
         ):
             return True
@@ -748,10 +746,8 @@ def _active_input_certificate(unit_names, certificate_type):
         fields=["name", "valid_from", "valid_until", "evidence_references"],
         order_by="issued_on desc", limit_page_length=0,
     )
-    now = now_datetime()
-    return next(
-        (row for row in rows if not row.valid_until or row.valid_until >= now), None
-    )
+    from cfg_kanban.services.logistics_stock_identity import certificate_is_effective
+    return next((row for row in rows if certificate_is_effective(row.name)), None)
 
 
 def _production_source_units(doc):

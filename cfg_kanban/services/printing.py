@@ -154,6 +154,11 @@ def replace_handling_unit(unit_name, new_handling_unit_id, reason):
             reference_name=new.name,
             reason=reason,
         )
+    if old.current_qty:
+        from cfg_kanban.services.logistics_stock_identity import inherit_split_certificates
+        new.reload()
+        inherit_split_certificates(old, new, old.current_qty,
+                                   f"handling-unit-replacement:{old.name}:{new.name}", replacement=True)
     from cfg_kanban.services.serial_evidence import transfer_unit_serials
     transfer_unit_serials(old, new, f"Physical tag replaced: {reason}")
     old.db_set({"state": "Replaced", "identity_state": "Replaced",

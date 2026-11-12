@@ -104,8 +104,16 @@ class CFGKanbanMovementManifest(Document):
                 frappe.throw(f"{self.meta.get_label(fieldname)} is an immutable route snapshot")
 
     def _validate_lines(self):
+        from cfg_kanban.services.logistics_stock_identity import capture_manifest_line, validate_saved_manifest_fields
         seen = set()
         for row in self.lines:
+            validate_saved_manifest_fields(row)
+            before = self.get_doc_before_save() if not self.is_new() else None
+            old_line = next((line for line in before.lines if line.name == row.name), None) if before else None
+            if old_line and old_line.get("stock_identity_snapshot") and row.get("stock_identity_snapshot") != old_line.stock_identity_snapshot:
+                frappe.throw("Manifest stock identity snapshot is immutable; remove and rescan the line instead")
+            if self.is_new() or (self.state == "Draft" and not self.dispatch_stock_entry and not self.dispatch_delivery_note):
+                capture_manifest_line(row)
             if row.handling_unit and row.handling_unit in seen:
                 frappe.throw(f"Handling Unit {row.handling_unit} appears more than once")
             if row.handling_unit:

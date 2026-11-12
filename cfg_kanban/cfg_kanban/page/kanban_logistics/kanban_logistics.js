@@ -364,7 +364,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				!rendered_container_actions.has(row.container_handling_unit);
 			if (show_container_remove) rendered_container_actions.add(row.container_handling_unit);
 			return `<div class="cfg-logistics-line">
-			<div><strong>${e(row.visible_code || row.line_kind || __("ERP Stock"))}</strong><small>${e(row.item_code)} · ${e(row.batch_no || __("No Batch"))}</small>
+			<div><strong>${e(row.visible_code || row.line_kind || __("ERP Stock"))}</strong><small>${e(row.item_code)} · ${e(row.batch_no || __("No Batch"))}</small><small>${__("Certificate Set")}: ${e(row.process_certificate_set || "-")} · ${__("Expiry")}: ${e(row.expiry_date || "-")}</small>
 				${row.container_visible_code ? `<small>${__("Inside container")}: <strong>${e(row.container_visible_code)}</strong></small>` : ""}</div>
 			<div><strong>${format_number(row.dispatch_qty)} ${e(row.stock_uom)}</strong>
 				<small>${row.receipt_scanned ? __("Receipt scan confirmed") :

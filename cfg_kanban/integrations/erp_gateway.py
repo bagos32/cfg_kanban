@@ -278,6 +278,7 @@ def build_intercompany_delivery_note(manifest, payload, command=None, validate_r
             "price_list_rate": row["rate"],
             "cfg_handling_unit": row["handling_unit"],
             "cfg_manifest_line": row["manifest_line"],
+            **_manifest_stock_identity_fields(row, "Delivery Note Item"),
         } for row in payload["items"]],
     })
     delivery_note.set_missing_values()
@@ -352,6 +353,7 @@ def create_internal_transfer_receipt(command, payload):
 
 def build_internal_transfer_stock_entry(manifest, payload, command=None):
     """Build the native ERPNext Material Transfer behind an internal Manifest."""
+    from cfg_kanban.services.logistics_stock_identity import erp_identity_fields
     stage = payload["stage"]
     source = (manifest.transit_warehouse if stage == "Receipt"
               else manifest.source_warehouse)
@@ -366,6 +368,8 @@ def build_internal_transfer_stock_entry(manifest, payload, command=None):
                 {"parent": manifest.dispatch_stock_entry, "cfg_manifest_line": row.name},
                 "name",
             )
+            from cfg_kanban.services.logistics_stock_identity import assert_outward_identity
+            assert_outward_identity(row, outgoing_detail)
             if not outgoing_detail:
                 frappe.throw(
                     f"Outward Stock Entry row is missing for Manifest line {row.name}"
@@ -384,6 +388,7 @@ def build_internal_transfer_stock_entry(manifest, payload, command=None):
             "ste_detail": outgoing_detail,
             "cfg_handling_unit": row.handling_unit,
             "cfg_manifest_line": row.name,
+            **erp_identity_fields(row, "Stock Entry Detail", transfer=True),
         })
     entry = frappe.get_doc({
         "doctype": "Stock Entry",
@@ -456,6 +461,7 @@ def build_withdrawal_stock_entry(cycle, payload, command=None):
         "batch_no": row.batch_no,
         "cfg_handling_unit": row.handling_unit,
         "cfg_withdrawal_allocation": row.name,
+        **_tag_stock_identity_fields(row.handling_unit, "Stock Entry Detail"),
     } for row in cycle.withdrawal_allocations]
     if not items:
         frappe.throw("Withdrawal has no selected stock")
@@ -541,6 +547,7 @@ def build_customer_delivery_note(delivery, payload, command=None, validate_requi
             "price_list_rate": row["rate"],
             "cfg_handling_unit": row["handling_unit"],
             "cfg_delivery_allocation": row["delivery_allocation"],
+            **_tag_stock_identity_fields(row.get("handling_unit"), "Delivery Note Item"),
         } for row in payload["items"]],
     }
     if payload.get("amended_from"):
@@ -1043,8 +1050,20 @@ def _intercompany_purchase_receipt_items(payload):
             "delivery_note_item": delivery_note_item,
             "cfg_handling_unit": row["handling_unit"],
             "cfg_manifest_line": row["manifest_line"],
+            **_manifest_stock_identity_fields(row, "Purchase Receipt Item"),
         })
     return items
+
+
+
+def _manifest_stock_identity_fields(row, child_doctype):
+    from cfg_kanban.services.logistics_stock_identity import fields_for_manifest_reference
+    return fields_for_manifest_reference(row, child_doctype)
+
+
+def _tag_stock_identity_fields(unit_name, child_doctype):
+    from cfg_kanban.services.logistics_stock_identity import fields_for_tag
+    return fields_for_tag(unit_name, child_doctype)
 
 
 def _link_manifest_erp_rows(manifest_name, erp_document, target_field):

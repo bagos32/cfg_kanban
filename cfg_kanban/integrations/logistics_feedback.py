@@ -205,6 +205,8 @@ def on_purchase_receipt_cancel(doc, method=None):
 
 def validate_internal_stock_entry(doc):
     """Protect the immutable movement plan behind a Kanban-controlled Stock Entry."""
+    from cfg_kanban.services.logistics_stock_identity import validate_logistics_document
+    validate_logistics_document(doc)
     manifest = frappe.get_doc("CFG Kanban Movement Manifest", doc.cfg_movement_manifest)
     if manifest.manifest_type != "Internal Warehouse Transfer":
         frappe.throw("A Movement Manifest Stock Entry requires an Internal Warehouse Transfer route")

@@ -5027,3 +5027,51 @@ apply to the same source-tag scope. Quantity summary cards are suppressed for mi
 Migration is required for the approval DocType and immutable draw evidence fields. Local tests
 are not site acceptance: verify native transaction rollback, concurrent starts/revocation,
 settlement/cancellation and scanner-only kiosk behavior on the isolated test site.
+
+
+## Stock identity through logistics transfers
+
+Dispatch/receipt must move the original physical stock identity, not a new uncertified quantity.
+New Manifest lines snapshot Process Certificate Set, effective expiry (the earlier tag/native
+Batch date), native Batch expiry, tag packing time, serial assignments, production origin and
+issued certificate references. The Logistics Panel shows Certificate Set and Expiry per line.
+Changing the snapshot or the source identity after selection blocks posting; remove/rescan a
+Draft line or reconcile the controlled transaction instead of silently replacing its evidence.
+
+Internal Direct Transfer, both Goods in Transit legs and Dispatch Plan lorry loading preserve
+the certificate dimension on BOTH source and target Stock Entry rows. Intercompany Delivery Note
+and Purchase Receipt retain the same exact certificate set, Batch and serial identity. Controlled
+Material Transfers/Withdrawals and customer Delivery Notes retain certificate dimensions for
+their selected physical tags. Native ERP validation, quantities and authorization still apply.
+Serial-controlled transfers retain exact assigned serials; partial operations that previously
+required a dedicated serial workflow remain restricted. Expiry is not reset by transportation.
+
+Moving the same tag keeps its issued certificate records unchanged: Company/Warehouse at
+issuance and original evidence remain historical facts. Logistics bin fills, main/child splits,
+receipt-time repacking and physical tag replacement bind inherited proof to the new identity.
+They retain original issued/valid-from/valid-until dates, approved revision, issuing actor and
+evidence references; they do not certify a process again. Split-inheritance and merge policies
+remain enforced. Whole-tag replacement is not treated as a partial split. Revoked ancestors
+invalidate retained/inherited proof; disabling the unexpired requirement does not allow revoked
+or not-yet-valid proof.
+
+Quantity bins cannot silently mix different certificate sets or expiry dates. Existing-tag
+merges/returns require compatible dates, certificate policies and matching certificate provenance.
+Different certified source histories must retain separate tags/fills rather than merge into a
+quantity whose certificate coverage cannot be established. Existing genealogy and quantity
+ledger events retain the physical source/destination chain.
+
+Untagged transfers cannot infer certification. If certified physical or ERP stock exists in the
+selected source scope, scan/reconcile its exact tag rather than moving an ambiguous uncertified
+line. Missing Inventory Dimension fields require normal owner-run migration before certified
+stock can post; they must not be silently skipped.
+
+Already submitted transfers are NOT rewritten by this change. A certified legacy Manifest lacking
+a snapshot, or an outward ERP row whose certificate dimension was lost, requires controlled
+reconciliation before further receipt. Do not add certificates, change old Stock Ledger rows or
+create backdated certification merely to make downstream production pass. Use the actual source
+proof and native ERP recovery path, retaining all original audit records.
+
+Migration is required for the new Manifest line snapshot fields. Local dependency-double tests
+do not verify live ERP dimension posting, serial/batch bundles, concurrency or scanner-only kiosk
+operation. Complete the isolated-site scenarios in TEST_LOGISTICS_STOCK_IDENTITY.md.

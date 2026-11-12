@@ -100,6 +100,12 @@ class CFGKanbanHandlingUnit(Document):
                         else "Child tag split")),
         )
 
+        if self.parent_handling_unit:
+            from cfg_kanban.services.logistics_stock_identity import inherit_split_certificates
+            self.reload()
+            parent = frappe.get_doc("CFG Kanban Handling Unit", self.parent_handling_unit)
+            inherit_split_certificates(parent, self, self.qty, f"handling-unit-activation:{self.name}")
+
     def validate(self):
         if self.tag_kind == "Reusable Container":
             self.reusable_container_role = (
@@ -488,6 +494,8 @@ class CFGKanbanHandlingUnit(Document):
         self.item_code = self.item_code or parent.item_code
         self.short_description = self.short_description or parent.short_description
         self.stock_uom = self.stock_uom or parent.stock_uom
+        self.current_operation = self.current_operation or parent.current_operation
+        self.process_certificate_set = self.process_certificate_set or parent.process_certificate_set
         self.batch_no = self.batch_no or parent.batch_no
         self.work_order = self.work_order or parent.work_order
         self.kanban_cycle = self.kanban_cycle or parent.kanban_cycle

@@ -679,16 +679,13 @@ def _validate_certificate_requirements(master, unit):
     groups = {}
     for row in requirements:
         passed = members.get(row.certificate_type, 0) >= cint(row.minimum_revision)
-        if passed and cint(row.require_unexpired):
+        if passed:
             issued = frappe.get_all("CFG Process Certificate", filters={
                 "handling_unit": unit.name, "certificate_type": row.certificate_type,
                 "status": "Active",
-            }, fields=["valid_until"], limit_page_length=0)
-            passed = any(
-                not certificate.valid_until
-                or certificate.valid_until >= now_datetime()
-                for certificate in issued
-            )
+            }, fields=["name", "valid_until"], limit_page_length=0)
+            from cfg_kanban.services.logistics_stock_identity import certificate_is_effective
+            passed = any(certificate_is_effective(certificate.name, require_unexpired=bool(cint(row.require_unexpired))) for certificate in issued)
         groups.setdefault(row.requirement_group, {"logic": row.group_logic, "checks": []})[
             "checks"
         ].append((row.certificate_type, passed))
@@ -1044,9 +1041,10 @@ def _active_source_certificate(handling_unit, certificate_type):
             "certificate evidence"
         )
     certificate = rows[0]
-    if certificate.valid_until and certificate.valid_until < now_datetime():
+    from cfg_kanban.services.logistics_stock_identity import certificate_is_effective
+    if not certificate_is_effective(certificate.name):
         frappe.throw(
-            f"Cannot retain {certificate_type}; its source certificate expired on "
+            f"Cannot retain {certificate_type}; its source evidence is expired or no longer effective. Valid until: "
             f"{certificate.valid_until}"
         )
     return certificate

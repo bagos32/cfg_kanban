@@ -96,13 +96,16 @@ doc_events = {
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_job_card_cancel",
     },
     "Stock Entry": {
-        "before_validate": "cfg_kanban.integrations.erp_feedback.prepare_stock_entry",
-        "before_submit": "cfg_kanban.integrations.erp_feedback.validate_stock_entry",
+        "before_validate": ["cfg_kanban.integrations.erp_feedback.prepare_stock_entry",
+                            "cfg_kanban.services.logistics_stock_identity.prepare_controlled_transfer"],
+        "before_submit": ["cfg_kanban.services.logistics_stock_identity.validate_logistics_document",
+                          "cfg_kanban.integrations.erp_feedback.validate_stock_entry"],
         "on_submit": "cfg_kanban.integrations.erp_feedback.on_stock_entry_submit",
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_stock_entry_cancel",
         "on_trash": "cfg_kanban.services.wip_bin_loads.abandon_draft_stock_entry",
     },
     "Delivery Note": {
+        "before_submit": "cfg_kanban.services.logistics_stock_identity.validate_logistics_document",
         "on_submit": "cfg_kanban.integrations.logistics_feedback.on_delivery_note_submit",
         "on_cancel": "cfg_kanban.integrations.logistics_feedback.on_delivery_note_cancel",
     },
@@ -114,6 +117,7 @@ doc_events = {
         "on_submit": "cfg_kanban.integrations.purchase_feedback.on_purchase_order_submit",
     },
     "Purchase Receipt": {
+        "before_submit": "cfg_kanban.services.logistics_stock_identity.validate_logistics_document",
         "on_submit": "cfg_kanban.integrations.purchase_feedback.on_purchase_receipt_submit",
         "on_cancel": "cfg_kanban.integrations.purchase_feedback.on_purchase_receipt_cancel",
     },

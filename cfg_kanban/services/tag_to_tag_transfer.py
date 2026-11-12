@@ -179,6 +179,8 @@ def split_to_unused_tag(
     )
     source.reload()
     destination.reload()
+    from cfg_kanban.services.logistics_stock_identity import inherit_split_certificates
+    inherit_split_certificates(source, destination, qty, ledger.name)
     if flt(source.current_qty) <= TOLERANCE:
         source.db_set(
             {"identity_state": "Empty", "movement_state": "Empty"},
@@ -308,6 +310,8 @@ def split_to_unused_child_tag(
     )
     source.reload()
     child.reload()
+    from cfg_kanban.services.logistics_stock_identity import inherit_split_certificates
+    inherit_split_certificates(source, child, qty, ledger.name)
     if flt(source.current_qty) <= TOLERANCE:
         source.db_set(
             {"identity_state": "Empty", "movement_state": "Empty"},
@@ -431,6 +435,8 @@ def transfer_between_active_tags(
     )
     source.reload()
     destination.reload()
+    from cfg_kanban.services.logistics_stock_identity import inherit_split_certificates
+    inherit_split_certificates(source, destination, qty, ledger.name)
     if flt(source.current_qty) <= TOLERANCE:
         source.db_set(
             {"identity_state": "Empty", "movement_state": "Empty"},
@@ -600,6 +606,8 @@ def _child_split_problem(source):
 
 
 def _transfer_problem(source, destination):
+    from cfg_kanban.services.logistics_stock_identity import assert_merge_compatible
+    assert_merge_compatible(source, destination)
     for unit, label in ((source, _("Source")), (destination, _("Destination"))):
         problem = _unit_problem(unit, label)
         if problem:
