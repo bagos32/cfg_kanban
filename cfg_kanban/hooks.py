@@ -99,6 +99,7 @@ doc_events = {
         "before_validate": ["cfg_kanban.integrations.erp_feedback.prepare_stock_entry",
                             "cfg_kanban.services.logistics_stock_identity.prepare_controlled_transfer"],
         "before_submit": ["cfg_kanban.services.logistics_stock_identity.validate_logistics_document",
+                          "cfg_kanban.services.material_quantity_control.validate_material_variance",
                           "cfg_kanban.integrations.erp_feedback.validate_stock_entry"],
         "on_submit": "cfg_kanban.integrations.erp_feedback.on_stock_entry_submit",
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_stock_entry_cancel",

@@ -319,6 +319,8 @@ def allocate_input_tag(stock_entry, item_row=None, scan_value=None, qty=0,
     )
 
     remaining = _remaining_row_qty(doc, trace, row, "Input")
+    if qty == 0 and not _is_transfer_purpose(doc) and flt(unit.available_qty) > remaining + TOLERANCE:
+        frappe.throw("Scan the actual Material Quantity before the source tag. Automatic allocation would count only the remaining ERP estimate; it cannot infer actual consumption")
     if qty == 0:
         qty = (flt(unit.current_qty) if _is_transfer_purpose(doc)
                else min(flt(unit.available_qty), remaining))

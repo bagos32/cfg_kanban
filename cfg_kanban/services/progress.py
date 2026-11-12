@@ -1,3 +1,5 @@
+import math
+
 import frappe
 from frappe.utils import flt, now_datetime
 
@@ -10,7 +12,7 @@ from cfg_kanban.services.crew_authorization import release_execution_wip_if_auth
 
 def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_qty=None,
            values=None, notes=None, source="Operator", operator=None,
-           operator_session=None, terminal_user=None, material_run=None):
+           operator_session=None, terminal_user=None, material_run=None, material_usage=None):
     execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
     material_run_doc = None
     if source == "Operator":
@@ -22,15 +24,19 @@ def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_
         material_run = material_run_doc.name if material_run_doc else None
     good_qty, reject_qty = flt(good_qty), flt(reject_qty)
     processed_qty = flt(processed_qty) if processed_qty is not None else good_qty + reject_qty
+    if not all(math.isfinite(qty) for qty in (good_qty, reject_qty, processed_qty)):
+        frappe.throw("Progress quantities must be finite numbers")
     if min(good_qty, reject_qty, processed_qty) < 0:
         frappe.throw("Progress quantities cannot be negative; use an explicit adjustment workflow")
     if flt(execution.processed_qty) + processed_qty > flt(execution.target_qty) + 0.000001:
         frappe.throw(f"Progress exceeds this Cycle allocation of {execution.target_qty}")
+    if good_qty + reject_qty > processed_qty + 0.000001:
+        frappe.throw("Good plus Reject quantity cannot exceed Processed quantity in the output stock UOM")
     material_plan = []
     if source == "Operator":
         from cfg_kanban.services.operation_material_runs import validate_progress_materials
         material_plan = validate_progress_materials(
-            execution, material_run_doc, processed_qty
+            execution, material_run_doc, processed_qty, material_usage=material_usage
         )
     progress = frappe.get_doc({
         "doctype": "CFG Kanban Operation Progress", "process_execution": execution.name,
@@ -71,7 +77,8 @@ def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_
     recalculate(execution.kanban_cycle, execution.operation)
     record("Operation Progress", cycle=execution.kanban_cycle, execution=execution.name,
            qty=good_qty, reference_doctype=progress.doctype, reference_name=progress.name,
-           operator=operator, operator_session=operator_session, terminal_user=terminal_user)
+           operator=operator, operator_session=operator_session, terminal_user=terminal_user,
+           payload={"material_usage": material_usage, "material_plan": material_plan})
     if material_run_doc:
         from cfg_kanban.services.operation_material_runs import close_run_with_progress
         close_run_with_progress(

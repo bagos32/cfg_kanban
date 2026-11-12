@@ -212,11 +212,14 @@ def _prepare_material_draw_rows(entry, draws):
             )
         drawn_qty = sum(batch_qty.values())
         if drawn_qty > total_qty + TOLERANCE:
-            frappe.throw(
-                _("Material Runs used {0} {1} of {2}, but ERPNext mapped only {3}").format(
-                    drawn_qty, stock_uom, item_code, total_qty
-                )
-            )
+            extra = drawn_qty - total_qty
+            row = candidates[0]
+            conversion = flt(row.conversion_factor or 1)
+            stock_qty = _entry_row_stock_qty(row) + extra
+            row.qty = stock_qty / conversion
+            row.transfer_qty = stock_qty
+            total_qty = drawn_qty
+            changed = True
 
         distinct_batches = {value for value in batch_qty if value}
         needs_split = bool(distinct_batches) and (
@@ -249,7 +252,7 @@ def _prepare_material_draw_rows(entry, draws):
         entry.save(ignore_permissions=True)
         entry.reload()
         for draw_name, row in list(row_for_draw.items()):
-            row_for_draw[draw_name] = row.name
+            row_for_draw[draw_name] = row.name if hasattr(row, "name") else row
     return row_for_draw
 
 
@@ -661,8 +664,9 @@ def close_run_with_progress(
     return run
 
 
-def validate_progress_materials(execution, run, processed_qty):
+def validate_progress_materials(execution, run, processed_qty, material_usage=None):
     """Build a deterministic FIFO usage plan without mutating audit rows yet."""
+    provided_actuals = frappe.parse_json(material_usage) if isinstance(material_usage, str) else material_usage
     mode = execution.material_run_control or "Disabled"
     if mode == "Required Before Progress" and not run:
         frappe.throw(
@@ -671,6 +675,8 @@ def validate_progress_materials(execution, run, processed_qty):
             )
         )
     if not run:
+        if provided_actuals:
+            frappe.throw("Start a Material Run and scan the source materials before declaring actual use")
         return []
     frappe.db.sql(
         "select name from `tabCFG Kanban Operation Material Run` where name=%s for update",
@@ -681,7 +687,14 @@ def validate_progress_materials(execution, run, processed_qty):
         frappe.throw(_("The selected Material Run is not the open run for this operation"))
     rules = material_run_rules(execution)
     if not rules:
+        if provided_actuals:
+            frappe.throw("No snapshotted material rule supports these declared actual quantities")
         return []
+    from cfg_kanban.services.material_quantity_control import active_work_order_yield_override
+    override = active_work_order_yield_override(execution, current=True)
+    actuals = frappe.parse_json(material_usage) if isinstance(material_usage, str) else (material_usage or {})
+    if not isinstance(actuals, dict) or set(actuals) - {rule.rule_row for rule in rules}:
+        frappe.throw("Actual material quantities must identify the exact snapshotted material rule")
     plan = []
     carry = bool(execution.allow_material_carry_forward)
     for rule in rules:
@@ -702,6 +715,20 @@ def validate_progress_materials(execution, run, processed_qty):
             order_by="drawn_on asc, creation asc", limit_page_length=0,
         )
         available = sum(flt(row.remaining_qty) for row in draws)
+        standard_required = required
+        if rule.rule_row in actuals:
+            from cfg_kanban.services.material_quantity_control import _assert_material_visible
+            _assert_material_visible(rule.item_code)
+            import math
+            required = flt(actuals[rule.rule_row])
+            if not math.isfinite(required):
+                frappe.throw("Actual material quantities must be finite")
+            if required <= TOLERANCE:
+                frappe.throw("Actual use of a tracked required material must be positive")
+            if required + TOLERANCE < standard_required and not override:
+                frappe.throw("Output exceeds the BOM allowance of the declared actual material. A Work Order-wide yield approval is required")
+        elif available + TOLERANCE < required and override and available > TOLERANCE:
+            required = available
         if available + TOLERANCE < required:
             frappe.throw(
                 _("Material Run needs {0} {1} of {2} for this progress, but only {3} is scanned and unconsumed").format(
@@ -720,7 +747,9 @@ def validate_progress_materials(execution, run, processed_qty):
             if take > TOLERANCE:
                 unit_name = frappe.db.get_value("CFG Kanban Operation Material Draw", draw.name, "source_handling_unit")
                 assert_material_not_expired(frappe.get_doc("CFG Kanban Handling Unit", unit_name))
-                plan.append({"draw": draw.name, "qty": take, "rule": rule})
+                plan.append({"draw": draw.name, "qty": take, "rule": rule,
+                             "yield_override": override.name if override else None,
+                             "bom_required_qty": standard_required, "actual_used_qty": required})
                 remaining -= take
             if remaining <= TOLERANCE:
                 break

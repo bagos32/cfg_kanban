@@ -1,3 +1,4 @@
+import ast
 import json
 from pathlib import Path
 from unittest import TestCase
@@ -894,8 +895,19 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("validate_stock_entry_trace(doc)", feedback)
         self.assertIn("confirm_stock_entry_trace(doc)", feedback)
         self.assertIn("reverse_stock_entry_trace(doc)", feedback)
-        self.assertIn('"before_validate": "cfg_kanban.integrations.erp_feedback.prepare_stock_entry"',
-                      hooks)
+        # Hook chains may contain several validators. Inspect their structure rather
+        # than requiring a scalar string (logistics already adds a second hook).
+        events = next(ast.literal_eval(node.value) for node in ast.parse(hooks).body
+                      if isinstance(node, ast.Assign)
+                      and any(isinstance(target, ast.Name) and target.id == "doc_events"
+                              for target in node.targets))
+        self.assertIn("cfg_kanban.integrations.erp_feedback.prepare_stock_entry",
+                      events["Stock Entry"]["before_validate"])
+        self.assertEqual(events["Stock Entry"]["before_submit"], [
+            "cfg_kanban.services.logistics_stock_identity.validate_logistics_document",
+            "cfg_kanban.services.material_quantity_control.validate_material_variance",
+            "cfg_kanban.integrations.erp_feedback.validate_stock_entry",
+        ])
         self.assertIn("def prepare_stock_entry(", feedback)
         self.assertIn("def get_stock_entry_kanban_context(", feedback)
         self.assertIn("def _cycle_for_work_order(", feedback)

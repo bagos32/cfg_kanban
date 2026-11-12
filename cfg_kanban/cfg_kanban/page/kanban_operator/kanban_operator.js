@@ -308,6 +308,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (crew_dialog?.$wrapper?.is(":visible")) {
 			return handle_crew_dialog_scan(crew_dialog, value);
 		}
+		const progress = state.active_progress_dialog;
+		if (progress?.dialog?.$wrapper?.is(":visible") && (/^CFG:SELECT:/i.test(value) || /^CFG:QTY:MATERIAL:/i.test(value) || /^CFG:CMD:(NEXT|PREVIOUS)_MATERIALS$/i.test(value))) {
+			return handle_progress_material_quantity(progress, value);
+		}
 		const certificate_dialog = state.active_certificate_dialog?.dialog;
 		if (certificate_dialog?.$wrapper?.is(":visible")) {
 			return handle_certificate_dialog_scan(certificate_dialog, value);
@@ -368,6 +372,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			GO_TO_CURRENT_WORK: go_to_current_work,
 			CLOSE_CYCLE: close_context_runtime_cycle,
 			START_MATERIAL_RUN: open_material_run_dialog,
+			NEXT_MATERIALS: () => page_material_choices("CFG:CMD:NEXT_MATERIALS"),
+			PREVIOUS_MATERIALS: () => page_material_choices("CFG:CMD:PREVIOUS_MATERIALS"),
+            APPROVE_WO_YIELD: () => open_work_order_yield_override(false),
+            REVOKE_WO_YIELD: () => open_work_order_yield_override(true),
+            CORRECT_MATERIAL_USE: open_material_use_correction,
             APPROVE_MATERIAL_FEFO_OVERRIDE: () => open_material_rotation_override(false),
             REVOKE_MATERIAL_FEFO_OVERRIDE: () => open_material_rotation_override(true),
 			CANCEL_MATERIAL_RUN: cancel_open_material_run,
@@ -1028,6 +1037,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:START_MATERIAL_RUN</code>, <code>CFG:CMD:CANCEL_MATERIAL_RUN</code>, <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:RECORD_WIP_BIN_USE</code>, <code>CFG:CMD:RECORD_LOOSE_WIP_USE</code>, <code>CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
 			<p>${__("An unacknowledged Certificate Progress report is saved in this browser. Reopen and scan Confirm to retry the same micro-lot unchanged; Cancel and refresh retain it. Corrections are enabled only after the server confirms rejection. Do not clear browser storage or repeat the micro-lot in another browser.")}</p>
 			<p>${__("Start Material Run enforces warehouse-local FEFO and rejects expired tags. An unrestricted supervisor can scan CFG:CMD:APPROVE_MATERIAL_FEFO_OVERRIDE, select the Work Order context with CFG:SELECT:n, scan a reason, then Confirm. The approval covers the entire Work Order and all later micro-runs/cards; CFG:CMD:REVOKE_MATERIAL_FEFO_OVERRIDE revokes it. Expired material is never allowed. Cancel safely closes either dialog.")}</p>
+			<p>${__("Work Order yield/quantity exceptions: scan CFG:CMD:APPROVE_WO_YIELD or CFG:CMD:REVOKE_WO_YIELD, choose context, scan reason and Confirm. Corrections: CFG:CMD:CORRECT_MATERIAL_USE, choose operation then allocation with CFG:SELECT:n, scan CFG:QTY:MATERIAL:n and a reason, then Confirm. Cancel is safe. Submitted ERP records require controlled recovery. Progress actual material quantities use each component stock UOM. Lists use ten numbered choices per page; CFG:CMD:NEXT_MATERIALS and CFG:CMD:PREVIOUS_MATERIALS change pages.")}</p>
 			<p><strong>${__("Certificate Process commands")}</strong>: <code>CFG:CMD:START_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:COMPLETE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:REPORT_CERTIFICATE_PROGRESS</code>, <code>CFG:CMD:CLOSE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:SUBMIT_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:CANCEL_CERTIFICATE_PROCESS</code>. Field-arm commands are <code>CFG:CMD:CERTIFICATE_OUTPUT_TAG</code>, <code>CFG:CMD:CERTIFICATE_BATCH</code>, <code>CFG:CMD:CERTIFICATE_EXPIRY</code>, <code>CFG:CMD:CERTIFICATE_SERIAL_START</code>, and <code>CFG:CMD:CERTIFICATE_SERIAL_END</code>. Scan the field command and then its physical/value barcode.</p>
 			<p><strong>${__("Work Order Process Certificates")}</strong>: ${__("Use the normal Start Operation, Start Material Run, Material Quantity, physical source-tag, Report Progress, Scan Material Tags, Submit Material Entry, Confirm, Cancel, and numbered Select labels. Certificate gates run automatically for the configured Operation; do not scan the same material again from the main Production Card after a Process/Station Card recorded it against the shared Job Card.")}</p>
 			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then scan Material Quantity and the physical source Stock Tag for each tracked component. Confirm opens the run. Ordinary operations and No Run Tracking components remain unchanged.")}</small></p>
@@ -1194,6 +1204,45 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			popup.close();
 			throw error;
 		}
+	}
+
+	function page_material_choices(value) {
+		const active = state.active_progress_dialog;
+		if (active?.dialog?.$wrapper?.is(":visible")) return handle_progress_material_quantity(active, value);
+		const dialog = state.active_command_dialog;
+		if (dialog?.$wrapper?.is(":visible") && dialog.cfg_material_page_handler) return dialog.cfg_material_page_handler(value);
+		return scanner_command_message(__("Open Progress or Correct Material Use before paging material choices."));
+	}
+
+	function refresh_progress_material_guide(active) {
+		const rows = active.dialog.get_value("actual_materials") || [];
+		const page = active.material_page || 0;
+		const guide = active.dialog.get_field("material_choices_guide");
+		if (guide) guide.$wrapper.html(`<div class="alert alert-info">${__("Select a material on this page with CFG:SELECT:n, then scan Material Quantity in its stock UOM. NEXT_MATERIALS / PREVIOUS_MATERIALS change pages.")} (${page+1}/${Math.max(1,Math.ceil(rows.length/10))})<br>${rows.slice(page*10,page*10+10).map((item,index) => `${index+1}. ${frappe.utils.escape_html(item.item_code)} (${frappe.utils.escape_html(item.stock_uom)})`).join("<br>")}</div>`);
+	}
+
+	function handle_progress_material_quantity(active, value) {
+		const rows = active.dialog.get_value("actual_materials") || [];
+		const page_command = /^CFG:CMD:(NEXT|PREVIOUS)_MATERIALS$/i.exec(value);
+		if (page_command) {
+			active.material_page = Math.max(0,Math.min(Math.max(0,Math.ceil(rows.length/10)-1),(active.material_page || 0)+(page_command[1].toUpperCase() === "NEXT" ? 1 : -1)));
+			active.material_index = null;
+			refresh_progress_material_guide(active);
+			return focus_progress_scanner();
+		}
+		const selected = /^CFG:SELECT:([1-9]|10)$/i.exec(value);
+		if (selected) {
+			const index = (active.material_page || 0)*10 + Number(selected[1])-1;
+			if (!rows[index]) return frappe.msgprint(__("That material number is not available."));
+			active.material_index = index;
+		} else {
+			const quantity = /^CFG:QTY:MATERIAL:([+]?\d+(?:\.\d+)?)$/i.exec(value);
+			const row = active.material_index === null ? null : rows[active.material_index];
+			if (!quantity || !row) return frappe.msgprint(__("Select the exact material with CFG:SELECT:n before scanning Material Quantity."));
+			row.qty = quantity[1].startsWith("+") ? Number(row.qty || 0)+Number(quantity[1]) : Number(quantity[1]);
+			active.dialog.get_field("actual_materials").grid.refresh();
+		}
+		focus_progress_scanner();
 	}
 
 	function apply_scanned_quantity(value) {
@@ -2120,6 +2169,126 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		dialog.show();
 		bind_confirmation_scanner(dialog, true, names, "execution_name");
 	}
+
+	function open_work_order_yield_override(revoke = false) {
+		if (!state.operator?.permissions?.override) {
+			return scanner_command_message(__("Supervisor Override authority is required."));
+		}
+		const eligible = (state.context?.executions || []).filter(row => row.job_card && !["Cancelled"].includes(row.status)).filter(row => !revoke || row.material_run_context?.yield_override);
+		const choices = [...new Map(eligible.filter(row => row.job_card).map(row =>
+			[row.material_run_context?.work_order || row.effective_work_order || row.work_order || row.job_card, row])).values()];
+		if (!choices.length || choices.length > 10) {
+			return scanner_command_message(__("Scan the exact active Work Order's Process or Station Card before changing its Yield / Quantity approval."));
+		}
+		const names = choices.map(row => row.name);
+		const event_token = frappe.utils.get_random(24);
+		let submitting = false;
+		const dialog = new frappe.ui.Dialog({
+			title: revoke ? __("Revoke Work Order Yield / Quantity Override") : __("Approve Work Order Yield / Quantity Override"),
+			fields: [
+				{ fieldtype: "HTML", options: `<div class="alert alert-warning">${__("This applies to the full Work Order, all its operation cards and subsequent Material Runs. Native ERP and customer production limits remain enforced. An unrestricted supervisor must scan a reason, then Confirm.")}<br>${choices.map((row, index) => `${index + 1}. ${frappe.utils.escape_html(row.material_run_context?.work_order || row.job_card)} · ${frappe.utils.escape_html(row.operation)}`).join("<br>")}</div>` },
+				{ fieldname: "execution_name", label: __("Work Order Context"), fieldtype: "Select", options: (names.length === 1 ? names : ["", ...names]).join("\n"), default: names.length === 1 ? names[0] : "", read_only: names.length === 1, reqd: 1 },
+				{ fieldname: "reason", label: __("Reason"), fieldtype: "Small Text", reqd: 1 },
+				{ fieldname: "scanner_command", label: __("Scanner Input"), fieldtype: "Data" },
+			],
+			primary_action_label: revoke ? __("Revoke") : __("Approve for Full Work Order"),
+			primary_action: async values => {
+				if (submitting) return;
+				const selected = choices.find(row => row.name === values.execution_name);
+				if (!selected) return scanner_command_message(__("Select the exact Work Order context using CFG:SELECT:n before confirming."));
+				submitting = true;
+				try {
+					await frappe.call({ method: `cfg_kanban.services.material_quantity_control.${revoke ? "revoke" : "approve"}_work_order_yield`,
+						args: { ...values, event_token, operator_session_token: state.session_token,
+							...(revoke ? { approval_name: selected.material_run_context.yield_override.name } : {}) }, freeze: true });
+					dialog.hide();
+					await load_card(state.context.card.qr_code || state.context.card.card_number);
+				} finally {
+					submitting = false;
+					if (dialog.$wrapper.is(":visible")) window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 80);
+				}
+			},
+		});
+		dialog.cfg_require_prefixed_selection = true;
+		dialog.cfg_raw_scanner_handler = value => dialog.set_value("reason", value);
+		dialog.show();
+		bind_confirmation_scanner(dialog, true, names, "execution_name");
+	}
+
+
+	async function open_material_use_correction() {
+		if (!state.operator?.permissions?.override) return scanner_command_message(__("Supervisor Override permission is required."));
+		const rows = (state.context?.executions || []).filter(row => row.job_card && row.status !== "Cancelled");
+		if (!rows.length || rows.length > 10) return scanner_command_message(__("Scan the exact operation Card first; up to ten Job Card contexts can be selected."));
+		const names = rows.map(row => row.name);
+		let context = null, busy = false, choice_page = 0;
+		const token = frappe.utils.get_random(24);
+		const dialog = new frappe.ui.Dialog({ title: __("Correct Actual Material Use"), fields: [
+			{ fieldtype: "HTML", options: `<div class="alert alert-warning">${__("Correction changes actual material evidence and an unsubmitted ERP draft only. Posted entries require controlled ERP recovery. Select operation, then allocation; scan Material Quantity and a reason before Confirm.")}<br>${rows.map((row,index) => `${index+1}. ${frappe.utils.escape_html(row.job_card)} · ${frappe.utils.escape_html(row.operation)}`).join("<br>")}</div>` },
+			{ fieldname: "execution_name", fieldtype: "Select", label: __("Operation Context"), options: (names.length === 1 ? names : ["",...names]).join("\n"), default: names.length === 1 ? names[0] : "", reqd: 1 },
+			{ fieldname: "target", fieldtype: "Select", label: __("Recorded Allocation"), options: "", reqd: 1 },
+			{ fieldname: "choices_guide", fieldtype: "HTML" },
+			{ fieldname: "actual_qty", fieldtype: "Float", label: __("Correct Actual Used Quantity"), reqd: 1 },
+			{ fieldname: "reason", fieldtype: "Small Text", label: __("Correction Reason"), reqd: 1 },
+			{ fieldname: "scanner_command", fieldtype: "Data", label: __("Scanner Input") },
+		], primary_action_label: __("Record Controlled Correction"), primary_action: async values => {
+			if (busy) return;
+			if (!context?.choices.some(choice => choice.value === values.target)) return frappe.throw(__("Select the exact recorded allocation first."));
+			busy = true;
+			try {
+				await frappe.call({ method: "cfg_kanban.services.material_quantity_control.correct_material_use",
+					args: { ...values, event_token: token, operator_session_token: state.session_token,
+						kanban_card: state.context.card.name }, freeze: true });
+				dialog.hide();
+				await load_card(state.context.card.qr_code || state.context.card.card_number);
+			} finally {
+				busy = false;
+				if (dialog.$wrapper.is(":visible")) window.setTimeout(() => dialog.get_field("scanner_command").set_focus(),80);
+			}
+		} });
+		const show_choices = async () => {
+			await dialog.set_value("target", "");
+			await dialog.set_value("actual_qty", null);
+			const choices = (context?.choices || []).slice(choice_page*10,choice_page*10+10);
+			dialog.set_df_property("target", "options", ["",...choices.map(choice => choice.value)].join("\n"));
+			dialog.get_field("choices_guide").$wrapper.html(`${__("Material choices")} (${choice_page+1}/${Math.max(1,Math.ceil((context?.choices.length || 0)/10))}) · CFG:CMD:NEXT_MATERIALS / CFG:CMD:PREVIOUS_MATERIALS<br>`+choices.map((choice,index) => `${index+1}. ${frappe.utils.escape_html(choice.label)}`).join("<br>"));
+			dialog.cfg_scanner_selection_values = choices.map(choice => choice.value);
+			dialog.cfg_scanner_selection_field = "target";
+		};
+		dialog.cfg_material_page_handler = async value => {
+			if (!context) return;
+			choice_page = Math.max(0,Math.min(Math.max(0,Math.ceil(context.choices.length/10)-1),choice_page+(value.toUpperCase().includes(":NEXT_") ? 1 : -1)));
+			await show_choices();
+			window.setTimeout(() => dialog.get_field("scanner_command").set_focus(),80);
+		};
+		const load = async name => {
+			context = null;
+			await dialog.set_value("target", "");
+			const response = await frappe.call({ method: "cfg_kanban.services.material_quantity_control.material_correction_context",
+				args: { execution_name: name, operator_session_token: state.session_token } });
+			if (dialog.get_value("execution_name") !== name) return;
+			context = response.message;
+			if (!context.choices.length) {
+				context.choices = [];
+				return frappe.msgprint(__("No selectable correction. Cancel and review the exact operation context. Posted ERP and adopted Material Runs require their controlled recovery path."));
+			}
+			choice_page = 0;
+			await show_choices();
+		};
+		dialog.cfg_selection_changed = async value => {
+			if (names.includes(value)) return load(value);
+			const choice = context?.choices.find(choice => choice.value === value);
+			if (choice) await dialog.set_value("actual_qty", choice.qty);
+		};
+		dialog.cfg_quantity_handler = (qty, additive) => dialog.set_value("actual_qty", additive ? Number(dialog.get_value("actual_qty") || 0) + qty : qty);
+		dialog.cfg_raw_scanner_handler = value => /^CFG:CMD:(NEXT|PREVIOUS)_MATERIALS$/i.test(value) ? dialog.cfg_material_page_handler(value) : dialog.set_value("reason", value);
+		dialog.cfg_require_prefixed_selection = true;
+		dialog.show();
+		bind_confirmation_scanner(dialog, true, names, "execution_name");
+		dialog.get_field("execution_name").$input.on("change.cfg-actual-use", () => load(dialog.get_value("execution_name")));
+		if (names.length === 1) await load(names[0]);
+	}
+
 
 	async function open_material_run_dialog(preferred_execution = null) {
 		if (!state.context?.cycle || !state.context?.card) {
@@ -4324,6 +4493,12 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				dialog, value, classification, pending_wip, matched_row
 			);
 		}
+		const actual_quantity = /^CFG:QTY:MATERIAL:([+]?\d+(?:\.\d+)?)$/i.exec(command);
+		if (actual_quantity) {
+			const value = actual_quantity[1];
+			await dialog.set_value("input_qty", value.startsWith("+") ? Number(dialog.get_value("input_qty") || 0)+Number(value) : Number(value));
+			return window.setTimeout(() => dialog.get_field("trace_scan").set_focus(),80);
+		}
 		const pending_inputs = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
 			row.direction === "Input" && row.tagging_available && row.remaining_qty > 0.000001);
 		const pending_outputs = (dialog.cfg_trace_plan?.rows || []).filter((row) =>
@@ -5142,6 +5317,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					}
 				}
 			}
+			if (row.job_card && state.operator.permissions.override) {
+				add_action($buttons, __("Approve WO Yield / Quantity"), "btn-warning", () => open_work_order_yield_override(false));
+				add_action($buttons, __("Revoke WO Yield / Quantity"), "btn-default", () => open_work_order_yield_override(true));
+				add_action($buttons, __("Correct Material Use"), "btn-default", open_material_use_correction);
+			}
 			if (row.status === "Ready" && state.operator.permissions.start) {
 				if (ownership?.enabled && !ownership.owner && !ownership.eligible_to_accept) {
 					$(`<button class="btn btn-sm btn-warning ml-1" disabled>${__("Job Code Required")}</button>`).appendTo($buttons);
@@ -5795,6 +5975,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			args: { execution_name: row.name, capture_on: "Progress",
 				operator_session_token: state.session_token } });
 		const definitions = response.message.fields || [];
+		const material_choices = response.message.material_choices || [];
 		const fields = [
 			{ fieldname: "scanner_command", label: __("Scanner Command"), fieldtype: "Data",
 				description: __("Scan quantity command cards here; no keypad is required.") },
@@ -5806,6 +5987,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			{ fieldname: "reject_qty", label: __("Reject Qty"), fieldtype: "Float", default: 0,
 				read_only: !state.operator.permissions.report_reject },
 			{ fieldname: "notes", label: __("Notes"), fieldtype: "Small Text" },
+			...(material_choices.length ? [
+				{ fieldname: "material_choices_guide", fieldtype: "HTML", options: `<div class="alert alert-info">${__("Actual material use: leave zero for BOM-based use. Otherwise select a numbered material and scan Material Quantity in its own stock UOM. Lower input for the reported output requires a Work Order yield approval.")}<br>${material_choices.map((item,index) => `${index+1}. ${frappe.utils.escape_html(item.item_code)} (${frappe.utils.escape_html(item.stock_uom)})`).join("<br>")}</div>` },
+				{ fieldname: "actual_materials", fieldtype: "Table", label: __("Actual Material Used"), cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true,
+					fields: [ { fieldname: "rule_row", fieldtype: "Data", hidden: 1 },
+						{ fieldname: "item_code", fieldtype: "Data", label: __("Item"), read_only: 1, in_list_view: 1 },
+						{ fieldname: "stock_uom", fieldtype: "Data", label: __("Stock UOM"), read_only: 1, in_list_view: 1 },
+						{ fieldname: "qty", fieldtype: "Float", label: __("Actual Used Qty (0 = BOM)"), in_list_view: 1 } ], data: material_choices }
+			] : []),
 			{ fieldtype: "Section Break", label: __("Operation Checks") },
 			...definitions.map(dialog_field),
 		];
@@ -5819,6 +6008,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				}));
 				const submitted = await frappe.call({ method: "cfg_kanban.api.operator.submit_progress", args: {
 					execution_name: row.name, good_qty: values.good_qty, reject_qty: values.reject_qty,
+					material_usage: Object.fromEntries((values.actual_materials || []).filter(item => Number(item.qty) > 0).map(item => [item.rule_row,Number(item.qty)])),
 					notes: values.notes, values: dynamic_values, event_token: frappe.utils.get_random(16),
 					operator_session_token: state.session_token,
 				}, freeze: true });
@@ -5830,7 +6020,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				await load_card(state.context.card.qr_code);
 			},
 		});
-		state.active_progress_dialog = { dialog, row };
+		state.active_progress_dialog = { dialog, row, material_page: 0, material_index: material_choices.length === 1 ? 0 : null };
 		dialog.onhide = () => {
 			if (state.active_progress_dialog && state.active_progress_dialog.dialog === dialog) {
 				state.active_progress_dialog = null;
@@ -5839,6 +6029,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		};
 		dialog.show();
 		configure_dynamic_visibility(dialog, definitions);
+		refresh_progress_material_guide(state.active_progress_dialog);
 		const command_field = dialog.get_field("scanner_command");
 		command_field.$input.attr({ autocomplete: "off", inputmode: "none" });
 		command_field.$input.on("keydown.cfg_progress_scanner", (event) => {

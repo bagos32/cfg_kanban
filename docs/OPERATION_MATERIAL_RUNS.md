@@ -54,7 +54,7 @@ The following packages must still be completed before this is accepted as the fu
 serial-controlled material-trace flow:
 
 1. exact serial reservation and serial-range evidence with parallel-machine collision protection;
-2. controlled post-progress quantity correction beyond ERP cancellation/reversal;
+2. live acceptance of controlled post-progress quantity correction and ERP cancellation/reversal;
 3. complete floor acceptance of both settlement timings and recovery cases.
 
 ## Minimal configuration
@@ -182,3 +182,59 @@ apply to the same source-tag scope. Quantity summary cards are suppressed for mi
 Migration is required for the approval DocType and immutable draw evidence fields. Local tests
 are not site acceptance: verify native transaction rollback, concurrent starts/revocation,
 settlement/cancellation and scanner-only kiosk behavior on the isolated test site.
+
+
+## Actual material quantities and Work Order yield approval
+
+Material Run output checks use the snapshotted BOM component-to-output ratios in stock UOM.
+On tracked operations, reporting output needing more than the scanned/declared material is
+blocked by default. Good + Reject cannot exceed Processed quantity in the output stock UOM.
+Raw material and output UOMs are not compared numerically without the BOM ratio.
+
+An unrestricted supervisor can approve a **full Work Order Yield / Quantity Override** with a
+reason. It applies to all that Work Order's operation cards and micro-runs, remains separate
+from FEFO approval, and can be revoked. It permits a recorded variable-yield exception but
+does not invent stock, bypass source availability, certificate/expiry checks, native ERP or
+customer overproduction limits, or expand a Cycle's fixed allocation. ERP quantity limits must
+still be resolved through the normal controlled planning process.
+
+Report Progress has an optional Actual Material Used table. Each component uses its own stock
+UOM. Zero/blank keeps normal BOM-based consumption; a positive amount records explicit use.
+With several components, scan CFG:SELECT:n before CFG:QTY:MATERIAL:n, then scan Good/Reject
+and Confirm. Lists have ten choices per page; CFG:CMD:NEXT_MATERIALS and
+CFG:CMD:PREVIOUS_MATERIALS change pages in Progress and Correct Material Use.
+Unused withdrawn material remains carry-forward; withdrawal is not automatically
+consumption. Without an approved variable-yield exception, declared actual use must support
+the reported output. With approval, a smaller available scanned quantity may support the
+recorded yield exception, and the actual used amount and approval are retained in the audit.
+No-tracking components cannot supply measured yield evidence; configure Source Tag Quantity
+rules before expecting an automatic material-limited output check.
+
+Settle Material Runs preserves used Draw quantities. If recorded usage is 5 bags and ERP mapped
+only 3, the Draft input row is sized to the recorded 5 rather than clipping the trace to 3.
+Over-BOM native posting requires the Work Order quantity approval, and ERP validates actual
+stock and its own manufacturing limits. Generic Material Trace no longer silently uses only a
+draft estimate when a larger tag is scanned: scan an explicit Material Quantity first. The
+trace scanner accepts CFG:QTY:MATERIAL:n for ordinary input tags as well as WIP bins.
+
+Supervisor correction before ERP posting is available through **Correct Material Use**:
+select the operation, then the exact recorded draw/trace, scan Material Quantity and a reason,
+then Confirm. Draw usage can be corrected only within its original scanned quantity; extra
+physical material must be recorded first. A draw already adopted into an ERP Draft must have
+that Draft discarded/cancelled first, then be corrected and settled again. For an ordinary
+Draft trace, correction retains the original cancelled allocation, resizes the native input row
+and reserves the corrected quantity on the same source tag. All corrections retain before/after
+quantities, reason, actor and a stable retry identity. Submitted ERP entries require controlled
+ERP cancellation/recovery; this function does not directly edit posted stock or history.
+
+Scanner command labels (selectable in Print Command Labels):
+
+- CFG:CMD:APPROVE_WO_YIELD — choose context, scan reason, Confirm.
+- CFG:CMD:REVOKE_WO_YIELD — revoke the exact displayed approval with a reason.
+- CFG:CMD:CORRECT_MATERIAL_USE — choose operation and allocation using CFG:SELECT:n, scan
+  CFG:QTY:MATERIAL:n, scan reason and Confirm. Cancel exits safely; error/cancel restores focus.
+
+Migration is required for the new Work Order approval DocType. No historical Job Card output,
+Material Draw, trace or ERP posting is silently rewritten. Offline test success is not live
+acceptance; verify stock posting, native ERP quantity tolerances, rollback, concurrent correction,
+permissions and scanner-only kiosk behavior on the isolated test site.

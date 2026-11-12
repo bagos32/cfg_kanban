@@ -146,6 +146,11 @@ def _scanner_command_catalog(quantity_steps=None):
         ]),
         ("Production Material and WIP", [
             ("Start Operation Material Run", "CFG:CMD:START_MATERIAL_RUN", ""),
+            ("Approve Work Order Yield / Quantity", "CFG:CMD:APPROVE_WO_YIELD", ""),
+            ("Revoke Work Order Yield / Quantity", "CFG:CMD:REVOKE_WO_YIELD", ""),
+            ("Correct Actual Material Use", "CFG:CMD:CORRECT_MATERIAL_USE", ""),
+            ("Next Material Choices", "CFG:CMD:NEXT_MATERIALS", ""),
+            ("Previous Material Choices", "CFG:CMD:PREVIOUS_MATERIALS", ""),
             ("Approve Full Work Order FEFO Override", "CFG:CMD:APPROVE_MATERIAL_FEFO_OVERRIDE", ""),
             ("Revoke Full Work Order FEFO Override", "CFG:CMD:REVOKE_MATERIAL_FEFO_OVERRIDE", ""),
             ("Cancel Open Material Run", "CFG:CMD:CANCEL_MATERIAL_RUN", ""),
@@ -716,6 +721,8 @@ def get_card_context(token, operator_session_token=None):
                 "open_run": execution.material_run,
                 "prior_run_count": prior_run_count,
                 "material_rules": _material_rule_context(execution),
+                "yield_override": _work_order_yield_context(execution),
+                "work_order": frappe.db.get_value("Job Card", execution.job_card, "work_order") if execution.job_card else None,
             }
         if job_ownership and executions:
             transfer_execution = next(
@@ -1772,12 +1779,13 @@ def get_execution_form(execution_name, capture_on="Progress", operator_session_t
     execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
     require_operator(operator_session_token, "report_progress", execution=execution)
     rows = definitions(execution.kanban_master, capture_on, operation=execution.operation)
-    return {"execution": execution.as_dict(), "fields": rows}
+    from cfg_kanban.services.material_quantity_control import progress_material_choices
+    return {"execution": execution.as_dict(), "fields": rows, "material_choices": progress_material_choices(execution)}
 
 
 @frappe.whitelist()
 def submit_progress(execution_name, good_qty, reject_qty=0, processed_qty=None,
-                    values=None, notes=None, event_token=None, operator_session_token=None):
+                    values=None, notes=None, event_token=None, operator_session_token=None, material_usage=None):
     execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
     profile, session = require_operator(operator_session_token, "report_progress", execution=execution)
     from cfg_kanban.services.production_certificates import (
@@ -1807,7 +1815,7 @@ def submit_progress(execution_name, good_qty, reject_qty=0, processed_qty=None,
     progress = report(execution_name, good_qty, reject_qty, processed_qty,
                       values=values, notes=notes, operator=profile.employee,
                       operator_session=session.name, terminal_user=session.terminal_user,
-                      material_run=material_run.name if material_run else None)
+                      material_run=material_run.name if material_run else None, material_usage=material_usage)
     result_certificate_set = finalize_execution_certificate_result(execution.name)
     if result_certificate_set:
         progress.db_set(
@@ -1998,3 +2006,15 @@ def _validate_dynamic_values(execution_name, values):
     execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
     rows = definitions(execution.kanban_master, "Progress", operation=execution.operation)
     validate_values(rows, values)
+
+
+def _work_order_yield_context(execution):
+    if not execution.job_card:
+        return None
+    order = frappe.db.get_value("Job Card", execution.job_card, "work_order")
+    state = frappe.db.get_value("Work Order", order, ["docstatus", "status"], as_dict=True) if order else None
+    if not state or state.docstatus != 1 or state.status in ("Completed", "Closed", "Stopped", "Cancelled"):
+        return None
+    from cfg_kanban.services.material_quantity_control import active_work_order_yield_override
+    approval = active_work_order_yield_override(execution)
+    return dict(approval) if approval else None
