@@ -634,7 +634,7 @@ def get_card_context(token, operator_session_token=None):
         executions = frappe.get_all(
             "CFG Kanban Process Execution", filters={"kanban_cycle": cycle.name,
                 "job_card": ["in", effective_jobs or ["__none__"]]},
-            fields=["name", "operation", "sequence", "job_card", "workstation", "status",
+            fields=["name", "kanban_master", "operation", "sequence", "job_card", "workstation", "status",
                     "lane_sequence", "execution_mode", "runtime_allocation", "allocated_qty",
                     "target_qty", "processed_qty", "good_qty", "reject_qty", "released_qty",
                     "handoff_mode", "completion_rule", "completion_basis", "unfulfilled_qty",

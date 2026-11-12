@@ -256,4 +256,108 @@ class TestQuantityControlsContract(unittest.TestCase):
         for command in ('APPROVE_WO_YIELD','REVOKE_WO_YIELD','CORRECT_MATERIAL_USE'):
             self.assertIn('CFG:CMD:'+command,api);self.assertIn(command,panel)
 
+
+class TestProductionCardYieldCompanyContext(unittest.TestCase):
+    """Run the real card execution projection through the real yield lookup.
+
+    A full execution fixture would conceal a missing field in get_card_context.
+    Database doubles below return only the fields that query actually requests.
+    """
+    def setUp(self):
+        self.frappe = frappe_double()
+        self.order = Row(name="WO", company="CFG", docstatus=1, status="In Process")
+        self.stored_execution = Row(name="EXEC", kanban_master="MASTER-CFG", job_card="JC")
+        self.approvals = []
+        self.frappe.db.table_exists = Mock(return_value=True)
+        self.frappe.db.get_value.side_effect = self.get_value
+        self.frappe.db.sql.side_effect = self.sql
+        self.frappe.get_doc.side_effect = self.get_doc
+        self.frappe.get_all.side_effect = self.get_all
+        self.service = types.ModuleType("cfg_kanban.services.material_quantity_control")
+        self.service.frappe = self.frappe
+        self.service._ = lambda message: message
+        self.service.OVERRIDE_DOCTYPE = "CFG Kanban Work Order Yield Override"
+        self.service.TERMINAL_WORK_ORDER_STATES = ("Completed", "Closed", "Stopped", "Cancelled")
+        functions("services/material_quantity_control.py",
+                  ["_work_order", "active_work_order_yield_override"], self.service.__dict__)
+        self.api = functions("api/operator.py", ["_work_order_yield_context"], {"frappe": self.frappe})
+
+    def get_value(self, doctype, name, fields=None, as_dict=False):
+        if doctype == "Job Card":
+            self.assertEqual(name, "JC")
+            self.assertEqual(fields, "work_order")
+            return self.order.name
+        if doctype == "Work Order":
+            self.assertEqual(name, self.order.name)
+            self.assertEqual(fields, ["docstatus", "status"])
+            return Row(docstatus=self.order.docstatus, status=self.order.status)
+        if doctype == "CFG Kanban Master":
+            self.assertEqual(fields, "company")
+            # Frappe's unfiltered get_value can pick the first record. An unrelated
+            # first Master deliberately belongs to a different Company.
+            return {None: "OTHER", "MASTER-CFG": "CFG"}[name]
+        raise AssertionError((doctype, name, fields))
+
+    def get_doc(self, doctype, name):
+        self.assertEqual((doctype, name), ("Work Order", self.order.name))
+        return self.order
+
+    def get_all(self, doctype, *, fields, filters, **kwargs):
+        self.assertEqual(doctype, "CFG Kanban Process Execution")
+        self.assertEqual(filters, {"kanban_cycle": "CYCLE", "job_card": ["in", ["JC"]]})
+        return [Row({field: self.stored_execution.get(field) for field in fields})]
+
+    def sql(self, query, params, **kwargs):
+        self.assertIn("tabCFG Kanban Work Order Yield Override", query)
+        self.assertEqual(params, (self.order.name, "CFG"))
+        return self.approvals
+
+    def card_execution(self):
+        tree = ast.parse((ROOT / "api/operator.py").read_text())
+        fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                  and node.name == "get_card_context")
+        queries = [node for node in ast.walk(fn) if isinstance(node, ast.Assign)
+                   and isinstance(node.value, ast.Call)
+                   and isinstance(node.value.func, ast.Attribute)
+                   and node.value.func.attr == "get_all" and node.value.args
+                   and isinstance(node.value.args[0], ast.Constant)
+                   and node.value.args[0].value == "CFG Kanban Process Execution"]
+        self.assertEqual(len(queries), 1)
+        namespace = {"frappe": self.frappe, "cycle": Row(name="CYCLE"), "effective_jobs": ["JC"]}
+        exec(compile(ast.Module(body=queries, type_ignores=[]), "card execution query", "exec"), namespace)
+        return namespace["executions"][0]
+
+    def context(self, execution=None):
+        if execution is None:
+            execution = self.card_execution()
+        with patch.dict(sys.modules, {self.service.__name__: self.service}):
+            return self.api["_work_order_yield_context"](execution)
+
+    def test_existing_production_card_without_approval_uses_its_exact_company(self):
+        self.assertIsNone(self.context())
+        self.frappe.db.get_value.assert_any_call("CFG Kanban Master", "MASTER-CFG", "company")
+
+    def test_existing_production_card_displays_same_company_approval(self):
+        approval = Row(name="APPROVAL", work_order="WO", company="CFG")
+        self.approvals.append(approval)
+        self.assertEqual(self.context(), approval)
+
+    def test_a_genuine_work_order_company_mismatch_still_fails(self):
+        self.order.company = "OTHER-COMPANY"
+        with self.assertRaisesRegex(ValueError, "belongs to another Company"):
+            self.context()
+        self.frappe.db.sql.assert_not_called()
+
+    def test_terminal_work_orders_do_not_gain_active_yield_authority(self):
+        for status in self.service.TERMINAL_WORK_ORDER_STATES:
+            with self.subTest(status=status):
+                self.order.status = status
+                self.assertIsNone(self.context())
+        self.frappe.db.sql.assert_not_called()
+
+    def test_card_without_job_card_needs_no_yield_lookup(self):
+        self.stored_execution.job_card = None
+        self.assertIsNone(self.context())
+        self.frappe.db.get_value.assert_not_called()
+
 if __name__=='__main__':unittest.main()
