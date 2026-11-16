@@ -2388,13 +2388,16 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const options = candidates.map((row, index) =>
 			`${index + 1}. ${row.operation || __("Operation")} · ${row.workstation || "-"} · ${row.job_card || "-"}`);
 		const context_by_execution = Object.fromEntries(
-			candidates.map((row) => [row.name, row.material_run_context || {
+			candidates.map((row) => [row.name, {
 				execution: row.name,
 				control_mode: row.material_run_control,
 				boundary_mode: row.material_run_output_boundary,
 				boundary_required: row.material_run_output_boundary === "Every Material Run",
 				material_rules: [],
 				open_run: row.material_run,
+				...(row.material_run_context || {}),
+				hopper_mode: row.material_run_context?.hopper_mode ?? row.material_run_hopper_mode ?? "None",
+				hopper_warehouse: row.material_run_context?.hopper_warehouse ?? row.material_run_hopper_warehouse,
 			}])
 		);
 		const dialog = new frappe.ui.Dialog({

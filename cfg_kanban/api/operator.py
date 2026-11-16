@@ -723,6 +723,8 @@ def get_card_context(token, operator_session_token=None):
                     execution.allow_material_carry_forward
                 ),
                 "settlement_timing": execution.material_run_settlement_timing,
+                "hopper_mode": execution.get("material_run_hopper_mode") or "None",
+                "hopper_warehouse": execution.get("material_run_hopper_warehouse"),
                 "open_run": execution.material_run,
                 "prior_run_count": prior_run_count,
                 "material_rules": _material_rule_context(execution),

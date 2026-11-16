@@ -86,3 +86,14 @@ payload tests, multi-tab locking, occupied hopper, different Company/warehouse, 
 and a role without Override. Partial/mixed historical contents must reject rather than infer use.
 
 Recovery working-tree verification, 2026-11-16: 242 Python checks and 29 scanner-dialog checks passed offline. Live recovery and MariaDB concurrency remain unverified.
+
+## Card Context regression: missing hopper prompt
+
+The batched Card Context response must include hopper_mode and hopper_warehouse from the released
+execution snapshot. Omitting these hid the physical Hopper step while the server still required it.
+The dialog now also falls back to the execution-level snapshot when nested context is incomplete.
+The scanner test evaluates the actual API dictionary assembly in Python, feeds that JSON to the
+actual JavaScript dialog, and verifies Hopper preview and hopper_scan submission. Ordinary None
+mode remains free of a Hopper scan. Site acceptance: rebuild/refresh the Operator page, rescan the
+card, and verify the Hopper step after the boundary and before component scans. Selecting source
+and destination warehouses alone does not identify a physical hopper.

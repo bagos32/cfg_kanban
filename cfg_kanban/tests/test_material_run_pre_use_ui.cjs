@@ -105,6 +105,22 @@ async function runTests(root=path.resolve(__dirname,'../..')) {
         await h.open();await h.source();await h.scan('CFG:CMD:CONFIRM');
         assert.equal(h.calls.length,2);assert.equal(h.calls.at(-1).args.hopper_scan,null);
     });
+    test('real Card Context payload requires and submits the Hopper scan',async()=>{
+        const {execFileSync}=require('node:child_process');
+        const code="import json;from cfg_kanban.tests.test_material_run_pre_use_context import card_run_context;print(json.dumps(card_run_context('Consume Hopper')))";
+        const context=JSON.parse(execFileSync('python3',['-B','-c',code],{cwd:root,encoding:'utf8',env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}}));
+        const h=harness();h.state.context.executions[0].material_run_context=context;
+        const original=h.respond;h.respond=async request=>request.method.endsWith('preview_scanner_hopper')
+            ? {message:{visible_code:'HOPPER_3',work_order:'WO',loaded_qty:5,available_qty:5,stock_uom:'Nos'}} : original(request);
+        await h.open();await h.scan('CFG:CMD:CONFIRM');assert.equal(h.calls.length,0);
+        await h.scan('HOPPER_3');await h.source();await h.scan('CFG:CMD:CONFIRM');
+        assert.equal(h.calls.at(-1).args.hopper_scan,'HOPPER_3');
+    });
+    test('partial nested context falls back to execution Hopper snapshot',async()=>{
+        const h=harness();h.state.context.executions[0].material_run_hopper_mode='Fill Hopper';
+        await h.open();await h.scan('CFG:CMD:CONFIRM');assert.equal(h.calls.length,0);
+        assert(h.guides.material_run_guide.includes('Scan an empty production Hopper'));
+    });
     const passed=[];for(const [name,fn] of cases){await fn();passed.push(name);}return passed;
 }
 module.exports=runTests;
