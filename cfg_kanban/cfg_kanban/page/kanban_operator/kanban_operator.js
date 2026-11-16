@@ -1044,6 +1044,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<p><strong>${__("Certificate Process commands")}</strong>: <code>CFG:CMD:START_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:COMPLETE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:REPORT_CERTIFICATE_PROGRESS</code>, <code>CFG:CMD:CLOSE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:SUBMIT_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:CANCEL_CERTIFICATE_PROCESS</code>. Field-arm commands are <code>CFG:CMD:CERTIFICATE_OUTPUT_TAG</code>, <code>CFG:CMD:CERTIFICATE_BATCH</code>, <code>CFG:CMD:CERTIFICATE_EXPIRY</code>, <code>CFG:CMD:CERTIFICATE_SERIAL_START</code>, and <code>CFG:CMD:CERTIFICATE_SERIAL_END</code>. Scan the field command and then its physical/value barcode.</p>
 			<p><strong>${__("Work Order Process Certificates")}</strong>: ${__("Use the normal Start Operation, Start Material Run, Material Quantity, physical source-tag, Report Progress, Scan Material Tags, Submit Material Entry, Confirm, Cancel, and numbered Select labels. Certificate gates run automatically for the configured Operation; do not scan the same material again from the main Production Card after a Process/Station Card recorded it against the shared Job Card.")}</p>
 			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then scan Material Quantity and the physical source Stock Tag for each tracked component. Confirm opens the run. Prepare Receipt uses finalized Material Run actuals; unused BOM balances stay in stock. Printed expiry stays consistent within each Process Card cycle. At receipt, scan CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY or CFG:CMD:RECEIPT_STANDARD_EXPIRY; CFG:CMD:RECEIPT_BATCH arms the next Finished Batch ID scan. Automatic expiry copying requires one matching consumed printed date. Save an older Manufacture Draft and reopen Scan Material Tags to refresh its inputs. Ordinary operations and No Run Tracking components retain normal material confirmation.")}</small></p>
+			<p><small>${__("Operation Hoppers: configure Fill Hopper on Rinse and Consume Hopper on Packing with the same Hopper Warehouse. In Start Material Run, scan the boundary, the physical Hopper, then each Material Quantity/source tag and Confirm. Rinse progress loads good output; Packing progress consumes the selected fill. Loaded and available quantities use the finished Item stock UOM. Close Operation Cycle releases unused raw-material reservations; used quantities remain pending ERP settlement. PPHU Hopper Change records trace context only and does not load stock.")}</small></p>
 			<p><strong>${__("PPHU trace commands")}</strong>: <code>CFG:CMD:PPHU_HOPPER_CHANGE</code>, <code>CFG:CMD:PPHU_BATCH_CHANGE</code>, <code>CFG:CMD:PPHU_OUTPUT_SERIAL</code>. Select an operation with <code>CFG:SELECT:n</code>, scan the physical Hopper/material tag when requested, scan the first affected output serial, then scan <code>CFG:CMD:CONFIRM</code>.</p>
 			<p><strong>${__("Crew commands")}</strong>: <code>CFG:CMD:CREW</code>, <code>CFG:CMD:CREW_OPEN</code>, <code>CFG:CMD:CREW_JOIN</code>, <code>CFG:CMD:CREW_JOIN_SENIOR</code>, <code>CFG:CMD:CREW_JOIN_OVERSIGHT</code>, <code>CFG:CMD:CREW_JOIN_TEMP</code>, <code>CFG:CMD:CREW_BREAK</code>, <code>CFG:CMD:CREW_RESUME</code>, <code>CFG:CMD:CREW_LEAVE</code>, <code>CFG:CMD:CREW_MAIN</code>, <code>CFG:CMD:CREW_CONTEXT</code>, <code>CFG:CMD:CREW_CLOSE</code>.</p>
 			<p><small>${__("On an Available Process/Station Card, choose the exact numbered Job Card before Crew Controls when several targets are eligible. On a Workstation Queue Card, Crew Controls uses the selected Active/Ready work row.")}</small></p>
@@ -2334,7 +2335,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					fieldtype: "Data", read_only: 1 },
 				{ fieldname: "material_draw_summary", fieldtype: "HTML" },
 				{ fieldname: "scanner_command", label: __("Scanner Input"), fieldtype: "Data",
-					description: __("Scanner sequence: boundary when requested, Material Quantity, physical source Stock Tag, then Confirm. Cancel safely leaves without opening the run.") },
+					description: __("Scanner sequence: boundary when requested, configured Hopper, Material Quantity, physical source Stock Tag, then Confirm. Cancel safely leaves without opening the run.") },
 			],
 			primary_action_label: __("Start Material Run"),
 			primary_action: async (form_values) => {
@@ -2346,6 +2347,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				}
 				if (context.open_run) {
 					frappe.show_alert({ message: __("Material Run {0} is already open.", [context.open_run.name]), indicator: "blue" });
+					return dialog.get_field("scanner_command").set_focus();
+				}
+				if (context.hopper_mode && context.hopper_mode !== "None" && !dialog.cfg_hopper_scan) {
+					frappe.show_alert({ message: __("Scan the physical Hopper before confirming."), indicator: "orange" });
 					return dialog.get_field("scanner_command").set_focus();
 				}
 				if (context.boundary_required && !form_values.output_serial_boundary) {
@@ -2360,6 +2365,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 							execution_name: form_values.execution_name,
 							output_serial_boundary: form_values.output_serial_boundary,
 							material_draws: JSON.stringify(dialog.cfg_material_draws || []),
+							hopper_scan: dialog.cfg_hopper_scan || null,
 							event_token: dialog.cfg_material_run_event_token,
 							operator_session_token: state.session_token,
 						},
@@ -2397,6 +2403,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			dialog.cfg_material_run_event_token = frappe.utils.get_random(24);
 			await dialog.set_value("output_serial_boundary", "");
 			dialog.cfg_material_draws = [];
+			dialog.cfg_hopper_scan = null;
+			dialog.cfg_hopper_preview = null;
 			dialog.cfg_pending_material_qty = 0;
 			dialog.cfg_selection_locked = false;
 			dialog.set_df_property("execution_name", "read_only", candidates.length === 1);
@@ -2432,7 +2440,19 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				dialog.cfg_selection_locked = true;
 				dialog.set_df_property("execution_name", "read_only", 1);
 				refresh_material_run_guide(dialog, context, options);
-				frappe.show_alert({ message: __("Output boundary captured. Scan Material Quantity next."), indicator: "green" });
+				frappe.show_alert({ message: context.hopper_mode && context.hopper_mode !== "None" ? __("Output boundary captured. Scan the physical Hopper next.") : __("Output boundary captured. Scan Material Quantity next."), indicator: "green" });
+				return;
+			}
+			if (context.hopper_mode && context.hopper_mode !== "None" && !dialog.cfg_hopper_scan) {
+				const response = await frappe.call({
+					method: "cfg_kanban.services.operation_hoppers.preview_scanner_hopper",
+					args: { execution_name, scan_value: raw_value, operator_session_token: state.session_token },
+				});
+				dialog.cfg_hopper_scan = raw_value;
+				dialog.cfg_hopper_preview = response.message;
+				dialog.cfg_selection_locked = true;
+				dialog.set_df_property("execution_name", "read_only", 1);
+				refresh_material_run_guide(dialog, context, options);
 				return;
 			}
 			if (!rules.length) {
@@ -2513,6 +2533,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				: __("Material Run {0} is already open. Continue floor work or scan Cancel to return.", [context.open_run.name]);
 		} else if (context.boundary_required && !boundary) {
 			next_step = __("Scan the first output serial or other production boundary for this run.");
+		} else if (context.hopper_mode && context.hopper_mode !== "None" && !dialog.cfg_hopper_scan) {
+			next_step = context.hopper_mode === "Fill Hopper"
+				? __("Scan an empty production Hopper to load with this run's good output.")
+				: __("Scan the loaded Hopper from this Work Order before scanning packing materials.");
 		} else if (outstanding.length && pending <= 0) {
 			next_step = __("Scan Material Quantity for {0}, then scan its physical source Stock Tag.", [outstanding[0].item_code]);
 		} else if (outstanding.length) {
@@ -2520,6 +2544,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		} else {
 			next_step = __("Scan Confirm to open the run, or Cancel to leave without recording.");
 		}
+		const hopper = dialog.cfg_hopper_preview;
+		const hopper_html = hopper
+			? `<br><strong>${e(__("Operation Hopper"))}</strong>: ${e(hopper.visible_code)} · ${e(hopper.work_order)} · ${e(__("Loaded"))}: ${hopper.loaded_qty} ${e(hopper.stock_uom)} · ${e(__("Reserved"))}: ${Number(hopper.reserved_qty || 0)} ${e(hopper.stock_uom)} · ${e(__("Available"))}: ${hopper.available_qty} ${e(hopper.stock_uom)}`
+			: "";
 		const requirement_html = rules.length ? `<br><strong>${__("Tracked materials")}</strong>:<br>${rules.map((rule) => {
 			const draw = draws.find((row) => row.rule_row === rule.rule_row);
 			const status = draw
@@ -2533,7 +2561,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<strong>${__("High-frequency Material Run")}</strong><br>
 			${context.material_rotation_override ? `<div class="alert alert-warning">${e(__("Full Work Order FEFO override active"))}: ${e(context.material_rotation_override.work_order)} · ${e(context.material_rotation_override.reason)}</div>` : `<small>${e(__("Warehouse-local FEFO is enforced. Expired tags are prohibited."))}</small><br>`}
 			${options.length > 1 ? `${__("Select the operation first")}:<br>${options.map((row) => e(row)).join("<br>")}<br>` : ""}
-			<strong>${__("Next step")}</strong>: ${e(next_step)}${requirement_html}<br>
+			<strong>${__("Next step")}</strong>: ${e(next_step)}${hopper_html}${requirement_html}<br>
 			<small>${__("Source scans create protected operational reservations. Confirm checks input certificates before authorizing the Material Run. If the operation is Ready, Start Operation is still required before physical work. ERP stock posts only at settlement.")}</small>
 		</div>`);
 		dialog.get_field("material_draw_summary").$wrapper.html(draws.length

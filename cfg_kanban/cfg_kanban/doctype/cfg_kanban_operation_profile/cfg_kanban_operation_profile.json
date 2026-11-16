@@ -1,6 +1,6 @@
 {
  "doctype":"DocType","name":"CFG Kanban Operation Profile","module":"CFG Kanban","istable":1,
- "field_order":["operation","sequence","workstation","time_in_mins","mandatory","crew_requirement_profile","execution_mode","quantity_allocation","runtime_selection_rule","allow_parallel","interruption_policy","setup_family","cleaning_class","dependency_operation","start_rule","minimum_qty","minimum_percentage","output_reporting_mode","allow_incremental_output","material_run_section","material_run_control","material_run_output_boundary","allow_material_carry_forward","material_run_settlement_timing","handoff_mode","transfer_multiple","require_destination_scan","destination_operation","completion_rule"],
+ "field_order":["operation","sequence","workstation","time_in_mins","mandatory","crew_requirement_profile","execution_mode","quantity_allocation","runtime_selection_rule","allow_parallel","interruption_policy","setup_family","cleaning_class","dependency_operation","start_rule","minimum_qty","minimum_percentage","output_reporting_mode","allow_incremental_output","material_run_section","material_run_control","material_run_hopper_mode","material_run_hopper_warehouse","material_run_output_boundary","allow_material_carry_forward","material_run_settlement_timing","handoff_mode","transfer_multiple","require_destination_scan","destination_operation","completion_rule"],
  "fields":[
   {"fieldname":"operation","label":"Operation","fieldtype":"Link","options":"Operation","reqd":1,"in_list_view":1,"columns":3},
   {"fieldname":"sequence","label":"Sequence","fieldtype":"Int","reqd":1,"in_list_view":1,"columns":1},
@@ -30,6 +30,8 @@
   {"fieldname":"transfer_multiple","label":"Transfer Multiple","fieldtype":"Float","depends_on":"eval:doc.handoff_mode=='Digital Quantity Handoff'"},
   {"fieldname":"require_destination_scan","label":"Require Destination Scan","fieldtype":"Check","depends_on":"eval:doc.handoff_mode=='Physical Card Handoff'"},
   {"fieldname":"destination_operation","label":"Destination Operation","fieldtype":"Link","options":"Operation"},
-  {"fieldname":"completion_rule","label":"Completion Rule","fieldtype":"Select","options":"Full Qty\nOperator Complete\nThreshold","default":"Full Qty","description":"Full Qty requires the allocated quantity; Operator Complete accepts an explicit completion action; Threshold completes when the configured production threshold is achieved."}
+  {"fieldname":"completion_rule","label":"Completion Rule","fieldtype":"Select","options":"Full Qty\nOperator Complete\nThreshold","default":"Full Qty","description":"Full Qty requires the allocated quantity; Operator Complete accepts an explicit completion action; Threshold completes when the configured production threshold is achieved."},
+  {"fieldname":"material_run_hopper_mode","label":"Operation Hopper Mode","fieldtype":"Select","options":"None\nFill Hopper\nConsume Hopper","default":"None","description":"Same Work Order intermediate WIP in a scanned Hopper; no intermediate ERP Manufacture posting."},
+  {"fieldname":"material_run_hopper_warehouse","label":"Hopper Warehouse","fieldtype":"Link","options":"Warehouse","depends_on":"eval:doc.material_run_hopper_mode && doc.material_run_hopper_mode!='None'","mandatory_depends_on":"eval:doc.material_run_hopper_mode && doc.material_run_hopper_mode!='None'"}
  ]
 }

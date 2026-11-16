@@ -105,7 +105,7 @@ def _material_run_join():
             select source_handling_unit,
                    sum(remaining_qty) as remaining_qty,
                    sum(used_qty) as pending_used_qty,
-                   sum(case when ifnull(material_trace, '') = '' then drawn_qty
+                   sum(case when ifnull(material_trace, '') = '' then (used_qty + remaining_qty)
                             else remaining_qty end) as additional_reserved_qty
             from `tabCFG Kanban Operation Material Draw`
             where status in ('Open', 'Partially Used', 'Carry Forward', 'Used')

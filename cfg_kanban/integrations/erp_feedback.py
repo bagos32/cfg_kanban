@@ -533,6 +533,8 @@ def reconcile_physical_production_cycle(
             "unsettled_material_draws": unsettled_draws,
         }
 
+    from cfg_kanban.services.operation_hoppers import assert_no_open_hoppers
+    assert_no_open_hoppers(cycle.work_order)
     received_qty = _submitted_finished_goods_qty(
         cycle.name, cycle.work_order, cycle.item_code
     )
@@ -657,6 +659,8 @@ def _complete_related_operation_cycles(owner_cycle):
             cycle, "Completed", event_type="Related Operation Cycle Auto-Completed",
             reference_doctype="CFG Kanban Cycle", reference_name=owner_cycle.name,
         )
+        from cfg_kanban.services.material_run_release import release_closed_execution
+        release_closed_execution(execution.name, f"Closed with main production Cycle {owner_cycle.name}")
         recalculate(cycle.name, execution.operation)
         if card.current_state == "Production Released":
             transition_card(
@@ -751,6 +755,8 @@ def _related_operation_block_reason(blockers):
 def _release_completed_physical_card(
     cycle, card, reference_doctype=None, reference_name=None
 ):
+    from cfg_kanban.services.material_run_release import release_closed_work_order
+    release_closed_work_order(cycle.work_order, "Main production Card Cycle closed")
     if card.current_state == "Production Released":
         transition_card(
             card, "In Production", event_type="Physical Production Reconciled",
@@ -998,6 +1004,9 @@ def _sync_job_cards(work_order, cycle):
                 ) else "Not Required"
             ),
             "material_run_control": profile.material_run_control or "Disabled",
+            "material_run_hopper_mode": profile.get("material_run_hopper_mode") or "None",
+            "material_run_hopper_warehouse": profile.get("material_run_hopper_warehouse"),
+            "material_run_hopper_source_operation": profile.dependency_operation,
             "material_run_output_boundary": profile.material_run_output_boundary or "None",
             "allow_material_carry_forward": profile.allow_material_carry_forward,
             "material_run_settlement_timing": (

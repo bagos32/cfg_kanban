@@ -130,6 +130,8 @@ class CFGKanbanMaster(Document):
                 frappe.throw(f"Minimum Percentage must be between 0 and 100 for operation {row.operation}")
             if row.handoff_mode == "Digital Quantity Handoff" and flt(row.transfer_multiple) <= 0:
                 frappe.throw(f"Transfer Multiple must be positive for operation {row.operation}")
+        from cfg_kanban.services.operation_hoppers import validate_hopper_profiles
+        validate_hopper_profiles(self)
         task_keys = [row.task_key for row in self.process_task_profiles]
         if len(task_keys) != len(set(task_keys)):
             frappe.throw("Process Task Profile keys must be unique")

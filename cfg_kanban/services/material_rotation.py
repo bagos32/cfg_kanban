@@ -190,7 +190,7 @@ def _rotation_candidates(unit):
         left join `tabCFG Kanban Handling Unit` pc on pc.name=hu.physical_container
         left join (
             select source_handling_unit,
-                   sum(case when ifnull(material_trace, '')='' then drawn_qty
+                   sum(case when ifnull(material_trace, '')='' then (used_qty + remaining_qty)
                             else remaining_qty end) as reserved
             from `tabCFG Kanban Operation Material Draw`
             where status in ('Open','Partially Used','Carry Forward','Used')

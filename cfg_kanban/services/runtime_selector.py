@@ -131,6 +131,9 @@ def allocate(card_name, job_card_name, confirmation, override_reason=None):
             ) else "Not Required"
         ),
         "material_run_control": profile.material_run_control or "Disabled",
+        "material_run_hopper_mode": profile.get("material_run_hopper_mode") or "None",
+        "material_run_hopper_warehouse": profile.get("material_run_hopper_warehouse"),
+        "material_run_hopper_source_operation": profile.dependency_operation,
         "material_run_output_boundary": profile.material_run_output_boundary or "None",
         "allow_material_carry_forward": profile.allow_material_carry_forward,
         "material_run_settlement_timing": (
@@ -156,7 +159,8 @@ def allocate(card_name, job_card_name, confirmation, override_reason=None):
         from cfg_kanban.services.production_material_flow import job_card_material_readiness
         readiness = job_card_material_readiness(proposal["job_card"])
         certificate_readiness = operation_start_certificate_readiness(execution)
-        if readiness["ready"] and certificate_readiness["ready"]:
+        if (readiness["ready"] and certificate_readiness["ready"]
+                and (execution.get("material_run_hopper_mode") or "None") == "None"):
             assert_pre_use_certificate_gates(execution)
             from cfg_kanban.integrations.erp_gateway import execute_command
 

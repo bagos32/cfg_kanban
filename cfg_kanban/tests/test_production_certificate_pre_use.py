@@ -200,7 +200,10 @@ class TestMaterialRunPreparation(unittest.TestCase):
         })
 
     def start(self):
-        with patch.dict(sys.modules, {self.certificates.__name__:self.certificates}):
+        hoppers = types.ModuleType("cfg_kanban.services.operation_hoppers")
+        hoppers.lock_execution = Mock(return_value=self.execution)
+        hoppers.prepare_run_hopper = Mock()
+        with patch.dict(sys.modules, {self.certificates.__name__:self.certificates, hoppers.__name__:hoppers}):
             return self.ns["start_scanner_run"]("EXEC", "TOKEN", material_draws=[{"scan_value":"TAG","qty":5}])
 
     def test_ready_operation_prepares_sources_then_checks_before_linking_run(self):

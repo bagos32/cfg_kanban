@@ -211,18 +211,28 @@ def correct_material_use(execution_name, target, actual_qty, reason, event_token
         return {"duplicate": True}
     kind, name = target.split(":", 1)
     if kind == "DRAW":
-        frappe.db.sql("select name from `tabCFG Kanban Operation Material Draw` where name=%s for update", name)
+        current = frappe.db.sql("select * from `tabCFG Kanban Operation Material Draw` where name=%s for update", name, as_dict=True)
+        if not current:
+            frappe.throw("Material Draw was not found")
         draw = frappe.get_doc("CFG Kanban Operation Material Draw", name)
+        draw.update(current[0])
         if draw.work_order != order.name or draw.job_card != execution.job_card:
             frappe.throw("Material Draw is outside this Job Card / Work Order")
         if draw.material_trace or draw.status not in ("Used", "Carry Forward", "Partially Used"):
             frappe.throw("Cancel or discard the linked ERP Draft before correcting its original Material Draw; submitted entries require controlled ERP recovery")
-        if qty > draw.drawn_qty:
+        available_draw = flt(draw.drawn_qty) - flt(draw.get("released_qty"))
+        if qty > available_draw:
             frappe.throw("Actual use cannot exceed the physically scanned draw; record the additional source material first")
         _assert_material_visible(draw.item_code)
         before = draw.used_qty
-        draw.db_set({"used_qty": qty, "remaining_qty": flt(draw.drawn_qty) - qty,
-                     "status": "Used" if abs(qty - flt(draw.drawn_qty)) < 0.000001 else "Carry Forward"})
+        remaining = max(0, available_draw - qty)
+        released = flt(draw.get("released_qty"))
+        if frappe.db.get_value("CFG Kanban Cycle", draw.kanban_cycle, "status") == "Completed":
+            released += remaining
+            remaining = 0
+        draw.db_set({"used_qty": qty, "remaining_qty": remaining, "released_qty": released,
+                     "status": ("Carry Forward" if remaining > 0.000001 else
+                                "Used" if qty > 0.000001 else "Released")})
         from cfg_kanban.services.operation_material_runs import _refresh_run_totals
         _refresh_run_totals(frappe.get_doc("CFG Kanban Operation Material Run", draw.material_run))
         reference_type, reference_name = draw.doctype, draw.name

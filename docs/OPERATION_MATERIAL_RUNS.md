@@ -325,3 +325,50 @@ Scanner commands, available in Print Command Labels:
 For a Draft Manifest selected before this metadata fix, remove and rescan the affected line to
 capture the date. Frozen prepared/submitted Manifest snapshots and historical ERP postings are
 not silently rewritten. No re-certification is needed when intact posted evidence already exists.
+
+## Reservation release at operation-cycle closure
+
+Carry-forward is restricted to one Process Execution. Closing a Material Run with progress keeps
+its unused balance available for the next run in that execution. Closing the **Operation Card
+Cycle** releases the unused balance. The original Drawn Qty and Used Qty are retained; **Unused
+Qty Released** records the returned reservation. Used quantity stays pending until native ERP
+settlement, so it is not made available to another operator. Final main-card closure repeats this
+cleanup for its completed operation cycles. The post-model-sync migration repairs affected old
+completed cycles with the same audited helper; it does not change ERP stock or used quantities.
+Later FIFO use refreshes the original source run as well as the current run, preventing stale
+carry-forward totals. Supervisor corrections cannot reclaim already released material.
+
+## Optional same-Work-Order operation hoppers
+
+**Normal Digital Quantity Handoff needs no holding-place/source scan.** Leave **Operation Hopper
+Mode = None** for that flow. Hopper tracking is a separate opt-in setting; it does not change the
+standard digital path.
+
+For Rinse -> Hopper -> Pack within one Work Order, configure **Fill Hopper** on Rinse and
+**Consume Hopper** on Pack, with the same Company-owned **Hopper Warehouse**. Rinse uses Digital
+Quantity Handoff to Pack; Pack depends on Rinse with Minimum Qty Available. Both require
+Incremental reporting and Required Before Progress Material Runs. Use Skip WIP Transfer.
+
+Use active, released Handling Units with Tag Kind Reusable Container, type Hopper, role Production
+Output Container and the configured production warehouse. An operation fill is intermediate WIP,
+not an ERP-manufactured stock fill. The two kinds cannot occupy the same hopper simultaneously.
+
+Scanner sequence: `CFG:CMD:START_MATERIAL_RUN`, numbered operation choice if requested, first
+output boundary when required, physical Hopper QR, material quantity/source Stock Tags, Confirm.
+Prepare before Start Operation/physical work. Rinse progress loads **Good Qty** into the hopper;
+Packing reserves the available fill up to its remaining allocation and consumes **Processed Qty**
+(good plus reject) on progress. Unused hopper reservation is released when that run ends/cancels;
+physical leftover WIP remains loaded. The next run scans its hopper again. Material component
+carry-forward retains its existing rules. PPHU Hopper Change remains a trace event and does not
+load a hopper.
+
+The dialog and Handling Unit show loaded, reserved and available operation-WIP quantities in the
+finished Item stock UOM. Fill/consume records link source and destination progress, Material Runs
+and Work Order. A hopper with active WIP cannot be refilled, transferred, relabelled to another
+custody/role, or loaded with ERP manufacture stock. Another Work Order cannot consume it. Final
+closure is blocked while physical hopper WIP remains.
+
+Settings apply to newly released executions. This does **not** reconstruct an older empty
+HOPPER_3 from progress already reported before the feature; do not report that output again.
+Use a fresh isolated pilot or a separately reviewed reconciliation of the old physical WIP.
+See [acceptance checks](TEST_OPERATION_HOPPERS_AND_RELEASE.md).

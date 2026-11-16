@@ -420,13 +420,17 @@ def start_scanner_run(
     event_token,
     output_serial_boundary=None,
     material_draws=None,
+    hopper_scan=None,
     operator_session_token=None,
 ):
-    execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
+    from cfg_kanban.services.operation_hoppers import lock_execution
+    execution = lock_execution(execution_name)
     profile, session = require_operator(
         operator_session_token, "report_progress", execution=execution
     )
     _assert_enabled(execution)
+    if frappe.db.get_value("CFG Kanban Cycle", execution.kanban_cycle, "status") in ("Completed", "Cancelled"):
+        frappe.throw("This Cycle is closed; scan the current active Card Cycle")
     from cfg_kanban.services.production_certificates import assert_pre_use_certificate_gates
     if execution.status not in PREPARATION_EXECUTION_STATES:
         frappe.throw(
@@ -440,7 +444,8 @@ def start_scanner_run(
     boundary = _normalise_boundary(output_serial_boundary)
     _assert_boundary(execution, boundary)
     draw_requests = _normalise_draw_requests(material_draws)
-    draw_fingerprint = canonical_key("operation-material-draw-request", draw_requests)
+    draw_fingerprint = (canonical_key("operation-material-draw-request", draw_requests, str(hopper_scan).strip())
+                        if hopper_scan else canonical_key("operation-material-draw-request", draw_requests))
     key = canonical_key("operation-material-run", execution.name, event_token)
     existing = get_existing("CFG Kanban Operation Material Run", key)
     if existing:
@@ -503,6 +508,8 @@ def start_scanner_run(
     )
     _assert_tracked_materials_ready(execution, run)
     assert_pre_use_certificate_gates(execution, material_run=run)
+    from cfg_kanban.services.operation_hoppers import prepare_run_hopper
+    prepare_run_hopper(execution, run, hopper_scan)
     if created_draws:
         run.db_set({
             "material_draw_count": len(created_draws),
@@ -572,6 +579,8 @@ def cancel_scanner_run(
     if existing:
         return {"name": run.name, "cancelled": run.status == "Cancelled", "duplicate": True}
 
+    from cfg_kanban.services.operation_hoppers import cancel_run_hopper
+    cancel_run_hopper(run.name, reason)
     cancelled_on = now_datetime()
     frappe.db.set_value(
         "CFG Kanban Operation Material Draw",
@@ -773,6 +782,7 @@ def apply_progress_material_plan(plan, progress, closing_run):
     if not plan:
         return
     used_total = 0
+    affected_runs = {closing_run.name}
     for allocation in plan:
         draw = frappe.get_doc("CFG Kanban Operation Material Draw", allocation["draw"])
         frappe.db.sql(
@@ -794,7 +804,9 @@ def apply_progress_material_plan(plan, progress, closing_run):
             "last_used_material_run": closing_run.name,
         }, update_modified=True)
         used_total += qty
-    _refresh_run_totals(closing_run)
+        affected_runs.add(draw.material_run)
+    for run_name in sorted(affected_runs):
+        _refresh_run_totals(frappe.get_doc("CFG Kanban Operation Material Run", run_name))
     record(
         "Operation Material Draws Used",
         cycle=closing_run.kanban_cycle,
@@ -830,6 +842,8 @@ def _context_payload(execution):
         "boundary_required": _boundary_required(boundary_mode, prior_count),
         "allow_material_carry_forward": bool(execution.allow_material_carry_forward),
         "settlement_timing": execution.material_run_settlement_timing,
+        "hopper_mode": execution.get("material_run_hopper_mode") or "None",
+        "hopper_warehouse": execution.get("material_run_hopper_warehouse"),
         "open_run": _run_payload(open_run) if open_run else None,
         "prior_run_count": prior_count,
         "material_rules": _material_rule_context(execution),
@@ -978,20 +992,17 @@ def _match_source_rule(execution, unit):
 
 
 def _source_reserved_qty(unit_name):
-    # Before ERP adoption the complete draw is an operational reservation. Once its used
-    # portion is reserved by Material Trace, only the unused carry-forward balance remains
-    # an operation-level reservation; this prevents a temporary double deduction.
-    return flt(frappe.db.sql(
-        """
-        select coalesce(sum(
-            case when ifnull(material_trace, '') = '' then drawn_qty else remaining_qty end
-        ), 0)
-          from `tabCFG Kanban Operation Material Draw`
-         where source_handling_unit=%s
-           and status in ('Open', 'Partially Used', 'Carry Forward', 'Used')
-        """,
-        unit_name,
-    )[0][0])
+    # A current locking read is required after the HU lock: a repeatable-read snapshot
+    # may predate another Work Order's committed draw. Released quantity is excluded.
+    rows = frappe.db.sql("""
+        select used_qty, remaining_qty, material_trace
+        from `tabCFG Kanban Operation Material Draw`
+        where source_handling_unit=%s
+          and status in ('Open', 'Partially Used', 'Carry Forward', 'Used')
+        order by name for update
+    """, unit_name, as_dict=True)
+    return sum(flt(row.remaining_qty) + (flt(row.used_qty) if not row.material_trace else 0)
+               for row in rows)
 
 
 def _operationally_available_source_qty(unit):
@@ -1137,7 +1148,7 @@ def _refresh_run_totals(run):
     totals = frappe.db.get_value(
         "CFG Kanban Operation Material Draw",
         {"material_run": run.name, "status": ["!=", "Cancelled"]},
-        ["count(name) as draw_count", "sum(drawn_qty) as drawn", "sum(used_qty) as used", "sum(remaining_qty) as remaining"],
+        ["count(name) as draw_count", "sum(drawn_qty) as drawn", "sum(used_qty) as used", "sum(remaining_qty) as remaining", "sum(released_qty) as released"],
         as_dict=True,
     ) or {}
     run.db_set({
@@ -1145,6 +1156,7 @@ def _refresh_run_totals(run):
         "drawn_qty": flt(totals.get("drawn")),
         "used_qty": flt(totals.get("used")),
         "carry_forward_qty": flt(totals.get("remaining")),
+        "released_qty": flt(totals.get("released")),
     }, update_modified=False)
 
 
@@ -1227,4 +1239,8 @@ def _run_payload(run, duplicate=False, already_open=False):
         "opened_by_operator": run.opened_by_operator,
         "duplicate": duplicate,
         "already_open": already_open,
+        "operation_hopper": run.get("operation_hopper"),
+        "operation_hopper_fill": run.get("operation_hopper_fill"),
+        "hopper_reserved_qty": flt(run.get("hopper_reserved_qty")),
+        "hopper_used_qty": flt(run.get("hopper_used_qty")),
     }

@@ -139,6 +139,7 @@ class TestMaterialUseCorrections(unittest.TestCase):
         self.draw=Row(name='DRAW',doctype='CFG Kanban Operation Material Draw',work_order='WO',job_card='JC',
             material_trace=None,status='Carry Forward',drawn_qty=5,used_qty=3,remaining_qty=2,item_code='BAG',material_run='RUN')
         self.draw.db_set=lambda values:self.draw.update(values)
+        self.frappe.db.sql.return_value=[self.draw]
         self.frappe.get_doc.side_effect=lambda doctype,name:self.draw if doctype=='CFG Kanban Operation Material Draw' else Row(name='RUN')
         utils=types.ModuleType('frappe.utils');utils.flt=lambda x:float(x or 0)
         runs=types.ModuleType('cfg_kanban.services.operation_material_runs');runs._refresh_run_totals=Mock()
@@ -162,6 +163,16 @@ class TestMaterialUseCorrections(unittest.TestCase):
     def test_correction_above_scanned_quantity_is_rejected(self):
         with self.assertRaisesRegex(ValueError,'physically scanned'):self.correct(6)
         self.assertEqual(self.draw.used_qty,3)
+
+    def test_correction_cannot_reclaim_previously_released_material(self):
+        self.draw.released_qty=2;self.draw.remaining_qty=0;self.draw.status='Used'
+        with self.assertRaisesRegex(ValueError,'physically scanned'):self.correct(4)
+        self.assertEqual(self.draw.used_qty,3)
+
+    def test_decreasing_usage_on_a_closed_cycle_releases_the_freed_balance(self):
+        self.draw.kanban_cycle='CLOSED';self.frappe.db.get_value.return_value='Completed'
+        self.correct(2)
+        self.assertEqual((self.draw.used_qty,self.draw.remaining_qty,self.draw.released_qty),(2,0,3))
 
     def test_adopted_or_posted_draw_cannot_be_silently_edited(self):
         self.draw.material_trace='TRACE'

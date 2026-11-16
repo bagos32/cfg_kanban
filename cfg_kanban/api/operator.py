@@ -145,7 +145,7 @@ def _scanner_command_catalog(quantity_steps=None):
             ("Close Operation Cycle", "CFG:CMD:CLOSE_CYCLE", ""),
         ]),
         ("Production Material and WIP", [
-            ("Start Operation Material Run", "CFG:CMD:START_MATERIAL_RUN", ""),
+            ("Start Material Run / Configured Hopper", "CFG:CMD:START_MATERIAL_RUN", ""),
             ("Receipt: Use Printed Expiry", "CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY", ""),
             ("Receipt: Use Standard Expiry", "CFG:CMD:RECEIPT_STANDARD_EXPIRY", ""),
             ("Receipt: Scan Finished Batch Next", "CFG:CMD:RECEIPT_BATCH", ""),
@@ -643,6 +643,7 @@ def get_card_context(token, operator_session_token=None):
                     "handoff_mode", "completion_rule", "completion_basis", "unfulfilled_qty",
                     "started_on",
                     "material_run_control", "material_run_output_boundary",
+                    "material_run_hopper_mode", "material_run_hopper_warehouse", "material_run_hopper_source_operation",
                     "allow_material_carry_forward", "material_run_settlement_timing",
                     "material_run_rules_json",
                     "open_material_run",
@@ -1380,7 +1381,8 @@ def transfer_job_ownership(
 @frappe.whitelist()
 def complete_runtime_cycle(execution_name, notes=None, operator_session_token=None,
                            supervisor_approval_token=None):
-    execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
+    from cfg_kanban.services.operation_hoppers import lock_execution
+    execution = lock_execution(execution_name, allow_closed=True)
     profile, session = require_operator(operator_session_token, "complete", execution=execution)
     enforce_execution_crew(
         execution.name, "Before Completion", actor=_crew_actor(profile, session)
@@ -1454,6 +1456,9 @@ def complete_runtime_cycle(execution_name, notes=None, operator_session_token=No
                   "reject_qty": execution.reject_qty})
     set_cycle_state(cycle, "Completed", event_type="Runtime Cycle Completed",
                     reference_doctype="Job Card", reference_name=execution.job_card)
+    from cfg_kanban.services.material_run_release import release_closed_execution
+    release_closed_execution(execution.name, "Operation Card Cycle closed",
+        operator=profile.employee, operator_session=session.name, terminal_user=session.terminal_user)
     recalculate(cycle.name, execution.operation)
     if card.current_state == "Production Released":
         transition_card(card, "In Production", event_type="Runtime Cycle Closing", cycle=cycle.name)
@@ -1896,6 +1901,8 @@ def run_job_card_action(execution_name, action, event_token=None, operator_sessi
             assert_pre_use_certificate_gates,
         )
         assert_pre_use_certificate_gates(execution)
+        from cfg_kanban.services.operation_hoppers import assert_hopper_prepared
+        assert_hopper_prepared(execution)
         _assert_materials_ready_for_job_card(execution.job_card)
         assert_gate_open(execution.kanban_cycle, "Before Operation Start", execution.operation)
         master = frappe.get_doc("CFG Kanban Master", execution.kanban_master)

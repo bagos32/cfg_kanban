@@ -83,6 +83,28 @@ async function runTests(root=path.resolve(__dirname,'../..')) {
         const h=harness();h.state.operator.permissions.report_progress=false;await h.open();
         assert.equal(h.dialogs.length,0);assert.equal(h.calls.length,0);
     });
+    test('opt-in Hopper scan displays quantity and is included in the run request',async()=>{
+        const h=harness();h.state.context.executions[0].material_run_context.hopper_mode='Consume Hopper';
+        const original=h.respond;h.respond=async request=>request.method.endsWith('preview_scanner_hopper')
+            ? {message:{visible_code:'HOPPER_3',work_order:'WO',loaded_qty:5,available_qty:3,stock_uom:'Nos'}}
+            : original(request);
+        await h.open();await h.scan('CFG:CMD:CONFIRM');assert.equal(h.calls.length,0);
+        await h.scan('HOPPER_3');assert.equal(h.dialog().cfg_hopper_preview.loaded_qty,5);
+        await h.source();await h.scan('CFG:CMD:CONFIRM');
+        assert.equal(h.calls.at(-1).args.hopper_scan,'HOPPER_3');
+    });
+    test('failed Hopper preview preserves focus and cannot confirm a run',async()=>{
+        const h=harness();h.state.context.executions[0].material_run_context.hopper_mode='Consume Hopper';
+        h.respond=async()=>{throw Error('Hopper is empty');};await h.open();
+        await assert.rejects(h.scan('HOPPER_3'));assert.equal(h.dialog().cfg_hopper_scan,null);assert(h.focus>0);
+        await h.scan('CFG:CMD:CONFIRM');assert.equal(h.calls.length,1);
+        await h.scan('CFG:CMD:CANCEL');assert.equal(h.dialog().visible,false);
+    });
+    test('normal digital handoff adds no Hopper scan or request binding',async()=>{
+        const h=harness();h.state.context.executions[0].material_run_context.hopper_mode='None';
+        await h.open();await h.source();await h.scan('CFG:CMD:CONFIRM');
+        assert.equal(h.calls.length,2);assert.equal(h.calls.at(-1).args.hopper_scan,null);
+    });
     const passed=[];for(const [name,fn] of cases){await fn();passed.push(name);}return passed;
 }
 module.exports=runTests;

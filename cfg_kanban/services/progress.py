@@ -13,7 +13,11 @@ from cfg_kanban.services.crew_authorization import release_execution_wip_if_auth
 def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_qty=None,
            values=None, notes=None, source="Operator", operator=None,
            operator_session=None, terminal_user=None, material_run=None, material_usage=None):
-    execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
+    if source == "Operator":
+        from cfg_kanban.services.operation_hoppers import lock_execution
+        execution = lock_execution(execution_name)
+    else:
+        execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
     material_run_doc = None
     if source == "Operator":
         from cfg_kanban.services.operation_material_runs import open_run_for_execution
@@ -38,6 +42,9 @@ def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_
         material_plan = validate_progress_materials(
             execution, material_run_doc, processed_qty, material_usage=material_usage
         )
+    if source == "Operator":
+        from cfg_kanban.services.operation_hoppers import validate_run_hopper
+        validate_run_hopper(execution, material_run_doc, good_qty, processed_qty)
     progress = frappe.get_doc({
         "doctype": "CFG Kanban Operation Progress", "process_execution": execution.name,
         "kanban_cycle": execution.kanban_cycle, "posting_datetime": now_datetime(),
@@ -79,6 +86,9 @@ def report(execution_name, good_qty, reject_qty=0, processed_qty=None, released_
            qty=good_qty, reference_doctype=progress.doctype, reference_name=progress.name,
            operator=operator, operator_session=operator_session, terminal_user=terminal_user,
            payload={"material_usage": material_usage, "material_plan": material_plan})
+    if material_run_doc:
+        from cfg_kanban.services.operation_hoppers import apply_run_hopper
+        apply_run_hopper(execution, material_run_doc, progress)
     if material_run_doc:
         from cfg_kanban.services.operation_material_runs import close_run_with_progress
         close_run_with_progress(

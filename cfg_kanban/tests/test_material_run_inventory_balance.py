@@ -118,6 +118,17 @@ class TestMaterialRunInventoryBalance(unittest.TestCase):
         self.draw(used=60, remaining=40, status='Bound to ERP', trace='TRACE-1')
         self.assert_quantities(self.result()[1][0], 0, 0, 940, 940)
 
+    def test_released_unused_quantity_does_not_reserve_against_original_drawn_total(self):
+        self.draw(used=2, remaining=0, status='Used')
+        self.db.execute('update `tabCFG Kanban Operation Material Draw` set drawn_qty=3')
+        for mode in ('Summary', 'Tag Detail'):
+            self.assert_quantities(self.result(mode)[1][0], 0, 2, 998, 998)
+
+    def test_fully_released_draw_does_not_reduce_available_stock(self):
+        self.draw(used=0, remaining=0, status='Released')
+        self.db.execute('update `tabCFG Kanban Operation Material Draw` set drawn_qty=1')
+        self.assert_quantities(self.result()[1][0], 0, 0, 1000, 1000)
+
     def test_cancelled_draw_releases_operational_reservation(self):
         self.draw(status='Cancelled')
         self.assert_quantities(self.result()[1][0], 0, 0, 1000, 1000)

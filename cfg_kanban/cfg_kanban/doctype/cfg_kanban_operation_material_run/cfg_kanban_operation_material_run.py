@@ -19,7 +19,7 @@ class CFGKanbanOperationMaterialRun(Document):
             frappe.throw("An open Material Run requires its execution uniqueness key")
         if self.status != "Open" and self.active_execution_key:
             frappe.throw("A closed Material Run cannot retain an active execution key")
-        if min(flt(self.drawn_qty), flt(self.used_qty), flt(self.carry_forward_qty)) < 0:
+        if min(flt(self.drawn_qty), flt(self.used_qty), flt(self.carry_forward_qty), flt(self.get("released_qty"))) < 0:
             frappe.throw("Material Run quantities cannot be negative")
         if flt(self.used_qty) > flt(self.drawn_qty) + 0.000001:
             frappe.throw("Material Run used quantity cannot exceed drawn quantity")

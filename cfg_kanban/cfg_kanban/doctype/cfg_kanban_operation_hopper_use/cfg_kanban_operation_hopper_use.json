@@ -1,0 +1,106 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Operation Hopper Use",
+ "module": "CFG Kanban",
+ "autoname": "KHU-.YYYY.-.#####",
+ "track_changes": 1,
+ "field_order": [
+  "hopper_fill",
+  "material_run",
+  "progress",
+  "process_execution",
+  "work_order",
+  "qty",
+  "stock_uom",
+  "used_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "hopper_fill",
+   "label": "Hopper Fill",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Operation Hopper Fill",
+   "reqd": 1,
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "material_run",
+   "label": "Material Run",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Operation Material Run",
+   "reqd": 1,
+   "unique": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "progress",
+   "label": "Progress",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Operation Progress",
+   "reqd": 1,
+   "unique": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "process_execution",
+   "label": "Process Execution",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Process Execution",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "work_order",
+   "label": "Work Order",
+   "fieldtype": "Link",
+   "options": "Work Order",
+   "reqd": 1,
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "qty",
+   "label": "Used Qty",
+   "fieldtype": "Float",
+   "reqd": 1,
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "stock_uom",
+   "label": "Production Output UOM",
+   "fieldtype": "Link",
+   "options": "UOM",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "used_on",
+   "label": "Used On",
+   "fieldtype": "Datetime",
+   "reqd": 1,
+   "read_only": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Manufacturing User",
+   "read": 1,
+   "print": 1,
+   "report": 1
+  },
+  {
+   "role": "Manufacturing Manager",
+   "read": 1,
+   "print": 1,
+   "report": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1,
+   "report": 1
+  }
+ ]
+}

@@ -3010,6 +3010,28 @@ ERPNext serial-controlled Items. See `docs/OPERATION_MATERIAL_RUNS.md`,
 `docs/TEST_OPERATION_MATERIAL_RUN_DRAWS.md`, and
 `docs/TEST_OPERATION_MATERIAL_RUN_SETTLEMENT.md`.
 
+### Optional operation hoppers and reservation release
+
+Normal **Digital Quantity Handoff** remains quantity-only: keep **Operation Hopper Mode = None**
+when there is no holding place. For a real hopper between operations in the same Work Order,
+select **Fill Hopper** for the source operation and **Consume Hopper** for its destination, using
+the same **Hopper Warehouse**, Incremental output and Required Before Progress Material Runs.
+The source uses Digital Quantity Handoff; the destination depends on it with Minimum Qty Available.
+
+Use a reusable Handling Unit, type **Hopper**, role **Production Output Container**. In
+**Start Material Run**, scan the boundary, hopper, then component quantities/source tags and
+Confirm. Start physical work only after preparation. Source progress loads Good Qty; destination
+progress consumes Processed Qty. The screen and Handling Unit show loaded, reserved and available
+operation WIP in the finished Item stock UOM. This is an intermediate Work Order handoff, without
+an intermediate ERP Manufacture entry or a second consumption of the BOM raw material.
+
+Close Operation Cycle releases unused **component** reservations and records **Unused Qty
+Released**. Used components remain Consumed Pending ERP until settlement. Closing just a Material
+Run retains component carry-forward inside the execution. Main-card closure provides a final
+cleanup, while remaining physical hopper WIP blocks final closure. Old empty hopper records are
+not automatically reconstructed. See `docs/TEST_OPERATION_HOPPERS_AND_RELEASE.md` and
+`docs/SIMPLE_TWO_HOPPER_ONE_WORK_ORDER_SETUP.md` for configuration and pilot acceptance.
+
 ### PPHU trace boundaries
 
 PPHU traceability uses the same fixed Production Operator scanner and operator session. Scan the

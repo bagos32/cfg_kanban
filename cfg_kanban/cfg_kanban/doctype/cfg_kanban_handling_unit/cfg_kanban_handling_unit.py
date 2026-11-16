@@ -227,6 +227,10 @@ class CFGKanbanHandlingUnit(Document):
         )
         if before.allow_mixed_content != self.allow_mixed_content and has_loaded_content:
             frappe.throw("Allow Mixed Item / Batch Content cannot change while the container is loaded")
+        if any(before.get(key) != self.get(key) for key in (
+                "inventory_company", "current_warehouse", "reusable_container_role", "tag_kind", "handling_unit_type")):
+            from cfg_kanban.services.operation_hoppers import assert_no_operation_fill
+            assert_no_operation_fill(self.name, "changing Hopper custody or role")
         if before.reusable_container_role != self.reusable_container_role:
             if has_loaded_content:
                 frappe.throw("Reusable Container Role cannot change while Stock Tags are loaded")

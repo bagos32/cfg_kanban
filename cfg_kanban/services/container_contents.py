@@ -27,6 +27,8 @@ def load_content_tag(container_scan, content_scan, event_token,
     container = _resolve_container(container_scan)
     content = _resolve_content(content_scan)
     _lock_units(container.name, content.name)
+    from cfg_kanban.services.operation_hoppers import assert_no_operation_fill
+    assert_no_operation_fill(container.name, "loading stock")
     container.reload()
     content.reload()
     assert_container_not_in_open_manifest(container.name, "changing its physical contents")
@@ -244,6 +246,8 @@ def load_production_output_content(container, content, *, reference_name, reason
     if not cint(content.get("virtual_content")) or content.physical_container != container.name:
         frappe.throw("The production fill identity does not belong to this permanent container")
     _lock_units(container.name, content.name)
+    from cfg_kanban.services.operation_hoppers import assert_no_operation_fill
+    assert_no_operation_fill(container.name, "loading ERP-manufactured stock")
     container.reload()
     content.reload()
     assert_container_not_in_open_manifest(container.name, "receiving a production output")

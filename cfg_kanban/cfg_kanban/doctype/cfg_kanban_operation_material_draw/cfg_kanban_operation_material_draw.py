@@ -16,17 +16,18 @@ IMMUTABLE_FIELDS = (
 class CFGKanbanOperationMaterialDraw(Document):
     def validate(self):
         if self.status not in (
-            "Open", "Partially Used", "Carry Forward", "Used", "Bound to ERP", "Cancelled"
+            "Open", "Partially Used", "Carry Forward", "Used", "Bound to ERP", "Released", "Cancelled"
         ):
             frappe.throw("Unsupported Operation Material Draw status")
         if flt(self.qty_per_output) <= 0 or flt(self.drawn_qty) <= 0:
             frappe.throw("Material draw quantities must be positive")
-        if min(flt(self.used_qty), flt(self.remaining_qty)) < 0:
-            frappe.throw("Material draw used and remaining quantities cannot be negative")
+        if min(flt(self.used_qty), flt(self.remaining_qty), flt(self.get("released_qty"))) < 0:
+            frappe.throw("Material draw used, remaining and released quantities cannot be negative")
         if abs(
             flt(self.drawn_qty) - flt(self.used_qty) - flt(self.remaining_qty)
+            - flt(self.get("released_qty"))
         ) > 0.000001:
-            frappe.throw("Drawn quantity must equal used quantity plus remaining quantity")
+            frappe.throw("Drawn quantity must equal used, remaining and released quantities")
         if not self.is_new():
             before = self.get_doc_before_save()
             changed = [

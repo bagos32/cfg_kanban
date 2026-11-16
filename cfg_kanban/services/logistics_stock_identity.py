@@ -48,6 +48,9 @@ def capture_manifest_line(line):
     if not line.handling_unit:
         return
     unit = frappe.get_doc("CFG Kanban Handling Unit", line.handling_unit)
+    if unit.tag_kind == "Reusable Container":
+        from cfg_kanban.services.operation_hoppers import assert_no_operation_fill
+        assert_no_operation_fill(unit.name, "dispatch")
     snapshot = identity_snapshot(unit)
     if line.get("stock_identity_snapshot"):
         if json.loads(line.stock_identity_snapshot) != snapshot:
