@@ -5256,3 +5256,27 @@ consuming raw material again, or creating ERP stock. Part-used/mixed/lost output
 hoppers and ambiguous evidence are blocked for separately reviewed reconciliation. Identical-token
 retries return the recorded result; changed recovery data with the same token are rejected. Cancel
 exits without recovery and scanner focus returns after errors/cancellation.
+
+### Isolate an entire Batch from automatic FEFO / FIFO
+
+Open the ERPNext **Batch** record. A Stock Manager, Manufacturing Manager or System Manager can
+check **Exclude Batch from Automatic FEFO / FIFO**, enter **Isolation / Release Reason**, and save.
+The Batch remains in stock with its original expiry, certificates and balances. All Stock Tags
+and child tags linked to it are excluded from automatic Kanban rotation priority, dispatch
+suggestions and matching-expiry source suggestions, across warehouses. Other Batches continue
+normal FEFO/FIFO even when the isolated Batch is earlier.
+
+An operator may still **explicitly scan a tag of the isolated Batch** for manufacture or transfer;
+no temporary Work Order sequence override is needed for that deliberate selection. Normal expiry,
+certificate, quality, warehouse, quantity and process-cycle expiry checks remain enforced. This
+is selection isolation, not a quality hold, disabled Batch or ERP stock/valuation change.
+
+When ready for general automatic selection again, uncheck the flag, enter a **new release reason**,
+and save. Manager permission is required. Each change records the account, Batch, before/after
+state and reason in Kanban Events. Source Draws retain an immutable snapshot of an explicit
+isolated-Batch selection. Existing reservations/history are not rewritten.
+
+Migration installs the Batch fields. The earlier uncommitted Item-wide exclusion draft has been
+replaced; there is no whole-Item FEFO exemption in this change. Live and multi-tab acceptance remain
+pending: test both automatic omission and explicit scan, multiple tags per Batch, release,
+expired/held/certificate-invalid stock, a role without Manager authority and normal ERP receipt.

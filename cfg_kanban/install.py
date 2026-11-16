@@ -185,6 +185,9 @@ def _custom_fields():
             {"fieldname": "cfg_po_tolerance_reference", "label": "PO Tolerance Reference", "fieldtype": "Data", "depends_on": "cfg_po_allows_extra_qty", "mandatory_depends_on": "cfg_po_allows_extra_qty", "insert_after": "cfg_po_extra_tolerance_pct", "module": "CFG Kanban", "description": "Customer PO clause, amendment, or written acceptance reference."},
         ],
         "Batch": [
+            {"fieldname":"cfg_rotation_section","label":"Kanban Batch Selection Isolation","fieldtype":"Section Break","insert_after":"description","module":"CFG Kanban"},
+            {"fieldname":"cfg_rotation_excluded","label":"Exclude Batch from Automatic FEFO / FIFO","fieldtype":"Check","default":"0","insert_after":"cfg_rotation_section","module":"CFG Kanban","description":"All tags of this Batch are omitted from Kanban automatic rotation selection. An explicit scan remains allowed with all normal validity checks. Uncheck to return the Batch to automatic selection."},
+            {"fieldname":"cfg_rotation_reason","label":"Isolation / Release Reason","fieldtype":"Small Text","insert_after":"cfg_rotation_excluded","module":"CFG Kanban"},
             {"fieldname": "cfg_mto_section", "label": "CFG Kanban MTO", "fieldtype": "Section Break", "insert_after": "description", "module": "CFG Kanban", "collapsible": 1},
             {"fieldname": "cfg_sales_demand", "label": "Sales Demand", "fieldtype": "Link", "options": "CFG Kanban Demand", "read_only": 1, "unique": 1, "insert_after": "cfg_mto_section", "module": "CFG Kanban"},
             {"fieldname": "cfg_sales_order", "label": "Sales Order", "fieldtype": "Link", "options": "Sales Order", "read_only": 1, "insert_after": "cfg_sales_demand", "module": "CFG Kanban"},

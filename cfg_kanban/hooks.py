@@ -69,6 +69,10 @@ fixtures = [
 ]
 
 doc_events = {
+    "Batch": {
+        "validate": "cfg_kanban.services.batch_rotation.validate_batch_exclusion",
+        "on_update": "cfg_kanban.services.batch_rotation.audit_batch_exclusion",
+    },
     "BOM": {
         "validate": "cfg_kanban.integrations.bom_validation.validate_job_card_item_operations",
     },

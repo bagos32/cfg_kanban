@@ -46,7 +46,9 @@ def load_service():
         for row in [run,*run.get('progress',[])] if row.get('printed_expiry')]
     expiry = types.ModuleType('cfg_kanban.services.manufacture_expiry')
     expiry.assert_process_cycle_printed_expiry = Mock(return_value={"printed_expiry_date":None})
-    modules = {'cfg_kanban.services.manufacture_expiry': expiry, 'cfg_kanban.services.certificate_output_evidence': printing, 'frappe': frappe, 'frappe.utils': utils,
+    policy = types.ModuleType('cfg_kanban.services.batch_rotation')
+    policy.batch_rotation_exclusion = Mock(return_value=None)
+    modules = {policy.__name__:policy, 'cfg_kanban.services.manufacture_expiry': expiry, 'cfg_kanban.services.certificate_output_evidence': printing, 'frappe': frappe, 'frappe.utils': utils,
                'cfg_kanban.services.events': events, 'cfg_kanban.services.operator_auth': auth,
                'cfg_kanban.services.idempotency': idem}
     spec = importlib.util.spec_from_file_location('material_rotation_subject', ROOT/'services/material_rotation.py')
@@ -133,6 +135,31 @@ class TestMaterialRotationBehavior(unittest.TestCase):
 
     def approve(self, token='approval-token', reason='Approved whole order exception'):
         return self.service.approve_work_order_material_rotation('EXEC-1', reason, token, 'supervisor-session')
+
+    def test_isolated_earlier_batch_does_not_block_other_material(self):
+        self.candidates[0].batch_no='ISOLATED'
+        self.service.batch_rotation_exclusion.side_effect=lambda batch,**kw: {'batch':'ISOLATED'} if batch=='ISOLATED' else None
+        result=self.service.validate_material_rotation(self.execution,self.unit)
+        self.assertIsNone(result['rotation_override']);self.assertIsNone(result['rotation_exemption'])
+
+    def test_explicit_scan_of_isolated_batch_is_allowed_without_override(self):
+        self.candidates[1].batch_no=self.unit.batch_no
+        self.service.batch_rotation_exclusion.side_effect=lambda batch,**kw: {'batch':batch,'reason':'Set aside'} if batch==self.unit.batch_no else None
+        result=self.service.validate_material_rotation(self.execution,self.unit,current=True)
+        self.assertEqual(result['rotation_exemption']['batch'],self.unit.batch_no)
+        self.assertIsNone(result['rotation_override'])
+
+    def test_isolation_does_not_allow_expired_stock(self):
+        self.service.batch_rotation_exclusion.return_value={'batch':self.unit.batch_no}
+        self.unit.expiry_date='2026-11-11'
+        with self.assertRaisesRegex(ValueError,'expired'):self.service.validate_material_rotation(self.execution,self.unit)
+
+    def test_releasing_batch_restores_normal_fefo(self):
+        self.candidates[0].batch_no='ISOLATED'
+        self.service.batch_rotation_exclusion.side_effect=lambda batch,**kw: {'batch':batch} if batch=='ISOLATED' else None
+        self.service.validate_material_rotation(self.execution,self.unit)
+        self.service.batch_rotation_exclusion.side_effect=None;self.service.batch_rotation_exclusion.return_value=None
+        with self.assertRaisesRegex(ValueError,'FEFO requires'):self.service.validate_material_rotation(self.execution,self.unit)
 
     def test_later_expiry_requires_full_work_order_approval(self):
         with self.assertRaisesRegex(ValueError, 'FEFO requires source tag SCAN-TAG-EARLY'):

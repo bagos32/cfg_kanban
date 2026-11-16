@@ -1496,6 +1496,8 @@ def _suggested_tags(plan, line):
             "coalesce(unit.packed_on, unit.creation) asc, unit.handling_unit_id asc"
         )
     batch_condition = "and unit.batch_no=%(batch)s" if line.batch_no else ""
+    from cfg_kanban.services.batch_rotation import automatic_batch_condition
+    isolated_batch_condition = automatic_batch_condition("unit")
     return frappe.db.sql(
         f"""
         select unit.name, unit.handling_unit_id, unit.batch_no, unit.current_qty,
@@ -1506,6 +1508,7 @@ def _suggested_tags(plan, line):
           and unit.item_code=%(item)s and unit.stock_uom=%(uom)s
           and unit.current_qty>0 and unit.reserved_qty<=0
           {batch_condition}
+          {isolated_batch_condition}
           and not exists (
               select 1 from `tabCFG Kanban Manifest Line` line
               inner join `tabCFG Kanban Movement Manifest` manifest on manifest.name=line.parent

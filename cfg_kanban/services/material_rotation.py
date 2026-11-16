@@ -12,6 +12,8 @@ from cfg_kanban.services.idempotency import canonical_key
 from cfg_kanban.services.operator_auth import require_operator
 from cfg_kanban.services.manufacture_expiry import assert_process_cycle_printed_expiry
 
+from cfg_kanban.services.batch_rotation import batch_rotation_exclusion
+
 OVERRIDE_DOCTYPE = "CFG Kanban Material Rotation Override"
 TERMINAL_WORK_ORDER_STATES = ("Completed", "Closed", "Stopped", "Cancelled")
 TOLERANCE = 0.000001
@@ -252,7 +254,12 @@ def validate_material_rotation(execution, unit, current=False):
     eligible.sort(key=lambda candidate: candidate[:3])
     if not any(candidate[3].name == unit.name for candidate in eligible):
         frappe.throw(_("Source tag {0} is no longer eligible for warehouse-local material rotation").format(unit.handling_unit_id))
-    first = eligible[0][3]
+    exclusions = {batch: batch_rotation_exclusion(batch, current=current)
+                  for batch in sorted({candidate[3].batch_no for candidate in eligible if candidate[3].batch_no})}
+    exemption = exclusions.get(unit.batch_no)
+    automatic = [candidate for candidate in eligible if not exclusions.get(candidate[3].batch_no)]
+    first = (next(candidate[3] for candidate in eligible if candidate[3].name == unit.name)
+             if exemption else automatic[0][3])
     approval = active_work_order_override(execution, current=True)
     bypassed = first.name != unit.name
     if bypassed and not approval:
@@ -264,6 +271,7 @@ def validate_material_rotation(execution, unit, current=False):
         "priority_source": first.name, "priority_scan_code": first.scan_code,
         "priority_available_qty": flt(first.effective_available),
         "rotation_override": approval.name if bypassed else None,
+        "rotation_exemption": exemption,
         "override_work_order": approval.work_order if bypassed else None,
         "override_reason": approval.reason if bypassed else None,
     }

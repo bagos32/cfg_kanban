@@ -2631,14 +2631,14 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		}).join("<br>")}` : "";
 		dialog.get_field("material_run_guide").$wrapper.html(`<div class="alert alert-info">
 			<strong>${__("High-frequency Material Run")}</strong><br>
-			${context.material_rotation_override ? `<div class="alert alert-warning">${e(__("Full Work Order FEFO override active"))}: ${e(context.material_rotation_override.work_order)} · ${e(context.material_rotation_override.reason)}</div>` : `<small>${e(__("Warehouse-local FEFO is enforced. Expired tags are prohibited."))}</small><br>`}
+			${context.material_rotation_override ? `<div class="alert alert-warning">${e(__("Full Work Order FEFO override active"))}: ${e(context.material_rotation_override.work_order)} · ${e(context.material_rotation_override.reason)}</div>` : `<small>${e(__("Warehouse-local FEFO applies to non-isolated Batches. Isolated Batches may be explicitly scanned; expiry and certificate checks still apply."))}</small><br>`}
 			${options.length > 1 ? `${__("Select the operation first")}:<br>${options.map((row) => e(row)).join("<br>")}<br>` : ""}
 			<strong>${__("Next step")}</strong>: ${e(next_step)}${hopper_html}${requirement_html}<br>
 			<small>${__("Source scans create protected operational reservations. Confirm checks input certificates before authorizing the Material Run. If the operation is Ready, Start Operation is still required before physical work. ERP stock posts only at settlement.")}</small>
 		</div>`);
 		dialog.get_field("material_draw_summary").$wrapper.html(draws.length
 			? `<div class="alert alert-success"><strong>${__("Ready to confirm")}</strong><br>${draws.map((row) =>
-				`${e(row.item_code)}: ${row.qty} ${e(row.stock_uom)} · ${e(row.display_source_code || row.source_visible_code)}`).join("<br>")}</div>`
+				`${e(row.item_code)}: ${row.qty} ${e(row.stock_uom)} · ${e(row.display_source_code || row.source_visible_code)}${row.material_rotation?.rotation_exemption ? " · " + e(__("Explicit scan of isolated Batch")) : ""}`).join("<br>")}</div>`
 			: "");
 	}
 
