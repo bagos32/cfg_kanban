@@ -5233,3 +5233,26 @@ Scanner commands, available in Print Command Labels:
 For a Draft Manifest selected before this metadata fix, remove and rescan the affected line to
 capture the date. Frozen prepared/submitted Manifest snapshots and historical ERP postings are
 not silently rewritten. No re-certification is needed when intact posted evidence already exists.
+
+### Supervisor Material Run recovery
+
+Use **Recover Material Run**, or scan `CFG:CMD:RECOVER_MATERIAL_RUN`. Supervisor Override authority
+is required for the exact source execution. Select the run using numbered choices (ten per page;
+NEXT_MATERIALS/PREVIOUS_MATERIALS), or scan/enter its exact historical Material Run ID.
+
+Select **Release unused** to return that run's unused component reservations without changing Used
+Qty, production progress or ERP stock. An open, unreported run is cancelled and its hopper
+reservation is returned. Cancel another open run in the execution first if it relies on this carry.
+
+Select **Reconstruct hopper** for one untouched, already posted and fully released Rinse progress.
+Scan the physical hopper, scan `CFG:QTY:MATERIAL:n` for the verified physical quantity, then scan
+or enter a reason and Confirm. The quantity must exactly match the original Good Qty. The Work
+Order must remain active without posted finished output or prior Packing progress. Configure the
+paired Fill Hopper / Consume Hopper route first; old execution snapshots are retained. Continue
+Packing through a newly released Consume Hopper execution on that same Work Order.
+
+Reconstruction creates a linked operational fill and audit event, without replaying Rinse,
+consuming raw material again, or creating ERP stock. Part-used/mixed/lost output, already occupied
+hoppers and ambiguous evidence are blocked for separately reviewed reconciliation. Identical-token
+retries return the recorded result; changed recovery data with the same token are rejected. Cancel
+exits without recovery and scanner focus returns after errors/cancellation.

@@ -152,6 +152,7 @@ def _scanner_command_catalog(quantity_steps=None):
             ("Approve Work Order Yield / Quantity", "CFG:CMD:APPROVE_WO_YIELD", ""),
             ("Revoke Work Order Yield / Quantity", "CFG:CMD:REVOKE_WO_YIELD", ""),
             ("Correct Actual Material Use", "CFG:CMD:CORRECT_MATERIAL_USE", ""),
+            ("Recover Material Run", "CFG:CMD:RECOVER_MATERIAL_RUN", ""),
             ("Next Material Choices", "CFG:CMD:NEXT_MATERIALS", ""),
             ("Previous Material Choices", "CFG:CMD:PREVIOUS_MATERIALS", ""),
             ("Approve Full Work Order FEFO Override", "CFG:CMD:APPROVE_MATERIAL_FEFO_OVERRIDE", ""),

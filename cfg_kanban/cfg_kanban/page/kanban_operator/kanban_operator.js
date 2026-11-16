@@ -377,6 +377,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
             APPROVE_WO_YIELD: () => open_work_order_yield_override(false),
             REVOKE_WO_YIELD: () => open_work_order_yield_override(true),
             CORRECT_MATERIAL_USE: open_material_use_correction,
+            RECOVER_MATERIAL_RUN: open_material_run_recovery,
             RECEIPT_USE_PRINTED_EXPIRY: () => receipt_expiry_command("CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY"),
             RECEIPT_STANDARD_EXPIRY: () => receipt_expiry_command("CFG:CMD:RECEIPT_STANDARD_EXPIRY"),
             RECEIPT_BATCH: () => receipt_expiry_command("CFG:CMD:RECEIPT_BATCH"),
@@ -1045,6 +1046,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<p><strong>${__("Work Order Process Certificates")}</strong>: ${__("Use the normal Start Operation, Start Material Run, Material Quantity, physical source-tag, Report Progress, Scan Material Tags, Submit Material Entry, Confirm, Cancel, and numbered Select labels. Certificate gates run automatically for the configured Operation; do not scan the same material again from the main Production Card after a Process/Station Card recorded it against the shared Job Card.")}</p>
 			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then scan Material Quantity and the physical source Stock Tag for each tracked component. Confirm opens the run. Prepare Receipt uses finalized Material Run actuals; unused BOM balances stay in stock. Printed expiry stays consistent within each Process Card cycle. At receipt, scan CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY or CFG:CMD:RECEIPT_STANDARD_EXPIRY; CFG:CMD:RECEIPT_BATCH arms the next Finished Batch ID scan. Automatic expiry copying requires one matching consumed printed date. Save an older Manufacture Draft and reopen Scan Material Tags to refresh its inputs. Ordinary operations and No Run Tracking components retain normal material confirmation.")}</small></p>
 			<p><small>${__("Operation Hoppers: configure Fill Hopper on Rinse and Consume Hopper on Packing with the same Hopper Warehouse. In Start Material Run, scan the boundary, the physical Hopper, then each Material Quantity/source tag and Confirm. Rinse progress loads good output; Packing progress consumes the selected fill. Loaded and available quantities use the finished Item stock UOM. Close Operation Cycle releases unused raw-material reservations; used quantities remain pending ERP settlement. PPHU Hopper Change records trace context only and does not load stock.")}</small></p>
+			<p>${__("Supervisor recovery: CFG:CMD:RECOVER_MATERIAL_RUN. Select or scan the exact Material Run, then choose Release unused or Reconstruct hopper. Reconstruction scans the physical Hopper, CFG:QTY:MATERIAL:n for its confirmed quantity, and a reason. Release returns unused reservations only. Confirm/Cancel retain scanner focus; old packing use or mismatched quantities require separate reconciliation.")}</p>
 			<p><strong>${__("PPHU trace commands")}</strong>: <code>CFG:CMD:PPHU_HOPPER_CHANGE</code>, <code>CFG:CMD:PPHU_BATCH_CHANGE</code>, <code>CFG:CMD:PPHU_OUTPUT_SERIAL</code>. Select an operation with <code>CFG:SELECT:n</code>, scan the physical Hopper/material tag when requested, scan the first affected output serial, then scan <code>CFG:CMD:CONFIRM</code>.</p>
 			<p><strong>${__("Crew commands")}</strong>: <code>CFG:CMD:CREW</code>, <code>CFG:CMD:CREW_OPEN</code>, <code>CFG:CMD:CREW_JOIN</code>, <code>CFG:CMD:CREW_JOIN_SENIOR</code>, <code>CFG:CMD:CREW_JOIN_OVERSIGHT</code>, <code>CFG:CMD:CREW_JOIN_TEMP</code>, <code>CFG:CMD:CREW_BREAK</code>, <code>CFG:CMD:CREW_RESUME</code>, <code>CFG:CMD:CREW_LEAVE</code>, <code>CFG:CMD:CREW_MAIN</code>, <code>CFG:CMD:CREW_CONTEXT</code>, <code>CFG:CMD:CREW_CLOSE</code>.</p>
 			<p><small>${__("On an Available Process/Station Card, choose the exact numbered Job Card before Crew Controls when several targets are eligible. On a Workstation Queue Card, Crew Controls uses the selected Active/Ready work row.")}</small></p>
@@ -2293,6 +2295,76 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (names.length === 1) await load(names[0]);
 	}
 
+
+
+    async function open_material_run_recovery() {
+        if (!state.operator?.permissions?.override) return scanner_command_message(__("Supervisor Override authority is required."));
+        const actions = ["Release unused", "Reconstruct hopper"];
+        let context = null, busy = false, choices = [], page_index = 0;
+        const token = frappe.utils.get_random(24);
+        const dialog = new frappe.ui.Dialog({title:__("Recover Material Run"),fields:[
+            {fieldname:"guide",fieldtype:"HTML"},
+            {fieldname:"material_run",label:__("Exact Material Run"),fieldtype:"Data",reqd:1},
+            {fieldname:"action",label:__("Recovery Action"),fieldtype:"Select",options:["",...actions].join("\n"),reqd:1},
+            {fieldname:"hopper_scan",label:__("Physical Hopper"),fieldtype:"Data",depends_on:"eval:doc.action=='Reconstruct hopper'"},
+            {fieldname:"physical_qty",label:__("Confirmed Physical Quantity"),fieldtype:"Float",depends_on:"eval:doc.action=='Reconstruct hopper'"},
+            {fieldname:"reason",label:__("Recovery Reason"),fieldtype:"Small Text",reqd:1},
+            {fieldname:"scanner_command",label:__("Scanner Input"),fieldtype:"Data"},
+        ],primary_action_label:__("Confirm Recovery"),primary_action:async values=>{
+            if(busy)return;
+            if(!context || context.material_run!==values.material_run) return frappe.throw(__("Load the exact Material Run first."));
+            busy=true;
+            try {
+                await frappe.call({method:"cfg_kanban.services.material_run_recovery.recover_material_run",
+                    args:{...values,hopper_scan:values.action==="Reconstruct hopper"?values.hopper_scan:null,physical_qty:values.action==="Reconstruct hopper"?values.physical_qty:0,event_token:token,operator_session_token:state.session_token},freeze:true});
+                dialog.hide();
+                if(state.context?.card) await load_card(state.context.card.qr_code || state.context.card.card_number);
+            } finally {
+                busy=false;
+                if(dialog.$wrapper.is(":visible"))window.setTimeout(()=>dialog.get_field("scanner_command").set_focus(),80);
+            }
+        }});
+        const show_page=()=>{
+            const rows=choices.slice(page_index*10,page_index*10+10);
+            dialog.cfg_scanner_selection_values=rows.map(row=>row.name);
+            dialog.cfg_scanner_selection_field="material_run";
+            dialog.get_field("guide").$wrapper.html(__("Select a Material Run with CFG:SELECT:n; NEXT_MATERIALS/PREVIOUS_MATERIALS change pages. You may also scan or enter an exact historical Material Run ID.")+"<br>"+rows.map((row,i)=>`${i+1}. ${frappe.utils.escape_html(row.name)}`).join("<br>"));
+        };
+        const load=async name=>{
+            context=null;
+            const response=await frappe.call({method:"cfg_kanban.services.material_run_recovery.recovery_context",args:{material_run:name,operator_session_token:state.session_token}});
+            if(dialog.get_value("material_run")!==name)return;
+            context=response.message;
+            dialog.set_df_property("material_run","read_only",1);
+            dialog.get_field("guide").$wrapper.html(`${frappe.utils.escape_html(context.work_order)} · ${frappe.utils.escape_html(context.operation)}<br>${__("Unused components")}: ${context.unused_qty} · ${__("Hopper reserved")}: ${context.hopper_reserved_qty} · ${__("Recorded good output")}: ${context.good_qty}<br>1. ${__("Release unused")}<br>2. ${__("Reconstruct hopper")}<br>${__("Release preserves used quantities and ERP stock. Reconstruction requires untouched output; confirm physical quantity and a reason.")}`);
+            dialog.cfg_scanner_selection_values=actions;
+            dialog.cfg_scanner_selection_field="action";
+        };
+        dialog.cfg_require_prefixed_selection=true;
+        dialog.cfg_selection_changed=async value=>{
+            if(choices.some(row=>row.name===value))return load(value);
+            if(actions.includes(value)){
+                await dialog.set_value("hopper_scan","");await dialog.set_value("physical_qty",0);
+                dialog.cfg_scanner_selection_values=actions;dialog.cfg_scanner_selection_field="action";
+            }
+        };
+        dialog.cfg_quantity_handler=(qty,additive)=>dialog.set_value("physical_qty",additive?Number(dialog.get_value("physical_qty")||0)+qty:qty);
+        dialog.cfg_raw_scanner_handler=async value=>{
+            if(/^CFG:CMD:(NEXT|PREVIOUS)_MATERIALS$/i.test(value) && !context){
+                page_index=Math.max(0,Math.min(Math.ceil(choices.length/10)-1,page_index+(value.toUpperCase().includes(":NEXT_")?1:-1)));return show_page();
+            }
+            if(!context){await dialog.set_value("material_run",value);return load(value);}
+            if(dialog.get_value("action")==="Reconstruct hopper" && !dialog.get_value("hopper_scan"))return dialog.set_value("hopper_scan",value);
+            return dialog.set_value("reason",value);
+        };
+        dialog.show();bind_confirmation_scanner(dialog,true,[],"material_run");
+        dialog.get_field("material_run").$input.on("change.cfg-recovery",()=>{if(!context && dialog.get_value("material_run"))load(dialog.get_value("material_run"));});
+        const executions=(state.context?.executions||[]).filter(row=>row.job_card);
+        const ids=[...new Set(executions.map(row=>row.name))];
+        const responses=await Promise.all(ids.map(execution_name=>frappe.call({method:"cfg_kanban.services.material_run_recovery.recovery_runs",args:{execution_name,operator_session_token:state.session_token}})));
+        choices=[...new Map(responses.flatMap(response=>response.message||[]).map(row=>[row.name,row])).values()];
+        if(!context)show_page();
+    }
 
 	async function open_material_run_dialog(preferred_execution = null) {
 		if (!state.context?.cycle || !state.context?.card) {
@@ -5399,6 +5471,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 				add_action($buttons, __("Approve WO Yield / Quantity"), "btn-warning", () => open_work_order_yield_override(false));
 				add_action($buttons, __("Revoke WO Yield / Quantity"), "btn-default", () => open_work_order_yield_override(true));
 				add_action($buttons, __("Correct Material Use"), "btn-default", open_material_use_correction);
+                add_action($buttons, __("Recover Material Run"), "btn-default", open_material_run_recovery);
 			}
 			if (row.status === "Ready" && state.operator.permissions.start) {
 				if (ownership?.enabled && !ownership.owner && !ownership.eligible_to_accept) {

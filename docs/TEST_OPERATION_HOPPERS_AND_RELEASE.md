@@ -9,7 +9,7 @@ site, tester, date and actual evidence before marking any live case passed.
 - Ordinary Digital Quantity Handoff with Operation Hopper Mode=None adds no holding-place scan.
 - Opt-in Fill Hopper/Consume Hopper tracks intermediate WIP in finished-Item stock UOM.
 - Intermediate fills do not create an ERP Manufacture entry or a second raw-material input.
-- Existing executions retain their snapshots. Old HOPPER_3 output is not reconstructed/reported again.
+- Existing executions retain their snapshots. Old HOPPER_3 output is not automatically reconstructed; supervised recovery never re-reports production.
 - Only component reservations are returned at operation-cycle closure. Physical rinsed WIP is not
   silently returned to raw stock or cleared by ERP cancellation. Exceptional physical-WIP recovery
   requires a separately reviewed reconciliation; no automatic reallocation to another WO is provided.
@@ -71,3 +71,18 @@ No live site, MariaDB concurrency, ERP ledger or real kiosk acceptance was perfo
     QRs, Confirm/Cancel, errors and restored focus, across repeated micro-runs. Repeat by touch.
 
 Package L1 transfer acceptance remains separate and partial; see TEST_PACKAGE_L1_TRANSFER_KANBAN.md.
+
+## Supervisor recovery extension
+
+Offline: test_material_run_recovery exercises unused-only release, preserved usage, source-progress
+linkage, retry identity, closed-WO release, unauthorized requests and rejection of prior Packing,
+partial physical balance or unreleased output. Live acceptance remains pending.
+
+On an isolated site, verify both Recover Material Run paths with click/touch and fixed scanner:
+select the exact run, action, physical Hopper/quantity when required, reason, Confirm/Cancel.
+Verify audit records, source-run totals and hopper quantities; no new production progress, native
+stock entry or ledger change may be created. Repeat lost-response/same-token and changed-token
+payload tests, multi-tab locking, occupied hopper, different Company/warehouse, old closed Cycle,
+and a role without Override. Partial/mixed historical contents must reject rather than infer use.
+
+Recovery working-tree verification, 2026-11-16: 242 Python checks and 29 scanner-dialog checks passed offline. Live recovery and MariaDB concurrency remain unverified.
