@@ -373,6 +373,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			GO_TO_CURRENT_WORK: go_to_current_work,
 			CLOSE_CYCLE: close_context_runtime_cycle,
 			START_MATERIAL_RUN: open_material_run_dialog,
+            MATERIAL_RUN_BOUNDARY: material_run_boundary_command,
 			NEXT_MATERIALS: () => page_material_choices("CFG:CMD:NEXT_MATERIALS"),
 			PREVIOUS_MATERIALS: () => page_material_choices("CFG:CMD:PREVIOUS_MATERIALS"),
             APPROVE_WO_YIELD: () => open_work_order_yield_override(false),
@@ -1043,6 +1044,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<p><strong>${__("Production material commands")}</strong>: <code>CFG:CMD:START_MATERIAL_RUN</code>, <code>CFG:CMD:CANCEL_MATERIAL_RUN</code>, <code>CFG:CMD:PREPARE_MATERIALS</code>, <code>CFG:CMD:RECORD_WIP_BIN_USE</code>, <code>CFG:CMD:RECORD_LOOSE_WIP_USE</code>, <code>CFG:CMD:PREPARE_LOOSE_WIP_CONSUMPTION</code>, <code>CFG:SELECT:1</code>, <code>CFG:QTY:MATERIAL:10</code>, <code>CFG:CMD:SCAN_MATERIALS</code>, <code>CFG:CMD:NO_SOURCE</code>, <code>CFG:CMD:FULL_BIN</code>, <code>CFG:CMD:SUBMIT_MATERIALS</code>, <code>CFG:CMD:PREPARE_RECEIPT</code>.</p>
 			<p>${__("An unacknowledged Certificate Progress report is saved in this browser. Reopen and scan Confirm to retry the same micro-lot unchanged; Cancel and refresh retain it. Corrections are enabled only after the server confirms rejection. Do not clear browser storage or repeat the micro-lot in another browser.")}</p>
 			<p>${__("Start Material Run enforces warehouse-local FEFO and rejects expired tags. An unrestricted supervisor can scan CFG:CMD:APPROVE_MATERIAL_FEFO_OVERRIDE, select the Work Order context with CFG:SELECT:n, scan a reason, then Confirm. The approval covers the entire Work Order and all later micro-runs/cards; CFG:CMD:REVOKE_MATERIAL_FEFO_OVERRIDE revokes it. Expired material is never allowed. Cancel safely closes either dialog.")}</p>
+			<p>${__("Start Material Run shows an ordered Ready to confirm checklist: new output boundary when required, destination Hopper if configured, previous-operation Hopper input, then each configured material quantity and physical source. Red rows show missing/invalid evidence; green rows show checked quantities and sources. Recognized physical sources may be scanned out of order and map by Item. A source-first scan waits for quantity. CFG:SELECT:n selects a material; NEXT_MATERIALS/PREVIOUS_MATERIALS page choices. CFG:CMD:MATERIAL_RUN_BOUNDARY explicitly captures the new output boundary next; incoming source boundaries never replace it. Touch uses Apply Quantity and Read Scan. Confirm rechecks stock, FEFO and input certificates; Cancel returns scanner focus.")}</p>
 			<p>${__("Work Order yield/quantity exceptions: scan CFG:CMD:APPROVE_WO_YIELD or CFG:CMD:REVOKE_WO_YIELD, choose context, scan reason and Confirm. Corrections: CFG:CMD:CORRECT_MATERIAL_USE, choose operation then allocation with CFG:SELECT:n, scan CFG:QTY:MATERIAL:n and a reason, then Confirm. Cancel is safe. Submitted ERP records require controlled recovery. For certificate-controlled material, prepare Start Material Run with Quantity, source tag and Confirm while Ready, then Start Operation. Both input gate stages are checked before each run and again at progress. Progress actual material quantities use each component stock UOM. Lists use ten numbered choices per page; CFG:CMD:NEXT_MATERIALS and CFG:CMD:PREVIOUS_MATERIALS change pages.")}</p>
 			<p><strong>${__("Certificate Process commands")}</strong>: <code>CFG:CMD:START_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:COMPLETE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:REPORT_CERTIFICATE_PROGRESS</code>, <code>CFG:CMD:CLOSE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:SUBMIT_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:CANCEL_CERTIFICATE_PROCESS</code>. Field-arm commands are <code>CFG:CMD:CERTIFICATE_OUTPUT_TAG</code>, <code>CFG:CMD:CERTIFICATE_BATCH</code>, <code>CFG:CMD:CERTIFICATE_EXPIRY</code>, <code>CFG:CMD:CERTIFICATE_SERIAL_START</code>, and <code>CFG:CMD:CERTIFICATE_SERIAL_END</code>. Scan the field command and then its physical/value barcode.</p>
 			<p><strong>${__("Work Order Process Certificates")}</strong>: ${__("Use the normal Start Operation, Start Material Run, Material Quantity, physical source-tag, Report Progress, Scan Material Tags, Submit Material Entry, Confirm, Cancel, and numbered Select labels. Certificate gates run automatically for the configured Operation; do not scan the same material again from the main Production Card after a Process/Station Card recorded it against the shared Job Card.")}</p>
@@ -2464,282 +2466,265 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
     }
 
 	async function open_material_run_dialog(preferred_execution = null) {
-		if (!state.context?.cycle || !state.context?.card) {
-			return scanner_command_message(__("Scan an active production or Process Card first."));
-		}
-		if (!state.operator?.permissions?.report_progress) {
-			return scanner_command_message(__("This operator cannot open a Material Run."));
-		}
-		const available = material_run_candidates();
-		const candidates = preferred_execution
-			? available.filter((row) => row.name === preferred_execution)
-			: available;
-		if (!candidates.length) {
-			return scanner_command_message(__("No Ready or started operation on this Card has Material Run Control enabled."));
-		}
-		if (candidates.length > 10) {
-			return scanner_command_message(__("More than ten operations are eligible. Open the exact Process or Station Card first."));
-		}
-
-		const values = candidates.map((row) => row.name);
-		const options = candidates.map((row, index) =>
-			`${index + 1}. ${row.operation || __("Operation")} · ${row.workstation || "-"} · ${row.job_card || "-"}`);
-		const context_by_execution = Object.fromEntries(
-			candidates.map((row) => [row.name, {
-				execution: row.name,
-				control_mode: row.material_run_control,
-				boundary_mode: row.material_run_output_boundary,
-				boundary_required: row.material_run_output_boundary === "Every Material Run",
-				material_rules: [],
-				open_run: row.material_run,
-				...(row.material_run_context || {}),
-				hopper_mode: row.material_run_context?.hopper_mode ?? row.material_run_hopper_mode ?? "None",
-				hopper_warehouse: row.material_run_context?.hopper_warehouse ?? row.material_run_hopper_warehouse,
-			}])
-		);
-		const dialog = new frappe.ui.Dialog({
-			title: __("Start Operation Material Run"),
-			fields: [
-				{ fieldname: "material_run_guide", fieldtype: "HTML" },
-				{ fieldname: "execution_name", label: __("Operation Context"), fieldtype: "Select",
-					options: (candidates.length === 1 ? values : ["", ...values]).join("\n"), default: candidates.length === 1 ? values[0] : "", read_only: candidates.length === 1 },
-				{ fieldname: "output_serial_boundary", label: __("First Output Serial / Boundary"),
-					fieldtype: "Data", read_only: 1 },
-				{ fieldname: "material_draw_summary", fieldtype: "HTML" },
-				{ fieldname: "scanner_command", label: __("Scanner Input"), fieldtype: "Data",
-					description: __("Scanner sequence: boundary when requested, configured Hopper, Material Quantity, physical source Stock Tag, then Confirm. Cancel safely leaves without opening the run.") },
-			],
-			primary_action_label: __("Start Material Run"),
-			primary_action: async (form_values) => {
-				if (dialog.cfg_material_run_submitting) return;
-				const context = context_by_execution[form_values.execution_name];
-				if (!context) {
-					frappe.show_alert({ message: __("Material Run context is still loading. Scan Confirm again."), indicator: "orange" });
-					return dialog.get_field("scanner_command").set_focus();
-				}
-				if (context.open_run) {
-					frappe.show_alert({ message: __("Material Run {0} is already open.", [context.open_run.name]), indicator: "blue" });
-					return dialog.get_field("scanner_command").set_focus();
-				}
-				if (context.hopper_mode && context.hopper_mode !== "None" && !dialog.cfg_hopper_scan) {
-					frappe.show_alert({ message: __("Scan the physical Hopper before confirming."), indicator: "orange" });
-					return dialog.get_field("scanner_command").set_focus();
-				}
-				if (context.boundary_required && !form_values.output_serial_boundary) {
-					frappe.show_alert({ message: __("Scan the first output serial or production boundary."), indicator: "orange" });
-					return dialog.get_field("scanner_command").set_focus();
-				}
-				dialog.cfg_material_run_submitting = true;
-				try {
-					const response = await frappe.call({
-						method: "cfg_kanban.services.operation_material_runs.start_scanner_run",
-						args: {
-							execution_name: form_values.execution_name,
-							output_serial_boundary: form_values.output_serial_boundary,
-							material_draws: JSON.stringify(dialog.cfg_material_draws || []),
-							hopper_scan: dialog.cfg_hopper_scan || null,
-							event_token: dialog.cfg_material_run_event_token,
-							operator_session_token: state.session_token,
-						},
-						freeze: true,
-						freeze_message: __("Opening Material Run..."),
-					});
-					dialog.hide();
-					frappe.show_alert({
-						message: response.message.already_open
-							? __("Material Run {0} was already open", [response.message.name])
-							: context.execution_status === "Ready"
-								? __("Material Run {0} prepared. Start Operation before physical work.", [response.message.name])
-								: __("Material Run {0} started; input certificates checked", [response.message.name]),
-						indicator: response.message.already_open ? "blue" : "green",
-					}, 7);
-					await load_card(state.context.card.qr_code || state.context.card.card_number);
-				} finally {
-					if (dialog.$wrapper.is(":visible")) {
-						dialog.cfg_material_run_submitting = false;
-						window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 80);
-					}
-				}
-			},
-		});
-		dialog.cfg_material_run_event_token = frappe.utils.get_random(24);
-		dialog.cfg_material_run_submitting = false;
+		if (!state.context?.cycle || !state.context?.card) return scanner_command_message(__("Scan an active production or Process Card first."));
+		if (!state.operator?.permissions?.report_progress) return scanner_command_message(__("This operator cannot open a Material Run."));
+		const candidates = material_run_candidates().filter(row => !preferred_execution || row.name === preferred_execution);
+		if (!candidates.length) return scanner_command_message(__("No Ready or started operation on this Card has Material Run Control enabled."));
+		if (candidates.length > 10) return scanner_command_message(__("More than ten operations are eligible. Open the exact Process or Station Card first."));
+		const values = candidates.map(row => row.name);
+		const options = candidates.map((row, i) => `${i + 1}. ${row.operation} · ${row.workstation || "-"} · ${row.job_card || "-"}`);
+		const contexts = Object.fromEntries(candidates.map(row => [row.name, {
+			execution: row.name, operation: row.operation, execution_status: row.status,
+			boundary_mode: row.material_run_output_boundary || "None",
+			boundary_required: row.material_run_output_boundary === "Every Material Run",
+			material_rules: [], open_run: row.material_run,
+			output_item_code: state.context.master?.item_code || state.context.cycle.item_code || state.context.card.item_code,
+			...(row.material_run_context || {}),
+			hopper_mode: row.material_run_context?.hopper_mode ?? row.material_run_hopper_mode ?? "None",
+			hopper_warehouse: row.material_run_context?.hopper_warehouse ?? row.material_run_hopper_warehouse,
+		}]));
+		let queue = Promise.resolve();
+		const context = () => contexts[dialog.get_value("execution_name")];
+		const focus = () => { if (dialog.$wrapper.is(":visible")) window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 80); };
+		const refresh = () => refresh_material_run_guide(dialog, context(), options);
+		const lock = () => { dialog.cfg_selection_locked = true; dialog.set_df_property("execution_name", "read_only", 1); };
+		const editable = () => {
+			if (dialog.cfg_material_run_submitting || dialog.cfg_material_run_pending_request) {
+				frappe.show_alert({message:__("Retry the original confirmation or Cancel and reload the Card to reconcile its outcome before editing."),indicator:"orange"});
+				return false;
+			}
+			return true;
+		};
+		const enqueue = task => {
+			const next = queue.catch(() => {}).then(async () => {
+				if (!dialog.$wrapper.is(":visible") || !editable()) return;
+				try { return await task(); }
+				catch (error) { dialog.cfg_material_scan_error = material_run_error_message(error); throw error; }
+				finally { refresh(); focus(); }
+			});
+			queue = next;
+			return next;
+		};
+		const dialog = new frappe.ui.Dialog({title:__("Start Operation Material Run"), fields:[
+			{fieldname:"material_run_guide",fieldtype:"HTML"},
+			{fieldname:"execution_name",label:__("Operation Context"),fieldtype:"Select",options:(candidates.length === 1 ? values : ["",...values]).join("\n"),default:candidates.length === 1 ? values[0] : "",read_only:candidates.length === 1},
+			{fieldname:"material_draw_summary",fieldtype:"HTML"},
+			{fieldname:"output_serial_boundary",label:__("New Output Boundary"),fieldtype:"Data",description:__("This operation's new output boundary. Incoming source boundaries remain on their original records.")},
+			{fieldname:"material_quantity",label:__("Material Quantity"),fieldtype:"Float",default:0},
+			{fieldname:"apply_material_quantity",label:__("Apply Quantity"),fieldtype:"Button",click:()=>dialog.cfg_quantity_handler(Number(dialog.get_value("material_quantity") || 0))},
+			{fieldname:"material_source_scan",label:__("Source Tag / Hopper / Output Boundary"),fieldtype:"Data"},
+			{fieldname:"read_material_source",label:__("Read Scan"),fieldtype:"Button",click:()=>dialog.cfg_raw_scanner_handler(dialog.get_value("material_source_scan"))},
+			{fieldname:"scanner_command",label:__("Scanner Input"),fieldtype:"Data",description:__("Follow the checklist: new output boundary, destination Hopper if configured, then quantity and source for each item. Recognized sources also work out of order. CFG:SELECT:n selects a material; source-first scans wait for quantity.")},
+		],primary_action_label:__("Start Material Run"),primary_action:async form => {
+			if (dialog.cfg_material_run_submitting) return;
+			let tail;
+			do { tail = queue;await tail.catch(() => {}); } while (tail !== queue);
+			if (dialog.cfg_material_run_submitting || !dialog.$wrapper.is(":visible")) return;
+			const current = context();
+			if (!current || current.open_run) {
+				frappe.show_alert({message:current?.open_run ? __("Material Run {0} is already open.",[current.open_run.name]) : __("Select the exact operation first."),indicator:"orange"});return focus();
+			}
+			const readiness = material_run_readiness(dialog, current);
+			if (!readiness.ready && !dialog.cfg_material_run_pending_request) { frappe.show_alert({message:__("Complete every red checklist row before confirming."),indicator:"orange"});return focus(); }
+			const args = {execution_name:dialog.get_value("execution_name"),output_serial_boundary:dialog.get_value("output_serial_boundary"),
+				material_draws:JSON.stringify(dialog.cfg_material_draws || []),hopper_scan:dialog.cfg_hopper_scan || null,
+				event_token:dialog.cfg_material_run_event_token,operator_session_token:state.session_token};
+			if (dialog.cfg_material_run_pending_request && JSON.stringify(args) !== JSON.stringify(dialog.cfg_material_run_pending_request)) return frappe.throw(__("Retry the original confirmation data or Cancel and reload to reconcile the run."));
+			dialog.cfg_material_run_pending_request = args;dialog.cfg_material_run_submitting = true;
+			try {
+				const response = await frappe.call({method:"cfg_kanban.services.operation_material_runs.start_scanner_run",args,freeze:true,freeze_message:__("Opening Material Run...")});
+				dialog.hide();
+				frappe.show_alert({message:response.message.already_open ? __("Material Run {0} was already open",[response.message.name]) : current.execution_status === "Ready" ? __("Material Run {0} prepared. Start Operation before physical work.",[response.message.name]) : __("Material Run {0} started; input certificates checked",[response.message.name]),indicator:"green"},7);
+				await load_card(state.context.card.qr_code || state.context.card.card_number);
+			} catch (error) {
+				// A normal rejected Frappe request rolls back. An uncertain network result
+				// retains its exact token/payload until replay or Card reload reconciles it.
+				if (error?.exc_type || error?.responseJSON?.exc_type) dialog.cfg_material_run_pending_request = null;
+				dialog.cfg_material_scan_error = material_run_error_message(error);
+				throw error;
+			} finally { dialog.cfg_material_run_submitting = false; refresh(); focus(); }
+		}});
+		dialog.cfg_material_sources = {};
 		dialog.cfg_material_draws = [];
 		dialog.cfg_pending_material_qty = 0;
+		dialog.cfg_material_run_submitting = false;
 		dialog.cfg_require_prefixed_selection = true;
-		dialog.cfg_scanner_selection_values = values;
-		dialog.cfg_scanner_selection_field = "execution_name";
-
-		const load_context = async (execution_name) => {
-			const context = context_by_execution[execution_name];
+		dialog.cfg_material_run_generation = 0;
+		const state_for = rule => dialog.cfg_material_sources[rule.rule_row] ||= {qty:0,scan_value:null,preview:null,validated:false,error:""};
+		const sync_draws = () => {
+			dialog.cfg_material_draws = (context()?.material_rules || []).flatMap(rule => {
+				const row = dialog.cfg_material_sources[rule.rule_row];
+				return row?.validated && !row.error ? [{scan_value:row.scan_value,qty:row.qty,display_source_code:row.preview.physical_container_code || row.preview.source_visible_code,...row.preview}] : [];
+			});
+		};
+		const validate_row = async (rule, row, supplied = null) => {
+			const generation = dialog.cfg_material_run_generation;
+			row.validated = false;row.error = "";sync_draws();refresh();
+			if (!(row.qty > 0) || !row.scan_value) return;
+			try {
+				const preview = supplied && Number(supplied.qty) === row.qty ? supplied : (await frappe.call({method:"cfg_kanban.services.operation_material_runs.preview_material_draw",args:{execution_name:dialog.get_value("execution_name"),scan_value:row.scan_value,quantity:row.qty,operator_session_token:state.session_token},freeze:true,freeze_message:__("Checking source material...")})).message;
+				if (generation !== dialog.cfg_material_run_generation || !dialog.$wrapper.is(":visible")) return;
+				if (preview.rule_row !== rule.rule_row) frappe.throw(__("The source item changed; scan its current tag again."));
+				row.preview = preview;row.validated = true;dialog.cfg_material_scan_error = "";
+				if (preview.material_rotation?.rotation_override) frappe.show_alert({message:__("Using active full Work Order FEFO override {0}",[preview.material_rotation.rotation_override]),indicator:"orange"},8);
+			} catch (error) { row.error = material_run_error_message(error);throw error; }
+			finally { sync_draws(); }
+		};
+		const select_rule = rule_row => enqueue(async () => {
+			const rule = (context()?.material_rules || []).find(row => row.rule_row === rule_row);
+			if (!rule) return;
+			dialog.cfg_active_material_rule = rule_row;lock();
+			const row = state_for(rule);
+			if (dialog.cfg_pending_material_qty > 0) {
+				row.qty = dialog.cfg_pending_material_qty;dialog.cfg_pending_material_qty = 0;
+				await validate_row(rule,row);
+			}
+			await dialog.set_value("material_quantity",row.qty || 0);refresh();focus();
+		});
+		dialog.cfg_select_material_rule = select_rule;
+		dialog.cfg_material_page_handler = value => {
+			const count = (context()?.material_rules || []).length;
+			dialog.cfg_material_page = Math.max(0,Math.min(Math.max(0,Math.ceil(count/10)-1),(dialog.cfg_material_page || 0)+(value.toUpperCase().includes(":NEXT_") ? 1 : -1)));refresh();focus();
+		};
+		const load_context = async name => {
+			dialog.cfg_material_run_generation++;
 			dialog.cfg_material_run_event_token = frappe.utils.get_random(24);
-			await dialog.set_value("output_serial_boundary", "");
-			dialog.cfg_material_draws = [];
-			dialog.cfg_hopper_scan = null;
-			dialog.cfg_hopper_preview = null;
-			dialog.cfg_pending_material_qty = 0;
-			dialog.cfg_selection_locked = false;
-			dialog.set_df_property("execution_name", "read_only", candidates.length === 1);
-			refresh_material_run_guide(dialog, context, options);
+			dialog.cfg_material_run_pending_request = null;
+			dialog.cfg_material_sources = {};dialog.cfg_material_draws = [];dialog.cfg_pending_material_qty = 0;
+			dialog.cfg_hopper_scan = null;dialog.cfg_hopper_preview = null;dialog.cfg_hopper_error = "";dialog.cfg_active_material_rule = null;
+			dialog.cfg_material_scan_error = "";dialog.cfg_capture_boundary = false;dialog.cfg_selection_locked = false;dialog.cfg_material_page = 0;
+			await dialog.set_value("output_serial_boundary","");await dialog.set_value("material_quantity",0);
+			dialog.set_df_property("execution_name","read_only",candidates.length === 1);
+			dialog.cfg_numbered_selection_handler = index => {
+				const rule = (contexts[name]?.material_rules || [])[(dialog.cfg_material_page || 0)*10+index];
+				if (index < 0 || index > 9 || !rule) return frappe.show_alert({message:__("That material choice is not available."),indicator:"orange"});
+				select_rule(rule.rule_row);
+			};
+			dialog.set_df_property("output_serial_boundary","hidden",contexts[name]?.boundary_mode === "None" && !contexts[name]?.boundary_required);
+			refresh();
 		};
 		dialog.cfg_selection_changed = load_context;
-		dialog.cfg_quantity_handler = async (qty, additive = false) => {
-			const current = Number(dialog.cfg_pending_material_qty || 0);
-			dialog.cfg_pending_material_qty = additive ? current + Number(qty || 0) : Number(qty || 0);
-			const context = context_by_execution[dialog.get_value("execution_name")];
-			refresh_material_run_guide(dialog, context, options);
-			frappe.show_alert({
-				message: dialog.cfg_pending_material_qty > 0
-					? __("Material quantity {0} ready. Scan the physical source Stock Tag.", [dialog.cfg_pending_material_qty])
-					: __("Scan a positive Material Quantity."),
-				indicator: dialog.cfg_pending_material_qty > 0 ? "blue" : "orange",
-			});
+		dialog.cfg_quantity_handler = (qty, additive = false) => enqueue(async () => {
+			const current = context();if (!current || current.open_run) return;
+			qty = Number(qty);if (!Number.isFinite(qty) || qty < 0) return frappe.throw(__("Scan a finite positive material quantity."));
+			const rule = (current.material_rules || []).find(row => row.rule_row === dialog.cfg_active_material_rule);
+			lock();dialog.cfg_material_scan_error = "";
+			if (rule) {
+				const row = state_for(rule);row.qty = additive ? Number(row.qty || 0)+qty : qty;
+				await dialog.set_value("material_quantity",row.qty);
+				await validate_row(rule,row);
+				if (row.validated) dialog.cfg_active_material_rule = null;
+			} else {
+				dialog.cfg_pending_material_qty = additive ? Number(dialog.cfg_pending_material_qty || 0)+qty : qty;
+				await dialog.set_value("material_quantity",dialog.cfg_pending_material_qty);
+			}
+		});
+		dialog.cfg_boundary_capture_handler = () => {
+			if (!editable() || !context()) return;
+			if (context().boundary_mode === "None" && !context().boundary_required) return frappe.show_alert({message:__("This operation does not require a new output boundary."),indicator:"orange"});
+			dialog.cfg_capture_boundary = true;refresh();focus();
 		};
-		dialog.cfg_raw_scanner_handler = async (raw_value) => {
-			const execution_name = dialog.get_value("execution_name");
-			const context = context_by_execution[execution_name];
-			if (!context) {
-				frappe.show_alert({ message: __("Material Run context is still loading."), indicator: "orange" });
-				return;
-			}
-			if (context.open_run) {
-				frappe.show_alert({ message: __("Material Run {0} is already open. Scan Cancel to return.", [context.open_run.name]), indicator: "blue" });
-				return;
-			}
-			const rules = context.material_rules || [];
-			if (context.boundary_required && !dialog.get_value("output_serial_boundary")) {
-				await dialog.set_value("output_serial_boundary", raw_value);
-				dialog.cfg_selection_locked = true;
-				dialog.set_df_property("execution_name", "read_only", 1);
-				refresh_material_run_guide(dialog, context, options);
-				frappe.show_alert({ message: context.hopper_mode && context.hopper_mode !== "None" ? __("Output boundary captured. Scan the physical Hopper next.") : __("Output boundary captured. Scan Material Quantity next."), indicator: "green" });
-				return;
-			}
-			if (context.hopper_mode && context.hopper_mode !== "None" && !dialog.cfg_hopper_scan) {
-				const response = await frappe.call({
-					method: "cfg_kanban.services.operation_hoppers.preview_scanner_hopper",
-					args: { execution_name, scan_value: raw_value, operator_session_token: state.session_token },
-				});
-				dialog.cfg_hopper_scan = raw_value;
-				dialog.cfg_hopper_preview = response.message;
-				dialog.cfg_selection_locked = true;
-				dialog.set_df_property("execution_name", "read_only", 1);
-				refresh_material_run_guide(dialog, context, options);
-				return;
-			}
-			if (!rules.length) {
-				if (dialog.get_value("output_serial_boundary")) {
-					frappe.show_alert({ message: __("Boundary is ready. Scan Confirm or Cancel."), indicator: "orange" });
-					return;
+		dialog.cfg_raw_scanner_handler = raw => enqueue(async () => {
+			const current = context();if (!current) return frappe.show_alert({message:__("Select the exact operation first."),indicator:"orange"});
+			if (current.open_run) return frappe.show_alert({message:__("Material Run {0} is already open. Scan Cancel to return.",[current.open_run.name]),indicator:"blue"});
+			const value = String(raw || "").trim();if (!value) return;
+			if (value.toUpperCase() === "CFG:CMD:MATERIAL_RUN_BOUNDARY") return dialog.cfg_boundary_capture_handler();
+			if (/^CFG:CMD:(NEXT|PREVIOUS)_MATERIALS$/i.test(value)) return dialog.cfg_material_page_handler(value);
+			const generation = dialog.cfg_material_run_generation, quantity_before = dialog.get_value("material_quantity");
+			const classified = (await frappe.call({method:"cfg_kanban.services.operation_material_runs.identify_material_run_scan",args:{execution_name:dialog.get_value("execution_name"),scan_value:value,quantity:Number(dialog.cfg_pending_material_qty || 0),capture_boundary:dialog.cfg_capture_boundary ? 1 : 0,operator_session_token:state.session_token},freeze:true,freeze_message:__("Checking scanned identity...")})).message;
+			if (generation !== dialog.cfg_material_run_generation || !dialog.$wrapper.is(":visible")) return;
+			if (classified.scan_type === "Boundary") {
+				if (dialog.get_value("output_serial_boundary") && !dialog.cfg_capture_boundary) return frappe.throw(__("The output boundary is already set. Use Scan Output Boundary Next to replace it."));
+				await dialog.set_value("output_serial_boundary",classified.boundary);dialog.cfg_capture_boundary = false;
+			} else if (classified.scan_type === "Hopper") {
+				const before = dialog.cfg_hopper_preview, after = classified.preview;
+				if (dialog.cfg_hopper_scan && ((before?.handling_unit && after.handling_unit && before.handling_unit !== after.handling_unit) || (dialog.cfg_hopper_scan !== value && !(before?.handling_unit && before.handling_unit === after.handling_unit)) || (before?.hopper_fill && after.hopper_fill && before.hopper_fill !== after.hopper_fill))) {
+					dialog.cfg_hopper_error = __("This run already has a different Hopper or fill. Cancel and rescan before changing it.");
+					return frappe.throw(dialog.cfg_hopper_error);
 				}
-				await dialog.set_value("output_serial_boundary", raw_value);
-				dialog.cfg_selection_locked = true;
-				dialog.set_df_property("execution_name", "read_only", 1);
-				refresh_material_run_guide(dialog, context, options);
-				return frappe.show_alert({ message: __("Output boundary captured. Scan Confirm."), indicator: "green" });
-			}
-			const quantity = Number(dialog.cfg_pending_material_qty || 0);
-			if (quantity <= 0) {
-				frappe.show_alert({ message: __("Scan a Material Quantity before the physical source Stock Tag."), indicator: "orange" });
-				return;
-			}
-			const response = await frappe.call({
-				method: "cfg_kanban.services.operation_material_runs.preview_material_draw",
-				args: {
-					execution_name,
-					scan_value: raw_value,
-					quantity,
-					operator_session_token: state.session_token,
-				},
-				freeze: true,
-				freeze_message: __("Checking source material..."),
-			});
-			const preview = response.message;
-			if (preview.material_rotation?.rotation_override) {
-				frappe.show_alert({ message: __("Using active full Work Order FEFO override {0}", [preview.material_rotation.rotation_override]), indicator: "orange" }, 8);
-			}
-			if ((dialog.cfg_material_draws || []).some((row) => row.rule_row === preview.rule_row)) {
-				frappe.throw(__("{0} already has a source tag in this run. Use Material +quantity before scanning, or report progress and start the next run when the source changes.", [preview.item_code]));
-			}
-			dialog.cfg_material_draws.push({
-				scan_value: raw_value,
-				qty: quantity,
-				display_source_code: preview.physical_container_code || preview.source_visible_code,
-				...preview,
-			});
-			dialog.cfg_pending_material_qty = 0;
-			dialog.cfg_selection_locked = true;
-			dialog.set_df_property("execution_name", "read_only", 1);
-			refresh_material_run_guide(dialog, context, options);
-			frappe.show_alert({
-				message: __("Reserved {0} {1} of {2} from {3} for confirmation.", [quantity, preview.stock_uom, preview.item_code, preview.physical_container_code || preview.source_visible_code]),
-				indicator: "green",
-			}, 7);
-		};
+				dialog.cfg_hopper_scan = value;dialog.cfg_hopper_preview = after;dialog.cfg_hopper_error = "";
+			} else if (classified.scan_type === "Material") {
+				const preview = classified.preview;
+				const rule = (current.material_rules || []).find(row => row.rule_row === preview.rule_row);
+				if (!rule) return frappe.throw(__("The scanned item does not match this operation's configured materials."));
+				const row = state_for(rule);
+				if (row.scan_value && ((row.preview?.source_handling_unit && preview.source_handling_unit && row.preview.source_handling_unit !== preview.source_handling_unit) || (row.scan_value !== value && !(row.preview?.source_handling_unit && row.preview.source_handling_unit === preview.source_handling_unit)))) return frappe.throw(__("This item already has a different source in this Material Run. Cancel and rescan to replace it before confirmation; use the next Material Run when the physical source changes."));
+				row.scan_value = value;row.preview = preview;row.error = "";
+				if (dialog.cfg_pending_material_qty > 0) {row.qty = dialog.cfg_pending_material_qty;dialog.cfg_pending_material_qty = 0;}
+				dialog.cfg_active_material_rule = rule.rule_row;
+				await validate_row(rule,row,preview);
+				if (row.validated) dialog.cfg_active_material_rule = null;
+				if (dialog.get_value("material_quantity") === quantity_before) await dialog.set_value("material_quantity",row.qty || 0);
+			} else return frappe.throw(__("The scanned identity could not be matched safely."));
+			lock();dialog.cfg_material_scan_error = "";
+			if (String(dialog.get_value("material_source_scan") || "").trim() === value) await dialog.set_value("material_source_scan","");
+		});
 		dialog.show();
-		if (candidates.length > 1) {
-			dialog.get_field("execution_name").$input.on("change.cfg_material_run", () => {
-				if (dialog.cfg_selection_locked) return;
-				load_context(dialog.get_value("execution_name"));
-			});
-		}
-		bind_confirmation_scanner(dialog, true, values, "execution_name");
+		dialog.get_field("output_serial_boundary").$input.on("change.cfg_run_boundary",()=>{if(!editable())return;lock();dialog.cfg_material_scan_error="";refresh();});
+		if (candidates.length > 1) dialog.get_field("execution_name").$input.on("change.cfg_material_run",()=>{if(!dialog.cfg_selection_locked)load_context(dialog.get_value("execution_name"));});
+		bind_confirmation_scanner(dialog,true,values,"execution_name");
 		if (candidates.length === 1) await load_context(values[0]);
-		else dialog.get_field("material_run_guide").$wrapper.html(`<div class="alert alert-info">${__("Select the exact operation using CFG:SELECT:1 through CFG:SELECT:10.")}<br>${options.map(value => frappe.utils.escape_html(value)).join("<br>")}</div>`);
-		window.setTimeout(() => dialog.get_field("scanner_command").set_focus(), 80);
+		else dialog.get_field("material_run_guide").$wrapper.html(`<div class="alert alert-info">${__("Select the exact operation using CFG:SELECT:1 through CFG:SELECT:10.")}<br>${options.map(frappe.utils.escape_html).join("<br>")}</div>`);
+		focus();
+	}
+
+	function material_run_error_message(error) {
+		const encoded = error?._server_messages || error?.responseJSON?._server_messages;
+		try {
+			const entries = typeof encoded === "string" ? JSON.parse(encoded) : encoded;
+			if (Array.isArray(entries)) {
+				const messages = entries.map(entry => typeof entry === "string" ? JSON.parse(entry) : entry).map(entry => entry?.message).filter(Boolean);
+				if (messages.length) return messages.join(" · ").replace(/<[^>]*>/g, "");
+			}
+		} catch (_error) { /* Use the safe readable fallback below. */ }
+		return String(error?.message || __("Validation failed. Review the source, quantity and configuration message."));
+	}
+
+	function material_run_readiness(dialog, context) {
+		const rows = [], boundary = String(dialog.get_value("output_serial_boundary") || "").trim();
+		const boundary_valid = !!boundary && boundary.length <= 140 && !/[\x00-\x1f\x7f]/.test(boundary);
+		if (context.boundary_required || boundary || dialog.cfg_capture_boundary) rows.push({kind:"boundary",label:__("New output boundary"),ready:boundary_valid && !dialog.cfg_capture_boundary,detail:boundary_valid ? boundary : __("Awaiting this operation's new output boundary")});
+		const mode = context.hopper_mode || "None", hopper = dialog.cfg_hopper_preview;
+		if (mode !== "None") {
+			const quantity = hopper ? Number(hopper.run_qty ?? Math.min(Number(hopper.available_qty || 0),Number(hopper.loaded_qty || 0))) : 0;
+			rows.push({kind:"hopper",label:mode === "Fill Hopper" ? __("Destination Hopper") : `${hopper?.item_code || context.output_item_code || __("Previous operation product")} · ${__("Hopper input")}`,
+				ready:!!dialog.cfg_hopper_scan && !!hopper && !dialog.cfg_hopper_error && (mode === "Fill Hopper" || quantity > 0),
+				detail:hopper ? mode === "Fill Hopper" ? `${hopper.visible_code} · ${__("Empty; ready to receive output")}` : `${quantity} ${hopper.stock_uom} · ${hopper.visible_code} · ${__("Loaded")}: ${hopper.loaded_qty} · ${__("Available")}: ${hopper.available_qty}${hopper.source_boundary ? " · " + __("Source boundary") + ": " + hopper.source_boundary : ""}` : __("Awaiting the configured physical Hopper scan")});
+			if (dialog.cfg_hopper_error) rows[rows.length-1].detail += " · " + dialog.cfg_hopper_error;
+		}
+		for (const rule of context.material_rules || []) {
+			const source = dialog.cfg_material_sources?.[rule.rule_row], carry = Number(rule.carry_forward_qty || 0);
+			const ready = source ? !!source.validated && !source.error : carry > 0;
+			const detail = source ? `${source.qty > 0 ? source.qty : __("Quantity needed")} ${rule.stock_uom} · ${source.preview?.physical_container_code || source.preview?.source_visible_code || __("Source tag needed")}${source.error ? " · " + source.error : ""}` : carry > 0 ? `${carry} ${rule.stock_uom} · ${__("Existing source reservation / carry-forward")}` : `${__("Quantity needed")} · ${__("Physical source tag needed")} (${rule.stock_uom})`;
+			rows.push({kind:"material",rule_row:rule.rule_row,label:rule.item_code,ready,detail});
+		}
+		return {rows,ready:rows.every(row=>row.ready) && !dialog.cfg_material_scan_error && !(dialog.cfg_pending_material_qty > 0) && !dialog.cfg_capture_boundary};
 	}
 
 	function refresh_material_run_guide(dialog, context, options) {
-		const e = frappe.utils.escape_html;
 		if (!context) return;
-		const boundary = dialog.get_value("output_serial_boundary");
-		const rules = context.material_rules || [];
-		const draws = dialog.cfg_material_draws || [];
-		const pending = Number(dialog.cfg_pending_material_qty || 0);
-		const outstanding = rules.filter((rule) =>
-			Number(rule.carry_forward_qty || 0) <= 0 && !draws.some((draw) => draw.rule_row === rule.rule_row));
-		let next_step;
-		if (context.open_run) {
-			next_step = context.execution_status === "Ready"
-				? __("Material Run {0} is prepared. Start Operation before physical work; Cancel returns to the Card.", [context.open_run.name])
-				: __("Material Run {0} is already open. Continue floor work or scan Cancel to return.", [context.open_run.name]);
-		} else if (context.boundary_required && !boundary) {
-			next_step = __("Scan the first output serial or other production boundary for this run.");
-		} else if (context.hopper_mode && context.hopper_mode !== "None" && !dialog.cfg_hopper_scan) {
-			next_step = context.hopper_mode === "Fill Hopper"
-				? __("Scan an empty production Hopper to load with this run's good output.")
-				: __("Scan the loaded Hopper from this Work Order before scanning packing materials.");
-		} else if (outstanding.length && pending <= 0) {
-			next_step = __("Scan Material Quantity for {0}, then scan its physical source Stock Tag.", [outstanding[0].item_code]);
-		} else if (outstanding.length) {
-			next_step = __("Scan the physical source Stock Tag for {0} ({1} {2}).", [outstanding[0].item_code, pending, outstanding[0].stock_uom]);
-		} else {
-			next_step = __("Scan Confirm to open the run, or Cancel to leave without recording.");
+		const e=frappe.utils.escape_html, status=material_run_readiness(dialog,context), rules=context.material_rules || [];
+		for (const name of ["output_serial_boundary","material_quantity","material_source_scan"]) {
+			const frozen = !!dialog.cfg_material_run_pending_request;
+			if (!!dialog.get_field(name).df?.read_only !== frozen) dialog.set_df_property(name,"read_only",frozen);
 		}
-		const hopper = dialog.cfg_hopper_preview;
-		const hopper_html = hopper
-			? `<br><strong>${e(__("Operation Hopper"))}</strong>: ${e(hopper.visible_code)} · ${e(hopper.work_order)} · ${e(__("Loaded"))}: ${hopper.loaded_qty} ${e(hopper.stock_uom)} · ${e(__("Reserved"))}: ${Number(hopper.reserved_qty || 0)} ${e(hopper.stock_uom)} · ${e(__("Available"))}: ${hopper.available_qty} ${e(hopper.stock_uom)}`
-			: "";
-		const requirement_html = rules.length ? `<br><strong>${__("Tracked materials")}</strong>:<br>${rules.map((rule) => {
-			const draw = draws.find((row) => row.rule_row === rule.rule_row);
-			const status = draw
-				? `${draw.qty} ${e(draw.stock_uom)} · ${e(draw.display_source_code || draw.source_visible_code)}`
-				: Number(rule.carry_forward_qty || 0) > 0
-					? `${rule.carry_forward_qty} ${e(rule.stock_uom)} ${e(__("carry-forward"))}`
-					: e(__("awaiting scan"));
-			return `${e(rule.item_code)} · ${rule.qty_per_output} ${e(rule.stock_uom)}/${e(__("output"))} · <strong>${status}</strong>`;
-		}).join("<br>")}` : "";
-		dialog.get_field("material_run_guide").$wrapper.html(`<div class="alert alert-info">
-			<strong>${__("High-frequency Material Run")}</strong><br>
-			${context.material_rotation_override ? `<div class="alert alert-warning">${e(__("Full Work Order FEFO override active"))}: ${e(context.material_rotation_override.work_order)} · ${e(context.material_rotation_override.reason)}</div>` : `<small>${e(__("Warehouse-local FEFO applies to non-isolated Batches. Isolated Batches may be explicitly scanned; expiry and certificate checks still apply."))}</small><br>`}
-			${options.length > 1 ? `${__("Select the operation first")}:<br>${options.map((row) => e(row)).join("<br>")}<br>` : ""}
-			<strong>${__("Next step")}</strong>: ${e(next_step)}${hopper_html}${requirement_html}<br>
-			<small>${__("Source scans create protected operational reservations. Confirm checks input certificates before authorizing the Material Run. If the operation is Ready, Start Operation is still required before physical work. ERP stock posts only at settlement.")}</small>
-		</div>`);
-		dialog.get_field("material_draw_summary").$wrapper.html(draws.length
-			? `<div class="alert alert-success"><strong>${__("Ready to confirm")}</strong><br>${draws.map((row) =>
-				`${e(row.item_code)}: ${row.qty} ${e(row.stock_uom)} · ${e(row.display_source_code || row.source_visible_code)}${row.material_rotation?.rotation_exemption ? " · " + e(__("Explicit scan of isolated Batch")) : ""}`).join("<br>")}</div>`
-			: "");
+		const next=status.rows.find(row=>!row.ready);
+		let instruction = context.open_run ? __("Material Run {0} is already prepared/open. Cancel to return.",[context.open_run.name]) : dialog.cfg_capture_boundary ? __("Scan the new output boundary next.") : next ? `${next.label}: ${next.detail}` : __("Scan Confirm to open the run, or Cancel to leave without recording.");
+		if (!dialog.cfg_hopper_scan && context.hopper_mode === "Fill Hopper") instruction += " " + __("Scan an empty production Hopper");
+		const page=dialog.cfg_material_page || 0;
+		dialog.get_field("material_run_guide").$wrapper.html(`<div class="alert alert-info"><strong>${__("High-frequency Material Run")}</strong><br>${e(instruction)}<br><small>${__("Follow the listed order, or scan a known source out of order. Its Item identifies the row. Green means ready for final validation; Confirm rechecks source identity, quantities, FEFO and certificates. Start Operation is still required before physical work.")}</small>${rules.length ? `<br><small>${__("Material choices")}: ${page+1}/${Math.max(1,Math.ceil(rules.length/10))} · CFG:SELECT:n · CFG:CMD:NEXT_MATERIALS / CFG:CMD:PREVIOUS_MATERIALS</small>` : ""}${context.material_rotation_override ? `<br>${e(__("Full Work Order FEFO override active"))}: ${e(context.material_rotation_override.reason)}` : ""}</div>`);
+		const summary=dialog.get_field("material_draw_summary");
+		summary.$wrapper.html(`<div class="cfg-material-run-checklist"><strong>${__("Ready to confirm")} · ${status.ready ? __("Ready") : __("Waiting")}</strong>${status.rows.map((row,index)=>{
+			const material_index=rules.findIndex(rule=>rule.rule_row===row.rule_row), choice=material_index-page*10;
+			return `<div class="alert ${row.ready ? "alert-success" : "alert-danger"} mt-2 mb-2" data-cfg-run-step="${e(row.kind)}" ${row.rule_row ? `data-cfg-rule="${e(row.rule_row)}"` : ""}><strong>${index+1}. ${e(row.label)} · ${row.ready ? __("Ready") : __("Waiting / check")}</strong><br>${e(row.detail)}${row.rule_row ? `<br><button type="button" class="btn btn-default btn-xs cfg-run-select-material" data-rule="${e(row.rule_row)}">${__("Select material")}${choice >= 0 && choice < 10 ? ` · CFG:SELECT:${choice+1}` : ""}</button>` : ""}</div>`;
+		}).join("")}${dialog.cfg_pending_material_qty > 0 ? `<div class="alert alert-warning">${__("Quantity awaiting a physical source")}: ${e(String(dialog.cfg_pending_material_qty))}</div>` : ""}${dialog.cfg_material_scan_error ? `<div class="alert alert-danger">${e(dialog.cfg_material_scan_error)}</div>` : ""}</div>`);
+		if (summary.$wrapper.find) summary.$wrapper.find(".cfg-run-select-material").on("click",event=>dialog.cfg_select_material_rule(event.currentTarget.dataset.rule));
+	}
+
+	function material_run_boundary_command() {
+		const dialog=state.active_command_dialog;
+		if (dialog?.$wrapper?.is(":visible") && dialog.cfg_boundary_capture_handler) return dialog.cfg_boundary_capture_handler();
+		return scanner_command_message(__("Open Start Material Run before scanning its output boundary command."));
 	}
 
 	function cancel_open_material_run(preferred_execution = null) {
@@ -3244,6 +3229,11 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const selection_field = dialog.cfg_scanner_selection_field;
 		const selection = command.match(/^CFG:SELECT:(\d+)$/) ||
 			(dialog.cfg_require_prefixed_selection ? null : command.match(/^(\d+)$/));
+        if (selection && typeof dialog.cfg_numbered_selection_handler === "function") {
+            try { await dialog.cfg_numbered_selection_handler(Number(selection[1]) - 1); }
+            finally { if (dialog.$wrapper.is(":visible")) window.setTimeout(() => field.set_focus(), 80); }
+            return;
+        }
 		if (selection && dialog.cfg_selection_locked) {
 			frappe.show_alert({ message: __("The operation context is locked after physical evidence is scanned. Cancel and restart to change it."), indicator: "orange" });
 			return window.setTimeout(() => field.set_focus(), 80);

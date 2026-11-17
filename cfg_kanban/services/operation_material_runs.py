@@ -7,6 +7,7 @@ Material Trace; only submission mutates ERPNext stock and the Handling Unit ledg
 """
 
 import re
+import math
 
 import frappe
 from frappe import _
@@ -398,8 +399,8 @@ def preview_material_draw(execution_name, scan_value, quantity, operator_session
     )
     _assert_enabled(execution)
     qty = flt(quantity)
-    if qty <= 0:
-        frappe.throw(_("Scan a positive Material Quantity before the source Stock Tag"))
+    if not math.isfinite(qty) or qty <= 0:
+        frappe.throw(_("Scan a finite positive Material Quantity before the source Stock Tag"))
     unit, physical_container = _resolve_material_source(scan_value)
     rule = _match_source_rule(execution, unit)
     available = _operationally_available_source_qty(unit)
@@ -412,6 +413,60 @@ def preview_material_draw(execution_name, scan_value, quantity, operator_session
     rotation = validate_material_rotation(execution, unit)
     return {**_draw_preview_payload(rule, unit, physical_container, qty, available),
             "material_rotation": rotation}
+
+
+@frappe.whitelist()
+def identify_material_run_scan(execution_name, scan_value, quantity=0,
+                               capture_boundary=0, operator_session_token=None):
+    """Route physical identities before stage hints; never create stock or reservations.
+
+    An incoming source's boundary is provenance, not this operation's new output
+    boundary. Known but invalid sources must fail validation, never become a boundary.
+    Quantity zero identifies a source for source-first scanning; Start still requires
+    positive validated draws and repeats every certificate/stock/identity check.
+    """
+    execution = frappe.get_doc("CFG Kanban Process Execution", execution_name)
+    require_operator(operator_session_token, "report_progress", execution=execution, touch_activity=False)
+    _assert_enabled(execution)
+    value = str(scan_value or "").strip()
+    if not value or value.upper().startswith(("CFG:CMD:", "CFG:QTY:", "CFG:SELECT:")):
+        frappe.throw(_("Scan a physical source identity or the new output boundary"))
+    boundary_mode = execution.material_run_output_boundary or "None"
+    if str(capture_boundary).lower() in ("1", "true"):
+        if boundary_mode == "None":
+            frappe.throw(_("This operation is not configured to capture an output boundary"))
+        return {"scan_type": "Boundary", "boundary": _normalise_boundary(value)}
+    from cfg_kanban.services.logistics_foundation import resolve_logistics_scan
+    identity = resolve_logistics_scan(value)
+    if not identity or identity.get("identity_type") in ("Tag Range Candidate", "Registered Tag Identity"):
+        if boundary_mode != "None":
+            return {"scan_type": "Boundary", "boundary": _normalise_boundary(value)}
+        frappe.throw(_("No configured source matches this scan; no new output boundary is required here"))
+    if identity.get("identity_type") != "Handling Unit":
+        frappe.throw(_("This identity is not a configured Material Run source"))
+    unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
+    mode = execution.get("material_run_hopper_mode") or "None"
+    if (mode in ("Fill Hopper", "Consume Hopper") and unit.tag_kind == "Reusable Container"
+            and unit.handling_unit_type == "Hopper"
+            and unit.reusable_container_role == "Production Output Container"):
+        from cfg_kanban.services.container_contents import active_container_contents
+        if not active_container_contents(unit.name):
+            from cfg_kanban.services.operation_hoppers import preview_scanner_hopper
+            return {"scan_type": "Hopper", "preview": preview_scanner_hopper(
+                execution_name, value, operator_session_token=operator_session_token)}
+    qty = flt(quantity)
+    if not math.isfinite(qty) or qty < 0:
+        frappe.throw(_("Material quantity must be finite and non-negative"))
+    if qty > 0:
+        preview = preview_material_draw(execution_name, value, qty, operator_session_token)
+    else:
+        source, container = _resolve_material_source(value)
+        rule = _match_source_rule(execution, source)
+        available = _operationally_available_source_qty(source)
+        rotation = validate_material_rotation(execution, source)
+        preview = {**_draw_preview_payload(rule, source, container, 0, available),
+                   "material_rotation": rotation}
+    return {"scan_type": "Material", "preview": preview}
 
 
 @frappe.whitelist()
@@ -844,6 +899,7 @@ def _context_payload(execution):
         "settlement_timing": execution.material_run_settlement_timing,
         "hopper_mode": execution.get("material_run_hopper_mode") or "None",
         "hopper_warehouse": execution.get("material_run_hopper_warehouse"),
+        "output_item_code": frappe.db.get_value("CFG Kanban Master", execution.kanban_master, "item_code"),
         "open_run": _run_payload(open_run) if open_run else None,
         "prior_run_count": prior_count,
         "material_rules": _material_rule_context(execution),
@@ -909,7 +965,7 @@ def _normalise_draw_requests(value):
             frappe.throw(_("Material Draw row {0} is invalid").format(index))
         scan_value = str(row.get("scan_value") or "").strip()
         qty = flt(row.get("qty"))
-        if not scan_value or qty <= 0:
+        if not scan_value or not math.isfinite(qty) or qty <= 0:
             frappe.throw(
                 _("Material Draw row {0} requires a source Stock Tag and positive quantity").format(index)
             )
@@ -968,6 +1024,8 @@ def _match_source_rule(execution, unit):
                 unit.item_code, execution.operation
             )
         )
+    if len(matches) > 1:
+        frappe.throw(_("Item {0} matches more than one Material Run rule; reconcile the operation configuration").format(unit.item_code))
     rule = matches[0]
     if unit.current_warehouse != rule.scan_warehouse:
         frappe.throw(

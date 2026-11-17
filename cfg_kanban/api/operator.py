@@ -146,6 +146,7 @@ def _scanner_command_catalog(quantity_steps=None):
         ]),
         ("Production Material and WIP", [
             ("Start Material Run / Configured Hopper", "CFG:CMD:START_MATERIAL_RUN", ""),
+            ("Material Run: Scan Output Boundary Next", "CFG:CMD:MATERIAL_RUN_BOUNDARY", ""),
             ("Receipt: Use Printed Expiry", "CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY", ""),
             ("Receipt: Use Standard Expiry", "CFG:CMD:RECEIPT_STANDARD_EXPIRY", ""),
             ("Receipt: Scan Finished Batch Next", "CFG:CMD:RECEIPT_BATCH", ""),
@@ -726,6 +727,7 @@ def get_card_context(token, operator_session_token=None):
                 "settlement_timing": execution.material_run_settlement_timing,
                 "hopper_mode": execution.get("material_run_hopper_mode") or "None",
                 "hopper_warehouse": execution.get("material_run_hopper_warehouse"),
+                "output_item_code": master.item_code,
                 "open_run": execution.material_run,
                 "prior_run_count": prior_run_count,
                 "material_rules": _material_rule_context(execution),

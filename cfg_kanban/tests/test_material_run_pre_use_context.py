@@ -18,7 +18,7 @@ def card_run_context(mode):
         material_run_control='Required Before Progress',allow_material_carry_forward=1,
         material_run_settlement_timing='At Work Order Manufacture Receipt',material_run=None,
         material_run_hopper_mode=mode,material_run_hopper_warehouse='Production')
-    namespace={'execution':execution,'boundary_mode':'None','prior_run_count':0,
+    namespace={'master':Row(item_code='PRODUCT'),'execution':execution,'boundary_mode':'None','prior_run_count':0,
         '_material_rule_context':lambda row:[{'rule_row':'BAG','item_code':'BAG','stock_uom':'Nos','qty_per_output':1}],
         '_work_order_yield_context':lambda row:None,
         'frappe':Row(db=Row(get_value=lambda *args:'WO'))}
@@ -32,5 +32,6 @@ class TestCardMaterialRunContext(unittest.TestCase):
                 context=card_run_context(mode)
                 self.assertEqual(context['hopper_mode'],mode)
                 self.assertEqual(context['hopper_warehouse'],'Production')
+                self.assertEqual(context['output_item_code'],'PRODUCT')
     def test_legacy_empty_mode_defaults_to_no_hopper(self):
         self.assertEqual(card_run_context(None)['hopper_mode'],'None')

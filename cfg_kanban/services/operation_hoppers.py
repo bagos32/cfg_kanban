@@ -104,7 +104,11 @@ def preview_scanner_hopper(execution_name, scan_value, operator_session_token=No
             "hopper_mode": mode, "loaded_qty": flt(fill.qty) - flt(fill.used_qty) - flt(fill.get("cleared_qty")) if fill else 0,
             "available_qty": available, "reserved_qty": flt(fill.reserved_qty) if fill else 0,
             "stock_uom": frappe.db.get_value("CFG Kanban Master", execution.kanban_master, "stock_uom"),
-            "work_order": order.name}
+            "work_order": order.name, "item_code": order.production_item,
+            "source_operation": fill.source_operation if fill else None,
+            "hopper_fill": fill.name if fill else None,
+            "source_boundary": frappe.db.get_value("CFG Kanban Operation Material Run", fill.source_material_run, "output_serial_boundary") if fill else None,
+            "run_qty": min(available, max(0, flt(execution.target_qty) - flt(execution.processed_qty))) if mode == CONSUME else 0}
 
 
 def prepare_run_hopper(execution, run, scan):

@@ -5364,3 +5364,61 @@ An active carry-in cannot be erased with Confirm Empty/Discard; reconcile/cancel
 its receiving Work Order first. Reversing original source evidence is blocked while
 an uncancelled receiving Work Order depends on it. Migrate before using the new
 Carry In DocType/fields. Live ERP and kiosk acceptance are still required.
+
+
+### Material Run readiness checklist and flexible scan order
+
+**Start Material Run** now keeps one ordered **Ready to confirm** checklist visible
+before submission. A pending/invalid row is red and says Waiting/check. A checked
+row is green and shows its quantity and physical source; color is accompanied by
+text. The rows follow the released operation configuration:
+
+1. **New output boundary**, when this operation requires one. Packing creates its
+   own new boundary. The input materials' old boundaries remain source history and
+   are not copied into Packing's new output field.
+2. **Destination Hopper**, for Fill Hopper, showing its checked empty identity.
+3. **Previous operation product / Hopper input**, for Consume Hopper, showing Item,
+   the planned run quantity, physical Hopper, loaded and available quantities. This
+   is intermediate WIP, not another raw-material ERP draw. The planned Hopper quantity
+   comes from available WIP and the operation allocation; a material-quantity scan
+   remains available for the next ordinary Stock Tag, not a hidden Hopper adjustment.
+4. Each tracked material in its configured order: Item code, quantity and source tag.
+   An existing carry-forward reservation remains visible without another source scan.
+
+Follow boundary → configured Hopper → material quantity → source tag as the normal
+sequence. A recognized physical source can also be scanned out of order: its Item
+identifies the matching row, even while the boundary/Hopper row is still red.
+Source-first scanning is supported: the source remains visible while waiting for
+quantity. Several source-first scans stay in their own rows; `CFG:SELECT:n` selects
+the material whose quantity you are entering. The latest source scan selects that
+item for the following quantity. `CFG:CMD:NEXT_MATERIALS` and
+`CFG:CMD:PREVIOUS_MATERIALS` page more than ten choices. Touch users can select the
+item row, enter Material Quantity and press **Apply Quantity**, then enter the
+physical code and press **Read Scan**. Both paths use the same source checks.
+
+A quantity entered without an explicit material selection waits for the next physical
+Stock Tag to identify its Item. Choosing a material explicitly binds that waiting
+quantity to the chosen row. Its quantity cannot be stolen by a different item's tag.
+Only one physical source per Item is supported in a Material Run. A different tag
+cannot silently replace the first; cancel/rescan before confirmation, or complete
+this run and start the next when the source changes.
+
+Use `CFG:CMD:MATERIAL_RUN_BOUNDARY` (**Material Run: Scan Output Boundary Next**) to
+explicitly arm the next scan as this operation's output boundary, including replacing
+a mistakenly entered boundary. It is in the printable command catalogue and Scanner
+Help. An unknown/unactivated printed identity can serve as a boundary only when the
+operation's boundary policy allows one. A recognized but invalid material/Hopper
+never becomes the output boundary after failing Item/warehouse/quantity checks.
+For Packing that requires a new boundary on each run, retain **Material Run Output
+Boundary = Every Material Run**. Existing executions keep their release-time settings.
+
+Green indicates readiness for final validation, not permission for physical work.
+Confirm is blocked while any required row is red or a quantity is unassigned. It
+rechecks source identity, stock, FEFO and input certificates, creates the operational
+reservations, and opens the run. **Start Operation** is still required when the
+operation is Ready. Preview scans alone do not reserve or consume stock. A rejected
+scan/error/cancel restores scanner focus; rapid scans are processed in sequence, and
+Confirm waits for pending source checks. After an uncertain confirmation response,
+retry the same data/token or cancel and reload the Card to reconcile its outcome.
+Normal confirmed server rejection permits corrections. Offline tests do not verify
+live ERP, browser layout or kiosk/scanner acceptance.

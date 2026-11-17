@@ -151,9 +151,10 @@ class TestOperationMaterialRunContract(unittest.TestCase):
         self.assertIn("dialog.cfg_material_draws", panel)
         self.assertIn("preview_material_draw", panel)
         self.assertIn("CFG:QTY:MATERIAL:", panel)
-        self.assertIn("material_draws: JSON.stringify", panel)
+        self.assertRegex(panel, r"material_draws\s*:\s*JSON\.stringify")
         self.assertIn("physical source Stock Tag", panel)
-        self.assertIn("finally {\n\t\t\t\tif (dialog.$wrapper.is(\":visible\"))", panel)
+        self.assertIn("material_run_readiness(dialog, current)", panel)
+        self.assertRegex(panel, r"finally\s*\{[^}]{0,180}focus\(\)")
 
     def test_progress_uses_material_plan_before_run_closure(self):
         progress = (ROOT / "services" / "progress.py").read_text()
