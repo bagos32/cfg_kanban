@@ -171,6 +171,75 @@ class TestOperationHoppers(HopperHarness):
         self.load_hopper(qty=5)
         result=self.hoppers.preview_scanner_hopper('PACK','HOPPER_1')
         self.assertEqual((result['loaded_qty'],result['available_qty'],result['stock_uom']),(5,5,'Nos'))
+    def test_second_run_within_same_allocation_uses_remaining_hopper_quantity(self):
+        self.consume(5, 2)
+        self.pack.runtime_allocation = 'ALLOCATION'
+        preview = self.hoppers.preview_scanner_hopper('PACK', 'HOPPER_1')
+        self.assertEqual((preview['run_qty'], preview['allocation_target_qty'],
+                          preview['allocation_processed_qty'], preview['allocation_remaining_qty']), (3, 5, 2, 3))
+        self.assertIsNone(preview['allocation_block_reason'])
+        run = self.make_run('SECOND', self.pack)
+        self.hoppers.prepare_run_hopper(self.pack, run, 'HOPPER_1')
+        self.assertEqual(run.hopper_reserved_qty, 3)
+        self.hoppers.validate_run_hopper(self.pack, run, 3, 3)
+        self.hoppers.apply_run_hopper(self.pack, run, Row(name='SECOND-P', processed_qty=3, good_qty=3))
+        self.assertEqual(self.data['CFG Kanban Handling Unit']['HU-1'].operation_wip_qty, 0)
+
+    def test_exhausted_operation_card_explains_loaded_hopper_without_reserving_it(self):
+        self.pack.target_qty = 3
+        self.pack.runtime_allocation = 'ALLOCATION'
+        self.consume(5, 3)
+        preview = self.hoppers.preview_scanner_hopper('PACK', 'HOPPER_1')
+        self.assertEqual((preview['loaded_qty'], preview['available_qty'], preview['run_qty'],
+                          preview['allocation_remaining_qty']), (2, 2, 0, 0))
+        self.assertIn('close the Operation Card cycle', preview['allocation_block_reason'])
+        before = len(self.events)
+        with self.assertRaisesRegex(ValueError, 'Operation Card allocation is complete'):
+            self.hoppers.prepare_run_hopper(self.pack, self.make_run('BLOCKED', self.pack), 'HOPPER_1')
+        self.assertEqual(self.data['CFG Kanban Handling Unit']['HU-1'].operation_wip_reserved_qty, 0)
+        self.assertEqual(len(self.events), before)
+
+    def test_main_card_and_operation_card_preview_use_their_own_allocations(self):
+        self.pack.target_qty = 3
+        self.pack.runtime_allocation = 'ALLOCATION'
+        self.consume(5, 3)
+        main = self.doc('CFG Kanban Process Execution', 'MAIN-PACK', **{
+            key: value for key, value in self.pack.items()
+            if key not in ('doctype', 'name', 'owner', 'target_qty', 'runtime_allocation')
+        }, target_qty=5, runtime_allocation=None)
+        operation = self.hoppers.preview_scanner_hopper('PACK', 'HOPPER_1')
+        overview = self.hoppers.preview_scanner_hopper(main.name, 'HOPPER_1')
+        self.assertEqual((operation['run_qty'], overview['run_qty']), (0, 2))
+        self.assertEqual((operation['loaded_qty'], overview['loaded_qty']), (2, 2))
+        self.assertIsNone(overview['allocation_block_reason'])
+        self.assertEqual(self.pack.target_qty, 3)
+
+    def test_next_operation_allocation_uses_leftover_wip_without_repeating_rinse(self):
+        self.pack.target_qty = 3
+        self.pack.runtime_allocation = 'FIRST-ALLOCATION'
+        self.consume(5, 3)
+        following = self.doc('CFG Kanban Process Execution', 'NEXT-PACK', **{
+            key: value for key, value in self.pack.items()
+            if key not in ('doctype', 'name', 'owner', 'target_qty', 'processed_qty', 'runtime_allocation')
+        }, target_qty=2, processed_qty=0, runtime_allocation='NEXT-ALLOCATION')
+        preview = self.hoppers.preview_scanner_hopper(following.name, 'HOPPER_1')
+        self.assertEqual(preview['run_qty'], 2)
+        self.assertIsNone(preview['allocation_block_reason'])
+        run = self.make_run('NEXT-RUN', following)
+        self.hoppers.prepare_run_hopper(following, run, 'HOPPER_1')
+        self.assertEqual(run.hopper_reserved_qty, 2)
+        self.assertEqual(self.rinse.processed_qty, 5)
+        self.assertEqual(len(self.data['CFG Kanban Operation Hopper Fill']), 1)
+        self.assertEqual(len(self.data['CFG Kanban Operation Hopper Use']), 1)
+        self.assertFalse(self.data.get('CFG Kanban Operation Material Draw'))
+
+    def test_main_operation_target_reached_has_its_own_guidance(self):
+        self.pack.target_qty = 3
+        self.consume(5, 3)
+        result = self.hoppers.preview_scanner_hopper('PACK', 'HOPPER_1')
+        self.assertIn('review the Job Card', result['allocation_block_reason'])
+        self.assertNotIn('next cycle', result['allocation_block_reason'])
+
     def test_empty_hopper_blocks_consumption(self):
         with self.assertRaisesRegex(ValueError,'no released operation fill'):
             self.hoppers.prepare_run_hopper(self.pack,self.make_run('PACK-RUN',self.pack),'HOPPER_1')

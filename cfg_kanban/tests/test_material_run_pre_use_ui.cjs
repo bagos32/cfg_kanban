@@ -103,6 +103,38 @@ async function runTests(root=path.resolve(__dirname,'../..')) {
         await h.source();await h.scan('CFG:CMD:CONFIRM');
         assert.equal(h.calls.at(-1).args.hopper_scan,'HOPPER_3');
     });
+    test('exhausted Operation Card displays why available Hopper WIP stays red',async()=>{
+        const h=harness();h.state.context.executions[0].material_run_context.hopper_mode='Consume Hopper';
+        const original=h.respond;h.respond=async request=>{
+            const result=await original(request);
+            if(result.message.scan_type==='Hopper')Object.assign(result.message.preview,{loaded_qty:2,available_qty:2,run_qty:0,
+                allocation_target_qty:3,allocation_processed_qty:3,allocation_remaining_qty:0,
+                allocation_block_reason:'This Operation Card allocation is complete. Cancel this dialog, close the Operation Card cycle, then allocate its next cycle against the remaining Job Card demand.'});
+            return result;
+        };
+        await h.open();await h.scan('HOPPER_1');await h.source();
+        const html=h.guides.material_draw_summary;
+        assert(html.includes('0 Nos · HOPPER_1 · Loaded: 2 · Available: 2'));
+        assert(html.includes('Card target: 3 · Processed: 3 · Allocation remaining: 0'));
+        assert(html.includes('close the Operation Card cycle'));
+        assert(html.includes('alert-danger'));await h.scan('CFG:CMD:CONFIRM');
+        assert(!h.calls.some(request=>request.method.endsWith('start_scanner_run')));
+        await h.scan('CFG:CMD:CANCEL');assert(!h.dialog().visible);assert(h.focus>0);
+    });
+    test('second run with remaining allocation shows Hopper green and permits touch confirmation',async()=>{
+        const h=harness();h.state.context.executions[0].material_run_context.hopper_mode='Consume Hopper';
+        const original=h.respond;h.respond=async request=>{
+            const result=await original(request);
+            if(result.message.scan_type==='Hopper')Object.assign(result.message.preview,{loaded_qty:2,available_qty:2,run_qty:2,
+                allocation_target_qty:5,allocation_processed_qty:3,allocation_remaining_qty:2,allocation_block_reason:null});
+            return result;
+        };
+        await h.open();await h.dialog().set_value('material_source_scan','HOPPER_1');
+        await h.dialog().options.fields.find(field=>field.fieldname==='read_material_source').click();
+        await h.source();assert(!h.guides.material_draw_summary.includes('alert-danger'));
+        assert(h.guides.material_draw_summary.includes('Allocation remaining: 2'));
+        await h.dialog().get_primary_btn().trigger();assert(h.calls.at(-1).method.endsWith('start_scanner_run'));
+    });
     test('failed Hopper preview preserves focus and cannot confirm a run',async()=>{
         const h=harness();h.state.context.executions[0].material_run_context.hopper_mode='Consume Hopper';
         h.respond=async()=>{throw Error('Hopper is empty');};await h.open();

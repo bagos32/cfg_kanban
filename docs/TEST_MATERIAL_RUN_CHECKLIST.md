@@ -66,3 +66,22 @@ and audit evidence. Test without mouse in kiosk/full-screen, then repeat by touc
 
 Existing executions retain their release-time policy/rule snapshots. Master edits
 are not retroactive. Deploy backend and rebuilt operator assets together.
+
+
+## Repeated Hopper run and allocation regression
+
+Offline coverage in `test_operation_hoppers` and `test_material_run_pre_use_ui.cjs`
+checks a second run within an allocation, an exhausted Operation Card with 2 units
+still physically available, and the main Card's larger remaining allocation. The
+checklist must show target/processed/remaining and clear cycle-closure guidance;
+confirmation cannot reserve beyond the selected execution's target. No live result
+is implied by these checks.
+
+Site acceptance pending: allocate a Process Card for 3 against a Work Order for 5,
+load a Hopper with 5, then report 3 through that Process Card. Its next Hopper preview
+must stay red at 0 with Loaded/Available=2 and explain closure/reallocation. The main
+Card must offer 2. Cancel, close/reallocate the Process Card through normal gates,
+and confirm the next allocation can use the remaining 2 without re-reporting prior
+work. Also test two reports of 2 and 3 within one allocation of 5, by scanner and touch.
+Record deployed SHA, Card/Cycle/WO IDs and resulting reservations/progress. Verify
+Operator Complete still permits partial closure, not over-allocation.

@@ -5562,3 +5562,21 @@ and identity reservations are released together. Posted stock uses ERP reversal.
 See `docs/STATION_FINISHED_OUTPUT_SETUP.md` for exact settings, operator/supervisor
 sequences, recovery and current boundaries. Site/kiosk acceptance remains pending;
 offline dependency-double tests are not proof of live ERP posting or physical scanning.
+
+
+## Hopper available but Operation Card allocation complete
+
+A Consume Hopper row can show **Loaded: 2 / Available: 2** while its usable run quantity
+is **0**. Hopper WIP and Card allocation are separate limits. The checklist shows the
+selected Card target, processed quantity and allocation remaining. Once that allocation
+is complete it stays red and explains the next step: Cancel the dialog, **Close Operation
+Cycle** (`CFG:CMD:CLOSE_CYCLE`), then allocate the reusable Operation Card's next cycle
+against remaining Job Card demand. Complete any normal closure gates first. Do not report
+the same work twice or reset the previous cycle's quantities.
+
+The main Production Card covers the larger Work Order target, so the same Hopper may
+show **2 ready** there while the smaller Operation Card allocation shows **0**. A second
+Material Run within an allocation that still has quantity remaining remains supported.
+Operator Complete allows early closure of a positive partial allocation; it does not
+increase that allocation's upper quantity limit. No automatic expansion or stock reset
+is performed. Existing scanner and touch controls follow the same checks.

@@ -85,6 +85,21 @@ def _check_fill(execution, fill, order):
     return max(0, flt(fill.qty) - flt(fill.used_qty) - flt(fill.get("cleared_qty")) - flt(fill.reserved_qty))
 
 
+def _allocation_context(execution):
+    target, processed = flt(execution.target_qty), flt(execution.processed_qty)
+    remaining = max(0, target - processed)
+    reason = None
+    if remaining <= TOLERANCE:
+        reason = (
+            "This Operation Card allocation is complete. Cancel this dialog, close the Operation Card cycle, "
+            "then allocate its next cycle against the remaining Job Card demand."
+            if execution.get("runtime_allocation") else
+            "This operation has reached its target. Cancel this dialog and review the Job Card before continuing."
+        )
+    return {"allocation_target_qty": target, "allocation_processed_qty": processed,
+            "allocation_remaining_qty": remaining, "allocation_block_reason": reason}
+
+
 @frappe.whitelist()
 def preview_scanner_hopper(execution_name, scan_value, operator_session_token=None):
     from cfg_kanban.services.operator_auth import require_operator
@@ -100,6 +115,7 @@ def preview_scanner_hopper(execution_name, scan_value, operator_session_token=No
     available = _check_fill(execution, fill, order) if mode == CONSUME else 0
     if mode == CONSUME and available <= TOLERANCE:
         frappe.throw("The Hopper has no unreserved operation WIP available")
+    allocation = _allocation_context(execution) if mode == CONSUME else {}
     return {"handling_unit": unit.name, "visible_code": unit.handling_unit_id,
             "hopper_mode": mode, "loaded_qty": flt(fill.qty) - flt(fill.used_qty) - flt(fill.get("cleared_qty")) if fill else 0,
             "available_qty": available, "reserved_qty": flt(fill.reserved_qty) if fill else 0,
@@ -108,7 +124,8 @@ def preview_scanner_hopper(execution_name, scan_value, operator_session_token=No
             "source_operation": fill.source_operation if fill else None,
             "hopper_fill": fill.name if fill else None,
             "source_boundary": frappe.db.get_value("CFG Kanban Operation Material Run", fill.source_material_run, "output_serial_boundary") if fill else None,
-            "run_qty": min(available, max(0, flt(execution.target_qty) - flt(execution.processed_qty))) if mode == CONSUME else 0}
+            "run_qty": min(available, allocation["allocation_remaining_qty"]) if mode == CONSUME else 0,
+            **allocation}
 
 
 def prepare_run_hopper(execution, run, scan):
@@ -137,8 +154,10 @@ def prepare_run_hopper(execution, run, scan):
         reserved = 0
     else:
         available = _check_fill(execution, fill, order)
-        remaining_target = max(0, flt(execution.target_qty) - flt(execution.processed_qty))
-        reserved = min(available, remaining_target)
+        allocation = _allocation_context(execution)
+        if allocation["allocation_block_reason"]:
+            frappe.throw(allocation["allocation_block_reason"])
+        reserved = min(available, allocation["allocation_remaining_qty"])
         if reserved <= TOLERANCE:
             frappe.throw("The Hopper has no available quantity for this operation allocation")
         frappe.db.set_value("CFG Kanban Operation Hopper Fill", fill.name,
