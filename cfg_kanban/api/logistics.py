@@ -695,6 +695,9 @@ def lookup_logistics_tag(scan_value, operator_session_token):
     if not identity:
         frappe.throw("The scanned logistics identity was not found")
     result = {"identity": identity, "handling_unit": None, "manifests": []}
+    if frappe.db.table_exists("CFG Kanban Output Declaration"):
+        from cfg_kanban.services.output_declarations import pending_identity
+        result["pending_output_declaration"]=pending_identity(identity.get("visible_code") or scan_value)
     if identity["identity_type"] == "Customer Scan Point":
         from cfg_kanban.services.customer_delivery import customer_delivery_context
         result["customer_site"] = customer_delivery_context(scan_value, profile)

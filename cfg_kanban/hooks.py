@@ -112,7 +112,8 @@ doc_events = {
                           "cfg_kanban.integrations.erp_feedback.validate_stock_entry"],
         "on_submit": "cfg_kanban.integrations.erp_feedback.on_stock_entry_submit",
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_stock_entry_cancel",
-        "on_trash": "cfg_kanban.services.wip_bin_loads.abandon_draft_stock_entry",
+        "on_trash": ["cfg_kanban.services.output_declarations.protect_draft_delete",
+                     "cfg_kanban.services.wip_bin_loads.abandon_draft_stock_entry"],
     },
     "Delivery Note": {
         "before_submit": "cfg_kanban.services.logistics_stock_identity.validate_logistics_document",

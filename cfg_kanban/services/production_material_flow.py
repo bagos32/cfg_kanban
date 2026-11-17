@@ -321,7 +321,12 @@ def get_cycle_material_flow(cycle_name, operator_session_token=None):
     receipt_actuals = material_run_receipt_summary(work_order)
     from cfg_kanban.services.manufacture_expiry import manufacture_printed_expiry_sources
     printed_dates = manufacture_printed_expiry_sources(work_order.name,work_order.company,strict=False)["dates"] if all_job_cards_completed else []
+    from cfg_kanban.services.output_declarations import installed, _declarations
+    output_declarations=[row for row in _declarations(work_order.name) if row.status=="Declared"] if installed() else []
     return {
+        "station_output_declarations_enabled":bool(master.get("enable_station_output_declarations") or output_declarations),
+        "pending_output_declarations":[dict(row) for row in output_declarations],
+        "declared_output_qty":sum(flt(row.qty) for row in output_declarations),
         "finished_batch_controlled": bool(frappe.db.get_value("Item",work_order.production_item,"has_batch_no")),
         "manufacture_printed_expiry_dates": printed_dates,
         "material_run_receipt_actuals": [row for row in receipt_actuals
@@ -1041,7 +1046,14 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
     if work_order.docstatus != 1:
         frappe.throw("Submit the effective Work Order before preparing Manufacture receipt")
     profile, session = require_operator(operator_session_token, "production_receipt")
+    from cfg_kanban.services.output_declarations import receipt_plan,adopt,installed
+    # The Work Order lock serializes declarations, receipt preparation and capacity.
+    if installed():
+        locked_order=frappe.db.sql("select * from `tabWork Order` where name=%s for update",work_order.name,as_dict=True)
+        if not locked_order:frappe.throw("Work Order no longer exists")
+        work_order.update(locked_order[0])
     qty = flt(output_qty)
+    output_declarations=receipt_plan(work_order,master,qty,profile)
     remaining = max(0, flt(work_order.qty) - flt(work_order.produced_qty))
     if qty <= 0 or qty > remaining + 0.000001:
         frappe.throw(f"Manufacture quantity must be greater than zero and not exceed {remaining}")
@@ -1118,7 +1130,7 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
     # submission. Even an auto-submit Master therefore pauses at Draft when such evidence
     # exists; the ordinary Submit Materials scanner action remains the posting authority.
     submit = (master.get("manufacture_posting_mode") == "Submit on Operator Confirmation"
-              and not cint(defer_submit_for_scanning) and not receipt_draws)
+              and not cint(defer_submit_for_scanning) and not receipt_draws and not output_declarations)
     identity = event_token or f"{qty}:{target}:{batch_no or ''}:{use_printed_expiry}:{printed_expiry or ''}:{frappe.as_json(normalized)}"
     key = canonical_key("production-manufacture-receipt", cycle.name, identity)
     command, created = insert_once(frappe.get_doc({
@@ -1156,6 +1168,7 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
         operator_session_token,
         cycle.kanban_card,
     )
+    declarations_adopted=adopt(entry.name,output_declarations,operator_session_token,cycle.kanban_card)
     record("Production Manufacture Receipt Prepared", card=cycle.kanban_card,
            cycle=cycle.name, qty=qty, reference_doctype="Stock Entry",
            reference_name=entry.name, operator=profile.employee,
@@ -1164,7 +1177,7 @@ def prepare_manufacture_receipt(cycle_name, output_qty, lines=None,
                   f"Operator confirmation: {confirmation}"))
     return {"command": command.name, "stock_entry": entry.name,
             "docstatus": entry.docstatus, "duplicate": not created,
-            "material_draws_adopted": adopted["adopted"]}
+            "material_draws_adopted": adopted["adopted"],"output_declarations_adopted":declarations_adopted}
 
 
 @frappe.whitelist()
@@ -1343,6 +1356,8 @@ def submit_production_stock_entry(stock_entry, event_token=None,
         "Material Consumption for Manufacture",
     ) else "production_receipt")
     profile, session = require_operator(operator_session_token, action)
+    from cfg_kanban.services.output_declarations import authorize_posting
+    authorize_posting(entry,profile,session)
     if entry.purpose == "Manufacture":
         from cfg_kanban.services.production_trace import _lock_stock_entry
         _lock_stock_entry(entry.name)

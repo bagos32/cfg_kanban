@@ -419,6 +419,8 @@ def on_stock_entry_submit(doc, method=None):
         return
     from cfg_kanban.services.production_trace import confirm_stock_entry_trace
     confirm_stock_entry_trace(doc)
+    from cfg_kanban.services.output_declarations import confirm_receipt
+    confirm_receipt(doc)
     from cfg_kanban.services.production_certificates import (
         reconcile_production_output_certificates,
     )
@@ -827,6 +829,8 @@ def validate_stock_entry(doc, method=None):
     validate_production_certificate_stock_entry(doc)
     from cfg_kanban.services.manufacture_expiry import validate_manufacture_printed_expiry
     validate_manufacture_printed_expiry(doc)
+    from cfg_kanban.services.output_declarations import validate_receipt
+    validate_receipt(doc)
     from cfg_kanban.services.production_trace import validate_stock_entry_trace
     validate_stock_entry_trace(doc)
     from cfg_kanban.services.wip_bin_loads import validate_wip_bin_stock_entry
@@ -902,6 +906,8 @@ def on_stock_entry_cancel(doc, method=None):
     revoke_cancelled_stock_entry_certificates(doc)
     from cfg_kanban.services.production_trace import reverse_stock_entry_trace
     reverse_stock_entry_trace(doc)
+    from cfg_kanban.services.output_declarations import reverse_receipt
+    reverse_receipt(doc)
     from cfg_kanban.services.certificate_process_recovery import (
         sync_recovery_from_stock_entry,
     )
@@ -992,6 +998,7 @@ def _sync_job_cards(work_order, cycle):
             "job_card": job.name, "workstation": job.workstation,
             "status": _execution_status(job.status, profile, first_sequence, lane_sequence=lane_sequence),
             "execution_mode": mode, "allocated_qty": job.for_quantity,
+            "completion_rule": profile.completion_rule or "Full Qty",
             "target_qty": job.for_quantity, "allow_parallel": mode == "Parallel Workstations",
             "handoff_mode": profile.handoff_mode, "transfer_multiple": profile.transfer_multiple,
             "destination_operation": profile.destination_operation,

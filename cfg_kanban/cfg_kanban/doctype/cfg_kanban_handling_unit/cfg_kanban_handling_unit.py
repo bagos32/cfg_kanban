@@ -48,6 +48,11 @@ class CFGKanbanHandlingUnit(Document):
                     "A Stock Tag must be registered in an exact Tag Family or covered by an "
                     "active Tag Range Registry"
                 )
+        # Pending station output is not stock; only its exact bound receipt may activate it.
+        if self.tag_kind != "Reusable Container":
+            from cfg_kanban.services.output_declarations import reservation
+            reservation(frappe.db.get_value("CFG Kanban Handling Unit",self.physical_container,"handling_unit_id") if self.get("virtual_content") else self.handling_unit_id,
+                stock_entry=self.origin_reference_name if self.origin_reference_doctype=="Stock Entry" else None,activation=True)
         validate_physical_code_namespace(
             self.handling_unit_id, "Handling Unit", tag_family=self.tag_family
         )

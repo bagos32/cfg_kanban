@@ -5527,3 +5527,38 @@ errors and to the Logistics scanner after success/cancel.
 Intermediate operation Hopper WIP is separate from received stock. Use **Recover
 Hopper → Transfer remaining** for that material, including closed Work Orders. Move /
 Repack cannot convert intermediate WIP into ERP-posted stock.
+
+
+## Finished output: station declarations before a Manufacture Draft
+
+Enable **Declare Finished Output at Station Before Receipt** on the Production Master
+and configure **Output Packing Workstation** for the physical bundling station. Use an
+active **Workstation Queue Card** with Company/Station, registered main tags, an enabled
+finished-Item Material Trace Policy with Required Production Output Tags and Allow ERP
+Quantity Across Multiple Tags, and empty Production Output Containers for permanent bins.
+
+In Kanban Operator, scan the station → **Bundle / Tag Finished Output**. Choose the exact
+Work Order, set the quantity, scan a main tag and/or bin, and Confirm. Positive final
+Job Card good output may be bundled while the operation is still running. Availability
+deducts earlier receipts and active declarations; targets/rejects do not add quantity.
+Declarations remain pending physical output, with no ERP stock or duplicate Job Card
+progress. Logistics lookup shows the pending Item/quantity on its reserved tag/bin.
+
+After all Job Cards finish, an unrestricted Supervisor prepares the Manufacture receipt
+for the exact total of pending bundles. The tags/bins/quantities are adopted into its
+Draft automatically; only native ERP submission activates stock and the final Batch.
+The bundling timestamp is retained on posted tags/fills. Ordinary material, certificate,
+Batch and optional printed-expiry checks remain in force. ERP unit-serial-controlled
+finished Items retain the native Draft serial-staging workflow.
+
+Scanner commands: `CFG:CMD:PACK_FINISHED_OUTPUT`, `OUTPUT_STATION`, `OUTPUT_TAG`,
+`OUTPUT_BIN`, `OUTPUT_REASON`, `CANCEL_OUTPUT_DECLARATION`, standard numbered choices,
+Good Quantity, Next/Previous Material Choices, Confirm and Cancel. All named actions
+use the `CFG:CMD:` prefix. Touch uses the same controller. An unacknowledged action is
+retained across reopen/refresh for the original operator to reconcile. Cancel a wrong
+bundle with a reason; a bound declaration requires Supervisor authority and its trace
+and identity reservations are released together. Posted stock uses ERP reversal.
+
+See `docs/STATION_FINISHED_OUTPUT_SETUP.md` for exact settings, operator/supervisor
+sequences, recovery and current boundaries. Site/kiosk acceptance remains pending;
+offline dependency-double tests are not proof of live ERP posting or physical scanning.

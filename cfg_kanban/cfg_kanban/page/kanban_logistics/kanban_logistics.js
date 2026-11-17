@@ -869,6 +869,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 
 	function render_lookup() {
 		if (!state.lookup) return $lookup.empty();
+		const pending_output=state.lookup.pending_output_declaration;
+		const pe=frappe.utils.escape_html;
+		const pending_output_notice=pending_output ? `<div class="alert alert-warning mt-3"><strong>${__("Pending Finished Output")}: ${pe(pending_output.item_code)} · ${pe(pending_output.qty)} ${pe(pending_output.stock_uom)}</strong><br>${__("Work Order")}: ${pe(pending_output.work_order)} · ${pe(pending_output.workstation)} · ${pe(pending_output.status)}<br>${pe(pending_output.name)}<br><small>${__("Operator-declared physical output awaiting supervisor ERP receipt. This quantity is pending and does not increase the posted stock balance.")}</small></div>` : "";
 		if (state.lookup.withdrawal_card) {
 			render_withdrawal_card(state.lookup);
 			return;
@@ -918,7 +921,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 					<h3>${e(identity.visible_code || identity.name || "-")}</h3>
 					<strong>${e(identity.identity_type || __("Registered identity"))}</strong></div>
 					<button class="btn btn-default close-lookup">${__("Close")}</button></div>
-				${range_detail}<div class="alert alert-warning mt-3 mb-0">${status_message}</div>
+				${pending_output_notice}${range_detail}<div class="alert alert-warning mt-3 mb-0">${status_message}</div>
 			</div>`);
 			$lookup.find(".close-lookup").on("click", () => { state.lookup = null; render_lookup(); focus_scanner(); });
 			return;
@@ -962,7 +965,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			${unit.tag_kind === "Main Stock Tag" ? `<button class="btn btn-primary split-child-tag">${__("Split to Detachable Child")}</button>` : ""}
 			<button class="btn btn-warning transfer-active-tag">${__("Move to Active Tag")}</button></div></div>` : "";
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
-			<div class="cfg-logistics-tag-head"><div><small>${__("Scanned Tag Status")}</small><h3>${e(unit.visible_code)}</h3><strong>${unit.tag_kind === "Reusable Container" ? container_items : e(unit.item_code || __("No item assigned"))}</strong></div>
+			<div class="cfg-logistics-tag-head"><div><small>${__("Scanned Tag Status")}</small><h3>${e(unit.visible_code)}</h3><strong>${unit.tag_kind === "Reusable Container" ? (pending_output ? `${e(pending_output.item_code)} · ${__("Pending ERP")}` : container_items) : e(unit.item_code || __("No item assigned"))}</strong></div>
 				<div>${container_action}${!wip ? `<button class="btn btn-default lookup-repack">${__("Move / Repack")}</button><button class="btn btn-default lookup-isolation">${__("FEFO / FIFO Isolation")}</button>` : ""}<button class="btn btn-default explore-genealogy" data-code="${e(unit.visible_code)}">${__("Full Genealogy")}</button>
 				<button class="btn btn-default close-lookup">${__("Close")}</button></div></div>
 			<div class="cfg-logistics-tag-grid">
@@ -973,7 +976,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				<div><small>${__("Available / Reserved")}</small><strong>${unit.tag_kind === "Reusable Container" ? container_availability : `${format_number(unit.available_qty)} / ${format_number(unit.reserved_qty)}`}</strong></div>
 				<div><small>${__("Lifecycle")}</small><strong>${e(unit.identity_state)} · ${e(unit.movement_state)} · ${e(unit.quality_state)}</strong></div>
 			</div>
-			${membership_notice}${content_notice}${serial_notice}${retag_actions}
+			${pending_output_notice}${membership_notice}${content_notice}${serial_notice}${retag_actions}
 			<div class="cfg-logistics-last-movement"><small>${__("Last movement")}</small><strong>${movement ? `${e(movement.event_type)} · ${e(display_datetime(movement.posting_datetime))}` : __("No quantity movement recorded")}</strong></div>
 			<div class="cfg-logistics-related"><small>${__("Related Manifests")}</small><div>${manifests || `<span class="text-muted">${__("No Manifest history for this tag")}</span>`}</div></div>
 			<div class="cfg-logistics-related"><small>${__("Customer Delivery History")}</small><div>${customer_deliveries || `<span class="text-muted">${__("No delivered customer allocation for this tag")}</span>`}</div></div>

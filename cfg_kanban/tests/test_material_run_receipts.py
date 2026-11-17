@@ -239,7 +239,8 @@ class TestMaterialRunReceiptActuals(unittest.TestCase):
         original_get_doc=self.get_doc
         self.frappe.get_doc.side_effect=lambda doctype,name=None:Row(doctype) if isinstance(doctype,dict) else original_get_doc(doctype,name)
         with patch.dict(sys.modules,{trace.__name__:trace,actuals.__name__:actuals}):
-            result=ns['submit_production_stock_entry']('RECEIPT',operator_session_token='SESSION')
+            with patch.dict(sys.modules,{'cfg_kanban.services.output_declarations':types.SimpleNamespace(authorize_posting=Mock())}):
+                result=ns['submit_production_stock_entry']('RECEIPT',operator_session_token='SESSION')
         self.assertEqual(result['docstatus'],1)
         self.assertEqual([row.item_code for row in self.entry.items],['FG'])
         trace._lock_stock_entry.assert_called_once_with('RECEIPT')

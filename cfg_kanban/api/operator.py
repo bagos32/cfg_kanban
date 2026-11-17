@@ -155,6 +155,12 @@ def _scanner_command_catalog(quantity_steps=None):
             ("Correct Actual Material Use", "CFG:CMD:CORRECT_MATERIAL_USE", ""),
             ("Recover Material Run", "CFG:CMD:RECOVER_MATERIAL_RUN", ""),
             ("Recover Hopper", "CFG:CMD:RECOVER_HOPPER", ""),
+            ("Bundle / Tag Finished Output", "CFG:CMD:PACK_FINISHED_OUTPUT", ""),
+            ("Output: Scan Station Next", "CFG:CMD:OUTPUT_STATION", ""),
+            ("Output: Scan Main Tag Next", "CFG:CMD:OUTPUT_TAG", ""),
+            ("Output: Scan Bin Next", "CFG:CMD:OUTPUT_BIN", ""),
+            ("Output: Scan Reason Next", "CFG:CMD:OUTPUT_REASON", ""),
+            ("Cancel Output Declaration", "CFG:CMD:CANCEL_OUTPUT_DECLARATION", ""),
             ("FEFO / FIFO: Tag or Bin Isolation", "CFG:CMD:STOCK_ISOLATION", ""),
             ("FEFO / FIFO: Isolate Stock", "CFG:CMD:ISOLATE_STOCK", ""),
             ("FEFO / FIFO: Release Stock", "CFG:CMD:RELEASE_STOCK", ""),
@@ -1018,21 +1024,36 @@ def _resolve_card_name(token):
 
 def _workstation_queue_context(card, profile):
     """Return a read-only, operator-scoped queue for one permanent workstation card."""
-    rows = frappe.get_all(
-        "CFG Kanban Dispatch Queue",
-        filters={
-            "workstation": card.current_station,
-            "dispatch_status": ["not in", ("Completed", "Cancelled")],
-        },
-        fields=[
-            "name", "process_execution", "kanban_cycle", "kanban_master", "item_code",
-            "target_qty", "work_order", "job_card", "operation", "workstation",
-            "dispatch_status", "readiness", "queue_position", "system_priority",
-            "supervisor_priority", "expedite", "sequence_source", "creation",
-        ],
-        order_by="queue_position asc, creation asc",
-        limit_page_length=500,
+    # Executions own readiness. db_set/set_value transitions do not run the
+    # dispatch on_update projection hook, and older executions may have no row.
+    live_executions = frappe.get_all(
+        "CFG Kanban Process Execution",
+        filters={"workstation": card.current_station, "status": ["not in", ("Completed", "Cancelled")]},
+        fields=["name", "kanban_cycle", "kanban_master", "job_card", "operation", "workstation",
+                "status", "input_available_qty", "target_qty", "good_qty", "processed_qty", "reject_qty", "creation"],
+        order_by="creation asc", limit_page_length=500,
     )
+    projections = frappe.get_all(
+        "CFG Kanban Dispatch Queue",
+        filters={"workstation": card.current_station,
+                 "process_execution": ["in", [row.name for row in live_executions] or ["__none__"]]},
+        fields=["name", "process_execution", "work_order", "item_code", "queue_position",
+                "system_priority", "supervisor_priority", "expedite", "sequence_source"],
+        order_by="queue_position asc, creation asc", limit_page_length=500,
+    )
+    by_execution = {row.process_execution: row for row in projections}
+    rows = []
+    for execution in live_executions:
+        row = frappe._dict(by_execution.get(execution.name) or {})
+        row.update({"process_execution": execution.name, "kanban_cycle": execution.kanban_cycle,
+                    "kanban_master": execution.kanban_master, "job_card": execution.job_card,
+                    "operation": execution.operation, "workstation": execution.workstation,
+                    "dispatch_status": execution.status, "readiness": execution.status,
+                    "target_qty": execution.target_qty,
+                    "queue_position": row.get("queue_position") or 999999,
+                    "sequence_source": row.get("sequence_source") or "System Recommendation"})
+        rows.append(row)
+    rows.sort(key=lambda row: (flt(row.queue_position), row.process_execution))
     allowed_operations = {
         row.operation for row in profile.allowed_operations if row.operation
     }
@@ -1049,7 +1070,7 @@ def _workstation_queue_context(card, profile):
         row.name: row for row in frappe.get_all(
             "CFG Kanban Cycle",
             filters={"name": ["in", list(cycle_names) or ["__none__"]]},
-            fields=["name", "kanban_card", "status", "priority"],
+            fields=["name", "kanban_card", "status", "priority", "work_order", "item_code"],
             limit_page_length=500,
         )
     }
@@ -1061,15 +1082,7 @@ def _workstation_queue_context(card, profile):
             fields=["name", "card_number", "qr_code"], limit_page_length=500,
         )
     }
-    execution_names = {row.process_execution for row in rows if row.process_execution}
-    executions = {
-        row.name: row for row in frappe.get_all(
-            "CFG Kanban Process Execution",
-            filters={"name": ["in", list(execution_names) or ["__none__"]]},
-            fields=["name", "good_qty", "processed_qty", "reject_qty", "target_qty"],
-            limit_page_length=500,
-        )
-    }
+    executions = {row.name: row for row in live_executions}
     visible = []
     for row in rows:
         master = masters.get(row.kanban_master) or frappe._dict()
@@ -1082,6 +1095,8 @@ def _workstation_queue_context(card, profile):
         execution = executions.get(row.process_execution) or frappe._dict()
         row.update({
             "cycle_status": cycle.status,
+            "work_order": cycle.get("work_order") or row.get("work_order"),
+            "item_code": cycle.get("item_code") or row.get("item_code"),
             "priority": row.supervisor_priority or cycle.priority or row.system_priority or "Normal",
             "kanban_card": cycle.kanban_card,
             "card_number": production_card.card_number,

@@ -301,6 +301,8 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		if (!value) return;
 		state.last_operator_interaction_at = Date.now();
 		scan.set_value("");
+		if (state.active_output_declaration) return state.active_output_declaration.scan(value);
+		if (state.opening_output_declaration) return scanner_command_message(__("Wait for output declaration to open, then scan again."));
 		const trace_dialog = state.active_material_trace_dialog?.dialog;
 		if (trace_dialog?.$wrapper?.is(":visible")) {
 			return run_material_trace_scan(trace_dialog, value);
@@ -381,6 +383,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
             CORRECT_MATERIAL_USE: open_material_use_correction,
             RECOVER_MATERIAL_RUN: open_material_run_recovery,
             RECOVER_HOPPER: open_hopper_recovery,
+            PACK_FINISHED_OUTPUT: open_output_declaration,
             STOCK_ISOLATION: () => { frappe.route_options={cfg_open_stock_isolation:1};frappe.set_route("kanban-logistics"); },
             ISOLATE_STOCK: () => { frappe.route_options={cfg_open_stock_isolation:1,cfg_isolation_action:1};frappe.set_route("kanban-logistics"); },
             RELEASE_STOCK: () => { frappe.route_options={cfg_open_stock_isolation:1,cfg_isolation_action:0};frappe.set_route("kanban-logistics"); },
@@ -603,6 +606,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			event.preventDefault();
 			const value = state.modal_scan_buffer;
 			state.modal_scan_buffer = "";
+			if (state.active_output_declaration) { state.active_output_declaration.scan(value);return true; }
 			const active_dialog = state.active_command_dialog;
 			const $top_modal = $(".modal:visible").last();
 			if (active_dialog && active_dialog.$wrapper &&
@@ -646,6 +650,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	}
 
 	function restore_scanner_focus(attempt = 0) {
+		if (state.active_output_declaration) return state.active_output_declaration.focus();
 		window.setTimeout(() => {
 			const $top_modal = $(".modal:visible").last();
 			if ($top_modal.length) {
@@ -680,6 +685,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	}
 
 	function focus_scanner() {
+		if (state.active_output_declaration) return state.active_output_declaration.focus();
 		if ($(".modal:visible").length || document.hidden) return;
 		window.setTimeout(() => {
 			scan.set_value("");
@@ -1053,6 +1059,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<p><strong>${__("Certificate Process commands")}</strong>: <code>CFG:CMD:START_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:COMPLETE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:REPORT_CERTIFICATE_PROGRESS</code>, <code>CFG:CMD:CLOSE_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:SUBMIT_CERTIFICATE_PROCESS</code>, <code>CFG:CMD:CANCEL_CERTIFICATE_PROCESS</code>. Field-arm commands are <code>CFG:CMD:CERTIFICATE_OUTPUT_TAG</code>, <code>CFG:CMD:CERTIFICATE_BATCH</code>, <code>CFG:CMD:CERTIFICATE_EXPIRY</code>, <code>CFG:CMD:CERTIFICATE_SERIAL_START</code>, and <code>CFG:CMD:CERTIFICATE_SERIAL_END</code>. Scan the field command and then its physical/value barcode.</p>
 			<p><strong>${__("Work Order Process Certificates")}</strong>: ${__("Use the normal Start Operation, Start Material Run, Material Quantity, physical source-tag, Report Progress, Scan Material Tags, Submit Material Entry, Confirm, Cancel, and numbered Select labels. Certificate gates run automatically for the configured Operation; do not scan the same material again from the main Production Card after a Process/Station Card recorded it against the shared Job Card.")}</p>
 			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then scan Material Quantity and the physical source Stock Tag for each tracked component. Confirm opens the run. Prepare Receipt uses finalized Material Run actuals; unused BOM balances stay in stock. Printed expiry stays consistent within each Process Card cycle. At receipt, scan CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY or CFG:CMD:RECEIPT_STANDARD_EXPIRY; CFG:CMD:RECEIPT_BATCH arms the next Finished Batch ID scan. Automatic expiry copying requires one matching consumed printed date. Save an older Manufacture Draft and reopen Scan Material Tags to refresh its inputs. Ordinary operations and No Run Tracking components retain normal material confirmation.")}</small></p>
+			<p><small>${__("Bundle / Tag Finished Output: scan PACK_FINISHED_OUTPUT, the Workstation Queue Card, select the exact Work Order with CFG:SELECT:1–10, set CFG:QTY:GOOD:n, scan a new main tag and/or an empty Production Output Container, then Confirm. OUTPUT_TAG / OUTPUT_BIN / OUTPUT_STATION re-arm identities; OUTPUT_REASON arms notes. NEXT_MATERIALS / PREVIOUS_MATERIALS page choices. CANCEL_OUTPUT_DECLARATION selects a declaration for reason-bound cancellation; PACK_FINISHED_OUTPUT returns to bundling. Cancel exits. Pending confirmations retain their original payload across reopen/refresh. These are reported-good reservations; supervisor receipt submission activates stock.")}</small></p>
 			<p><small>${__("FEFO / FIFO Isolation: STOCK_ISOLATION opens Logistics; scan tag/bin, select the exact numbered target, ISOLATE_STOCK or RELEASE_STOCK, reason and Confirm. ISOLATION_SOURCE arms a new source; Next/Previous Material Choices page targets; Cancel exits. Bin rules cover current/future loads until released; tag rules follow stock splits/replacements. Batch rules remain independent. An unrestricted Supervisor with Override permission is required. Explicit scans still enforce normal validity.")}</small></p>
 			<p><small>${__("Move / Repack received stock: CFG:CMD:MOVE_CONTAINER_STOCK opens Logistics. Scan source, Material Qty, destination, reason and Confirm. Existing compatible destination stock keeps its tag and combines quantities. REPACK_SOURCE / REPACK_DESTINATION / REPACK_NEW_TAG / REPACK_REASON arm fields; numbered choices and Next/Previous Material Choices select fills. Cancel preserves any unacknowledged move for its original operator to retry. Operation Hopper WIP uses Recover Hopper.")}</small></p>
 			<p><small>${__("Operation Hoppers: configure Fill Hopper on Rinse and Consume Hopper on Packing with the same Hopper Warehouse. In Start Material Run, scan the boundary, the physical Hopper, then each Material Quantity/source tag and Confirm. Rinse progress loads good output; Packing progress consumes the selected fill. Loaded and available quantities use the finished Item stock UOM. Close Operation Cycle releases unused raw-material reservations; used quantities remain pending ERP settlement. PPHU Hopper Change records trace context only and does not load stock.")}</small></p>
@@ -1530,12 +1537,30 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<small>${__("Priority")}: ${e(task.priority)} · ${__("Due")}: ${e(task.due_on || "-")}</small></div>`));
 	}
 
+	async function open_output_declaration() {
+		if (state.active_output_declaration || state.opening_output_declaration) return state.active_output_declaration?.focus();
+		if (!state.operator || !state.session_token) return scanner_command_message(__("Identify the operator first."));
+		state.opening_output_declaration=true;
+		try {
+			await frappe.require("/assets/cfg_kanban/js/output_declarations.js");
+			const stationScan=state.context?.workstation_queue_card ? (state.context.card.qr_code || state.context.card.card_number) : null;
+			state.active_output_declaration=await window.cfg_output_declarations.open({frappe,stationScan,
+				token:()=>state.session_token,owner:()=>state.operator?.employee,nonce:()=>frappe.utils.get_random(24),
+				errorMessage:(error,fallback)=>{try{return JSON.parse(error._server_messages || error.responseJSON?._server_messages || "[]").map(message=>JSON.parse(message).message).join(" · ") || error.message || fallback;}catch(_){return error.message || fallback;}},
+				onClose:()=>{state.active_output_declaration=null;restore_scanner_focus();},
+				success:async()=>{frappe.show_alert({message:__("Output declaration recorded. Stock remains pending ERP submission."),indicator:"green"});if(state.context?.card)await load_card(state.context.card.qr_code || state.context.card.card_number);}
+			});
+		} catch(error){scanner_command_message(error.message || __("Output declaration could not open."));}
+		finally{state.opening_output_declaration=false;}
+	}
+
 	function render_workstation_queue(card, queue) {
 		const e = frappe.utils.escape_html;
 		const active = queue.active || [];
 		const paused = queue.paused || [];
 		const waiting = queue.queue || [];
 		$root.append(`<div class="cfg-work-section-heading"><div><h3>${__("Workstation Queue")}</h3>
+			<button class="btn btn-primary pack-finished-output">${__("Bundle / Tag Finished Output")}</button>
 			<small>${__("Permanent station view. Scan another production card at any time.")}</small></div>
 			<span class="indicator-pill blue">${e(queue.total || 0)} ${__("Open")}</span></div>
 			<div class="frappe-card p-4 mb-4 cfg-active-production-card" data-live-focus="active-card">
@@ -1543,9 +1568,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 					<div class="d-flex align-items-center flex-wrap"><h3 class="mr-3 mb-1">${e(queue.workstation || card.current_station)}</h3>
 					<span class="indicator-pill blue mb-1">${__("Workstation Queue Card")}</span></div>
 					<strong>${e(queue.company || card.queue_company || "-")}</strong><br>
-					<small class="text-muted">${e(card.card_number)} · ${__("Read-only queue access; production remains controlled by its own card and Cycle.")}</small>
+					<small class="text-muted">${e(card.card_number)} · ${__("View the station queue and bundle reported finished output. Production progress remains controlled by its own card and Cycle.")}</small>
 				</div><button class="btn btn-default refresh-station-queue">${__("Refresh Queue")}</button></div>
 			</div>`);
+		$root.find(".pack-finished-output").on("click",open_output_declaration);
 		$root.find(".refresh-station-queue").on("click", () => load_card(card.qr_code));
 		render_workstation_queue_group(__("Active Work"), active, "blue", true);
 		render_workstation_queue_group(__("Paused Work"), paused, "orange", true);
@@ -3134,9 +3160,10 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 		const dialog = new frappe.ui.Dialog({
 			title: __("Confirm Manufacture Receipt"), size: "extra-large",
 			fields: [
+				...(flow.station_output_declarations_enabled ? [{fieldtype:"HTML",options:`<div class="alert alert-info"><strong>${__("Station-declared output")}: ${frappe.utils.escape_html(flow.declared_output_qty || 0)}</strong><br>${(flow.pending_output_declarations || []).map(row=>`${frappe.utils.escape_html(row.workstation)} · ${frappe.utils.escape_html(row.tag_code || row.container_code)} · ${frappe.utils.escape_html(row.qty)}`).join("<br>")}<br>${__("A Supervisor prepares the Draft from the exact pending bundles. Tags/bins will be adopted automatically. ERP submission remains the stock-posting action.")}</div>`}] : []),
 				{ fieldtype: "HTML", options: `<div class="alert alert-warning">${__("Verify actual input consumption and accepted finished quantity before creating the ERPNext Manufacture entry. Posting policy")}: <strong>${frappe.utils.escape_html(flow.manufacture_posting_mode)}</strong>${adopts_material_runs ? `<br><strong>${__("Material Run settlement")}</strong>: ${__("The earlier source-tag scans will be attached automatically. The Manufacture entry will remain Draft until its complete Material Trace is submitted; do not scan those same source quantities again.")}` : ""}</div>` },
 				...(actuals.length ? [{ fieldtype: "HTML", options: `<div class="alert alert-info"><strong>${__("Recorded Material Run consumption")}</strong><br>${actuals.map(actual => `${frappe.utils.escape_html(actual.item_code)}: ${actual.used_qty} ${frappe.utils.escape_html(actual.stock_uom)} ${__("used")}, ${actual.settled_qty} ${__("already posted")}, ${actual.pending_qty} ${__("to post now")}`).join("<br>")}<br>${__("Unused BOM balances remain in stock and are excluded. Correct recorded usage through Correct Material Use before preparation.")}</div>` }] : []),
-				{ fieldname: "output_qty", label: __("Accepted Finished Quantity"), fieldtype: "Float", reqd: 1, default: flow.remaining_output_qty },
+				{ fieldname: "output_qty", label: __("Accepted Finished Quantity"), fieldtype: "Float", reqd: 1, default: flow.station_output_declarations_enabled ? flow.declared_output_qty : flow.remaining_output_qty },
 				{ fieldname: "target_warehouse", label: __("Finished Goods Warehouse"), fieldtype: "Link", options: "Warehouse", reqd: 1, default: flow.output_warehouse },
 				{ fieldname: "use_printed_expiry", fieldtype: "Check", label: __("Use consumed material's printed expiry for Finished Batch"), default: 0, read_only: !flow.finished_batch_controlled,
 					description: __("Requires a Batch-controlled finished Item and one matching printed date. Existing Batches must already match. Mixed dates require separate production batches.") },

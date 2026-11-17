@@ -1,0 +1,320 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Output Declaration",
+ "module": "CFG Kanban",
+ "autoname": "OUT-.YYYY.-.#####",
+ "track_changes": 1,
+ "field_order": [
+  "status",
+  "work_order",
+  "kanban_cycle",
+  "kanban_master",
+  "station_card",
+  "workstation",
+  "company",
+  "item_code",
+  "stock_uom",
+  "warehouse",
+  "physical_container",
+  "stock_entry",
+  "material_trace_line",
+  "handling_unit",
+  "operator",
+  "qty",
+  "tag_code",
+  "container_code",
+  "handling_unit_type",
+  "declared_on",
+  "operator_session",
+  "terminal_user",
+  "notes",
+  "source_snapshot",
+  "previous_container_state",
+  "idempotency_key",
+  "active_tag_key",
+  "active_container_key",
+  "request_fingerprint",
+  "cancelled_on",
+  "cancelled_by",
+  "cancel_action_key",
+  "cancel_request_fingerprint"
+ ],
+ "fields": [
+  {
+   "fieldname": "status",
+   "label": "Status",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "options": "Declared\nBound to Draft\nPosted\nCancelled\nVoided",
+   "default": "Declared",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "work_order",
+   "label": "Work Order",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Work Order",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "kanban_cycle",
+   "label": "Production Cycle",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Cycle",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "kanban_master",
+   "label": "Kanban Master",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Master",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "station_card",
+   "label": "Station Card",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Card",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "workstation",
+   "label": "Packing Workstation",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Workstation",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Company",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "item_code",
+   "label": "Finished Item",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Item",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "stock_uom",
+   "label": "Stock UOM",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "UOM",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "warehouse",
+   "label": "Receipt Warehouse",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Warehouse",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "physical_container",
+   "label": "Output Container",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Handling Unit",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "stock_entry",
+   "label": "Manufacture Receipt",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Stock Entry",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "material_trace_line",
+   "label": "Material Trace Line",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Material Trace Line",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "handling_unit",
+   "label": "Posted Stock Tag",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Handling Unit",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "operator",
+   "label": "Declared By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "qty",
+   "label": "Bundle Quantity",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "tag_code",
+   "label": "Preprinted Stock Tag",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "container_code",
+   "label": "Permanent Bin QR",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "handling_unit_type",
+   "label": "Handling Unit Type",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "default": "Container"
+  },
+  {
+   "fieldname": "declared_on",
+   "label": "Declared On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "operator_session",
+   "label": "Operator Session",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Operator Session"
+  },
+  {
+   "fieldname": "terminal_user",
+   "label": "Terminal User",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "User"
+  },
+  {
+   "fieldname": "notes",
+   "label": "Declaration / Cancellation Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_snapshot",
+   "label": "Reported Output Snapshot",
+   "fieldtype": "Long Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "previous_container_state",
+   "label": "Previous Container State",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "idempotency_key",
+   "label": "Action Key",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "unique": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "active_tag_key",
+   "label": "Reserved Tag Key",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "unique": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "active_container_key",
+   "label": "Reserved Container Key",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "unique": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "request_fingerprint",
+   "label": "Request Fingerprint",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "cancelled_on",
+   "label": "Cancelled On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancelled_by",
+   "label": "Cancelled By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "cancel_action_key",
+   "label": "Cancellation Action Key",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "cancel_request_fingerprint",
+   "label": "Cancellation Request Fingerprint",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Stock User",
+   "read": 1,
+   "report": 1,
+   "print": 1
+  },
+  {
+   "role": "Manufacturing User",
+   "read": 1,
+   "report": 1,
+   "print": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "report": 1,
+   "print": 1
+  },
+  {
+   "role": "Manufacturing Manager",
+   "read": 1,
+   "report": 1,
+   "print": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "print": 1
+  }
+ ]
+}
