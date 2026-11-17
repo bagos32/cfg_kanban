@@ -107,7 +107,8 @@ class TestManufactureExpiryAndCohorts(unittest.TestCase):
         self.fx.runs.append(Row(self.fx.run,name='EARLY-RUN',output_handling_unit='EARLY',kanban_cycle='EARLY-CYCLE',repack_stock_entry='EARLY-REPACK',printed_expiry='2027-01-01'))
         rotation=types.ModuleType('cfg_kanban.services.material_rotation')
         rotation._rotation_candidates=Mock(return_value=[Row(name='EARLY',scan_code='RM-MATCH',batch_no=None,expiry_date=None,batch_expiry=None)])
-        with patch.dict(sys.modules,{rotation.__name__:rotation}):
+        policy=types.ModuleType('cfg_kanban.services.batch_rotation');policy.tag_rotation_exclusions=Mock(return_value={})
+        with patch.dict(sys.modules,{rotation.__name__:rotation,policy.__name__:policy}):
             with self.assertRaisesRegex(ValueError,'RM-MATCH.*close the current cycle/batch'):self.check()
         self.assertEqual(self.frappe.db.sql.call_args.args[1],'PROCESS-CYCLE')
 

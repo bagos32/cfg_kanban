@@ -103,7 +103,8 @@ doc_events = {
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_job_card_cancel",
     },
     "Stock Entry": {
-        "before_cancel": "cfg_kanban.services.hopper_carry_in.protect_source_cancellation",
+        "before_cancel": ["cfg_kanban.services.hopper_carry_in.protect_source_cancellation",
+                          "cfg_kanban.services.container_repacking.protect_receipt_cancellation"],
         "before_validate": ["cfg_kanban.integrations.erp_feedback.prepare_stock_entry",
                             "cfg_kanban.services.logistics_stock_identity.prepare_controlled_transfer"],
         "before_submit": ["cfg_kanban.services.logistics_stock_identity.validate_logistics_document",
@@ -126,6 +127,7 @@ doc_events = {
         "on_submit": "cfg_kanban.integrations.purchase_feedback.on_purchase_order_submit",
     },
     "Purchase Receipt": {
+        "before_cancel": "cfg_kanban.services.container_repacking.protect_receipt_cancellation",
         "before_submit": "cfg_kanban.services.logistics_stock_identity.validate_logistics_document",
         "on_submit": "cfg_kanban.integrations.purchase_feedback.on_purchase_receipt_submit",
         "on_cancel": "cfg_kanban.integrations.purchase_feedback.on_purchase_receipt_cancel",

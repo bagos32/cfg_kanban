@@ -107,6 +107,8 @@ class CFGKanbanHandlingUnit(Document):
             inherit_split_certificates(parent, self, self.qty, f"handling-unit-activation:{self.name}")
 
     def validate(self):
+        from cfg_kanban.services.batch_rotation import validate_handling_unit_isolation
+        validate_handling_unit_isolation(self)
         if self.tag_kind == "Reusable Container":
             self.reusable_container_role = (
                 self.reusable_container_role or "Logistics Container"

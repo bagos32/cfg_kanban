@@ -191,6 +191,13 @@ frappe.ui.form.on("CFG Kanban Handling Unit", {
 			}, __("Kanban Actions"));
 		}
 		add_handling_unit_print_buttons(frm);
+		frm.add_custom_button(__("FEFO / FIFO Isolation"), async () => {
+			await frappe.require("/assets/cfg_kanban/js/stock_isolation.js");
+			await window.cfg_stock_isolation.open({frappe,sourceScan:frm.doc.handling_unit_id,
+				token:()=>null,nonce:()=>crypto.randomUUID(),
+				errorMessage:(error,fallback)=>{try{return JSON.parse(error._server_messages || error.responseJSON?._server_messages || "[]").map(message=>JSON.parse(message).message).join(" · ") || fallback;}catch(_){return fallback;}},
+				onClose:()=>frm.get_field("handling_unit_id")?.set_focus(),success:()=>frm.reload_doc()});
+		}, __("Kanban Actions"));
 		frm.add_custom_button(__("Explore Material Genealogy"), () => {
 			frappe.set_route("material-genealogy", frm.doc.handling_unit_id);
 		}, __("Kanban Actions"));

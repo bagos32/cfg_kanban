@@ -252,6 +252,8 @@ def _serial_split_problem(parent, serials):
 
 
 def _serial_merge_problem(parent, child):
+    if int(parent.get("rotation_excluded") or 0) != int(child.get("rotation_excluded") or 0):
+        return _("Align the parent and child tag isolation rules before merging")
     if child.tag_kind != "Child Stock Tag" or child.parent_handling_unit != parent.name:
         return _("Only a detachable child tag can be merged into its recorded parent")
     if child.identity_state != "Active" or parent.identity_state not in ("Active", "Empty"):

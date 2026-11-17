@@ -65,7 +65,7 @@ class TestBatchRotationPolicy(unittest.TestCase):
         self.db.execute('create table `tabCFG Kanban Movement Manifest` (name text,state text)')
         for name,batch,date in [('A','ISOLATED','2026-01-01'),('B','ISOLATED','2026-01-02'),('C','AVAILABLE','2026-02-01')]:
             self.db.execute('insert into `tabCFG Kanban Handling Unit` values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(name,name,batch,5,5,'Nos',date,date,date,'Active','Released','COMP','WH','RAW',0))
-        module=types.ModuleType('cfg_kanban.services.batch_rotation');module.automatic_batch_condition=self.ns['automatic_batch_condition']
+        module=types.ModuleType('cfg_kanban.services.batch_rotation');module.automatic_batch_condition=self.ns['automatic_batch_condition'];module.automatic_tag_condition=lambda alias:''
         frappe=types.ModuleType('frappe');frappe.db=Row(sql=lambda query,values,**kw:self.db.execute(re.sub(r'%\((\w+)\)s',r':\1',query),values).fetchall())
         fn=functions('services/dispatch_planning.py',['_suggested_tags'],{'frappe':frappe})['_suggested_tags']
         with patch.dict(sys.modules,{module.__name__:module}):

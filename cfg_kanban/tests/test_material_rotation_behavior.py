@@ -48,6 +48,7 @@ def load_service():
     expiry.assert_process_cycle_printed_expiry = Mock(return_value={"printed_expiry_date":None})
     policy = types.ModuleType('cfg_kanban.services.batch_rotation')
     policy.batch_rotation_exclusion = Mock(return_value=None)
+    policy.tag_rotation_exclusions = Mock(return_value={})
     modules = {policy.__name__:policy, 'cfg_kanban.services.manufacture_expiry': expiry, 'cfg_kanban.services.certificate_output_evidence': printing, 'frappe': frappe, 'frappe.utils': utils,
                'cfg_kanban.services.events': events, 'cfg_kanban.services.operator_auth': auth,
                'cfg_kanban.services.idempotency': idem}

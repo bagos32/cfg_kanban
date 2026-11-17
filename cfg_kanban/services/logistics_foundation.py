@@ -425,9 +425,15 @@ def _lock_handling_units(names):
 def _calculate_updates(names, source, destination, deltas):
     updates = {}
     for name in names:
-        current, reserved = frappe.db.get_value(
-            "CFG Kanban Handling Unit", name, ["current_qty", "reserved_qty"]
-        ) or (0, 0)
+        # A normal get_value can still see a pre-lock REPEATABLE READ snapshot.
+        # All quantity deltas must use the current row, including after waiting.
+        balances = frappe.db.sql(
+            "select current_qty, reserved_qty from `tabCFG Kanban Handling Unit` where name=%s for update",
+            name,
+        )
+        if not balances:
+            frappe.throw("Handling Unit no longer exists: " + name)
+        current, reserved = balances[0]
         qty_delta = 0
         reserved_delta = 0
         if name == source:

@@ -32,6 +32,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	const $reconciliation = $("<div class='cfg-logistics-reconciliation mt-3'></div>").appendTo(page.main);
 	const $actions = $(`<div class="cfg-logistics-toolbar mt-3 mb-3">
 		<button class="btn btn-primary new-manifest">${__("New Dispatch Manifest")}</button>
+		<button class="btn btn-default stock-isolation">${__("FEFO / FIFO Isolation")}</button>
+		<button class="btn btn-default move-container-stock">${__("Move / Repack")}</button>
+		<button class="btn btn-default repack-help">${__("Scanner Help")}</button>
 		<button class="btn btn-warning route-reconciliation">${__("Route Stock Count")}</button>
 		<button class="btn btn-default refresh-logistics">${__("Refresh")}</button>
 		<button class="btn btn-default clear-current">${__("Clear Screen")}</button>
@@ -45,6 +48,9 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (event.key === "Enter") { event.preventDefault(); process_scan(); }
 	});
 	$scanner.find(".camera-scan").on("click", camera_scan);
+	$actions.find(".stock-isolation").on("click", () => open_stock_isolation());
+	$actions.find(".move-container-stock").on("click", () => open_container_repack());
+	$actions.find(".repack-help").on("click", repack_scanner_help);
 	$actions.find(".new-manifest").on("click", new_manifest_dialog);
 	$actions.find(".route-reconciliation").on("click", reconciliation_dialog);
 	$actions.find(".refresh-logistics").on("click", load);
@@ -957,7 +963,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<button class="btn btn-warning transfer-active-tag">${__("Move to Active Tag")}</button></div></div>` : "";
 		$lookup.html(`<div class="frappe-card cfg-logistics-tag-status">
 			<div class="cfg-logistics-tag-head"><div><small>${__("Scanned Tag Status")}</small><h3>${e(unit.visible_code)}</h3><strong>${unit.tag_kind === "Reusable Container" ? container_items : e(unit.item_code || __("No item assigned"))}</strong></div>
-				<div>${container_action}<button class="btn btn-default explore-genealogy" data-code="${e(unit.visible_code)}">${__("Full Genealogy")}</button>
+				<div>${container_action}${!wip ? `<button class="btn btn-default lookup-repack">${__("Move / Repack")}</button><button class="btn btn-default lookup-isolation">${__("FEFO / FIFO Isolation")}</button>` : ""}<button class="btn btn-default explore-genealogy" data-code="${e(unit.visible_code)}">${__("Full Genealogy")}</button>
 				<button class="btn btn-default close-lookup">${__("Close")}</button></div></div>
 			<div class="cfg-logistics-tag-grid">
 				<div><small>${unit.tag_kind === "Reusable Container" ? __("Loaded Batch") : __("Batch")}</small><strong>${unit.tag_kind === "Reusable Container" ? container_batches : e(unit.batch_no || __("No Batch"))}</strong></div>
@@ -979,6 +985,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		$lookup.find(".explore-genealogy").on("click", function () {
 			frappe.set_route("material-genealogy", $(this).data("code"));
 		});
+		$lookup.find(".lookup-isolation").on("click", () => open_stock_isolation(unit.visible_code));
+		$lookup.find(".lookup-repack").on("click", () => open_container_repack(unit.visible_code));
 		$lookup.find(".manage-container").on("click", manage_container_dialog);
 		$lookup.find(".split-unused-tag").on("click", () => open_stock_retagging_dialog("split"));
 		$lookup.find(".split-child-tag").on("click", () => open_stock_retagging_dialog("child"));
@@ -2631,12 +2639,13 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (!status || status.mode !== "container") return;
 		const container = status.container;
 		const is_quantity_bin = container.reusable_container_role === "Logistics Quantity Bin";
+		const is_production_container = container.reusable_container_role === "Production Output Container";
 		const dialog = new frappe.ui.Dialog({
 			title: __("Reusable Container {0}", [container.visible_code]),
 			size: "extra-large",
 			fields: [
 				{ fieldname: "content_scan", label: is_quantity_bin ? __("Source Stock Tag") : __("Stock Tag"), fieldtype: "Data",
-					description: is_quantity_bin ? __("Scan the source Stock Tag. The selected quantity will use this permanent bin QR; no child tag is required.") : __("Scan one complete physical Stock Tag, then select Load Tag.") },
+					description: is_production_container ? __("Use Move / Repack to load or move received stock. Native Manufacture uses its controlled output receipt.") : is_quantity_bin ? __("Scan the source Stock Tag. The selected quantity will use this permanent bin QR; no child tag is required.") : __("Scan one complete physical Stock Tag, then select Load Tag.") },
 				{ fieldname: "scan_camera", fieldtype: "Button",
 					label: is_quantity_bin ? __("Scan Source Tag with Camera") : __("Scan Stock Tag with Camera") },
 				{ fieldname: "load_qty", label: __("Quantity to Load"), fieldtype: "Float",
@@ -2646,9 +2655,13 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 					default: is_quantity_bin ? __("Loaded into reusable lorry/bin identity") : "" },
 				{ fieldname: "content_html", fieldtype: "HTML" },
 			],
-			primary_action_label: is_quantity_bin ? __("Load Quantity") : __("Load Tag"),
+			primary_action_label: is_production_container ? __("Move / Repack") : is_quantity_bin ? __("Load Quantity") : __("Load Tag"),
 			primary_action: async (values) => {
 				const content_scan = String(values.content_scan || "").trim();
+				if (is_production_container) {
+					dialog.hide();
+					return open_container_repack(content_scan || ((status.current_contents || []).length ? container.visible_code : null));
+				}
 				if (!content_scan) return frappe.msgprint(__("Scan or enter a Stock Tag first."));
 				if (is_quantity_bin) {
 					if (Number(values.load_qty || 0) <= 0) return frappe.msgprint(__("Enter a positive Quantity to Load."));
@@ -2684,7 +2697,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const current = (status.current_contents || []).map((row) => `<tr>
 			<td><strong>${e(is_quantity_bin ? status.container.visible_code : row.content_visible_code)}</strong>${row.source_visible_code ? `<br><small>${__("Source")}: ${e(row.source_visible_code)}</small>` : ""}</td><td>${e(row.item_code || "-")}</td>
 			<td>${e(row.batch_no || __("No Batch"))}</td><td>${format_number(row.live_current_qty)} ${e(row.live_stock_uom || row.stock_uom || "")}</td>
-			<td>${e(display_datetime(row.loaded_on))}</td><td>${row.virtual_content ? `<button class="btn btn-xs btn-danger return-bin-quantity" data-content="${e(row.content_handling_unit)}" data-qty="${e(row.live_available_qty)}" data-source="${e(row.source_visible_code || "")}">${__("Return to Source")}</button>` : `<button class="btn btn-xs btn-danger unload-content" data-code="${e(row.content_visible_code)}">${__("Unload")}</button>`}</td></tr>`).join("");
+			<td>${e(display_datetime(row.loaded_on))}</td><td>${is_quantity_bin && row.virtual_content && row.return_to_source_supported ? `<button class="btn btn-xs btn-danger return-bin-quantity" data-content="${e(row.content_handling_unit)}" data-qty="${e(row.live_available_qty)}" data-source="${e(row.source_visible_code || "")}">${__("Return to Source")}</button>` : !row.virtual_content && status.container.reusable_container_role !== "Production Output Container" ? `<button class="btn btn-xs btn-danger unload-content" data-code="${e(row.content_visible_code)}">${__("Unload")}</button>` : ""} <button class="btn btn-xs btn-primary repack-content">${__("Move / Repack")}</button></td></tr>`).join("");
 		const history = (status.history || []).slice(0, 20).map((row) => `<tr>
 			<td>${e(row.content_visible_code)}</td><td>${e(row.item_code || "-")}</td><td>${format_number(row.qty)} ${e(row.stock_uom || "")}</td>
 			<td>${e(display_datetime(row.unloaded_on))}</td><td>${e(row.unload_reason || "-")}</td></tr>`).join("");
@@ -2696,6 +2709,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			<h5>${__("Recent Unloads")}</h5><div class="table-responsive"><table class="table table-bordered"><thead><tr><th>${__("Tag")}</th><th>${__("Item")}</th><th>${__("Quantity")}</th><th>${__("Unloaded")}</th><th>${__("Reason")}</th></tr></thead>
 			<tbody>${history || `<tr><td colspan="5" class="text-muted">${__("No unload history")}</td></tr>`}</tbody></table></div>`;
 		const $html = dialog.fields_dict.content_html.$wrapper.html(html);
+		$html.find(".repack-content").on("click", () => { dialog.hide(); open_container_repack(status.container.visible_code); });
 		$html.find(".unload-content").on("click", function () {
 			const content_scan = $(this).data("code");
 			frappe.prompt([{ fieldname: "reason", label: __("Unload Reason"), fieldtype: "Small Text", reqd: 1 }],
@@ -2742,10 +2756,59 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		render_lookup();
 	}
 
+	let active_repack = null, opening_repack = false, active_isolation = null, opening_isolation = false;
+	async function open_container_repack(sourceScan) {
+		if (active_isolation || opening_isolation) return active_isolation?.focus();
+		if (opening_repack || active_repack) return active_repack?.focus();
+		if (!state.operator || !state.token) return scanner_error(__("Identify an operator first."));
+		if (state.scan_mode !== "lookup") return scanner_error(__("Stop transaction scanning before Move / Repack."));
+		opening_repack = true;
+		try {
+			await frappe.require("/assets/cfg_kanban/js/container_repack.js");
+			active_repack = await window.cfg_container_repack.open({ frappe, sourceScan,
+				token: () => state.token, owner: () => state.operator?.employee,
+				nonce: unique_token, errorMessage: server_error_message,
+				onClose: () => { active_repack = null; focus_scanner(); },
+				success: async (result) => {
+					frappe.show_alert({message: __("Moved {0} {1} into {2}; tag {3}. Re-reading current balance.", [result.moved_qty, result.stock_uom, result.destination_code, result.destination_tag].map((value) => frappe.utils.escape_html(String(value)))), indicator:"green"});
+					await lookup_tag(result.destination_code);
+				} });
+		} catch (error) { scanner_error(server_error_message(error, error.message || __("Move / Repack could not open."))); }
+		finally { opening_repack = false; }
+	}
+	async function open_stock_isolation(sourceScan, action=null) {
+		if (active_repack || opening_repack) return active_repack?.focus();
+		if (active_isolation || opening_isolation) return active_isolation?.focus();
+		if (!state.operator || !state.token) return scanner_error(__("Identify a supervisor first."));
+		if (state.scan_mode !== "lookup") return scanner_error(__("Stop transaction scanning before changing isolation."));
+		opening_isolation=true;
+		try {
+			await frappe.require("/assets/cfg_kanban/js/stock_isolation.js");
+			active_isolation=await window.cfg_stock_isolation.open({frappe,sourceScan,action,token:()=>state.token,nonce:unique_token,errorMessage:server_error_message,
+				onClose:()=>{active_isolation=null;focus_scanner();},
+				success:async(result)=>{frappe.show_alert({message:__("Isolation rule recorded. Other Batch, tag or bin rules remain in force."),indicator:"green"});await lookup_tag(result.source_scan);}
+			});
+		} catch(error){scanner_error(server_error_message(error,error.message || __("Isolation could not open.")));}
+		finally{opening_isolation=false;}
+	}
+
+	function repack_scanner_help() {
+		frappe.msgprint(__("FEFO / FIFO Isolation: CFG:CMD:STOCK_ISOLATION opens the action. Scan a tag/bin, select CFG:SELECT:1–10 if several targets, scan CFG:CMD:ISOLATE_STOCK or CFG:CMD:RELEASE_STOCK, reason and CFG:CMD:CONFIRM. CFG:CMD:ISOLATION_SOURCE arms another source; Next/Previous Material Choices page targets; Cancel exits. Bin isolation covers future loads until released. Tag isolation follows stock splits/replacements. Batch isolation remains independent. Only an unrestricted Supervisor with Override permission may change rules. Explicit scans still require normal validity. Move / Repack: scan CFG:CMD:MOVE_CONTAINER_STOCK, source Stock Tag or container, CFG:SELECT:1–10 if several fills, CFG:QTY:MATERIAL:n, destination container, numbered destination choice if needed, reason, then CFG:CMD:CONFIRM. Existing destination stock uses its current tag and combines quantities. For an empty destination only, CFG:CMD:REPACK_NEW_TAG arms a new unused Main Stock Tag. CFG:CMD:REPACK_SOURCE, REPACK_DESTINATION and REPACK_REASON re-arm those fields. NEXT_MATERIALS / PREVIOUS_MATERIALS page choices; CANCEL closes safely. An unacknowledged move remains locked for its original operator to retry, including after reopening or refresh. Print these commands from Kanban Operator → Scanner Command Labels. Intermediate Hopper WIP uses Recover Hopper."));
+	}
+
 	async function process_scan(value) {
 		const $input = $scanner.find(".logistics-scan-input");
 		const raw = String(value || $input.val() || "").trim(); $input.val("");
 		if (!raw) return focus_scanner();
+		if (active_isolation) return active_isolation.scan(raw);
+		if (opening_isolation) return scanner_error(__("Wait for Isolation to open, then scan again."));
+		if (active_repack) return active_repack.scan(raw);
+		if (opening_repack) return scanner_error(__("Wait for Move / Repack to open, then scan again."));
+		if (raw.toUpperCase() === "CFG:CMD:HELP") return repack_scanner_help();
+		if (raw.toUpperCase() === "CFG:CMD:MOVE_CONTAINER_STOCK") return open_container_repack();
+		if (raw.toUpperCase() === "CFG:CMD:STOCK_ISOLATION") return open_stock_isolation();
+		if (raw.toUpperCase() === "CFG:CMD:ISOLATE_STOCK") return open_stock_isolation(null,1);
+		if (raw.toUpperCase() === "CFG:CMD:RELEASE_STOCK") return open_stock_isolation(null,0);
 		const operator = operator_token(raw);
 		if (!state.token || operator) return login_operator(operator || raw);
 		if (state.scan_mode === "dispatch-plan-vehicle" && state.lookup?.dispatch_plan) {
@@ -3152,6 +3215,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	}
 
 	function focus_scanner() {
+		if (active_isolation) return active_isolation.focus();
+		if (active_repack) return active_repack.focus();
 		if (window.matchMedia("(min-width: 768px) and (hover: hover)").matches)
 			setTimeout(() => $scanner.find(".logistics-scan-input").trigger("focus").select(), 50);
 	}
@@ -3185,5 +3250,18 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 
 	const initial_scan = route_scan_value();
 	install_live_updates();
-	load().then(() => { if (initial_scan && state.token) lookup_tag(initial_scan); });
+	const initial_load = load().then(() => { if (initial_scan && state.token) return lookup_tag(initial_scan); });
+	frappe.pages["kanban-logistics"].on_page_show = async () => {
+		await initial_load;
+		if (frappe.route_options?.cfg_open_stock_isolation) {
+			const sourceScan=frappe.route_options.cfg_isolation_source || null, action=frappe.route_options.cfg_isolation_action ?? null;
+			delete frappe.route_options.cfg_open_stock_isolation;delete frappe.route_options.cfg_isolation_source;delete frappe.route_options.cfg_isolation_action;
+			if (sync_session_from_storage()) await load();
+			return open_stock_isolation(sourceScan,action);
+		}
+		if (!frappe.route_options?.cfg_open_container_repack) return;
+		delete frappe.route_options.cfg_open_container_repack;
+		if (sync_session_from_storage()) await load();
+		await open_container_repack();
+	};
 };

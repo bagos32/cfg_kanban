@@ -225,7 +225,9 @@ def production_output_content(container_handling_unit, *, require_content=True):
         return container, None, None
     membership = frappe.get_doc("CFG Kanban Container Content", rows[0].name)
     content = frappe.get_doc("CFG Kanban Handling Unit", membership.content_handling_unit)
-    if not cint(content.get("virtual_content")) or content.physical_container != container.name:
+    if ((cint(content.get("virtual_content")) and content.physical_container != container.name) or
+            (not cint(content.get("virtual_content")) and
+             (content.tag_kind not in ("Main Stock Tag", "Child Stock Tag") or content.get("physical_container")))):
         frappe.throw(
             _("Production Output Container {0} contains an invalid production fill identity").format(
                 container.handling_unit_id
@@ -234,7 +236,7 @@ def production_output_content(container_handling_unit, *, require_content=True):
     return container, content, membership
 
 
-def load_production_output_content(container, content, *, reference_name, reason):
+def load_production_output_content(container, content, *, reference_name, reason, allow_physical_stock=False):
     """Load one system-created fill identity into its permanent scanned container."""
     if isinstance(container, str):
         container = frappe.get_doc("CFG Kanban Handling Unit", container)
@@ -243,7 +245,9 @@ def load_production_output_content(container, content, *, reference_name, reason
     if (container.tag_kind != "Reusable Container"
             or container.reusable_container_role != "Production Output Container"):
         frappe.throw("A production fill requires a Production Output Container")
-    if not cint(content.get("virtual_content")) or content.physical_container != container.name:
+    if ((cint(content.get("virtual_content")) and content.physical_container != container.name) or
+            (not cint(content.get("virtual_content")) and
+             (not allow_physical_stock or content.tag_kind not in ("Main Stock Tag", "Child Stock Tag") or content.get("physical_container")))):
         frappe.throw("The production fill identity does not belong to this permanent container")
     _lock_units(container.name, content.name)
     from cfg_kanban.services.operation_hoppers import assert_no_operation_fill
@@ -345,7 +349,7 @@ def restore_production_output_content(container_handling_unit, content_handling_
     container = frappe.get_doc("CFG Kanban Handling Unit", container_handling_unit)
     content = frappe.get_doc("CFG Kanban Handling Unit", content_handling_unit)
     return load_production_output_content(
-        container, content, reference_name=reference_name, reason=reason
+        container, content, reference_name=reference_name, reason=reason, allow_physical_stock=True
     )
 
 
@@ -692,17 +696,20 @@ def _attach_live_balances(current_contents):
         )
     source_names = [row.get("source_handling_unit") for row in current_contents
                     if row.get("source_handling_unit")]
-    source_codes = {
-        source.name: source.handling_unit_id
+    source_units = {
+        source.name: source
         for source in frappe.get_all(
             "CFG Kanban Handling Unit",
             filters={"name": ["in", source_names]},
-            fields=["name", "handling_unit_id"],
+            fields=["name", "handling_unit_id", "virtual_content", "tag_kind"],
             limit_page_length=500,
         )
     } if source_names else {}
     for row in current_contents:
-        row["source_visible_code"] = source_codes.get(row.get("source_handling_unit"))
+        source = source_units.get(row.get("source_handling_unit"))
+        row["source_visible_code"] = source.handling_unit_id if source else None
+        row["return_to_source_supported"] = bool(source and not source.virtual_content
+            and source.tag_kind in ("Main Stock Tag", "Child Stock Tag"))
 
 
 def _summarize_current_contents(current_contents):

@@ -12,7 +12,7 @@ from cfg_kanban.services.idempotency import canonical_key
 from cfg_kanban.services.operator_auth import require_operator
 from cfg_kanban.services.manufacture_expiry import assert_process_cycle_printed_expiry
 
-from cfg_kanban.services.batch_rotation import batch_rotation_exclusion
+from cfg_kanban.services.batch_rotation import batch_rotation_exclusion, tag_rotation_exclusions
 
 OVERRIDE_DOCTYPE = "CFG Kanban Material Rotation Override"
 TERMINAL_WORK_ORDER_STATES = ("Completed", "Closed", "Stopped", "Cancelled")
@@ -189,7 +189,10 @@ def _rotation_candidates(unit):
                coalesce(pc.handling_unit_id, hu.handling_unit_id) as scan_code
         from `tabCFG Kanban Handling Unit` hu
         left join `tabBatch` batch on batch.name=hu.batch_no
-        left join `tabCFG Kanban Handling Unit` pc on pc.name=hu.physical_container
+        left join `tabCFG Kanban Container Content` membership
+            on membership.content_handling_unit=hu.name and membership.state='Loaded'
+        left join `tabCFG Kanban Handling Unit` pc
+            on pc.name=coalesce(nullif(hu.physical_container,''), membership.container_handling_unit)
         left join (
             select source_handling_unit,
                    sum(case when ifnull(material_trace, '')='' then (used_qty + remaining_qty)
@@ -209,7 +212,8 @@ def _rotation_candidates(unit):
               (coalesce(hu.virtual_content,0)=0 and not exists (
                   select 1 from `tabCFG Kanban Container Content` cc
                   where cc.content_handling_unit=hu.name and cc.state='Loaded'))
-              or (coalesce(hu.virtual_content,0)=1
+              or (((coalesce(hu.virtual_content,0)=1 and hu.physical_container=membership.container_handling_unit)
+                   or (coalesce(hu.virtual_content,0)=0 and coalesce(hu.physical_container,'')=''))
                   and pc.identity_state='Active' and pc.quality_state='Released'
                   and pc.reusable_container_role='Production Output Container'
                   and pc.inventory_company=hu.inventory_company
@@ -256,8 +260,13 @@ def validate_material_rotation(execution, unit, current=False):
         frappe.throw(_("Source tag {0} is no longer eligible for warehouse-local material rotation").format(unit.handling_unit_id))
     exclusions = {batch: batch_rotation_exclusion(batch, current=current)
                   for batch in sorted({candidate[3].batch_no for candidate in eligible if candidate[3].batch_no})}
+    tag_exclusions = tag_rotation_exclusions([candidate[3].name for candidate in eligible], current=current)
     exemption = exclusions.get(unit.batch_no)
-    automatic = [candidate for candidate in eligible if not exclusions.get(candidate[3].batch_no)]
+    tag_exemption = tag_exclusions.get(unit.name)
+    if tag_exemption:
+        exemption = dict(exemption or {}, **tag_exemption)
+    automatic = [candidate for candidate in eligible
+                 if not exclusions.get(candidate[3].batch_no) and not tag_exclusions.get(candidate[3].name)]
     first = (next(candidate[3] for candidate in eligible if candidate[3].name == unit.name)
              if exemption else automatic[0][3])
     approval = active_work_order_override(execution, current=True)

@@ -336,6 +336,8 @@ def inherit_split_certificates(source, destination, qty, event_key, replacement=
     """Allocate bulk coverage across issued records, preserving each original proof."""
     if (source.get("process_certificate_set") or None) != (destination.get("process_certificate_set") or None):
         frappe.throw("A logistics split cannot change the Process Certificate Set")
+    if int(source.get("rotation_excluded") or 0) != int(destination.get("rotation_excluded") or 0):
+        frappe.throw("Cannot combine isolated and non-isolated stock tags. Align their tag isolation rules explicitly first")
     qty = flt(qty)
     if qty <= 0:
         frappe.throw("Split certificate quantity must be positive")
@@ -393,6 +395,8 @@ def inherit_split_certificates(source, destination, qty, event_key, replacement=
 
 
 def assert_merge_compatible(source, destination):
+    if int(source.get("rotation_excluded") or 0) != int(destination.get("rotation_excluded") or 0):
+        frappe.throw("Cannot combine isolated and non-isolated stock tags. Align their tag isolation rules explicitly first")
     for field in ("process_certificate_set", "expiry_date"):
         if str(source.get(field) or "") != str(destination.get(field) or ""):
             frappe.throw("Do not merge stock with different Process Certificate Sets or expiry dates")

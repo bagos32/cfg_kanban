@@ -119,7 +119,12 @@ def assert_process_cycle_printed_expiry(execution, unit, current=False):
         expected = next(iter(dates))
         from cfg_kanban.services.material_rotation import _rotation_candidates
         suggestions = []
-        for candidate in _rotation_candidates(unit):
+        from cfg_kanban.services.batch_rotation import tag_rotation_exclusions
+        candidates = _rotation_candidates(unit)
+        isolated_tags = tag_rotation_exclusions([candidate.name for candidate in candidates])
+        for candidate in candidates:
+            if candidate.name in isolated_tags:
+                continue
             if candidate.batch_no:
                 from cfg_kanban.services.batch_rotation import batch_rotation_exclusion
                 if batch_rotation_exclusion(candidate.batch_no):

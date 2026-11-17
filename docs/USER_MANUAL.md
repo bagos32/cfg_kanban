@@ -5282,6 +5282,59 @@ pending: test both automatic omission and explicit scan, multiple tags per Batch
 expired/held/certificate-invalid stock, a role without Manager authority and normal ERP receipt.
 
 
+
+### Isolate one Stock Tag or a physical bin (with or without a Batch)
+
+Keep **Batch → Exclude Batch from Automatic FEFO / FIFO** for Batch-wide issues.
+For a smaller quantity, open **Kanban Logistics → FEFO / FIFO Isolation**, or scan a
+Stock Tag/bin first and select **FEFO / FIFO Isolation**. The same action is available
+under **CFG Kanban Handling Unit → Kanban Actions → FEFO / FIFO Isolation**.
+Migration adds the read-only isolation status/reason fields to the Handling Unit.
+
+1. Scan/read the physical Stock Tag or reusable bin.
+2. If a bin is loaded, explicitly select the numbered target: the physical **Bin
+   (current and future loads)**, or an individual **Stock Tag / Fill** inside it.
+   The list shows Item, Batch (or No Batch), quantity and existing isolation reasons.
+3. Choose **Isolate** or **Release**, enter/set a reason, and Confirm.
+   Release requires a new reason. Refresh/reread the source to see the current state.
+
+A **bin rule** stays on that physical bin, even while empty, and affects current and
+future loads until explicitly released. Stock moved out is no longer affected by
+that bin's rule; its own tag rule and any Batch rule still apply. A **tag/fill rule**
+only excludes that stock identity, including its derived splits/replacement tags.
+An unrelated new Item or another tag of the same Item is unaffected. To isolate only
+part of a tag, split/move that portion into its own tag or bin first. Isolated and
+non-isolated stock tags cannot be merged silently; align their local rules through
+this controlled action before combining quantities. Two isolated tags can combine
+subject to the normal certificate, expiry and identity requirements.
+
+**Batch OR tag OR currently loaded bin isolation** excludes a source from automatic
+production FEFO priority, dispatch FEFO/FIFO suggestions and matching printed-expiry
+suggestions. Releasing one rule does not clear the others. Operators can still
+explicitly scan the stock; expiry, certificates, quality, quantity, warehouse and
+Process Card expiry-cohort checks remain enforced. Existing reservations/history are
+not rewritten. Isolation does not move ERP stock or change certificates/expiry.
+Intermediate Operation Hopper WIP and Standard/Loose WIP bins retain their separate
+WIP controls; this action controls received-stock tag/container selection.
+
+On the floor an **unrestricted Kanban Supervisor/Development Proxy with Override
+permission** is required. On the Handling Unit Desk form, **Stock Manager,
+Manufacturing Manager or System Manager** can use the same controlled action under
+their ERP login. Each change records actor, reason, selected tag/bin, before/after
+rule and observed effective rules in Kanban Events.
+
+Scanner labels: `CFG:CMD:STOCK_ISOLATION` opens the dialog; `CFG:CMD:ISOLATE_STOCK`
+and `CFG:CMD:RELEASE_STOCK` open/set its action. Scan the physical source, use
+`CFG:SELECT:1`–`CFG:SELECT:10` for the exact target, scan a reason, then
+`CFG:CMD:CONFIRM`. `CFG:CMD:NEXT_MATERIALS` / `CFG:CMD:PREVIOUS_MATERIALS` page longer
+lists. `CFG:CMD:ISOLATION_SOURCE` arms another source; `CFG:CMD:CANCEL` exits safely.
+These labels are selectable in Kanban Operator's printable command catalogue and
+covered by Scanner Help. Touch uses the same controller and Read/Set controls.
+An unacknowledged confirmation retains its exact payload/token while the dialog is
+open. Retry that request, or Cancel and reread current isolation state before another
+action. Confirmed server rejection permits corrections. Focus returns after errors,
+success and Cancel. Offline checks do not establish deployed ERP or kiosk behavior.
+
 ### Intermediate Hopper visibility and recovery (including closed Work Orders)
 
 Scan the physical Hopper in **Kanban Logistics** to see its Item, source/destination
@@ -5422,3 +5475,55 @@ Confirm waits for pending source checks. After an uncertain confirmation respons
 retry the same data/token or cancel and reload the Card to reconcile its outcome.
 Normal confirmed server rejection permits corrections. Offline tests do not verify
 live ERP, browser layout or kiosk/scanner acceptance.
+
+
+## Move / Repack received stock between containers
+
+Use **Kanban Logistics → Move / Repack**, or scan `CFG:CMD:MOVE_CONTAINER_STOCK`
+from the Production or Logistics panel. The operator needs **Stock Retagging** and
+**Container Loading** responsibilities plus Start permission (or the corresponding
+supervisor access). This works on existing posted/received stock, within the same
+Company and Warehouse. Warehouse changes still use a Dispatch Manifest.
+
+1. Read the source Stock Tag, or container A. Select the exact fill if several are
+   displayed. A source tag may already be inside A; Return to Source is unnecessary.
+2. Set **Quantity to Move**. Scan/read destination container B.
+3. If B is loaded, select its existing compatible tag. The preview shows its combined
+   total. That existing tag is reused; a new preprinted tag is disallowed here.
+4. If B is empty, a whole physical tag can move unchanged. For a partial quantity,
+   supply an unused preprinted Main Stock Tag in a Logistics Container. A Logistics
+   Quantity Bin or Production Output Container can instead use its permanent QR,
+   with the quantity held on an internal fill. An optional new Main tag is supported
+   for either type of empty destination.
+5. Set a reason, review the source/moved/combined quantities, then Confirm. Rescan B
+   to see its current balance. Repeat for another source/portion if needed.
+
+Item, Batch, UOM, certificate set, expiry, certificate provenance, operation and packing
+date must agree before stock is combined. The move retains evidence/expiry and audit
+history; partial moves respect certificate split policy and available coverage.
+Blocked merges retain separate identities. Serial-controlled ERP stock needs its
+exact-serial workflow. Reservations, pending Material Run usage and open logistics
+transactions must first be settled/released. Total stock does not increase; this
+same-warehouse action creates no ERP Stock Entry. A loaded physical receipt tag must
+be unloaded/reconciled before cancelling its original ERP receipt.
+
+For scanner-only use: command → source → `CFG:SELECT:1`–`CFG:SELECT:10` if needed →
+`CFG:QTY:MATERIAL:n` (or `+n`) → destination → numbered existing-tag choice if needed →
+scan reason → `CFG:CMD:CONFIRM`. `CFG:CMD:NEXT_MATERIALS` and
+`CFG:CMD:PREVIOUS_MATERIALS` page longer lists. Explicitly arm a replacement field with
+`CFG:CMD:REPACK_SOURCE`, `CFG:CMD:REPACK_DESTINATION`, `CFG:CMD:REPACK_REASON`, or
+`CFG:CMD:REPACK_NEW_TAG` before scanning that value. A new-tag scan is optional and
+requires an empty destination. Print these selectable labels from **Kanban Operator →
+Scanner Command Labels**; Scanner Help is available in both panels. Touch uses the
+same controller through Read/Set buttons and numbered choices.
+
+`CFG:CMD:CANCEL` closes the dialog safely. If confirmation loses its response, its
+exact request is retained on this browser, including after Cancel/reopen/refresh.
+The original operator must retry **Confirm / Retry Original Move** to reconcile it;
+corrections unlock only after confirmed server rejection. HTTPS, local browser
+storage and Web Locks support are required. Focus returns to the dialog scanner after
+errors and to the Logistics scanner after success/cancel.
+
+Intermediate operation Hopper WIP is separate from received stock. Use **Recover
+Hopper → Transfer remaining** for that material, including closed Work Orders. Move /
+Repack cannot convert intermediate WIP into ERP-posted stock.
