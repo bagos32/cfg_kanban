@@ -1,0 +1,215 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Hopper Carry In",
+ "module": "CFG Kanban",
+ "autoname": "HCI-.#####",
+ "track_changes": 1,
+ "field_order": [
+  "hopper_fill",
+  "source_work_order",
+  "original_work_order",
+  "source_execution",
+  "source_progress",
+  "source_material_run",
+  "target_work_order",
+  "target_job_card",
+  "target_execution",
+  "target_cycle",
+  "source_operation",
+  "destination_operation",
+  "company",
+  "item_code",
+  "stock_uom",
+  "qty",
+  "reason",
+  "operator",
+  "carried_on",
+  "material_rules_json",
+  "source_settlements_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "hopper_fill",
+   "label": "Original Hopper Fill",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "CFG Kanban Operation Hopper Fill"
+  },
+  {
+   "fieldname": "source_work_order",
+   "label": "Previous Owning Work Order",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "Work Order"
+  },
+  {
+   "fieldname": "original_work_order",
+   "label": "Original Work Order",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "Work Order"
+  },
+  {
+   "fieldname": "source_execution",
+   "label": "Original Source Execution",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "CFG Kanban Process Execution"
+  },
+  {
+   "fieldname": "source_progress",
+   "label": "Original Source Progress",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "CFG Kanban Operation Progress"
+  },
+  {
+   "fieldname": "source_material_run",
+   "label": "Original Material Run",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "CFG Kanban Operation Material Run"
+  },
+  {
+   "fieldname": "target_work_order",
+   "label": "Receiving Work Order",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "Work Order"
+  },
+  {
+   "fieldname": "target_job_card",
+   "label": "Receiving Source Job Card",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "Job Card"
+  },
+  {
+   "fieldname": "target_execution",
+   "label": "Receiving Source Execution",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "CFG Kanban Process Execution"
+  },
+  {
+   "fieldname": "target_cycle",
+   "label": "Receiving Production Cycle",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "CFG Kanban Cycle"
+  },
+  {
+   "fieldname": "source_operation",
+   "label": "Source Operation",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "Operation"
+  },
+  {
+   "fieldname": "destination_operation",
+   "label": "Next Operation",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "Operation"
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "Company"
+  },
+  {
+   "fieldname": "item_code",
+   "label": "Production Item",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "Item"
+  },
+  {
+   "fieldname": "stock_uom",
+   "label": "Stock UOM",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "UOM"
+  },
+  {
+   "fieldname": "qty",
+   "label": "Inherited WIP Qty",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "reason",
+   "label": "Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "operator",
+   "label": "Supervisor",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "carried_on",
+   "label": "Carried On",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "material_rules_json",
+   "label": "Receiving Source Rule Snapshot",
+   "fieldtype": "Code",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "source_settlements_json",
+   "label": "Original Posted Input Evidence",
+   "fieldtype": "Code",
+   "read_only": 1,
+   "reqd": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Manufacturing User",
+   "read": 1,
+   "print": 1,
+   "report": 1
+  },
+  {
+   "role": "Manufacturing Manager",
+   "read": 1,
+   "print": 1,
+   "report": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1,
+   "report": 1
+  }
+ ]
+}

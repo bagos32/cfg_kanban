@@ -57,6 +57,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	page.add_inner_button(__("Scan Operator QR"), scan_operator_qr);
 	page.add_inner_button(__("Camera Scan (F4)"), scan_kanban_qr);
 	page.add_inner_button(__("Scanner Help (F1)"), show_scanner_help);
+	page.add_inner_button(__("Recover Hopper"), open_hopper_recovery);
 	install_scanner_shortcuts();
 	install_live_updates();
 
@@ -378,6 +379,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
             REVOKE_WO_YIELD: () => open_work_order_yield_override(true),
             CORRECT_MATERIAL_USE: open_material_use_correction,
             RECOVER_MATERIAL_RUN: open_material_run_recovery,
+            RECOVER_HOPPER: open_hopper_recovery,
             RECEIPT_USE_PRINTED_EXPIRY: () => receipt_expiry_command("CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY"),
             RECEIPT_STANDARD_EXPIRY: () => receipt_expiry_command("CFG:CMD:RECEIPT_STANDARD_EXPIRY"),
             RECEIPT_BATCH: () => receipt_expiry_command("CFG:CMD:RECEIPT_BATCH"),
@@ -1046,6 +1048,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			<p><strong>${__("Work Order Process Certificates")}</strong>: ${__("Use the normal Start Operation, Start Material Run, Material Quantity, physical source-tag, Report Progress, Scan Material Tags, Submit Material Entry, Confirm, Cancel, and numbered Select labels. Certificate gates run automatically for the configured Operation; do not scan the same material again from the main Production Card after a Process/Station Card recorded it against the shared Job Card.")}</p>
 			<p><small>${__("Material Run Control is optional per operation. When enabled, scan Start Material Run, select the operation if requested, scan the first output serial/boundary when required, then scan Material Quantity and the physical source Stock Tag for each tracked component. Confirm opens the run. Prepare Receipt uses finalized Material Run actuals; unused BOM balances stay in stock. Printed expiry stays consistent within each Process Card cycle. At receipt, scan CFG:CMD:RECEIPT_USE_PRINTED_EXPIRY or CFG:CMD:RECEIPT_STANDARD_EXPIRY; CFG:CMD:RECEIPT_BATCH arms the next Finished Batch ID scan. Automatic expiry copying requires one matching consumed printed date. Save an older Manufacture Draft and reopen Scan Material Tags to refresh its inputs. Ordinary operations and No Run Tracking components retain normal material confirmation.")}</small></p>
 			<p><small>${__("Operation Hoppers: configure Fill Hopper on Rinse and Consume Hopper on Packing with the same Hopper Warehouse. In Start Material Run, scan the boundary, the physical Hopper, then each Material Quantity/source tag and Confirm. Rinse progress loads good output; Packing progress consumes the selected fill. Loaded and available quantities use the finished Item stock UOM. Close Operation Cycle releases unused raw-material reservations; used quantities remain pending ERP settlement. PPHU Hopper Change records trace context only and does not load stock.")}</small></p>
+			<p>${__("Closed-Work-Order Hopper recovery: CFG:CMD:RECOVER_HOPPER or Recover Hopper. Scan the source Hopper, select 1 Transfer remaining / 2 Confirm physically empty / 3 Discard remaining / 4 Carry into Work Order. Carry scans the new Work Order and selects its Rinse Job Card; it credits inherited WIP without another raw withdrawal. Scan destination for Transfer, CFG:QTY:MATERIAL:n (zero for Empty), reason, then Confirm. Cancel returns scanner focus. Reservations must be returned first; ERP-posted stock requires ERP recovery.")}</p>
 			<p>${__("Supervisor recovery: CFG:CMD:RECOVER_MATERIAL_RUN. Select or scan the exact Material Run, then choose Release unused or Reconstruct hopper. Reconstruction scans the physical Hopper, CFG:QTY:MATERIAL:n for its confirmed quantity, and a reason. Release returns unused reservations only. Confirm/Cancel retain scanner focus; old packing use or mismatched quantities require separate reconciliation.")}</p>
 			<p><strong>${__("PPHU trace commands")}</strong>: <code>CFG:CMD:PPHU_HOPPER_CHANGE</code>, <code>CFG:CMD:PPHU_BATCH_CHANGE</code>, <code>CFG:CMD:PPHU_OUTPUT_SERIAL</code>. Select an operation with <code>CFG:SELECT:n</code>, scan the physical Hopper/material tag when requested, scan the first affected output serial, then scan <code>CFG:CMD:CONFIRM</code>.</p>
 			<p><strong>${__("Crew commands")}</strong>: <code>CFG:CMD:CREW</code>, <code>CFG:CMD:CREW_OPEN</code>, <code>CFG:CMD:CREW_JOIN</code>, <code>CFG:CMD:CREW_JOIN_SENIOR</code>, <code>CFG:CMD:CREW_JOIN_OVERSIGHT</code>, <code>CFG:CMD:CREW_JOIN_TEMP</code>, <code>CFG:CMD:CREW_BREAK</code>, <code>CFG:CMD:CREW_RESUME</code>, <code>CFG:CMD:CREW_LEAVE</code>, <code>CFG:CMD:CREW_MAIN</code>, <code>CFG:CMD:CREW_CONTEXT</code>, <code>CFG:CMD:CREW_CLOSE</code>.</p>
@@ -2296,6 +2299,100 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 	}
 
 
+
+    async function open_hopper_recovery() {
+        if (!state.operator?.permissions?.override) return scanner_command_message(__("Supervisor Override authority is required."));
+        const actions = ["Transfer remaining", "Confirm physically empty", "Discard remaining", "Carry into Work Order"];
+        let context = null, busy = false, request = null, target_context = null, target_page = 0;
+        const token = frappe.utils.get_random(24);
+        const dialog = new frappe.ui.Dialog({title:__("Recover Hopper"),fields:[
+            {fieldname:"guide",fieldtype:"HTML",options:__("Scan the physical Hopper. Closed Work Orders are supported. Return open reservations through Recover Material Run first. This action handles intermediate WIP only.")},
+            {fieldname:"hopper_scan",label:__("Source Hopper"),fieldtype:"Data",reqd:1},
+            {fieldname:"action",label:__("Recovery Action"),fieldtype:"Select",options:["",...actions].join("\n"),reqd:1},
+            {fieldname:"destination_scan",label:__("Empty Destination Hopper"),fieldtype:"Data",depends_on:"eval:doc.action=='Transfer remaining'"},
+            {fieldname:"target_work_order",label:__("New Active Work Order"),fieldtype:"Data",depends_on:"eval:doc.action=='Carry into Work Order'"},
+            {fieldname:"target_job_card",label:__("Receiving Rinse Job Card"),fieldtype:"Select",options:"",depends_on:"eval:doc.action=='Carry into Work Order'"},
+            {fieldname:"target_guide",fieldtype:"HTML",depends_on:"eval:doc.action=='Carry into Work Order'"},
+            {fieldname:"physical_qty",label:__("Confirmed Physical Quantity (zero for Confirm Empty)"),fieldtype:"Data",default:"",reqd:1},
+            {fieldname:"reason",label:__("Recovery Reason"),fieldtype:"Small Text",reqd:1},
+            {fieldname:"scanner_command",label:__("Scanner Input"),fieldtype:"Data"},
+        ],primary_action_label:__("Confirm Recovery"),primary_action:async values=>{
+            if(busy)return;
+            if(!context || context.hopper_scan!==values.hopper_scan) return frappe.throw(__("Load the source Hopper first."));
+            if(values.physical_qty===null || values.physical_qty===undefined || String(values.physical_qty).trim()==="" || !Number.isFinite(Number(values.physical_qty))) return frappe.throw(__("Scan or enter the confirmed physical quantity, including zero for Empty."));
+            if(values.action==="Carry into Work Order" && (!target_context || target_context.work_order!==values.target_work_order || !target_context.choices.some(row=>row.name===values.target_job_card))) return frappe.throw(__("Load the new Work Order and select its exact Rinse Job Card first."));
+            const args={hopper_fill:context.hopper_fill,hopper_scan:values.hopper_scan,action:values.action,
+                destination_scan:values.action==="Transfer remaining"?values.destination_scan:null,
+                target_work_order:values.action==="Carry into Work Order"?values.target_work_order:null,
+                target_job_card:values.action==="Carry into Work Order"?values.target_job_card:null,
+                physical_qty:Number(values.physical_qty || 0),reason:values.reason,event_token:token,operator_session_token:state.session_token};
+            if(request && JSON.stringify(request)!==JSON.stringify(args)) return frappe.throw(__("Retry the original recovery data or cancel and reload the Hopper to reconcile its current state."));
+            request=args;busy=true;
+            try {
+                await frappe.call({method:"cfg_kanban.services.hopper_recovery.recover_hopper",args:request,freeze:true});
+                dialog.hide();
+                frappe.show_alert({message:__("Hopper recovery recorded"),indicator:"green"});
+                if(state.context?.card) await load_card(state.context.card.qr_code || state.context.card.card_number);
+            } finally {
+                busy=false;
+                if(dialog.$wrapper.is(":visible"))window.setTimeout(()=>dialog.get_field("scanner_command").set_focus(),80);
+            }
+        }});
+        const load=async value=>{
+            context=null;
+            try {
+                const response=await frappe.call({method:"cfg_kanban.services.hopper_recovery.recovery_context",args:{hopper_scan:value,operator_session_token:state.session_token}});
+                if(dialog.get_value("hopper_scan")!==value)return;
+                context={...response.message,hopper_scan:value};
+                dialog.set_df_property("hopper_scan","read_only",1);
+                dialog.get_field("guide").$wrapper.html(`${frappe.utils.escape_html(context.item_code || "")} · ${frappe.utils.escape_html(context.work_order)} (${frappe.utils.escape_html(context.work_order_status)})<br>${__("Remaining")}: ${context.remaining_qty} ${frappe.utils.escape_html(context.stock_uom)} · ${__("Reserved")}: ${context.reserved_qty}<br>${actions.map((action,i)=>`${i+1}. ${__(action)}`).join("<br>")}<br>${__("Transfer/Discard/Carry: confirm the full remaining quantity. Carry credits inherited Rinse output on the new Work Order, with no new raw draw or processing time. Confirm Empty: physically check the Hopper and scan quantity zero. Scan a reason, then Confirm.")}`);
+                dialog.cfg_scanner_selection_values=actions;dialog.cfg_scanner_selection_field="action";
+            } finally {
+                if(dialog.$wrapper.is(":visible"))window.setTimeout(()=>dialog.get_field("scanner_command").set_focus(),80);
+            }
+        };
+        const show_targets=()=>{
+            const rows=(target_context?.choices || []).slice(target_page*10,target_page*10+10);
+            dialog.cfg_scanner_selection_values=rows.map(row=>row.name);dialog.cfg_scanner_selection_field="target_job_card";
+            dialog.set_df_property("target_job_card","options",["",...(target_context?.choices || []).map(row=>row.name)].join("\n"));
+            dialog.get_field("target_guide").$wrapper.html(__("Select receiving Rinse Job Card; only additional inputs will be consumed. NEXT_MATERIALS/PREVIOUS_MATERIALS change pages.")+"<br>"+rows.map((row,i)=>`${i+1}. ${frappe.utils.escape_html(row.label)}`).join("<br>"));
+        };
+        const load_target=async value=>{
+            target_context=null;await dialog.set_value("target_job_card","");
+            try {
+                const response=await frappe.call({method:"cfg_kanban.services.hopper_carry_in.carry_in_targets",args:{hopper_fill:context.hopper_fill,target_work_order:value,operator_session_token:state.session_token}});
+                if(dialog.get_value("target_work_order")!==value)return;
+                target_context=response.message;target_page=0;show_targets();
+                if(!target_context.choices.length)frappe.msgprint(__("No eligible receiving Rinse Job Card. Cancel and review the target Work Order."));
+            } finally {
+                if(dialog.$wrapper.is(":visible"))window.setTimeout(()=>dialog.get_field("scanner_command").set_focus(),80);
+            }
+        };
+        dialog.cfg_require_prefixed_selection=true;
+        dialog.cfg_selection_changed=async value=>{
+            if(!actions.includes(value))return;
+            target_context=null;await dialog.set_value("target_work_order","");await dialog.set_value("target_job_card","");
+            dialog.cfg_scanner_selection_values=actions;dialog.cfg_scanner_selection_field="action";
+            await dialog.set_value("destination_scan","");await dialog.set_value("physical_qty",null);
+        };
+        dialog.cfg_quantity_handler=(qty,additive)=>dialog.set_value("physical_qty",String(additive?Number(dialog.get_value("physical_qty") || 0)+qty:qty));
+        dialog.cfg_raw_scanner_handler=async value=>{
+            if(!context){await dialog.set_value("hopper_scan",value);return load(value);}
+            if(dialog.get_value("action")==="Carry into Work Order"){
+                if(/^CFG:CMD:(NEXT|PREVIOUS)_MATERIALS$/i.test(value) && target_context){
+                    target_page=Math.max(0,Math.min(Math.max(0,Math.ceil(target_context.choices.length/10)-1),target_page+(value.toUpperCase().includes(":NEXT_")?1:-1)));return show_targets();
+                }
+                if(!target_context){await dialog.set_value("target_work_order",value);return load_target(value);}
+            }
+            if(dialog.get_value("action")==="Transfer remaining" && !dialog.get_value("destination_scan"))return dialog.set_value("destination_scan",value);
+            return dialog.set_value("reason",value);
+        };
+        dialog.cfg_material_page_handler=value=>dialog.cfg_raw_scanner_handler(value);
+        dialog.show();bind_confirmation_scanner(dialog,true,[],"action");
+        dialog.get_field("target_work_order").$input.on("change.cfg-hopper-target",()=>{if(context && dialog.get_value("target_work_order"))load_target(dialog.get_value("target_work_order"));});
+        dialog.get_field("action").$input.on("change.cfg-hopper-action",()=>dialog.cfg_selection_changed(dialog.get_value("action")));
+        dialog.get_field("hopper_scan").$input.on("change.cfg-hopper-recovery",()=>{if(!context && dialog.get_value("hopper_scan"))load(dialog.get_value("hopper_scan"));});
+    }
 
     async function open_material_run_recovery() {
         if (!state.operator?.permissions?.override) return scanner_command_message(__("Supervisor Override authority is required."));

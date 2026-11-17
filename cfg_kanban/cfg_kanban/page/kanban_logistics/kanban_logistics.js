@@ -921,7 +921,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const movement = state.lookup.last_movement;
 		const container_status = state.lookup.container_status || {};
 		const membership = container_status.active_membership;
-		const container_summary = container_status.content_summary || { tag_count: 0, by_uom: [] };
+		const wip = state.lookup.operation_wip;
+        const container_summary = wip ? {tag_count:0,item_codes:[`${wip.item_code || __("Unresolved Item")} · ${wip.source_operation} WIP`],batch_numbers:[],by_uom:[{current_qty:wip.operation_wip_qty,available_qty:wip.operation_wip_available_qty,reserved_qty:wip.operation_wip_reserved_qty,stock_uom:wip.stock_uom}]} : (container_status.content_summary || { tag_count: 0, by_uom: [] });
 		const container_quantity = (container_summary.by_uom || []).map((row) =>
 			`${format_number(row.current_qty)} ${e(row.stock_uom || "")}`
 		).join(" + ") || __("Empty");
@@ -943,7 +944,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const membership_notice = membership ? `<div class="alert alert-warning mt-3">
 			<strong>${__("Physically inside reusable container")}: ${e(membership.container_visible_code)}</strong><br>
 			<small>${__("Unload this Stock Tag from the container before moving, consuming, replacing, or voiding it independently.")}</small></div>` : "";
-		const content_notice = container_status.mode === "container" ? `<div class="alert alert-info mt-3">
+		const content_notice = wip ? `<div class="alert alert-info mt-3"><strong>${__("Operation WIP")}: ${e(wip.item_code || __("Unresolved Item"))} · ${e(wip.item_name || "")}</strong><br>${__("Work Order")}: ${e(wip.work_order)} (${e(wip.work_order_status || "-")}) · ${e(wip.source_operation)} → ${e(wip.destination_operation)}<br>${wip.original_work_order && wip.original_work_order !== wip.work_order ? `${__("Original Work Order")}: ${e(wip.original_work_order)} · ${__("Carry In")}: ${e(wip.carry_in || "-")}<br>` : ""}${__("Originally loaded")}: ${format_number(wip.loaded_qty)} · ${__("Used")}: ${format_number(wip.used_qty)} · ${__("Cleared")}: ${format_number(wip.cleared_qty)} ${e(wip.stock_uom)}<br><small>${__("Intermediate WIP, separate from ERP-posted stock. Supervisor Hopper Recovery remains available after Work Order closure.")}</small></div>` : container_status.mode === "container" ? `<div class="alert alert-info mt-3">
 			<strong>${__("Current contents")}: ${container_summary.tag_count || 0} ${__("complete Stock Tags")} · ${container_quantity}</strong><br>
 			<small>${__("Container membership is physical grouping only. ERP stock remains recorded against each Stock Tag.")}</small>
 			${state.lookup.can_manage_container ? "" : `<br><small>${__("Container Loading responsibility is required to change contents.")}</small>`}</div>` : "";

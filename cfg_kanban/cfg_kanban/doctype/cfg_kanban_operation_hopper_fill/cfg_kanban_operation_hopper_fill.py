@@ -7,9 +7,9 @@ class CFGKanbanOperationHopperFill(Document):
     def validate(self):
         if self.status not in ("Filling", "Ready", "Empty", "Cancelled"):
             frappe.throw("Unsupported operation Hopper fill status")
-        if min(flt(self.qty), flt(self.used_qty), flt(self.reserved_qty)) < 0 or flt(self.used_qty) + flt(self.reserved_qty) > flt(self.qty) + 0.000001:
+        if min(flt(self.qty), flt(self.used_qty), flt(self.reserved_qty), flt(self.get("cleared_qty"))) < 0 or flt(self.used_qty) + flt(self.reserved_qty) + flt(self.get("cleared_qty")) > flt(self.qty) + 0.000001:
             frappe.throw("Operation Hopper quantity, use and reservations do not balance")
-        if self.status in ("Filling", "Ready") and self.active_hopper_key != self.handling_unit:
+        if self.status in ("Filling", "Ready") and self.active_hopper_key != (self.get("current_handling_unit") or self.handling_unit):
             frappe.throw("An active operation fill requires its Hopper uniqueness key")
         if self.status in ("Empty", "Cancelled") and self.active_hopper_key:
             frappe.throw("A closed operation fill cannot retain the active Hopper key")

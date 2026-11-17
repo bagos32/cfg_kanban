@@ -5280,3 +5280,87 @@ Migration installs the Batch fields. The earlier uncommitted Item-wide exclusion
 replaced; there is no whole-Item FEFO exemption in this change. Live and multi-tab acceptance remain
 pending: test both automatic omission and explicit scan, multiple tags per Batch, release,
 expired/held/certificate-invalid stock, a role without Manager authority and normal ERP receipt.
+
+
+### Intermediate Hopper visibility and recovery (including closed Work Orders)
+
+Scan the physical Hopper in **Kanban Logistics** to see its Item, source/destination
+operation, Work Order (including Completed/Closed), remaining, reserved and available
+quantity. **Kanban Operational Inventory Balance** includes distinct **Operation WIP**
+rows and totals. Select Inventory Control Mode = Operation WIP to isolate these rows;
+filter Operation Hopper to find a particular hopper. These quantities are intermediate
+process WIP; they are not additional ERP finished stock or raw-material consumption.
+Recorded old fills are visible without reopening their Work Order. Material which was
+never recorded as a Hopper fill still needs evidence-based Material Run reconstruction;
+this display cannot infer a physical load from digital availability alone.
+
+A supervisor can open **Recover Hopper** from the Kanban Operator toolbar without an
+active Card. The printable command is `CFG:CMD:RECOVER_HOPPER`.
+
+1. Scan the physical source Hopper. Review the Item, Work Order and remaining/reserved balance.
+2. Select using touch or `CFG:SELECT:1` Transfer remaining, `CFG:SELECT:2` Confirm physically empty,
+   or `CFG:SELECT:3` Discard remaining.
+3. For transfer, scan a different empty Hopper in the same Company and Hopper Warehouse.
+   Fills cannot be mixed. Only the full unreserved remainder is transferred.
+4. Scan `CFG:QTY:MATERIAL:n`: the full remainder for transfer/discard, or **zero only after
+   physically verifying empty** for Confirm Empty. Scan a reason.
+5. Scan `CFG:CMD:CONFIRM` or `CFG:CMD:CANCEL`. Both restore scanner focus.
+
+Open Material Runs/reservations must be cancelled/released through Recover Material Run
+first. Reservation release does not discard physical WIP. Confirm Empty/Discard adds an
+audited cleared quantity; original loads, used quantities, Progress, Job Cards and ERP
+records remain intact. A transfer preserves the original fill identity and source
+provenance, and changes only its current physical Hopper. ERP-posted container contents
+are rejected by this WIP-only recovery action and require their ERP/container workflow.
+After an uncertain response, retry the same recovery data; to change it, cancel and reload
+the Hopper's current state first. Offline scanner tests do not replace kiosk acceptance.
+
+
+### Carry old Hopper WIP into a new Work Order
+
+For the two-operation Rinse → Hopper → Pack route, first create/release a **new
+submitted Kanban Work Order** for the same Company, Item, BOM and Master, with
+Skip WIP Transfer. Leave its Rinse Job Card untouched. The original owning Work
+Order must be completed, closed or stopped, and the original tracked raw inputs
+must have valid submitted ERP consumption. Cancel/release open Hopper reservations
+before recovery. The full remaining Hopper quantity must fit the selected new
+Rinse Job Card's remaining demand.
+
+In Kanban Operator, open **Recover Hopper** or scan `CFG:CMD:RECOVER_HOPPER`:
+
+1. Scan the loaded physical Hopper and review its remaining quantity.
+2. Scan `CFG:SELECT:4` (**Carry into Work Order**).
+3. Scan/enter the new Work Order number. Select its exact Rinse Job Card with
+   `CFG:SELECT:n`; `NEXT_MATERIALS` / `PREVIOUS_MATERIALS` page long lists. Touch
+   users select the same fields. No ambiguous Job Card is chosen automatically.
+4. Scan `CFG:QTY:MATERIAL:n` for the full physical remainder, scan a reason, then
+   `CFG:CMD:CONFIRM`. `CFG:CMD:CANCEL` returns scanner focus without changing WIP.
+5. Activate the new Packing Process Card against the new order. Start Material Run,
+   scan this Hopper and the certified bags, then record actual additional inputs.
+
+The inherited quantity credits the new Rinse Job Card with an explicitly linked
+**zero-duration** native time-log row and no employee labor time or new raw draw.
+A fully credited Rinse Job Card is submitted through normal native quantity and
+sequence checks. A partial credit leaves the remaining Rinse demand open: **3
+carried units on a 5-unit order leave 2 to rinse**. Packing's material/certificate
+checks remain in force. The final receipt removes only the inherited source input
+estimate, keeps new actual raw use and bag use, and requires recorded consumption
+of the carried Hopper quantity. It does not accept a native Packing quantity alone
+as proof that the Hopper was consumed.
+
+Original fill, Progress, Material Run, Work Order and posted raw input evidence
+remain intact. Scanned Hopper/report rows show the current owning order and the
+original order/carry record. Transfer to another physical Hopper and carry-in are
+separate recovery actions; a physical transfer alone keeps the existing owner.
+These are operational WIP quantity credits, not ERP stock/value transfers: previous
+consumption and its valuation stay on the original order. New consumption stays on
+the receiving order. There is no automatic redistribution of historical costs.
+
+This path requires the matching two-operation Hopper route and complete tracked
+source-input scope. Source sub-operations, source certificate gates and source
+process tasks require explicit inherited-evidence reconciliation and are blocked;
+they are never silently bypassed. Packing certificate gates remain supported.
+An active carry-in cannot be erased with Confirm Empty/Discard; reconcile/cancel
+its receiving Work Order first. Reversing original source evidence is blocked while
+an uncancelled receiving Work Order depends on it. Migrate before using the new
+Carry In DocType/fields. Live ERP and kiosk acceptance are still required.

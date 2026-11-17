@@ -88,18 +88,22 @@ doc_events = {
         "on_cancel": "cfg_kanban.integrations.sales_order_feedback.on_cancel",
     },
     "Work Order": {
+        "before_cancel": "cfg_kanban.services.hopper_carry_in.protect_source_cancellation",
         "before_submit": "cfg_kanban.integrations.erp_feedback.prepare_work_order",
         "on_update": "cfg_kanban.integrations.erp_feedback.on_work_order_update",
         "on_submit": "cfg_kanban.integrations.erp_feedback.on_work_order_update",
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_work_order_cancel",
     },
     "Job Card": {
+        "before_validate": "cfg_kanban.services.hopper_carry_in.prepare_carry_credit_validation",
+        "before_cancel": "cfg_kanban.services.hopper_carry_in.protect_source_cancellation",
         "before_submit": "cfg_kanban.services.wip_bin_loads.validate_job_card_wip_bin_submission",
         "on_update": "cfg_kanban.integrations.erp_feedback.on_job_card_update",
         "on_submit": "cfg_kanban.integrations.erp_feedback.on_job_card_update",
         "on_cancel": "cfg_kanban.integrations.erp_feedback.on_job_card_cancel",
     },
     "Stock Entry": {
+        "before_cancel": "cfg_kanban.services.hopper_carry_in.protect_source_cancellation",
         "before_validate": ["cfg_kanban.integrations.erp_feedback.prepare_stock_entry",
                             "cfg_kanban.services.logistics_stock_identity.prepare_controlled_transfer"],
         "before_submit": ["cfg_kanban.services.logistics_stock_identity.validate_logistics_document",

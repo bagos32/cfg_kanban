@@ -194,6 +194,8 @@ def _custom_fields():
         ],
         "Job Card": common,
         "Job Card Time Log": [
+            {"fieldname":"cfg_hopper_carry_in","label":"Inherited Hopper WIP","fieldtype":"Link",
+             "options":"CFG Kanban Hopper Carry In","read_only":1,"unique":1,"insert_after":"completed_qty","module":"CFG Kanban"},
             {"fieldname": "cfg_kanban_progress", "label": "Kanban Progress",
              "fieldtype": "Link", "options": "CFG Kanban Operation Progress",
              "read_only": 1, "unique": 1, "insert_after": "completed_qty", "module": "CFG Kanban"},

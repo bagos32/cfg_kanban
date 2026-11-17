@@ -70,16 +70,19 @@ def _active_fill(unit_name, *, lock=False):
 def _check_fill(execution, fill, order):
     if not fill or fill.status != "Ready":
         frappe.throw("This Hopper has no released operation fill for Packing; report the Rinse Material Run into it first")
-    if (fill.work_order != order.name or fill.destination_operation != execution.operation
+    if ((fill.get("current_work_order") or fill.work_order) != order.name or fill.destination_operation != execution.operation
             or fill.source_operation != execution.get("material_run_hopper_source_operation")):
         frappe.throw("The Hopper fill belongs to another Work Order or operation route")
+    if fill.get("current_work_order"):
+        from cfg_kanban.services.hopper_carry_in import validate_fill_owner
+        validate_fill_owner(fill, order.name)
     source_master = frappe.db.get_value("CFG Kanban Process Execution", fill.source_execution, "kanban_master")
     if source_master != execution.kanban_master:
         frappe.throw("The Hopper fill belongs to another Kanban Master")
     uom = frappe.db.get_value("CFG Kanban Master", execution.kanban_master, "stock_uom")
     if fill.stock_uom != uom:
         frappe.throw("The Hopper fill uses another production output UOM")
-    return max(0, flt(fill.qty) - flt(fill.used_qty) - flt(fill.reserved_qty))
+    return max(0, flt(fill.qty) - flt(fill.used_qty) - flt(fill.get("cleared_qty")) - flt(fill.reserved_qty))
 
 
 @frappe.whitelist()
@@ -98,7 +101,7 @@ def preview_scanner_hopper(execution_name, scan_value, operator_session_token=No
     if mode == CONSUME and available <= TOLERANCE:
         frappe.throw("The Hopper has no unreserved operation WIP available")
     return {"handling_unit": unit.name, "visible_code": unit.handling_unit_id,
-            "hopper_mode": mode, "loaded_qty": flt(fill.qty) - flt(fill.used_qty) if fill else 0,
+            "hopper_mode": mode, "loaded_qty": flt(fill.qty) - flt(fill.used_qty) - flt(fill.get("cleared_qty")) if fill else 0,
             "available_qty": available, "reserved_qty": flt(fill.reserved_qty) if fill else 0,
             "stock_uom": frappe.db.get_value("CFG Kanban Master", execution.kanban_master, "stock_uom"),
             "work_order": order.name}
@@ -168,7 +171,7 @@ def validate_run_hopper(execution, run, good_qty, processed_qty):
     else:
         _check_fill(execution, fill, order)
         if (flt(processed_qty) > flt(run.hopper_reserved_qty) + TOLERANCE
-                or flt(processed_qty) > flt(fill.qty) - flt(fill.used_qty) + TOLERANCE):
+                or flt(processed_qty) > flt(fill.qty) - flt(fill.used_qty) - flt(fill.get("cleared_qty")) + TOLERANCE):
             frappe.throw("Progress exceeds this Material Run's reserved Hopper quantity; use the displayed loaded/available balance")
 
 
@@ -192,27 +195,27 @@ def apply_run_hopper(execution, run, progress):
         used = flt(fill.used_qty) + qty
         reserved = max(0, flt(fill.reserved_qty) - flt(run.hopper_reserved_qty))
         values = {"used_qty": used, "reserved_qty": reserved,
-                  "status": "Empty" if used + TOLERANCE >= flt(fill.qty) else "Ready",
-                  "active_hopper_key": None if used + TOLERANCE >= flt(fill.qty) else fill.handling_unit}
+                  "status": "Empty" if used + flt(fill.get("cleared_qty")) + TOLERANCE >= flt(fill.qty) else "Ready",
+                  "active_hopper_key": None if used + flt(fill.get("cleared_qty")) + TOLERANCE >= flt(fill.qty) else (fill.get("current_handling_unit") or fill.handling_unit)}
         frappe.db.set_value("CFG Kanban Operation Hopper Fill", fill.name, values)
         fill.update(values)
         frappe.get_doc({"doctype": "CFG Kanban Operation Hopper Use", "hopper_fill": fill.name,
             "material_run": run.name, "progress": progress.name, "process_execution": execution.name,
-            "work_order": fill.work_order, "qty": qty, "stock_uom": fill.stock_uom,
+            "work_order": (fill.get("current_work_order") or fill.work_order), "qty": qty, "stock_uom": fill.stock_uom,
             "used_on": now_datetime()}).insert(ignore_permissions=True)
         run.db_set({"hopper_used_qty": qty, "hopper_reserved_qty": 0}, update_modified=False)
         # Consume the owning WO's digital handoff, not another ERP raw-material row.
-        owner_cycle = frappe.db.get_value("Work Order", fill.work_order, "cfg_kanban_cycle")
+        owner_cycle = frappe.db.get_value("Work Order", fill.get("current_work_order") or fill.work_order, "cfg_kanban_cycle")
         if owner_cycle:
             from cfg_kanban.services.wip import append_entry
-            append_entry(owner_cycle, "Consumed", qty, source_execution=fill.source_execution,
+            append_entry(owner_cycle, "Consumed", qty, source_execution=(fill.get("current_source_execution") or fill.source_execution),
                          destination_execution=execution.name, source_operation=fill.source_operation,
                          destination_operation=fill.destination_operation, source_progress=progress.name,
                          stock_uom=fill.stock_uom, notes=f"Operation Hopper fill {fill.name}")
         event_type = "Operation Hopper Consumed"
     _sync_unit(fill.name)
     record(event_type, cycle=execution.kanban_cycle, execution=execution.name,
-           handling_unit=fill.handling_unit, work_order=fill.work_order, qty=qty,
+           handling_unit=(fill.get("current_handling_unit") or fill.handling_unit), work_order=(fill.get("current_work_order") or fill.work_order), qty=qty,
            reference_doctype="CFG Kanban Operation Hopper Fill", reference_name=fill.name,
            payload={"material_run": run.name, "progress": progress.name,
                     "source_progress": fill.source_progress},
@@ -243,8 +246,8 @@ def cancel_run_hopper(run_name, reason):
 
 def _sync_unit(fill_name):
     fill = frappe.get_doc("CFG Kanban Operation Hopper Fill", fill_name)
-    remaining = max(0, flt(fill.qty) - flt(fill.used_qty))
-    frappe.db.set_value("CFG Kanban Handling Unit", fill.handling_unit, {
+    remaining = max(0, flt(fill.qty) - flt(fill.used_qty) - flt(fill.get("cleared_qty")))
+    frappe.db.set_value("CFG Kanban Handling Unit", (fill.get("current_handling_unit") or fill.handling_unit), {
         "operation_hopper_fill": fill.name, "operation_wip_qty": remaining,
         "operation_wip_reserved_qty": flt(fill.reserved_qty),
         "operation_wip_available_qty": max(0, remaining - flt(fill.reserved_qty)),
@@ -255,8 +258,11 @@ def _sync_unit(fill_name):
 
 
 def assert_no_open_hoppers(work_order):
-    names = frappe.get_all("CFG Kanban Operation Hopper Fill", filters={
-        "work_order": work_order, "status": ["in", ["Filling", "Ready"]]}, pluck="name")
+    rows = frappe.get_all("CFG Kanban Operation Hopper Fill", filters={
+        "status": ["in", ["Filling", "Ready"]]},
+        or_filters={"work_order": work_order, "current_work_order": work_order},
+        fields=["name", "work_order", "current_work_order"], limit_page_length=0)
+    names = [row.name for row in rows if (row.get("current_work_order") or row.work_order) == work_order]
     if names:
         frappe.throw("Consume or reconcile the remaining operation Hopper WIP before final closure: " + ", ".join(names))
 

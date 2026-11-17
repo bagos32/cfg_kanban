@@ -7,6 +7,7 @@
  "field_order": [
   "status",
   "handling_unit",
+  "current_handling_unit",
   "active_hopper_key",
   "work_order",
   "company",
@@ -19,8 +20,12 @@
   "stock_uom",
   "qty",
   "used_qty",
+  "cleared_qty",
   "reserved_qty",
-  "opened_on"
+  "opened_on",
+  "current_work_order",
+  "current_source_execution",
+  "carry_in"
  ],
  "fields": [
   {
@@ -150,6 +155,41 @@
    "label": "Opened On",
    "fieldtype": "Datetime",
    "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_handling_unit",
+   "label": "Current Physical Hopper",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Handling Unit",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cleared_qty",
+   "label": "Cleared / Discarded Qty",
+   "fieldtype": "Float",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_work_order",
+   "label": "Current Owning Work Order",
+   "fieldtype": "Link",
+   "options": "Work Order",
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_source_execution",
+   "label": "Current Source Credit Execution",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Process Execution",
+   "read_only": 1
+  },
+  {
+   "fieldname": "carry_in",
+   "label": "Current Carry In",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Hopper Carry In",
    "read_only": 1
   }
  ],

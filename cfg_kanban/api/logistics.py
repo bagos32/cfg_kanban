@@ -730,6 +730,9 @@ def lookup_logistics_tag(scan_value, operator_session_token):
         "expiry_date": unit.expiry_date,
     }
     result["container_status"] = container_status_for_unit(unit)
+    if unit.tag_kind == "Reusable Container":
+        from cfg_kanban.services.hopper_inventory import hopper_snapshot
+        result["operation_wip"] = hopper_snapshot(unit)
     result["can_manage_container"] = bool(
         unit.tag_kind == "Reusable Container"
         and profile.can_start

@@ -98,6 +98,9 @@ def _receipt_evidence(order, strict=True):
         filters={"job_card":["in",[job.name for job in jobs]],"status":["!=","Cancelled"]},
         fields=["name","job_card","operation","material_run_control","material_run_rules_json",
                 "material_run_settlement_timing"],limit_page_length=0)
+    inherited_jobs = _carry_receipt_jobs(order, jobs, strict=strict)
+    if inherited_jobs is None:
+        return {}, {}, {}
     scopes, rules = _receipt_scopes(order, jobs, executions)
     if not scopes:
         return {}, {}, {}
@@ -124,7 +127,9 @@ def _receipt_evidence(order, strict=True):
             return {}, {}, {}
         grouped.setdefault(key,[]).append(draw)
     scopes = {key:jobs for key,jobs in scopes.items()
-              if jobs.issubset({draw.job_card for draw in grouped.get(key,[])})}
+              if jobs.issubset({draw.job_card for draw in grouped.get(key,[])} | inherited_jobs)}
+    for key in scopes:
+        grouped.setdefault(key, [])
     if not scopes:
         return {}, {}, {}
     return owners, grouped, scopes
@@ -232,3 +237,15 @@ def reconcile_manufacture_material_runs(entry):
             idempotency_key=canonical_key("manufacture-material-run-actuals",order.name,entry.name or "new",
                                          entry.get("fg_completed_qty"),adjustments))
     return adjustments
+
+
+def _carry_receipt_jobs(order, jobs, strict=True):
+    if not frappe.db.table_exists("CFG Kanban Hopper Carry In"):
+        return set()
+    from cfg_kanban.services.hopper_carry_in import receipt_evidence
+    try:
+        return receipt_evidence(order, jobs)
+    except frappe.ValidationError:
+        if strict:
+            raise
+        return None

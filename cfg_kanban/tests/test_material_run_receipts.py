@@ -17,6 +17,7 @@ class Document:
 class TestMaterialRunReceiptActuals(unittest.TestCase):
     def setUp(self):
         self.frappe=frappe_double();self.frappe.as_json=json.dumps
+        self.frappe.db.table_exists=Mock(return_value=False)
         self.order=Document(name='WO',company='CFG',docstatus=1,skip_transfer=1,qty=5,
             required_items=[Row(item_code='RAW',source_warehouse='Store',stock_uom='Kg',required_qty=5,operation='Cook')])
         self.job=Row(name='JC',operation='Cook',docstatus=1,status='Completed',for_quantity=5)

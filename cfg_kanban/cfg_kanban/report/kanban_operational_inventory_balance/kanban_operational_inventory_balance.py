@@ -17,7 +17,7 @@ def execute(filters=None):
     if not cint(filters.include_zero_balance):
         having = "having abs(sum(hu.current_qty)) > 0.000001 or abs(sum(hu.reserved_qty)) > 0.000001"
 
-    data = [] if filters.certificate_posting_status == "Pending ERP Consolidation" else frappe.db.sql(
+    data = [] if filters.certificate_posting_status not in (None, "", "ERP Posted") or filters.inventory_control_mode == "Operation WIP" or filters.operation_hopper else frappe.db.sql(
         f"""
         select
             hu.inventory_company as company,
@@ -86,6 +86,7 @@ def execute(filters=None):
         row["untagged_erp_qty"] = max(erp_qty - tagged_qty, 0)
         row["tagged_excess_qty"] = max(tagged_qty - erp_qty, 0)
     data.extend(_pending_summary_rows(filters))
+    data.extend(_operation_wip_rows(filters))
     return columns, data, None, None, _summary(data)
 
 
@@ -149,7 +150,7 @@ def _tag_detail_data(filters, conditions, values):
         conditions.append(
             "(abs(hu.current_qty) > 0.000001 or abs(hu.reserved_qty) > 0.000001)"
         )
-    data = [] if filters.certificate_posting_status == "Pending ERP Consolidation" else frappe.db.sql(
+    data = [] if filters.certificate_posting_status not in (None, "", "ERP Posted") or filters.inventory_control_mode == "Operation WIP" or filters.operation_hopper else frappe.db.sql(
         f"""
         select
             hu.name as handling_unit,
@@ -228,10 +229,13 @@ def _tag_detail_data(filters, conditions, values):
     if filters.certificate_posting_status:
         wanted = filters.certificate_posting_status
         data = [row for row in data if wanted in (row.certificate_posting_status or "")]
+    data.extend(_operation_wip_rows(filters))
     return data
 
 
 def _pending_summary_rows(filters):
+    if filters.inventory_control_mode == "Operation WIP" or filters.certificate_posting_status == "Operation WIP" or filters.operation_hopper:
+        return []
     if not frappe.db.table_exists("CFG Certificate Process Progress"):
         return []
     conditions, values = _pending_conditions(filters)
@@ -284,6 +288,8 @@ def _pending_summary_rows(filters):
 
 
 def _pending_tag_rows(filters):
+    if filters.inventory_control_mode == "Operation WIP" or filters.certificate_posting_status == "Operation WIP" or filters.operation_hopper:
+        return []
     if not frappe.db.table_exists("CFG Certificate Process Progress"):
         return []
     conditions, values = _pending_conditions(filters)
@@ -371,7 +377,7 @@ def _pending_conditions(filters):
 
 
 def _columns():
-    return [
+    return _wip_columns() + [
         {"label": _("Company"), "fieldname": "company", "fieldtype": "Link", "options": "Company", "width": 170},
         {"label": _("Warehouse"), "fieldname": "warehouse", "fieldtype": "Link", "options": "Warehouse", "width": 190},
         {"label": _("Item"), "fieldname": "item_code", "fieldtype": "Link", "options": "Item", "width": 150},
@@ -403,7 +409,7 @@ def _columns():
 
 
 def _tag_detail_columns():
-    return [
+    return _wip_columns() + [
         {"label": _("Container / Tag Label"), "fieldname": "container_tag_label", "width": 180},
         {"label": _("Physical Scan Code"), "fieldname": "physical_scan_code", "width": 155},
         {"label": _("Physical Container"), "fieldname": "physical_container", "fieldtype": "Link", "options": "CFG Kanban Handling Unit", "width": 145},
@@ -442,6 +448,8 @@ def _tag_detail_columns():
 
 
 def _summary(data):
+    wip_cards = _operation_wip_summary(data)
+    data = [row for row in data if row.get("certificate_posting_status") != "Operation WIP"]
     tag_count = sum(int(row.tag_count or 0) for row in data)
     pending_tag_count = sum(int(row.pending_tag_count or 0) for row in data)
     summary = [
@@ -472,10 +480,12 @@ def _summary(data):
             "datatype": "Float",
             "indicator": "Orange",
         })
-    return summary
+    return summary + wip_cards
 
 
 def _tag_detail_summary(data):
+    wip_cards = _operation_wip_summary(data)
+    data = [row for row in data if row.get("certificate_posting_status") != "Operation WIP"]
     posted_count = sum(1 for row in data if flt(row.current_qty) or row.handling_unit)
     pending_count = sum(1 for row in data if flt(row.pending_certificate_qty))
     summary = [
@@ -506,4 +516,31 @@ def _tag_detail_summary(data):
             "datatype": "Float",
             "indicator": "Orange",
         })
-    return summary
+    return summary + wip_cards
+
+
+def _operation_wip_rows(filters):
+    if not frappe.db.table_exists("CFG Kanban Operation Hopper Fill"):
+        return []
+    from cfg_kanban.services.hopper_inventory import report_rows
+    return report_rows(filters)
+
+
+def _operation_wip_summary(data):
+    if not any(row.get("certificate_posting_status")=="Operation WIP" for row in data):return []
+    from cfg_kanban.services.hopper_inventory import report_summary
+    return report_summary(data)
+
+
+def _wip_columns():
+    return [
+        {"label":_("Operation Hopper"),"fieldname":"operation_hopper","fieldtype":"Link","options":"CFG Kanban Handling Unit","width":150},
+        {"label":_("Work Order"),"fieldname":"work_order","fieldtype":"Link","options":"Work Order","width":150},
+        {"label":_("Original Work Order"),"fieldname":"original_work_order","fieldtype":"Link","options":"Work Order","width":150},
+        {"label":_("Carry In"),"fieldname":"carry_in","fieldtype":"Link","options":"CFG Kanban Hopper Carry In","width":120},
+        {"label":_("WO Status"),"fieldname":"work_order_status","width":120},
+        {"label":_("WIP Operation"),"fieldname":"source_operation","width":130},
+        {"label":_("Operation WIP Qty"),"fieldname":"operation_wip_qty","fieldtype":"Float","width":145},
+        {"label":_("WIP Reserved"),"fieldname":"operation_wip_reserved_qty","fieldtype":"Float","width":125},
+        {"label":_("WIP Available"),"fieldname":"operation_wip_available_qty","fieldtype":"Float","width":125},
+    ]
