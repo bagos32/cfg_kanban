@@ -3233,6 +3233,14 @@ Confirm the current app version is deployed, migration and build completed, cach
 the correct CFG Kanban print format was selected with no letterhead. Browser preview may display
 surrounding whitespace; verify the downloaded PDF page dimensions and printer scaling.
 
+If a small label downloads across several pages or its QR is cut, update to the fixed-media
+layout correction as well. The Bin Slot labels/card and Full Trace Tag are single-page;
+the Standard Card has exactly two aligned front/back pages. These templates now set all
+four PDF margins explicitly and use layouts supported by the older wkhtmltopdf renderer.
+Print on matching physical media at 100% scale, then verify the entire QR/Code 128 scans
+to the visible identity. A PDF downloading successfully does not establish layout or scan
+acceptance. No stock or production quantities change when correcting a print template.
+
 ### Print Service Point QR button is missing
 
 Open and save the Task Schedule, enable **Permanent Service Point QR**, and configure a Location,

@@ -52,6 +52,22 @@ class TestPrintPdfOptions(unittest.TestCase):
                 sizes = re.findall(r'@page\s*\{\s*size\s*:\s*([^;}]+)', css)
                 self.assertEqual(sizes, [' '.join(dimensions)])
 
+    def test_fixed_media_override_each_pdf_margin_explicitly(self):
+        for folder in FIXED_MEDIA:
+            with self.subTest(format=folder):
+                options = declared_pdf_options(format_document(folder)['css'])
+                for side in ('top', 'bottom', 'left', 'right'):
+                    self.assertEqual(options.get('margin-'+side), '0mm',
+                        'Frappe does not expand margin shorthand into PDF options')
+                self.assertEqual(options.get('min-height'), '0',
+                    'Small media must not inherit the standard document minimum height')
+
+    def test_fixed_media_do_not_depend_on_grid_or_flex_in_old_qt(self):
+        for folder in FIXED_MEDIA:
+            with self.subTest(format=folder):
+                self.assertNotRegex(format_document(folder)['css'],
+                    r'display\s*:\s*(?:inline-)?(?:grid|flex)\b')
+
     def test_fixed_formats_keep_their_existing_content_and_trace_identity(self):
         for folder in FIXED_MEDIA:
             with self.subTest(format=folder):
