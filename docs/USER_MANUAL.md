@@ -3217,6 +3217,18 @@ synchronize them.
 
 ### Print format fails or shows A4
 
+If PDF download reports **Invalid argument(s) parsed to --page-size**, update/migrate the
+app-owned Print Formats and clear cache. The fixed-media Standard Card, Full Trace Tag and
+Bin Slot formats use explicit PDF width/height; they must not send `page-size:Custom` to
+wkhtmltopdf. A6 cards remain 148 × 105 mm and thermal labels retain their named sizes.
+The explicit PDF Portrait orientation preserves the declared width/height even when the
+site default is Landscape; it does not turn the A6 card into a tall card. Existing browser
+`@page` dimensions and QR/barcode contents remain unchanged. No global Print Settings
+change is needed. Reopen Print View and verify the selected format after deployment.
+User-created/copied Print Formats need the same CSS correction separately. See
+`docs/TEST_KANBAN_PDF_PRINTING.md` for the PDF download and physical-size acceptance checks.
+
+
 Confirm the current app version is deployed, migration and build completed, cache was cleared, and
 the correct CFG Kanban print format was selected with no letterhead. Browser preview may display
 surrounding whitespace; verify the downloaded PDF page dimensions and printer scaling.
