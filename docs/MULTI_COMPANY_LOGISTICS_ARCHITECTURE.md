@@ -655,7 +655,10 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
   ERP-submission-only tag consumption, reusable-container unloading, cancellation reversal,
   amendment revision, idempotent commands, and Exception audit.
 - Add loose-container loading/unloading.
-- Add Route Stops and untagged/loose reusable-container delivery quantities.
+- **Development implemented in E4A:** prepared known-customer Vehicle Delivery connects loaded
+  tagged/untagged quantities to the existing Customer Delivery Session, Delivery Note, native Sales
+  Order linkage and proof. Live acceptance remains pending; see `TEST_DISPATCH_E4A_CUSTOMER_FULFILMENT.md`.
+- Route Stops and general ad-hoc/Open Route untagged or loose-container delivery remain later E4 scope.
 - Add reserved and unassigned-stock delivery flows.
 - Add optional customer Sales Invoice commands. The controlled Delivery Note command is implemented.
 

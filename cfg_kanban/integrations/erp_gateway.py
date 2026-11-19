@@ -541,15 +541,23 @@ def build_customer_delivery_note(delivery, payload, command=None, validate_requi
             "item_code": row["item_code"],
             "qty": row["qty"],
             "uom": row["uom"],
+            "stock_uom": row.get("stock_uom") or row["uom"],
+            "conversion_factor": row.get("conversion_factor") or 1,
             "warehouse": payload["warehouse"],
             "batch_no": row.get("batch_no"),
             "rate": row["rate"],
             "price_list_rate": row["rate"],
             "cfg_handling_unit": row["handling_unit"],
             "cfg_delivery_allocation": row["delivery_allocation"],
+            **({"against_sales_order": row["against_sales_order"], "so_detail": row["so_detail"]}
+               if row.get("against_sales_order") else {}),
+            **({"use_serial_batch_fields": 1} if row.get("batch_no") else {}),
             **_tag_stock_identity_fields(row.get("handling_unit"), "Delivery Note Item"),
         } for row in payload["items"]],
     }
+    values.update({key: payload[key] for key in
+                   ("currency", "conversion_rate", "price_list_currency", "plc_conversion_rate", "project")
+                   if payload.get(key) not in (None, "")})
     if payload.get("amended_from"):
         values["amended_from"] = payload["amended_from"]
     delivery_note = frappe.get_doc(values)

@@ -5,6 +5,13 @@ from frappe.utils import flt
 
 class CFGKanbanDeliveryAllocation(Document):
     def validate(self):
+        kind = self.get("allocation_kind") or "Tagged Stock"
+        if kind not in ("Tagged Stock", "Untagged ERP Stock"):
+            frappe.throw("Unsupported customer delivery allocation kind")
+        if kind == "Tagged Stock" and not self.handling_unit:
+            frappe.throw("Tagged delivery allocation requires its physical Stock Tag")
+        if kind == "Untagged ERP Stock" and (self.handling_unit or not self.dispatch_allocation):
+            frappe.throw("Untagged delivery requires a prepared Dispatch Allocation without a Stock Tag")
         if flt(self.allocated_qty) <= 0:
             frappe.throw("Allocated Qty must be positive")
         if flt(self.delivered_qty) < 0 or flt(self.delivered_qty) > flt(self.allocated_qty):
@@ -14,6 +21,7 @@ class CFGKanbanDeliveryAllocation(Document):
             if before:
                 for fieldname in (
                     "delivery_session", "handling_unit", "visible_code",
+                    "allocation_kind", "dispatch_allocation", "sales_order_item",
                     "container_handling_unit", "container_visible_code", "item_code",
                     "batch_no", "stock_uom", "allocated_qty", "source_warehouse",
                     "reserved_by_operator", "operator_session", "reserved_on",

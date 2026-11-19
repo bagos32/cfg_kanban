@@ -8,3 +8,4 @@ cfg_kanban.patches.v1_4.migrate_logistics_foundation
 cfg_kanban.patches.v1_5.backfill_operator_employee_names
 cfg_kanban.patches.v1_6.backfill_intercompany_document_links
 cfg_kanban.patches.v1_7.release_closed_cycle_material_reservations
+cfg_kanban.patches.v1_8.backfill_delivery_allocation_kind

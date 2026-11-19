@@ -2,11 +2,13 @@
 
 **Baseline identifier:** `CFG-DISPATCH-E3`
 **Decision status:** Locked
-**Current status:** E1–E3 implemented; E4–E5 remain pending
+**Current status:** E1–E3 implemented; E4A development implemented; E4B–E5 remain pending
 **Implementation status:** Dispatch Profiles, permanent Dispatch Operations cards, the read-only
 operator launcher, Dispatch Plans, approval/cancellation, controlled tagged/untagged reservation,
 late lorry claim, physical loading confirmation, Manifest generation and controlled direct Material
-Transfer are implemented. E3 does not yet perform customer fulfilment.
+Transfer are implemented. E4A adds whole-load known-customer fulfilment through the existing
+Customer Delivery Session, tagged/untagged allocations, native Delivery Note and proof workflow.
+E4A live acceptance is pending; E3 loading remains a separate lifecycle.
 
 ## 1. Objective
 
@@ -257,10 +259,25 @@ reservations and audit. Goods in Transit remains E6.
 
 ### E4 — Customer fulfilment
 
-- prepared known-customer delivery;
+**E4A — Prepared known-customer Vehicle Delivery:** development implemented for tagged,
+untagged and Mixed loaded stock. The scanned Customer Site must match the immutable Plan context;
+loading must have a submitted Stock Entry. The driver reuses exact loaded quantities, then completes
+the existing allocation confirmation, Delivery Note and proof workflow. Plan Customer Fulfilment is
+independent from E3 Loaded. Reservations/replay, source identity, Batch/expiry, native Sales Order
+UOM/rate/context, pre-ERP reset and existing DN/proof reversal guards are enforced. Individual
+prepared allocations must fit one native Sales Order row; partial/refused fulfilment requires E5.
+
+On 19 November 2026 the owner confirmed successful site use of last-minute vehicle selection and
+lorry loading, and requested E4A with tagged and untagged quantities. Full E3 evidence remains
+pending as recorded in its test guide. See [E4A setup/operator guide](USER_GUIDE_DISPATCH_E4A.md) and
+[E4A acceptance test](TEST_DISPATCH_E4A_CUSTOMER_FULFILMENT.md). This development checkpoint is not
+live ERP, concurrency, kiosk or production acceptance.
+
+**Remaining E4B/E4C scope:**
+
 - Open Route Stock delivery to multiple customers;
 - Direct Warehouse Delivery and Customer Pickup;
-- Delivery Note and proof integration.
+- broader Route Stop and fulfilment integration with Delivery Notes and proof.
 
 ### E5 — Reconciliation and recovery
 
@@ -279,6 +296,7 @@ reservations and audit. Goods in Transit remains E6.
 When this work is resumed, first audit the current repository against this document and the latest
 `docs/MULTI_COMPANY_LOGISTICS_ARCHITECTURE.md`. Do not rebuild Dispatch Profiles, Dispatch Plans,
 reservation, existing Manifest, Customer Delivery, proof, tag, or reconciliation features. Begin
-E4 only after the E3 acceptance test passes. Keep production execution behaviour separate, add
+E4 only after the E3 acceptance test passes. The owner-reported E3 path and authorization to
+proceed with E4A on 19 November 2026 are recorded above; unreported acceptance cases remain pending. Keep production execution behaviour separate, add
 regression tests, and stop for user-managed commit/deployment before each later package.
 

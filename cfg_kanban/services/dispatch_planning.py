@@ -609,6 +609,11 @@ def get_dispatch_plan(dispatch_plan, operator_session_token):
     result["suggested_tags_by_line"] = {
         row.name: _suggested_tags(plan, row) for row in plan.lines
     } if plan.state in RESERVABLE_STATES and plan.tag_policy in ("Tagged", "Mixed") else {}
+    from cfg_kanban.services.customer_delivery import _customer_delivery_allowed
+    result["can_start_fulfilment"] = bool(
+        plan.state == "Loaded" and plan.plan_type == "Customer Order"
+        and plan.fulfilment_mode == "Vehicle Delivery" and operator.can_start
+        and _customer_delivery_allowed(operator))
     result["policy_only_reservation"] = int(plan.state in RESERVABLE_STATES)
     result["vehicle_claim_active"] = int(plan.state in VEHICLE_LOADING_STATES)
     return result
@@ -783,6 +788,7 @@ def mark_plan_loaded(manifest_name, stock_entry_name):
     plan.db_set({
         "state": "Loaded", "total_reserved_qty": 0,
         "total_loaded_qty": loaded_total, "loaded_on": now_datetime(),
+        "prepared_stock_commitment": 1,
     }, update_modified=True)
     record(
         "Dispatch Plan Loaded", movement_manifest=manifest.name,
@@ -1165,10 +1171,15 @@ def _assert_untagged_allocation_available(allocation):
           and item_code=%(item)s {batch_condition}
         """, params,
     )[0][0])
+    from cfg_kanban.services.dispatch_fulfilment import active_untagged_delivery_qty, waiting_prepared_untagged_qty
+    untagged_reserved += active_untagged_delivery_qty(
+        allocation.source_company, allocation.source_warehouse, allocation.item_code, allocation.batch_no)
+    untagged_reserved += waiting_prepared_untagged_qty(
+        allocation.source_company, allocation.source_warehouse, allocation.item_code, allocation.batch_no)
     if erp_balance + 0.000001 < tagged + untagged_reserved:
         frappe.throw(
             f"ERPNext stock for {allocation.item_code} is now {erp_balance}; active tagged "
-            f"stock plus untagged Dispatch reservations require {tagged + untagged_reserved}"
+            f"stock plus Dispatch/customer-delivery commitments require {tagged + untagged_reserved}"
         )
 
 
@@ -1562,7 +1573,7 @@ def _lock_erp_bin(item_code, warehouse):
     )
 
 
-def _untagged_available(company, warehouse, item_code, batch_no):
+def _untagged_available(company, warehouse, item_code, batch_no, exclude_prepared_plan=None):
     validate_warehouse_company(warehouse, company, "Dispatch source Warehouse")
     if batch_no:
         from erpnext.stock.doctype.batch.batch import get_batch_qty
@@ -1596,7 +1607,10 @@ def _untagged_available(company, warehouse, item_code, batch_no):
         """,
         {"company": company, "warehouse": warehouse, "item": item_code, "batch": batch_no},
     )[0][0]
-    return max(erp_balance - flt(tagged) - flt(untagged_reserved), 0)
+    from cfg_kanban.services.dispatch_fulfilment import active_untagged_delivery_qty, waiting_prepared_untagged_qty
+    delivery_reserved = active_untagged_delivery_qty(company, warehouse, item_code, batch_no)
+    waiting_prepared = waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclude_prepared_plan)
+    return max(erp_balance - flt(tagged) - flt(untagged_reserved) - delivery_reserved - waiting_prepared, 0)
 
 
 def _require_event_token(event_token):

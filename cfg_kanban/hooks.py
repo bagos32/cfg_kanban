@@ -116,7 +116,10 @@ doc_events = {
                      "cfg_kanban.services.wip_bin_loads.abandon_draft_stock_entry"],
     },
     "Delivery Note": {
-        "before_submit": "cfg_kanban.services.logistics_stock_identity.validate_logistics_document",
+        "before_submit": [
+            "cfg_kanban.services.logistics_stock_identity.validate_logistics_document",
+            "cfg_kanban.services.dispatch_fulfilment.validate_prepared_delivery_note",
+        ],
         "on_submit": "cfg_kanban.integrations.logistics_feedback.on_delivery_note_submit",
         "on_cancel": "cfg_kanban.integrations.logistics_feedback.on_delivery_note_cancel",
     },

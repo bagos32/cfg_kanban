@@ -1,12 +1,12 @@
 {
  "doctype":"DocType","name":"CFG Kanban Delivery Allocation","module":"CFG Kanban","autoname":"KDA-.YYYY.-.#####","title_field":"visible_code","track_changes":0,
  "search_fields":"delivery_session,visible_code,item_code,batch_no,delivery_note",
- "field_order":["state","delivery_session","identity_section","handling_unit","visible_code","container_handling_unit","container_visible_code","item_code","batch_no","stock_uom","quantity_section","allocated_qty","delivered_qty","source_warehouse","erp_section","delivery_note","delivery_note_item","audit_section","reserved_by_operator","operator_session","reserved_on","movement_state_before_reservation","reservation_ledger","reservation_key","active_handling_unit_key","released_on","release_reason","release_ledger","release_key"],
+ "field_order":["state","delivery_session","identity_section","handling_unit","visible_code","container_handling_unit","container_visible_code","item_code","batch_no","stock_uom","quantity_section","allocated_qty","delivered_qty","source_warehouse","erp_section","delivery_note","delivery_note_item","audit_section","reserved_by_operator","operator_session","reserved_on","movement_state_before_reservation","reservation_ledger","reservation_key","active_handling_unit_key","released_on","release_reason","release_ledger","release_key","allocation_kind","dispatch_allocation","sales_order_item"],
  "fields":[
   {"fieldname":"state","label":"Allocation State","fieldtype":"Select","options":"Reserved\nDelivery Pending\nDelivered\nReleased\nCancelled\nException","default":"Reserved","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"delivery_session","label":"Delivery Session","fieldtype":"Link","options":"CFG Kanban Delivery Session","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"identity_section","label":"Physical Stock Identity","fieldtype":"Section Break"},
-  {"fieldname":"handling_unit","label":"Stock Tag Handling Unit","fieldtype":"Link","options":"CFG Kanban Handling Unit","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"handling_unit","label":"Stock Tag Handling Unit","fieldtype":"Link","options":"CFG Kanban Handling Unit","reqd":0,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"visible_code","label":"Stock Tag Code","fieldtype":"Data","reqd":1,"read_only":1,"in_list_view":1},
   {"fieldname":"container_handling_unit","label":"Reusable Container","fieldtype":"Link","options":"CFG Kanban Handling Unit","read_only":1},
   {"fieldname":"container_visible_code","label":"Container Code","fieldtype":"Data","read_only":1,"in_list_view":1},
@@ -31,7 +31,10 @@
   {"fieldname":"released_on","label":"Released On","fieldtype":"Datetime","read_only":1},
   {"fieldname":"release_reason","label":"Release Reason","fieldtype":"Small Text","read_only":1},
   {"fieldname":"release_ledger","label":"Release Quantity Ledger","fieldtype":"Link","options":"CFG Kanban Handling Unit Quantity Ledger","read_only":1},
-  {"fieldname":"release_key","label":"Release Idempotency Key","fieldtype":"Data","unique":1,"read_only":1,"hidden":1}
+  {"fieldname":"release_key","label":"Release Idempotency Key","fieldtype":"Data","unique":1,"read_only":1,"hidden":1},
+  {"fieldname":"allocation_kind","label":"Stock Allocation Kind","fieldtype":"Select","read_only":1,"default":"Tagged Stock","reqd":1,"options":"Tagged Stock\nUntagged ERP Stock"},
+  {"fieldname":"dispatch_allocation","label":"Prepared Dispatch Allocation","fieldtype":"Link","read_only":1,"options":"CFG Kanban Dispatch Allocation"},
+  {"fieldname":"sales_order_item","label":"Prepared Sales Order Row","fieldtype":"Data","read_only":1}
  ],
  "permissions":[
   {"role":"Stock User","read":1,"print":1},

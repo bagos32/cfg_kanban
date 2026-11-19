@@ -453,22 +453,23 @@ def _on_correction_return_submit(doc, return_case):
         expected = flt(line.claimed_qty)
         if abs(abs(flt(item.stock_qty or item.qty)) - expected) > 0.000001:
             frappe.throw(f"Return quantity for {line.item_code} must remain {expected}")
-        post_quantity_event(
-            event_type="Customer Return", qty=expected, stock_uom=line.stock_uom,
-            idempotency_key=canonical_key("delivery-correction-posted", case.name, line.name),
-            destination_handling_unit=line.original_handling_unit,
-            item_code=line.item_code, batch_no=line.batch_no,
-            destination_company=case.selling_company,
-            destination_warehouse=case.correction_return_warehouse,
-            reference_doctype="Delivery Note", reference_name=doc.name,
-            operator=case.created_by_operator, operator_session=case.created_operator_session,
-            reason="Submitted wrong-Delivery-Note stock correction",
-        )
-        frappe.db.set_value("CFG Kanban Handling Unit", line.original_handling_unit, {
-            "identity_state": "Active", "movement_state": "Returned",
-            "current_warehouse": case.correction_return_warehouse,
-            "state": "Attached", "last_scan_time": now_datetime(),
-        }, update_modified=False)
+        if line.original_handling_unit:
+            post_quantity_event(
+                event_type="Customer Return", qty=expected, stock_uom=line.stock_uom,
+                idempotency_key=canonical_key("delivery-correction-posted", case.name, line.name),
+                destination_handling_unit=line.original_handling_unit,
+                item_code=line.item_code, batch_no=line.batch_no,
+                destination_company=case.selling_company,
+                destination_warehouse=case.correction_return_warehouse,
+                reference_doctype="Delivery Note", reference_name=doc.name,
+                operator=case.created_by_operator, operator_session=case.created_operator_session,
+                reason="Submitted wrong-Delivery-Note stock correction",
+            )
+            frappe.db.set_value("CFG Kanban Handling Unit", line.original_handling_unit, {
+                "identity_state": "Active", "movement_state": "Returned",
+                "current_warehouse": case.correction_return_warehouse,
+                "state": "Attached", "last_scan_time": now_datetime(),
+            }, update_modified=False)
     if seen != set(by_source_row):
         frappe.throw("Return Delivery Note must retain every controlled correction row")
     case.db_set({
@@ -486,6 +487,8 @@ def _on_correction_return_submit(doc, return_case):
 def _on_correction_return_cancel(doc, return_case):
     case = frappe.get_doc("CFG Kanban Return Case", return_case)
     for line in case.lines:
+        if not line.original_handling_unit:
+            continue
         unit = frappe.get_doc("CFG Kanban Handling Unit", line.original_handling_unit)
         if unit.current_warehouse != case.correction_return_warehouse:
             frappe.throw(
@@ -535,6 +538,7 @@ def _on_customer_delivery_submit(doc, delivery_session):
             "name", "handling_unit", "visible_code", "container_handling_unit",
             "container_visible_code", "item_code", "batch_no", "stock_uom",
             "allocated_qty", "source_warehouse", "movement_state_before_reservation",
+            "dispatch_allocation", "sales_order_item",
         ],
         order_by="reserved_on asc, name asc",
         limit_page_length=500,
@@ -554,36 +558,37 @@ def _on_customer_delivery_submit(doc, delivery_session):
     container_names = set()
     for allocation in allocations:
         item_row = item_rows[allocation.name]
-        post_quantity_event(
-            event_type="Deliver",
-            qty=allocation.allocated_qty,
-            stock_uom=allocation.stock_uom,
-            idempotency_key=canonical_key(
-                "customer-delivery-posted", delivery.name, allocation.name, doc.name
-            ),
-            source_handling_unit=allocation.handling_unit,
-            item_code=allocation.item_code,
-            batch_no=allocation.batch_no,
-            source_company=delivery.selling_company,
-            source_warehouse=delivery.source_warehouse,
-            reference_doctype="Delivery Note",
-            reference_name=doc.name,
-            operator=delivery.delivery_confirmed_by,
-            operator_session=delivery.delivery_operator_session,
-            reason="Submitted customer Delivery Note",
-            release_reserved=True,
-        )
-        unit = frappe.get_doc("CFG Kanban Handling Unit", allocation.handling_unit)
-        empty = flt(unit.current_qty) <= 0.000001
-        unit.db_set({
-            "identity_state": "Empty" if empty else "Active",
-            "movement_state": "Empty" if empty else (
-                allocation.movement_state_before_reservation or "At Source"
-            ),
-            "current_warehouse": None if empty else delivery.source_warehouse,
-            "state": "Dispatched" if empty else "Attached",
-            "last_scan_time": now,
-        }, update_modified=False)
+        if allocation.handling_unit:
+            post_quantity_event(
+                event_type="Deliver",
+                qty=allocation.allocated_qty,
+                stock_uom=allocation.stock_uom,
+                idempotency_key=canonical_key(
+                    "customer-delivery-posted", delivery.name, allocation.name, doc.name
+                ),
+                source_handling_unit=allocation.handling_unit,
+                item_code=allocation.item_code,
+                batch_no=allocation.batch_no,
+                source_company=delivery.selling_company,
+                source_warehouse=delivery.source_warehouse,
+                reference_doctype="Delivery Note",
+                reference_name=doc.name,
+                operator=delivery.delivery_confirmed_by,
+                operator_session=delivery.delivery_operator_session,
+                reason="Submitted customer Delivery Note",
+                release_reserved=True,
+            )
+            unit = frappe.get_doc("CFG Kanban Handling Unit", allocation.handling_unit)
+            empty = flt(unit.current_qty) <= 0.000001
+            unit.db_set({
+                "identity_state": "Empty" if empty else "Active",
+                "movement_state": "Empty" if empty else (
+                    allocation.movement_state_before_reservation or "At Source"
+                ),
+                "current_warehouse": None if empty else delivery.source_warehouse,
+                "state": "Dispatched" if empty else "Attached",
+                "last_scan_time": now,
+            }, update_modified=False)
         frappe.db.set_value(
             "CFG Kanban Delivery Allocation",
             allocation.name,
@@ -627,6 +632,10 @@ def _on_customer_delivery_submit(doc, delivery_session):
         operator_session=delivery.delivery_operator_session,
     )
 
+    from cfg_kanban.services.dispatch_fulfilment import sync_plan_delivery
+    delivery.reload()
+    sync_plan_delivery(delivery)
+
 
 def _on_customer_delivery_cancel(doc, delivery_session):
     delivery = frappe.get_doc("CFG Kanban Delivery Session", delivery_session)
@@ -649,6 +658,7 @@ def _on_customer_delivery_cancel(doc, delivery_session):
             "name", "handling_unit", "visible_code", "container_handling_unit",
             "container_visible_code", "item_code", "batch_no", "stock_uom",
             "allocated_qty", "source_warehouse", "movement_state_before_reservation",
+            "dispatch_allocation", "sales_order_item",
         ],
         order_by="reserved_on asc, name asc",
         limit_page_length=500,
@@ -671,54 +681,55 @@ def _on_customer_delivery_cancel(doc, delivery_session):
     now = now_datetime()
     container_names = set()
     for allocation in allocations:
-        post_quantity_event(
-            event_type="Customer Return",
-            qty=allocation.allocated_qty,
-            stock_uom=allocation.stock_uom,
-            idempotency_key=canonical_key(
-                "customer-delivery-cancel-return", delivery.name, allocation.name, doc.name
-            ),
-            destination_handling_unit=allocation.handling_unit,
-            item_code=allocation.item_code,
-            batch_no=allocation.batch_no,
-            destination_company=delivery.selling_company,
-            destination_warehouse=delivery.source_warehouse,
-            reference_doctype="Delivery Note",
-            reference_name=doc.name,
-            operator=delivery.delivery_confirmed_by,
-            operator_session=delivery.delivery_operator_session,
-            reason="Cancelled customer Delivery Note; quantity restored to lorry control",
-        )
-        post_quantity_event(
-            event_type="Reserve",
-            qty=allocation.allocated_qty,
-            stock_uom=allocation.stock_uom,
-            idempotency_key=canonical_key(
-                "customer-delivery-cancel-reserve", delivery.name, allocation.name, doc.name
-            ),
-            source_handling_unit=allocation.handling_unit,
-            item_code=allocation.item_code,
-            batch_no=allocation.batch_no,
-            source_company=delivery.selling_company,
-            source_warehouse=delivery.source_warehouse,
-            reference_doctype="Delivery Note",
-            reference_name=doc.name,
-            operator=delivery.delivery_confirmed_by,
-            operator_session=delivery.delivery_operator_session,
-            reason="Cancelled customer Delivery Note; restored allocation awaiting amendment",
-        )
-        frappe.db.set_value(
-            "CFG Kanban Handling Unit",
-            allocation.handling_unit,
-            {
-                "identity_state": "Active",
-                "movement_state": "Reserved",
-                "current_warehouse": delivery.source_warehouse,
-                "state": "Attached",
-                "last_scan_time": now,
-            },
-            update_modified=False,
-        )
+        if allocation.handling_unit:
+            post_quantity_event(
+                event_type="Customer Return",
+                qty=allocation.allocated_qty,
+                stock_uom=allocation.stock_uom,
+                idempotency_key=canonical_key(
+                    "customer-delivery-cancel-return", delivery.name, allocation.name, doc.name
+                ),
+                destination_handling_unit=allocation.handling_unit,
+                item_code=allocation.item_code,
+                batch_no=allocation.batch_no,
+                destination_company=delivery.selling_company,
+                destination_warehouse=delivery.source_warehouse,
+                reference_doctype="Delivery Note",
+                reference_name=doc.name,
+                operator=delivery.delivery_confirmed_by,
+                operator_session=delivery.delivery_operator_session,
+                reason="Cancelled customer Delivery Note; quantity restored to lorry control",
+            )
+            post_quantity_event(
+                event_type="Reserve",
+                qty=allocation.allocated_qty,
+                stock_uom=allocation.stock_uom,
+                idempotency_key=canonical_key(
+                    "customer-delivery-cancel-reserve", delivery.name, allocation.name, doc.name
+                ),
+                source_handling_unit=allocation.handling_unit,
+                item_code=allocation.item_code,
+                batch_no=allocation.batch_no,
+                source_company=delivery.selling_company,
+                source_warehouse=delivery.source_warehouse,
+                reference_doctype="Delivery Note",
+                reference_name=doc.name,
+                operator=delivery.delivery_confirmed_by,
+                operator_session=delivery.delivery_operator_session,
+                reason="Cancelled customer Delivery Note; restored allocation awaiting amendment",
+            )
+            frappe.db.set_value(
+                "CFG Kanban Handling Unit",
+                allocation.handling_unit,
+                {
+                    "identity_state": "Active",
+                    "movement_state": "Reserved",
+                    "current_warehouse": delivery.source_warehouse,
+                    "state": "Attached",
+                    "last_scan_time": now,
+                },
+                update_modified=False,
+            )
         frappe.db.set_value(
             "CFG Kanban Delivery Allocation",
             allocation.name,
@@ -769,6 +780,10 @@ def _on_customer_delivery_cancel(doc, delivery_session):
         operator_session=delivery.delivery_operator_session,
     )
 
+    from cfg_kanban.services.dispatch_fulfilment import sync_plan_delivery
+    delivery.reload()
+    sync_plan_delivery(delivery)
+
 
 def _validate_customer_delivery_header(doc, delivery):
     if doc.company != delivery.selling_company:
@@ -784,6 +799,8 @@ def _validate_customer_delivery_header(doc, delivery):
 def _assert_customer_delivery_reversal_is_safe(delivery, allocations, delivery_note):
     """Do not let an old DN cancellation corrupt later physical reservations."""
     for allocation in allocations:
+        if not allocation.handling_unit:
+            continue
         unit = frappe.get_doc("CFG Kanban Handling Unit", allocation.handling_unit)
         if flt(unit.reserved_qty):
             frappe.throw(
@@ -840,10 +857,21 @@ def _validate_customer_delivery_rows(doc, delivery, allocations):
             frappe.throw(f"Delivery Note batch differs for Stock Tag {allocation.visible_code}")
         if row.warehouse != delivery.source_warehouse:
             frappe.throw(f"Delivery Note warehouse differs for Stock Tag {allocation.visible_code}")
-        if row.uom != allocation.stock_uom or row.stock_uom != allocation.stock_uom:
+        if row.stock_uom != allocation.stock_uom:
+            frappe.throw(f"Delivery Note UOM differs for Stock Tag {allocation.visible_code}")
+        if delivery.get("sales_order"):
+            order_row=frappe.db.get_value("Sales Order Item", allocation.sales_order_item,
+                ["parent","uom","conversion_factor"], as_dict=True)
+            if (not order_row or order_row.parent != delivery.sales_order or row.uom != order_row.uom
+                    or abs(flt(row.conversion_factor)-flt(order_row.conversion_factor))>0.000001):
+                frappe.throw("Delivery Note UOM/conversion differs from its Sales Order row")
+        elif row.uom != allocation.stock_uom:
             frappe.throw(f"Delivery Note UOM differs for Stock Tag {allocation.visible_code}")
         if abs(flt(row.stock_qty) - flt(allocation.allocated_qty)) > 0.000001:
             frappe.throw(f"Delivery Note quantity differs for Stock Tag {allocation.visible_code}")
+        if delivery.get("sales_order") and (row.get("against_sales_order") != delivery.sales_order
+                or row.get("so_detail") != allocation.sales_order_item):
+            frappe.throw("Delivery Note Sales Order reference differs from the prepared allocation")
         if row.get("cfg_handling_unit") != allocation.handling_unit:
             frappe.throw(f"Delivery Note physical identity differs for Stock Tag {allocation.visible_code}")
     return rows

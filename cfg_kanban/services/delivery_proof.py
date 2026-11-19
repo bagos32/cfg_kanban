@@ -174,6 +174,8 @@ def submit_delivery_proof(proof_name, disposition, event_token,
         operator_session=operator_session.name,
         terminal_user=operator_session.terminal_user,
     )
+    from cfg_kanban.services.dispatch_fulfilment import sync_plan_delivery
+    sync_plan_delivery(delivery)
     return get_delivery_proof(proof.name, operator_session_token)
 
 

@@ -143,3 +143,66 @@ Expected result:
 Pass E3 only when claim concurrency, physical loading evidence, cancellation/reclaim, ERP posting,
 Handling Unit movement, Plan closure, and all negative controls behave as stated. Do not treat E4
 customer fulfilment as accepted merely because the lorry Material Transfer succeeds.
+
+
+## Checkpoint recorded 19 November 2026
+
+Runtime revision inspected: `d01b40d` (`Fix dispatch Sales Order quantities`). No runtime changes
+are included in this checkpoint. The checkpoint adds actual-function behavioral regression tests;
+it does not replace site acceptance or establish E3 as passed.
+
+Offline command:
+
+```bash
+python3 -B -m unittest cfg_kanban.tests.test_dispatch_e3_behavior
+```
+
+Result: **18 tests passed** using an in-memory document/DB double. Covered: one Manifest per
+sequential vehicle claim/replay, rejection of a later different vehicle, row-lock request issuance,
+Company/route/responsibility restrictions, full physical-tag quantity, physical loading evidence,
+untagged physical pick, prepare guards, loaded-feedback state updates, and pre-ERP claim
+release/reclaim while preserving reservations.
+
+Limits: issuing a row-lock SQL statement is not proof of real locking. These tests do not run
+simultaneous MariaDB transactions, invoke native Stock Entry submission, validate ERP balances,
+exercise failure rollback, or operate a browser/camera/kiosk. The loading-feedback test calls the
+Plan notification function directly; the ERP submission hook and tag location movement remain
+separate live checks.
+
+### Compact live checkpoint record
+
+Run the detailed A–F procedures above on the development site. Use separate Plans where stated.
+Record evidence here; leave a failed or unrun step visible. Do not infer acceptance from an empty
+record or the offline test count.
+
+- Test site: **Not recorded**
+- Deployed commit (`git log -1 --oneline`): **Not recorded**
+- Tester / date: **Not recorded**
+- Company / source Warehouse / lorry Warehouse: **Not recorded**
+- Dispatch Profile / route: **Not recorded**
+- Tagged / untagged test Items, UOMs and quantities: **Not recorded**
+
+| Check | Evidence required | Site result |
+|---|---|---|
+| Claim and lookup | Plan ID, lorry Card ID, one linked Manifest, no ERP document yet | Not run |
+| Concurrent drivers and replay | Two simultaneous claims; exactly one winner/Manifest; same-vehicle retry reuses it | Not run |
+| Rejection controls | Wrong Company, non-vehicle card, missing responsibility, incomplete reservation and invalid route leave no claim | Not run |
+| Tagged and untagged loading | Exact-tag scan and explicit untagged pick, operator/time; wrong scan and premature prepare rejected | Not run |
+| Draft ERP policy | Draft Stock Entry ID; Plan remains pending; no tag movement or stock posting | Not run |
+| Submitted ERP policy | Submitted Stock Entry ID and rows; exact stock movement, tag locations and reservations; Plan Loaded | Not run |
+| Cancellation and reclaim | Cancelled pre-ERP Manifest, preserved reservations, new claim to another lorry; ERP-linked shortcut rejected | Not run |
+| Floor operation | Actual tablet/fixed scanner, camera where used, focus after success/error/cancel | Not run |
+
+Overall E3 live acceptance: **Not recorded / pending**. The locked Dispatch baseline requires E3
+acceptance before E4 development. If the owner explicitly defers that gate, record the decision and
+its scope separately; deferral does not change these site results to Passed.
+
+
+### Owner-reported site result — 19 November 2026
+
+The owner confirmed: “yes, i have tested E3 and it works. manage to load the goods into lorry with
+last minuite lorry selection.” This records a successful owner-reported late vehicle selection and
+lorry-loading path and the instruction to continue E4A development. No independent site session was
+run by Codex. The deployed SHA, ERP/Plan/Manifest IDs, concurrent-driver, rollback and full negative
+acceptance evidence above have not been supplied and remain pending; do not relabel those rows as
+Passed. The owner also confirmed that E4A must handle both tagged and untagged ERP quantities.

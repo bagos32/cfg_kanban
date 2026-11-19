@@ -1,7 +1,7 @@
 {
  "doctype":"DocType","name":"CFG Kanban Delivery Session","module":"CFG Kanban","autoname":"KDS-.YYYY.-.#####","title_field":"site_name","track_changes":1,
  "search_fields":"site_code,site_name,customer,selling_company,source_warehouse,vehicle_reference,delivery_note",
- "field_order":["state","customer_section","customer_scan_point","site_code","site_name","selling_company","customer","customer_address","territory","route_reference","vehicle_section","source_warehouse","vehicle_reference","price_list","auto_submit_delivery_note","proof_section","proof_policy","require_recipient_name","require_signature","require_photo","require_gps","unattended_reason_required","delivery_proof","proof_disposition","proof_submitted_on","erp_section","delivery_note","delivery_command","delivery_key","delivery_revision","exception","sales_invoice","delivery_audit_section","delivery_confirmed_by","delivery_operator_session","delivery_confirmed_on","audit_section","started_by_operator","operator_session","started_on","confirmed_on","completed_on","cancelled_by_operator","cancelled_on","cancellation_reason","idempotency_key"],
+ "field_order":["state","customer_section","customer_scan_point","site_code","site_name","selling_company","customer","customer_address","territory","route_reference","vehicle_section","source_warehouse","vehicle_reference","price_list","auto_submit_delivery_note","proof_section","proof_policy","require_recipient_name","require_signature","require_photo","require_gps","unattended_reason_required","delivery_proof","proof_disposition","proof_submitted_on","erp_section","delivery_note","delivery_command","delivery_key","delivery_revision","exception","sales_invoice","delivery_audit_section","delivery_confirmed_by","delivery_operator_session","delivery_confirmed_on","audit_section","started_by_operator","operator_session","started_on","confirmed_on","completed_on","cancelled_by_operator","cancelled_on","cancellation_reason","idempotency_key","dispatch_plan","active_dispatch_plan_key","sales_order","sales_order_context_json"],
  "fields":[
   {"fieldname":"state","label":"Delivery State","fieldtype":"Select","options":"Customer Identified\nAllocating Stock\nAwaiting Confirmation\nERP Document Pending\nDelivered\nInvoicing Pending\nInvoiced\nClosed\nPartial\nRejected\nException\nCancelled","default":"Customer Identified","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"customer_section","label":"Immutable Customer Site Snapshot","fieldtype":"Section Break"},
@@ -48,7 +48,11 @@
   {"fieldname":"cancelled_by_operator","label":"Cancelled by Operator","fieldtype":"Link","options":"Employee","read_only":1},
   {"fieldname":"cancelled_on","label":"Cancelled On","fieldtype":"Datetime","read_only":1},
   {"fieldname":"cancellation_reason","label":"Cancellation Reason","fieldtype":"Small Text","read_only":1},
-  {"fieldname":"idempotency_key","label":"Session Idempotency Key","fieldtype":"Data","unique":1,"read_only":1,"hidden":1}
+  {"fieldname":"idempotency_key","label":"Session Idempotency Key","fieldtype":"Data","unique":1,"read_only":1,"hidden":1},
+  {"fieldname":"dispatch_plan","label":"Prepared Dispatch Plan","fieldtype":"Link","read_only":1,"options":"CFG Kanban Dispatch Plan"},
+  {"fieldname":"active_dispatch_plan_key","label":"Active Prepared Plan Key","fieldtype":"Data","read_only":1,"unique":1,"hidden":1},
+  {"fieldname":"sales_order","label":"Prepared Sales Order","fieldtype":"Link","read_only":1,"options":"Sales Order"},
+  {"fieldname":"sales_order_context_json","label":"Sales Order Currency Snapshot","fieldtype":"Code","read_only":1,"hidden":1}
  ],
  "permissions":[
   {"role":"Stock User","read":1,"print":1},

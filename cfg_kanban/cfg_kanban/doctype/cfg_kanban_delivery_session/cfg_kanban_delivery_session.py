@@ -25,7 +25,7 @@ class CFGKanbanDeliverySession(Document):
             "auto_submit_delivery_note",
             "require_recipient_name", "require_signature", "require_photo", "require_gps",
             "unattended_reason_required", "started_by_operator", "operator_session",
-            "started_on", "idempotency_key",
+            "started_on", "idempotency_key", "dispatch_plan", "sales_order", "sales_order_context_json",
         )
         for fieldname in immutable:
             if before.get(fieldname) != self.get(fieldname):
