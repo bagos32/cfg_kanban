@@ -5534,6 +5534,14 @@ transactions must first be settled/released. Total stock does not increase; this
 same-warehouse action creates no ERP Stock Entry. A loaded physical receipt tag must
 be unloaded/reconciled before cancelling its original ERP receipt.
 
+Move / Repack accepts a **Tab or Enter suffix** after each scanner code. Use the main
+Logistics scanner to open the action, then keep scanning in the dialog's **Scanner**
+field. A nonempty scan is read once, its field clears, and focus returns there after
+validation. Blank Tab and Shift-Tab remain normal keyboard navigation; an extra empty
+Enter suffix does not confirm the move. Source, quantity, destination, numbered choices,
+new tag, reason, Confirm and Cancel all use this same scan path. Touch fields still use
+their Read/Set buttons. The move requires the existing explicit Confirm command/button.
+
 For scanner-only use: command → source → `CFG:SELECT:1`–`CFG:SELECT:10` if needed →
 `CFG:QTY:MATERIAL:n` (or `+n`) → destination → numbered existing-tag choice if needed →
 scan reason → `CFG:CMD:CONFIRM`. `CFG:CMD:NEXT_MATERIALS` and

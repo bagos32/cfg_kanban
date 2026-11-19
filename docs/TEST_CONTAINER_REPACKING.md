@@ -88,3 +88,27 @@ moves and Cancel using both touch and the existing scanner commands. Check focus
 source/destination balances, certificates/expiry and original-token retry after a
 lost response. An intermediate operation Hopper fill must still route to Recover
 Hopper rather than posted-stock repacking. Record the deployed SHA and results.
+
+
+## Tab-suffix scanner regression — 19 November 2026
+
+Base revision: `ec981af`. The Move/Repack popup and main Logistics scanner previously
+accepted only Enter. A Tab-suffix scanner left the code unread and moved focus away.
+Both scanner inputs now accept Tab/Enter, consume a nonempty value once, clear it before
+queueing work, and suppress the suffix's default action/bubbling. Blank Tab, Shift-Tab,
+modified keys and IME composition remain ordinary input/navigation. Empty Enter cannot
+activate native dialog confirmation. The existing serial action queue and focus/error/
+retry/cancel paths are preserved; stock services and command payloads are unchanged.
+
+`test_container_repack_ui.cjs` exercises actual keydown handlers through a complete
+Tab-terminated move, Enter compatibility and Tab-plus-Enter suffixes, rapid scans behind
+an unresolved source lookup, validation failure/correction/Cancel, unknown-result retry,
+and global Logistics open-command routing. This extends the real hidden-control adapter;
+it does not replace the scanner with a direct controller call in these suffix cases.
+
+Live acceptance pending: fixed scanner configured with Tab suffix, open using
+CFG:CMD:MOVE_CONTAINER_STOCK, then source, quantity, destination, optional new tag,
+reason and Confirm. Repeat numbered choices/paging, errors/retry/Cancel, Tab-plus-Enter
+suffix, and existing Enter scanner. Confirm one recorded move and restored focus after
+each action. Verify manual blank Tab and Shift-Tab can still navigate the dialog, touch
+Read/Set still works, and no empty suffix submits stock. Record deployed SHA and results.

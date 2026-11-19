@@ -45,6 +45,12 @@ function dialogFixture(options={}) {
  const open=()=>module.exports.open({frappe:{utils:{escape_html:value=>String(value??'').replaceAll('<','&lt;')},ui:{Dialog},call:({method,args})=>f.env.rpc(method.split('.').at(-1),args).then(message=>({message}))},sourceScan:options.sourceScan,owner:f.env.owner,nonce:f.env.nonce,token:()=> 'SESSION',success:async()=>{},onClose:()=>{hidden++;},errorMessage:(error,fallback)=>error.message||fallback});
  return {...f,open,dialog:()=>created,focused:()=>focused,hidden:()=>hidden};
 }
+function scannerKey(dialog,value,key='Tab',extra={}) {
+ dialog.values.scan=value;let prevented=0,stopped=0;
+ const event={key,preventDefault(){prevented++;},stopPropagation(){stopped++;},...extra};
+ const result=dialog.fields_dict.scan.handlers.keydown(event);
+ return {result,prevented:()=>prevented,stopped:()=>stopped};
+}
 async function ready(f){await f.c.source('TAG1');f.c.quantity(3);await f.c.destination('BIN2');f.c.reason('Repack');}
 async function test(name,fn){await fn();checks++;console.log(`ok ${name}`);}
 (async()=>{
@@ -139,6 +145,67 @@ async function test(name,fn){await fn();checks++;console.log(`ok ${name}`);}
   assert(d.fields_dict.source_scan.df.read_only);await d.config.primary_action();
   assert.deepEqual({...f.calls.at(-1).args,operator_session_token:undefined},{...pending,operator_session_token:undefined});
   assert(!f.map.has(pendingKey));assert.equal(f.hidden(),1);
+ });
+ await test('Tab-suffix scanner completes every popup step and keeps focus',async()=>{
+  const f=dialogFixture(),handle=await f.open(),d=f.dialog();
+  for(const value of ['TAG1','CFG:QTY:MATERIAL:3','EMPTY','CFG:CMD:REPACK_NEW_TAG','NEW001','Physical Tab move']) {
+   const key=scannerKey(d,value);await key.result;assert.equal(key.prevented(),1);assert.equal(key.stopped(),1);assert.equal(d.values.scan,'');
+  }
+  assert(f.focused()>=7);const key=scannerKey(d,'CFG:CMD:CONFIRM');await key.result;
+  assert.equal(handle.controller.state.completed,true);assert.equal(f.hidden(),1);
+  const posts=f.calls.filter(call=>call.method==='move_container_stock');assert.equal(posts.length,1);
+  assert.equal(posts[0].args.new_tag,'NEW001');assert.equal(posts[0].args.qty,3);assert.equal(posts[0].args.reason,'Physical Tab move');
+ });
+ await test('Enter suffix remains supported without interpreting a trailing blank suffix twice',async()=>{
+  const f=dialogFixture(),handle=await f.open(),d=f.dialog();
+  for(const value of ['TAG1','CFG:QTY:MATERIAL:3','BIN2','Enter move'])await scannerKey(d,value,'Enter').result;
+  const confirm=scannerKey(d,'CFG:CMD:CONFIRM','Tab');
+  const extra=scannerKey(d,'','Enter');assert.equal(extra.prevented(),1);await confirm.result;await extra.result;
+  assert(handle.controller.state.completed);assert.equal(f.calls.filter(call=>call.method==='move_container_stock').length,1);
+ });
+ await test('blank and Shift-Tab keep ordinary navigation and composing keys do not submit',async()=>{
+  const f=dialogFixture();await f.open();const d=f.dialog();
+  for(const [value,key,extra] of [['','Tab',{}],['TAG1','Tab',{shiftKey:true}],['TAG1','Enter',{isComposing:true}],['TAG1','Tab',{ctrlKey:true}],['TAG1','Tab',{altKey:true}],['TAG1','Tab',{metaKey:true}],['TAG1','x',{}]]) {
+   const event=scannerKey(d,value,key,extra);await event.result;assert.equal(event.prevented(),0);assert.equal(d.values.scan,value);
+  }
+  assert.equal(f.calls.length,0);
+ });
+ await test('rapid Tab scans queue behind source lookup without losing the next payload',async()=>{
+  const f=dialogFixture(),original=f.env.rpc;let release;
+  f.env.rpc=(method,args)=>method==='repack_source_context'?new Promise(resolve=>{release=()=>resolve({options:[f.source]});}):original(method,args);
+  const handle=await f.open(),d=f.dialog();const first=scannerKey(d,'TAG1');
+  const qty=scannerKey(d,'CFG:QTY:MATERIAL:3');const dest=scannerKey(d,'BIN2');const reason=scannerKey(d,'Queued move');
+  await new Promise(resolve=>setImmediate(resolve));assert(release);release();
+  await Promise.all([first.result,qty.result,dest.result,reason.result]);assert.equal(handle.controller.state.qty,3);assert.equal(handle.controller.state.destinationScan,'BIN2');
+  assert.equal(handle.controller.state.reason,'Queued move');await scannerKey(d,'CFG:CMD:CONFIRM').result;
+  assert.equal(f.calls.filter(call=>call.method==='move_container_stock').length,1);
+ });
+ await test('Tab source rejection restores scanner focus and permits correction or Tab Cancel',async()=>{
+  const f=dialogFixture(),original=f.env.rpc;f.env.rpc=async(method,args)=>{if(method==='repack_source_context')throw new Error('Wrong source warehouse');return original(method,args);};
+  await f.open();const d=f.dialog(),before=f.focused();await scannerKey(d,'BAD').result;
+  assert(d.visible);assert(f.focused()>before);assert(d.fields_dict.summary.$wrapper.value.includes('Wrong source warehouse'));
+  f.env.rpc=original;await scannerKey(d,'TAG1').result;await scannerKey(d,'CFG:CMD:CANCEL').result;
+  assert.equal(f.hidden(),1);assert(!f.calls.some(call=>call.method==='move_container_stock'));
+ });
+ await test('Tab unknown-result retry keeps the original request and token',async()=>{
+  const f=dialogFixture();await f.open();const d=f.dialog();
+  for(const value of ['TAG1','CFG:QTY:MATERIAL:3','BIN2','Retry move'])await scannerKey(d,value).result;
+  f.failure(new Error('network'));await scannerKey(d,'CFG:CMD:CONFIRM').result;
+  const original=f.calls.at(-1).args;assert(f.map.has(pendingKey));
+  await scannerKey(d,'CFG:QTY:MATERIAL:2').result;f.failure(null);await scannerKey(d,'CFG:CMD:CONFIRM').result;
+  assert.deepEqual(f.calls.at(-1).args,original);assert.equal(f.hidden(),1);assert(!f.map.has(pendingKey));
+ });
+ await test('main Logistics scanner routes Tab to global Move Repack command and keeps blank Tab navigation',async()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../cfg_kanban/page/kanban_logistics/kanban_logistics.js'),'utf8');
+  const start=source.indexOf('\t$scanner.find(".logistics-scan-input").on("keydown"');
+  const end=source.indexOf('\n\t$scanner.find(".camera-scan")',start);assert(start>=0&&end>start);
+  let handler,value='',calls=[];const input={on:(name,fn)=>{handler=fn;},val:()=>value};
+  new Function('$scanner','process_scan',source.slice(start,end))({find:()=>input},()=>{calls.push(value);value='';});
+  const fire=(text,key,extra={})=>{value=text;let prevented=0;handler({key,preventDefault(){prevented++;},stopPropagation(){},...extra});return prevented;};
+  assert.equal(fire('CFG:CMD:MOVE_CONTAINER_STOCK','Tab'),1);assert.deepEqual(calls,['CFG:CMD:MOVE_CONTAINER_STOCK']);
+  assert.equal(fire('','Tab'),0);assert.equal(fire('','Tab',{shiftKey:true}),0);
+  assert.equal(fire('BIN1','Enter'),1);assert.equal(fire('BIN2','Tab',{isComposing:true}),0);
+  assert.equal(fire('BIN3','Tab',{shiftKey:true}),0);assert.equal(calls.length,2);
  });
  console.log(`${checks} container repack UI checks passed`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

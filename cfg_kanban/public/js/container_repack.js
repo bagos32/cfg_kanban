@@ -154,7 +154,7 @@
 		}
 		dialog = new f.ui.Dialog({ title: "Move / Repack received stock", size: "large", fields: [
 			{ fieldname: "summary", fieldtype: "HTML" },
-			{ fieldname: "scan", label: "Scanner", fieldtype: "Data", description: "Source → Material Qty → Destination → Reason → Confirm. Numbered choices 1–10; Next/Previous Material Choices pages. Repack New Tag arms an optional preprinted tag for an empty destination." },
+			{ fieldname: "scan", label: "Scanner", fieldtype: "Data", description: "Keep scanning in Scanner; Tab or Enter ends each code. Source → Material Qty → Destination → Reason → Confirm. Numbered choices 1–10; Next/Previous Material Choices pages. Repack New Tag arms an optional preprinted tag for an empty destination." },
 			{ fieldname: "source_scan", label: "Source Stock Tag / Container", fieldtype: "Data" },
 			{ fieldname: "read_source", label: "Read Source", fieldtype: "Button" },
 			{ fieldname: "qty", label: "Quantity to Move", fieldtype: "Float" },
@@ -176,7 +176,19 @@
 			// survives revealing the optional new-tag button without rebinding it.
 			dialog.fields_dict[button].df.click = () => enqueue(() => controller[method](dialog.get_value(field)));
 		}
-		dialog.fields_dict.scan.$input.on("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); const value = dialog.get_value("scan"); dialog.set_value("scan", ""); enqueue(() => controller.scan(value)); } });
+		dialog.fields_dict.scan.$input.on("keydown", (event) => {
+			if (!["Enter", "Tab"].includes(event.key) || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
+			const value = String(dialog.get_value("scan") || "").trim();
+			// Empty Tab remains ordinary form navigation. Empty Enter must not
+			// activate the dialog's primary action after a scanner's extra suffix.
+			if (!value) {
+				if (event.key === "Enter") { event.preventDefault(); event.stopPropagation(); }
+				return;
+			}
+			event.preventDefault(); event.stopPropagation();
+			dialog.set_value("scan", "");
+			return enqueue(() => controller.scan(value));
+		});
 		dialog.$wrapper.on("hidden.bs.modal", () => { controller.state.closed = true; options.onClose(); });
 		dialog.show();
 		// Read pending state before allowing a fresh source; a corrupt slot fails closed.
