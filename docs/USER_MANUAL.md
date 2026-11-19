@@ -5534,6 +5534,23 @@ transactions must first be settled/released. Total stock does not increase; this
 same-warehouse action creates no ERP Stock Entry. A loaded physical receipt tag must
 be unloaded/reconciled before cancelling its original ERP receipt.
 
+For tablet operation, use **Scan Source with Camera**, **Scan Destination with Camera**
+and, after selecting an empty destination, **Scan New Tag with Camera**. Each camera
+result is read/validated in that named role. Set quantity and reason by touch, review,
+then tap Confirm. **Scan with Camera** follows the same sequence as the hardware scanner;
+`CFG:CMD:REPACK_CAMERA` opens it from Production/Logistics or inside Move / Repack. Allow
+camera access when prompted. Cancelling the camera returns to the same move; it does not
+cancel or submit stock. Repeated camera detections are accepted once per camera session.
+
+A **Tag Range Registry** registers labels; it does not assign an Item/quantity or create
+a reusable bin. **Destination Reusable Container** requires a saved reusable Handling
+Unit with its permanent bin identity. For a new registered stock label, read an empty
+reusable destination bin first, then use **Optional New Preprinted Main Tag**, its Read
+button, or its camera button. A source must already hold stock. A registry-only identity
+that is Used/Void/Replaced or has a missing Handling Unit link must be reviewed; it is not
+silently treated as unused. Main-tag validity and final stock/certificate checks remain
+mandatory. Intermediate operation Hopper WIP continues through Recover Hopper.
+
 Move / Repack accepts a **Tab or Enter suffix** after each scanner code. Use the main
 Logistics scanner to open the action, then keep scanning in the dialog's **Scanner**
 field. A nonempty scan is read once, its field clears, and focus returns there after

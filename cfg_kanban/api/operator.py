@@ -166,6 +166,7 @@ def _scanner_command_catalog(quantity_steps=None):
             ("FEFO / FIFO: Release Stock", "CFG:CMD:RELEASE_STOCK", ""),
             ("Isolation: Scan Source Next", "CFG:CMD:ISOLATION_SOURCE", ""),
             ("Move / Repack Received Container Stock", "CFG:CMD:MOVE_CONTAINER_STOCK", ""),
+            ("Repack: Scan with Camera", "CFG:CMD:REPACK_CAMERA", ""),
             ("Repack: Scan Source Next", "CFG:CMD:REPACK_SOURCE", ""),
             ("Repack: Scan Destination Next", "CFG:CMD:REPACK_DESTINATION", ""),
             ("Repack: Scan New Main Tag Next", "CFG:CMD:REPACK_NEW_TAG", ""),

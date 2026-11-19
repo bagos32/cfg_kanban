@@ -389,4 +389,51 @@ class TestContainerRepacking(RepackHarness):
             self.move(source_scan='OTHER',source_stock='OTHER',destination_scan='C',qty=4)
         self.assertEqual(self.data[HU]['OTHER'].current_qty,4);self.assertFalse(self.contents('C'))
 
+    def test_unused_registered_destination_explains_new_tag_role_without_creating_stock(self):
+        for kind, state in (('Registered Tag Identity', 'Unused'), ('Tag Range Candidate', 'Unmaterialized')):
+            with self.subTest(kind=kind):
+                original = self.resolve
+                ns = self.service._resolve.__globals__
+                ns['resolve_logistics_scan'] = lambda value: ({'identity_type':kind, 'state':state, 'tag_role':'Main'} if value == 'NEW001' else original(value))
+                before = copy.deepcopy(self.data)
+                with self.assertRaisesRegex(ValueError, 'reusable destination container') as error:
+                    self.service.repack_destination_context('S', 'NEW001', 'TOKEN')
+                self.assertIn('Optional New Preprinted Main Tag', str(error.exception))
+                self.assertEqual(self.data, before)
+                ns['resolve_logistics_scan'] = original
+
+    def test_unused_registered_source_explains_stock_must_already_be_assigned(self):
+        ns = self.service._resolve.__globals__
+        ns['resolve_logistics_scan'] = lambda value: {'identity_type':'Tag Range Candidate', 'state':'Unmaterialized'}
+        with self.assertRaisesRegex(ValueError, 'registered but has no stock assigned'):
+            self.service.repack_source_context('NEW001', 'TOKEN')
+        self.assertFalse(self.data[LEDGER])
+
+    def test_registry_only_used_or_void_identity_is_not_mislabelled_unused(self):
+        ns = self.service._resolve.__globals__
+        for state in ('Issued', 'Void', 'Replaced'):
+            with self.subTest(state=state):
+                ns['resolve_logistics_scan'] = lambda value: {'identity_type':'Registered Tag Identity', 'state':state}
+                with self.assertRaisesRegex(ValueError, 'Review its registry state') as error:
+                    self.service._resolve('OLD', destination=True)
+                self.assertNotIn('unused Stock Tag', str(error.exception))
+        self.assertFalse(self.data[LEDGER])
+
+    def test_final_move_also_explains_registered_destination_and_has_no_quantity_side_effect(self):
+        original = self.resolve
+        self.service._resolve.__globals__['resolve_logistics_scan'] = lambda value: ({'identity_type':'Tag Range Candidate', 'state':'Unmaterialized'} if value == 'NEW001' else original(value))
+        before = copy.deepcopy(self.data)
+        with self.assertRaisesRegex(ValueError, 'reusable destination container'):
+            self.move(destination_scan='NEW001')
+        self.assertEqual(self.data, before)
+
+    def test_registered_main_tag_remains_valid_in_the_explicit_new_tag_field(self):
+        from unittest.mock import patch
+        validate = functions('services/tag_to_tag_transfer.py', {'_validate_unused_main_tag'}, {
+            'frappe':self.frappe, '_':lambda value:value,
+            'resolve_logistics_scan':lambda value:{'identity_type':'Tag Range Candidate', 'state':'Unmaterialized', 'tag_role':'Main'}})._validate_unused_main_tag
+        with patch.dict(sys.modules, {'cfg_kanban.services.tag_to_tag_transfer':types.SimpleNamespace(_validate_unused_main_tag=validate)}):
+            self.assertEqual(self.service.repack_new_tag_context('NEW001', 'TOKEN'), {'visible_code':'NEW001'})
+        self.assertFalse(self.data[LEDGER])
+
 if __name__ == '__main__':unittest.main()

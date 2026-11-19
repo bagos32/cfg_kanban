@@ -31,8 +31,18 @@ def _auth(token, write=False):
     return _authorize(token, write=write)
 
 
-def _resolve(scan):
+def _resolve(scan, *, destination=False):
     identity = resolve_logistics_scan(scan)
+    if identity and identity.get('identity_type') in ('Registered Tag Identity', 'Tag Range Candidate'):
+        if identity.get('state') in ('Unused', 'Unmaterialized'):
+            if destination:
+                frappe.throw('This code is a registered unused Stock Tag, not an activated reusable destination container. '
+                    'Read an empty reusable destination bin first, then scan an unused Main Stock Tag in Optional New Preprinted Main Tag. '
+                    'If this label is meant to identify the bin itself, configure its reusable Handling Unit before moving stock.')
+            frappe.throw('This tag is registered but has no stock assigned. Scan the source tag or bin that already holds the stock. '
+                'Use an unused tag in Optional New Preprinted Main Tag after selecting an empty destination bin.')
+        frappe.throw('This registered tag is not linked to an active stock or reusable-container Handling Unit. '
+            'Review its registry state and Handling Unit link before using it for Move / Repack.')
     if not identity or identity.get('identity_type') != 'Handling Unit':
         frappe.throw('Scan an active Stock Tag or reusable container')
     return frappe.get_doc('CFG Kanban Handling Unit', identity['name'])
@@ -122,7 +132,7 @@ def repack_source_context(source_scan, operator_session_token=None):
 def repack_destination_context(source_stock, destination_scan, operator_session_token=None):
     _auth(operator_session_token)
     source = frappe.get_doc('CFG Kanban Handling Unit',source_stock)
-    destination = _resolve(destination_scan)
+    destination = _resolve(destination_scan, destination=True)
     _container(destination)
     from cfg_kanban.services.operation_hoppers import assert_no_operation_fill
     assert_no_operation_fill(destination.name, 'receiving repacked stock')
@@ -222,7 +232,7 @@ def move_container_stock(source_scan, source_stock, destination_scan, qty, reaso
     key=canonical_key('container-stock-repack',event_token)
     request=canonical_key('container-stock-repack-request',source_scan,source_stock,destination_scan,
                           destination_stock or '',new_tag or '',qty,reason)
-    scanned=_resolve(source_scan);target=_resolve(destination_scan)
+    scanned=_resolve(source_scan);target=_resolve(destination_scan, destination=True)
     original_member=active_container_membership(source_stock)
     source_container_name=original_member.container_handling_unit if original_member else None
     initial_destination=active_container_contents(target.name) if target.tag_kind=='Reusable Container' else []

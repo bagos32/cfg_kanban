@@ -2799,7 +2799,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	}
 
 	function repack_scanner_help() {
-		frappe.msgprint(__("FEFO / FIFO Isolation: CFG:CMD:STOCK_ISOLATION opens the action. Scan a tag/bin, select CFG:SELECT:1–10 if several targets, scan CFG:CMD:ISOLATE_STOCK or CFG:CMD:RELEASE_STOCK, reason and CFG:CMD:CONFIRM. CFG:CMD:ISOLATION_SOURCE arms another source; Next/Previous Material Choices page targets; Cancel exits. Bin isolation covers future loads until released. Tag isolation follows stock splits/replacements. Batch isolation remains independent. Only an unrestricted Supervisor with Override permission may change rules. Explicit scans still require normal validity. Move / Repack: scanners may end each code with Tab or Enter, including the global open command. Keep scanning in the dialog Scanner field; a blank Tab or Shift-Tab retains normal navigation. Scan CFG:CMD:MOVE_CONTAINER_STOCK, source Stock Tag or container, CFG:SELECT:1–10 if several fills, CFG:QTY:MATERIAL:n, destination container, numbered destination choice if needed, reason, then CFG:CMD:CONFIRM. Existing destination stock uses its current tag and combines quantities. For an empty destination only, CFG:CMD:REPACK_NEW_TAG arms a new unused Main Stock Tag. CFG:CMD:REPACK_SOURCE, REPACK_DESTINATION and REPACK_REASON re-arm those fields. NEXT_MATERIALS / PREVIOUS_MATERIALS page choices; CANCEL closes safely. An unacknowledged move remains locked for its original operator to retry, including after reopening or refresh. Print these commands from Kanban Operator → Scanner Command Labels. Intermediate Hopper WIP uses Recover Hopper."));
+		frappe.msgprint(__("FEFO / FIFO Isolation: CFG:CMD:STOCK_ISOLATION opens the action. Scan a tag/bin, select CFG:SELECT:1–10 if several targets, scan CFG:CMD:ISOLATE_STOCK or CFG:CMD:RELEASE_STOCK, reason and CFG:CMD:CONFIRM. CFG:CMD:ISOLATION_SOURCE arms another source; Next/Previous Material Choices page targets; Cancel exits. Bin isolation covers future loads until released. Tag isolation follows stock splits/replacements. Batch isolation remains independent. Only an unrestricted Supervisor with Override permission may change rules. Explicit scans still require normal validity. Move / Repack: tablets can use Scan with Camera, Scan Source with Camera, Scan Destination with Camera and Scan New Tag with Camera. CFG:CMD:REPACK_CAMERA opens the general camera. Destination requires an existing reusable bin; unused registered stock labels go in Optional New Preprinted Main Tag after an empty bin is selected. Scanners may end each code with Tab or Enter, including the global open command. Keep scanning in the dialog Scanner field; a blank Tab or Shift-Tab retains normal navigation. Scan CFG:CMD:MOVE_CONTAINER_STOCK, source Stock Tag or container, CFG:SELECT:1–10 if several fills, CFG:QTY:MATERIAL:n, destination container, numbered destination choice if needed, reason, then CFG:CMD:CONFIRM. Existing destination stock uses its current tag and combines quantities. For an empty destination only, CFG:CMD:REPACK_NEW_TAG arms a new unused Main Stock Tag. CFG:CMD:REPACK_SOURCE, REPACK_DESTINATION and REPACK_REASON re-arm those fields. NEXT_MATERIALS / PREVIOUS_MATERIALS page choices; CANCEL closes safely. An unacknowledged move remains locked for its original operator to retry, including after reopening or refresh. Print these commands from Kanban Operator → Scanner Command Labels. Intermediate Hopper WIP uses Recover Hopper."));
 	}
 
 	async function process_scan(value) {
@@ -2812,6 +2812,10 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (opening_repack) return scanner_error(__("Wait for Move / Repack to open, then scan again."));
 		if (raw.toUpperCase() === "CFG:CMD:HELP") return repack_scanner_help();
 		if (raw.toUpperCase() === "CFG:CMD:MOVE_CONTAINER_STOCK") return open_container_repack();
+		if (raw.toUpperCase() === "CFG:CMD:REPACK_CAMERA") {
+			await open_container_repack();
+			return active_repack?.scan(raw);
+		}
 		if (raw.toUpperCase() === "CFG:CMD:STOCK_ISOLATION") return open_stock_isolation();
 		if (raw.toUpperCase() === "CFG:CMD:ISOLATE_STOCK") return open_stock_isolation(null,1);
 		if (raw.toUpperCase() === "CFG:CMD:RELEASE_STOCK") return open_stock_isolation(null,0);
@@ -3266,8 +3270,11 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			return open_stock_isolation(sourceScan,action);
 		}
 		if (!frappe.route_options?.cfg_open_container_repack) return;
+		const use_camera = !!frappe.route_options.cfg_repack_camera;
 		delete frappe.route_options.cfg_open_container_repack;
+		delete frappe.route_options.cfg_repack_camera;
 		if (sync_session_from_storage()) await load();
 		await open_container_repack();
+		if (use_camera) await active_repack?.scan("CFG:CMD:REPACK_CAMERA");
 	};
 };

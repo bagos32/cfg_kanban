@@ -112,3 +112,48 @@ reason and Confirm. Repeat numbered choices/paging, errors/retry/Cancel, Tab-plu
 suffix, and existing Enter scanner. Confirm one recorded move and restored focus after
 each action. Verify manual blank Tab and Shift-Tab can still navigate the dialog, touch
 Read/Set still works, and no empty suffix submits stock. Record deployed SHA and results.
+
+
+## Tablet camera and registered destination guidance — 19 November 2026
+
+Base revision: `e6083aa`. The popup adds general, source, destination and optional
+new-tag camera buttons using Frappe's existing Scanner. Their `df.click` bindings
+work while the new-tag control is initially hidden. One camera session accepts one
+nonempty result; success and cancellation return to the same move, and closing the
+parent closes the camera and invalidates late callbacks. Results run through the same
+serial queue and controller validation as hardware scans. Opening/decoding the camera
+does not post stock; the existing explicit Confirm is required. Pending original-token
+reconciliation remains enforced. Camera startup failures remain inline and scanner/
+touch alternatives remain available. Actual permission/decoder/device behavior still
+requires tablet acceptance.
+
+Stable command CFG:CMD:REPACK_CAMERA is available in the command catalogue, Production
+global routing, Logistics routing and Move/Repack. General camera follows the normal
+scan sequence; the named source/destination/new-tag buttons target that exact role.
+No new production dependency or camera library is installed by the app.
+
+Registry-only destination scans now explain that an unused label is not an activated
+reusable destination container. Select an empty reusable bin first, then put an unused
+Main Stock Tag in Optional New Preprinted Main Tag. Source scans explain that registered
+labels without stock cannot supply quantity. Used/Void/Replaced registry identities
+without Handling Unit links get review guidance. Preview remains read-only; no implicit
+stock, bin creation, activation or certificate assignment is performed. Valid registered
+Main tags remain accepted by the explicit new-tag validation and activated only by the
+controlled completed repack. Destination diagnostics are also enforced by final move
+validation so direct calls receive the same guidance without changing quantities.
+
+Offline tests cover the four camera controls, delayed new-tag visibility, whole camera
+sequence including explicit Confirm, cancellation/focus, repeated/late callbacks,
+parent closure, unavailable camera/startup failure, validation correction, pending retry,
+loaded-destination rules and command routing/catalogue/help. Backend tests exercise both
+registry identity kinds, unused-source/destination explanations, missing-link states,
+final-move rejection without mutation and the real unused-Main-tag validator.
+
+Site acceptance pending: on the real tablet, allow camera permission, read source,
+quantity, destination bin, optional registered Main tag and reason, then Confirm by
+touch. Verify actual QR/Code 128 decoding, cancel/reopen/error focus and one stock move.
+Repeat with existing destination stock and original-token retry. Confirm an unused
+range tag in the destination-bin field shows the explanatory message, then succeeds
+through the explicit New Tag field on an empty bin. Review Item/quantity/certificates/
+expiry/audit before and after. Record deployed SHA, tablet/browser, scanner format and
+results. Do not infer tablet or live-site acceptance from mocked camera tests.

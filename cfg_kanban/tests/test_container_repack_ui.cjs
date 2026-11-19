@@ -41,9 +41,18 @@ function dialogFixture(options={}) {
   get_value(name){return this.values[name];}set_value(name,value){this.values[name]=value;}
   show(){this.visible=true;}hide(){this.visible=false;this.events['hidden.bs.modal']?.();}
  }
+ const cameras=[];
+ class Camera {
+  constructor(config){if(options.cameraError)throw new Error(options.cameraError);this.config=config;this.visible=true;this.hidden=[];this.stopped=0;cameras.push(this);
+   this.dialog={$wrapper:{is:()=>this.visible,one:(name,callback)=>{this.hidden.push(callback);}}};
+  }
+  hide_dialog(){if(!this.visible)return;this.visible=false;this.stopped++;for(const callback of this.hidden.splice(0))callback();}
+  async decode(value){const result=this.config.on_scan({decodedText:value});this.hide_dialog();return result;}
+  late(value){return this.config.on_scan({decodedText:value});}
+ }
  const module={exports:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../public/js/container_repack.js'),'utf8'),{module,localStorage:f.env.storage,navigator:{locks:f.env.locks}});
- const open=()=>module.exports.open({frappe:{utils:{escape_html:value=>String(value??'').replaceAll('<','&lt;')},ui:{Dialog},call:({method,args})=>f.env.rpc(method.split('.').at(-1),args).then(message=>({message}))},sourceScan:options.sourceScan,owner:f.env.owner,nonce:f.env.nonce,token:()=> 'SESSION',success:async()=>{},onClose:()=>{hidden++;},errorMessage:(error,fallback)=>error.message||fallback});
- return {...f,open,dialog:()=>created,focused:()=>focused,hidden:()=>hidden};
+ const open=()=>module.exports.open({frappe:{utils:{escape_html:value=>String(value??'').replaceAll('<','&lt;')},ui:{Dialog,...(options.cameraUnavailable?{}:{Scanner:Camera})},call:({method,args})=>f.env.rpc(method.split('.').at(-1),args).then(message=>({message}))},sourceScan:options.sourceScan,owner:f.env.owner,nonce:f.env.nonce,token:()=> 'SESSION',success:async()=>{},onClose:()=>{hidden++;},errorMessage:(error,fallback)=>error.message||fallback});
+ return {...f,open,dialog:()=>created,focused:()=>focused,hidden:()=>hidden,cameras};
 }
 function scannerKey(dialog,value,key='Tab',extra={}) {
  dialog.values.scan=value;let prevented=0,stopped=0;
@@ -82,7 +91,7 @@ async function test(name,fn){await fn();checks++;console.log(`ok ${name}`);}
  await test('invalid/excessive quantity and missing reason cannot post',async()=>{const f=fixture();await ready(f);assert.throws(()=>f.c.quantity('nan'));f.c.quantity(11);await assert.rejects(()=>f.c.confirm(),/within available/);f.c.quantity(3);f.c.reason('');await assert.rejects(()=>f.c.confirm(),/reason/);assert.equal(f.calls.filter(x=>x.method==='move_container_stock').length,0);});
  await test('global routing, catalogue, help, focus and production Return guard ship together',async()=>{
   const root=path.resolve(__dirname,'..');const logistics=fs.readFileSync(path.join(root,'cfg_kanban/page/kanban_logistics/kanban_logistics.js'),'utf8'),production=fs.readFileSync(path.join(root,'cfg_kanban/page/kanban_operator/kanban_operator.js'),'utf8'),catalog=fs.readFileSync(path.join(root,'api/operator.py'),'utf8'),ui=fs.readFileSync(path.join(root,'public/js/container_repack.js'),'utf8');
-  for(const command of ['MOVE_CONTAINER_STOCK','REPACK_SOURCE','REPACK_DESTINATION','REPACK_NEW_TAG','REPACK_REASON'])assert(catalog.includes(`CFG:CMD:${command}`));
+  for(const command of ['MOVE_CONTAINER_STOCK','REPACK_CAMERA','REPACK_SOURCE','REPACK_DESTINATION','REPACK_NEW_TAG','REPACK_REASON'])assert(catalog.includes(`CFG:CMD:${command}`));
   assert(production.includes('MOVE_CONTAINER_STOCK:'));assert(production.includes('cfg_open_container_repack'));assert(logistics.includes('raw.toUpperCase() === "CFG:CMD:MOVE_CONTAINER_STOCK"'));assert(logistics.includes('active_repack.scan(raw)'));
   assert(logistics.includes('is_quantity_bin && row.virtual_content && row.return_to_source_supported ?'));assert(logistics.includes('repack_scanner_help'));assert(ui.includes('hidden.bs.modal'));assert(ui.includes('.finally(focus)'));
  });
@@ -206,6 +215,89 @@ async function test(name,fn){await fn();checks++;console.log(`ok ${name}`);}
   assert.equal(fire('','Tab'),0);assert.equal(fire('','Tab',{shiftKey:true}),0);
   assert.equal(fire('BIN1','Enter'),1);assert.equal(fire('BIN2','Tab',{isComposing:true}),0);
   assert.equal(fire('BIN3','Tab',{shiftKey:true}),0);assert.equal(calls.length,2);
+ });
+ await test('tablet cameras read source, destination and unused new tag into their named roles',async()=>{
+  const f=dialogFixture(),handle=await f.open(),d=f.dialog();
+  assert(d.initiallyHidden.includes('camera_tag'));assert.equal(d.fields_dict.camera_tag.$input,undefined);
+  await d.fields_dict.camera_source.click();await f.cameras.at(-1).decode('TAG1');
+  d.values.qty=3;await d.fields_dict.set_quantity.click();
+  await d.fields_dict.camera_destination.click();await f.cameras.at(-1).decode('EMPTY');
+  assert(d.fields_dict.camera_tag.$input);assert(!d.fields_dict.camera_tag.df.hidden);
+  await d.fields_dict.camera_tag.click();await f.cameras.at(-1).decode('NEW001');
+  assert.equal(handle.controller.state.newTag,'NEW001');assert.equal(d.values.new_tag,'NEW001');
+  assert(!f.calls.some(call=>call.method==='move_container_stock'));
+  d.values.reason='Tablet repack';await d.fields_dict.set_reason.click();await d.config.primary_action();
+  assert.equal(f.calls.at(-1).args.new_tag,'NEW001');assert.equal(f.calls.at(-1).args.qty,3);assert.equal(f.hidden(),1);
+ });
+ await test('general camera and printable command follow the same scanner sequence through explicit Confirm',async()=>{
+  const f=dialogFixture(),handle=await f.open(),d=f.dialog();
+  for(const value of ['TAG1','CFG:QTY:MATERIAL:3','BIN2','Tablet camera move']){
+   await handle.scan('CFG:CMD:REPACK_CAMERA');assert(f.cameras.at(-1).visible);await f.cameras.at(-1).decode(value);
+  }
+  assert(!f.calls.some(call=>call.method==='move_container_stock'));assert.equal(handle.controller.state.reason,'Tablet camera move');
+  await d.fields_dict.camera_scan.click();await f.cameras.at(-1).decode('CFG:CMD:CONFIRM');
+  assert.equal(f.calls.filter(call=>call.method==='move_container_stock').length,1);assert.equal(f.hidden(),1);
+ });
+ await test('camera Cancel restores scanner focus and ignores a late decoded source',async()=>{
+  const f=dialogFixture();await f.open();const d=f.dialog();await d.fields_dict.camera_source.click();
+  const camera=f.cameras.at(-1),before=f.focused();camera.hide_dialog();assert(f.focused()>before);
+  await camera.late('TAG1');assert.equal(f.calls.length,0);assert(d.visible);assert.equal(f.hidden(),0);
+ });
+ await test('camera reentry and repeated decoded callbacks cannot duplicate an action',async()=>{
+  const f=dialogFixture();await f.open();const d=f.dialog();await d.fields_dict.camera_source.click();await d.fields_dict.camera_source.click();
+  assert.equal(f.cameras.length,1);const camera=f.cameras[0];await camera.decode('TAG1');await camera.late('TAG1');
+  assert.equal(f.calls.filter(call=>call.method==='repack_source_context').length,1);
+ });
+ await test('closing Move Repack closes its camera and rejects stale callbacks',async()=>{
+  const f=dialogFixture(),handle=await f.open(),d=f.dialog();await d.fields_dict.camera_source.click();
+  const camera=f.cameras.at(-1);await handle.scan('CFG:CMD:CANCEL');assert.equal(f.hidden(),1);assert(!camera.visible);assert(camera.stopped);
+  await camera.late('TAG1');assert.equal(f.calls.length,0);
+ });
+ await test('unavailable camera preserves scanner and touch alternatives without posting',async()=>{
+  const f=dialogFixture({cameraUnavailable:true}),handle=await f.open(),d=f.dialog();
+  await d.fields_dict.camera_source.click();assert(d.visible);assert(d.fields_dict.summary.$wrapper.value.includes('Camera scanning is unavailable'));assert(f.focused()>0);
+  await handle.scan('TAG1');assert.equal(handle.controller.state.source.name,'S');assert(!f.calls.some(call=>call.method==='move_container_stock'));
+ });
+ await test('camera command failures do not deadlock the scan queue',async()=>{
+  for(const options of [{cameraUnavailable:true},{cameraError:'Camera startup failed'}]){
+   const f=dialogFixture(options),handle=await f.open(),d=f.dialog();
+   let timeout;
+   try {
+    await Promise.race([handle.scan('CFG:CMD:REPACK_CAMERA'),new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('camera command deadlocked')),250);})]);
+   } finally {clearTimeout(timeout);}
+   assert(d.visible);assert(d.fields_dict.summary.$wrapper.value.includes(options.cameraError||'Camera scanning is unavailable'));
+   await handle.scan('TAG1');assert.equal(handle.controller.state.source.name,'S');assert(!f.calls.some(call=>call.method==='move_container_stock'));
+  }
+ });
+ await test('camera startup error is shown inline and returns focus',async()=>{
+  const f=dialogFixture({cameraError:'Camera permission unavailable'});await f.open();const d=f.dialog(),before=f.focused();
+  await d.fields_dict.camera_source.click();assert(d.visible);assert(f.focused()>before);assert(d.fields_dict.summary.$wrapper.value.includes('Camera permission unavailable'));
+  assert.equal(f.calls.length,0);
+ });
+ await test('camera source validation rejects safely and a new camera session can correct it',async()=>{
+  const f=dialogFixture(),original=f.env.rpc;f.env.rpc=async(method,args)=>{if(method==='repack_source_context')throw new Error('Source has no stock assigned');return original(method,args);};
+  const handle=await f.open(),d=f.dialog();await d.fields_dict.camera_source.click();await f.cameras.at(-1).decode('BAD');
+  assert.equal(handle.controller.state.source,null);assert(d.fields_dict.summary.$wrapper.value.includes('Source has no stock assigned'));
+  f.env.rpc=original;await d.fields_dict.camera_source.click();await f.cameras.at(-1).decode('TAG1');assert.equal(handle.controller.state.source.name,'S');
+  assert(!f.calls.some(call=>call.method==='move_container_stock'));
+ });
+ await test('new-tag camera disappears for a loaded destination and uses its existing tag',async()=>{
+  const f=dialogFixture({sourceScan:'BIN1'}),handle=await f.open(),d=f.dialog();
+  await handle.scan('CFG:QTY:MATERIAL:3');await handle.scan('EMPTY');assert(!d.fields_dict.camera_tag.df.hidden);
+  await handle.scan('CFG:CMD:REPACK_DESTINATION');await handle.scan('BIN2');assert(d.fields_dict.camera_tag.df.hidden);
+  assert.equal(handle.controller.state.target.name,'D');assert.equal(handle.controller.state.newTag,'');
+ });
+ await test('general camera can reconcile an unknown move only with its original Confirm payload',async()=>{
+  const original=fixture();await ready(original);original.failure(new Error('network'));await assert.rejects(()=>original.c.confirm());const pending=original.calls.at(-1).args;
+  const f=dialogFixture({shared:{map:original.map}}),handle=await f.open();await handle.scan('CFG:CMD:REPACK_CAMERA');await f.cameras.at(-1).decode('CFG:CMD:CONFIRM');
+  assert.deepEqual({...f.calls.at(-1).args,operator_session_token:undefined},{...pending,operator_session_token:undefined});assert.equal(f.hidden(),1);
+ });
+ await test('camera global dispatch, catalogue, help and destination explanation are connected',async()=>{
+  const root=path.resolve(__dirname,'..');const logistics=fs.readFileSync(path.join(root,'cfg_kanban/page/kanban_logistics/kanban_logistics.js'),'utf8');
+  const production=fs.readFileSync(path.join(root,'cfg_kanban/page/kanban_operator/kanban_operator.js'),'utf8'),catalog=fs.readFileSync(path.join(root,'api/operator.py'),'utf8');
+  const ui=fs.readFileSync(path.join(root,'public/js/container_repack.js'),'utf8');
+  assert(logistics.includes('raw.toUpperCase() === "CFG:CMD:REPACK_CAMERA"'));assert(logistics.includes('cfg_repack_camera'));assert(production.includes('REPACK_CAMERA:'));
+  assert(catalog.includes('CFG:CMD:REPACK_CAMERA'));assert(ui.includes('Scan New Tag with Camera'));assert(ui.includes('Tag Range registration alone does not assign stock'));
  });
  console.log(`${checks} container repack UI checks passed`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

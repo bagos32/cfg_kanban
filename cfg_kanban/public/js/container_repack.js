@@ -99,6 +99,7 @@
 			const upper = value.toUpperCase();
 			if (upper === "CFG:CMD:CANCEL") { if (!s.busy) { s.closed = true; env.close(); } return; }
 			if (upper === "CFG:CMD:CONFIRM") return confirm();
+			if (upper === "CFG:CMD:REPACK_CAMERA" && env.camera) return env.camera();
 			editable();
 			const arms = { "CFG:CMD:REPACK_SOURCE": "source", "CFG:CMD:REPACK_DESTINATION": "destination",
 				"CFG:CMD:REPACK_NEW_TAG": "tag", "CFG:CMD:REPACK_REASON": "reason" };
@@ -124,7 +125,7 @@
 
 	async function open(options) {
 		const f = options.frappe, e = f.utils.escape_html;
-		let controller, dialog, queue = Promise.resolve();
+		let controller, dialog, cameraSession = null, queue = Promise.resolve();
 		const enqueue = (action) => {
 			queue = queue.then(action).catch((error) => {
 				// Show the server error inline so a message modal cannot steal the scanner.
@@ -138,7 +139,40 @@
 			}).finally(focus);
 			return queue;
 		};
-		function focus() { if (dialog?.$wrapper.is(":visible")) dialog.fields_dict.scan.$input.trigger("focus"); }
+		function focus() {
+			if (cameraSession?.scanner?.dialog?.$wrapper.is(":visible")) return;
+			if (dialog?.$wrapper.is(":visible")) dialog.fields_dict.scan.$input.trigger("focus");
+		}
+		function open_camera(method = "scan") {
+			if (!dialog.$wrapper.is(":visible") || controller.state.closed) return;
+			if (cameraSession) return cameraSession.scanner;
+			if (!f.ui.Scanner) throw new Error("Camera scanning is unavailable. Use the Scanner field or Read buttons.");
+			const session = { scanner: null, used: false };
+			cameraSession = session;
+			try {
+				session.scanner = new f.ui.Scanner({ dialog: true, multiple: false, on_scan(data) {
+					if (session.used || cameraSession !== session || controller.state.closed || !dialog.$wrapper.is(":visible")) return;
+					const value = String(data?.decodedText || "").trim();
+					if (!value) return;
+					session.used = true;
+					return enqueue(() => {
+						const field = {source:"source_scan",destination:"destination_scan",tag:"new_tag"}[method];
+						return Promise.resolve(controller[method](value)).then(() => {
+							if (field && !controller.state.closed) dialog.set_value(field, value);
+						});
+					});
+				} });
+				session.scanner.dialog.$wrapper.one("hidden.bs.modal.cfg_repack_camera", () => {
+					session.used = true;
+					if (cameraSession === session) cameraSession = null;
+					focus();
+				});
+				return session.scanner;
+			} catch (error) {
+				session.used = true;cameraSession = null;
+				throw error;
+			}
+		}
 		function render(s) {
 			if (!dialog) return;
 			const desc = (row) => `${e(row.visible_code)} · ${e(row.item_code)} · ${e(row.batch_no || "No Batch")} · ${e(row.qty)} ${e(row.stock_uom)} · Expiry ${e(row.expiry_date || "-")}${row.source_code ? ` · Source ${e(row.source_code)}` : ""}`;
@@ -147,34 +181,42 @@
 			const target = s.target ? `${desc(s.target)}<br><strong>Combined total: ${e(Number(s.target.qty) + Number(s.qty))} ${e(s.target.stock_uom)}</strong>` : s.destination ? `${e(s.destination.visible_code)} · Empty · ${s.newTag ? e(s.newTag) : "Keep whole physical source tag, or use permanent container QR for a new internal fill"}` : "Scan destination container";
 			dialog.fields_dict.summary.$wrapper.html(`${pending}<p><strong>Source:</strong> ${s.source ? desc(s.source) : "Scan source Stock Tag or container"}</p><p><strong>Move:</strong> ${e(s.qty)} ${e(s.source?.stock_uom || "")}</p><p><strong>Destination:</strong> ${target}</p>${choices}<p>Reason: ${e(s.reason || "Required")}${s.arm ? ` · Next scan: ${e(s.arm)}` : ""}</p><p class="text-danger">${e(s.message)}</p>`);
 			dialog.fields_dict.summary.$wrapper.find(".repack-choice").on("click", function () { enqueue(() => controller.choose(Number(this.dataset.number))); });
-			for (const name of ["source_scan", "destination_scan", "qty", "new_tag", "reason", "read_source", "read_destination", "set_quantity", "read_tag", "set_reason"]) dialog.set_df_property(name, "read_only", !!(s.pending || s.busy));
+			for (const name of ["source_scan", "destination_scan", "qty", "new_tag", "reason", "read_source", "read_destination", "set_quantity", "read_tag", "set_reason", "camera_source", "camera_destination", "camera_tag"]) dialog.set_df_property(name, "read_only", !!(s.pending || s.busy));
 			dialog.set_df_property("new_tag", "hidden", !s.destination?.new_tag_allowed);
 			dialog.set_df_property("read_tag", "hidden", !s.destination?.new_tag_allowed);
+			dialog.set_df_property("camera_tag", "hidden", !s.destination?.new_tag_allowed);
 			dialog.get_primary_btn().prop("disabled", s.busy);
 		}
 		dialog = new f.ui.Dialog({ title: "Move / Repack received stock", size: "large", fields: [
 			{ fieldname: "summary", fieldtype: "HTML" },
 			{ fieldname: "scan", label: "Scanner", fieldtype: "Data", description: "Keep scanning in Scanner; Tab or Enter ends each code. Source → Material Qty → Destination → Reason → Confirm. Numbered choices 1–10; Next/Previous Material Choices pages. Repack New Tag arms an optional preprinted tag for an empty destination." },
+			{ fieldname: "camera_scan", label: "Scan with Camera", fieldtype: "Button" },
 			{ fieldname: "source_scan", label: "Source Stock Tag / Container", fieldtype: "Data" },
 			{ fieldname: "read_source", label: "Read Source", fieldtype: "Button" },
+			{ fieldname: "camera_source", label: "Scan Source with Camera", fieldtype: "Button" },
 			{ fieldname: "qty", label: "Quantity to Move", fieldtype: "Float" },
 			{ fieldname: "set_quantity", label: "Set Quantity", fieldtype: "Button" },
-			{ fieldname: "destination_scan", label: "Destination Container", fieldtype: "Data" },
+			{ fieldname: "destination_scan", label: "Destination Reusable Container", fieldtype: "Data", description: "Scan the existing permanent bin/container identity. An unused Stock Tag goes in Optional New Preprinted Main Tag after selecting an empty bin." },
 			{ fieldname: "read_destination", label: "Read Destination", fieldtype: "Button" },
+			{ fieldname: "camera_destination", label: "Scan Destination with Camera", fieldtype: "Button" },
 			{ fieldname: "new_tag", label: "Optional New Preprinted Main Tag", fieldtype: "Data", hidden: 1 },
 			{ fieldname: "read_tag", label: "Use New Tag / Clear if Blank", fieldtype: "Button", hidden: 1 },
+			{ fieldname: "camera_tag", label: "Scan New Tag with Camera", fieldtype: "Button", hidden: 1 },
 			{ fieldname: "reason", label: "Reason", fieldtype: "Small Text" },
 			{ fieldname: "set_reason", label: "Set Reason", fieldtype: "Button" },
-			{ fieldname: "help", fieldtype: "HTML", options: "<small>Same Company and Warehouse only. Item, Batch, UOM, certificate evidence and expiry must match before combining. Existing destination tag is reused. Intermediate Hopper WIP uses Recover Hopper. Cancel is also available through CFG:CMD:CANCEL.</small>" }
+			{ fieldname: "help", fieldtype: "HTML", options: "<small>Same Company and Warehouse only. Item, Batch, UOM, certificate evidence and expiry must match before combining. Existing destination tag is reused. Tag Range registration alone does not assign stock or activate a reusable bin. Camera buttons read directly into the named source, destination or new-tag role; Scan with Camera follows the scanner sequence. Intermediate Hopper WIP uses Recover Hopper. Cancel is also available through CFG:CMD:CANCEL.</small>" }
 		], primary_action_label: "Confirm / Retry Original Move", primary_action: () => enqueue(() => controller.confirm()),
 		secondary_action_label: "Cancel", secondary_action: () => enqueue(() => controller.scan("CFG:CMD:CANCEL")) });
 		controller = createController({ storage: localStorage, locks: navigator.locks, owner: options.owner,
-			nonce: options.nonce, render, rpc: (method, args) => f.call({ method: `cfg_kanban.services.container_repacking.${method}`, args: { ...args, operator_session_token: options.token() }, freeze: true, error: () => {} }).then((response) => response.message),
+			nonce: options.nonce, render, camera: () => open_camera(), rpc: (method, args) => f.call({ method: `cfg_kanban.services.container_repacking.${method}`, args: { ...args, operator_session_token: options.token() }, freeze: true, error: () => {} }).then((response) => response.message),
 			close: () => dialog.hide(), success: async (result) => { dialog.hide(); await options.success(result); } });
 		for (const [button, method, field] of [["read_source", "source", "source_scan"], ["read_destination", "destination", "destination_scan"], ["set_quantity", "quantity", "qty"], ["read_tag", "tag", "new_tag"], ["set_reason", "reason", "reason"]]) {
 			// Frappe creates inputs lazily for hidden controls. The native callback
 			// survives revealing the optional new-tag button without rebinding it.
 			dialog.fields_dict[button].df.click = () => enqueue(() => controller[method](dialog.get_value(field)));
+		}
+		for (const [button, method] of [["camera_scan", "scan"], ["camera_source", "source"], ["camera_destination", "destination"], ["camera_tag", "tag"]]) {
+			dialog.fields_dict[button].df.click = () => enqueue(() => open_camera(method));
 		}
 		dialog.fields_dict.scan.$input.on("keydown", (event) => {
 			if (!["Enter", "Tab"].includes(event.key) || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
@@ -189,7 +231,14 @@
 			dialog.set_value("scan", "");
 			return enqueue(() => controller.scan(value));
 		});
-		dialog.$wrapper.on("hidden.bs.modal", () => { controller.state.closed = true; options.onClose(); });
+		dialog.$wrapper.on("hidden.bs.modal", () => {
+			controller.state.closed = true;
+			if (cameraSession) {
+				const session = cameraSession;cameraSession = null;session.used = true;
+				session.scanner?.hide_dialog();
+			}
+			options.onClose();
+		});
 		dialog.show();
 		// Read pending state before allowing a fresh source; a corrupt slot fails closed.
 		try { controller.restore(); } catch (error) { dialog.hide(); throw error; }
