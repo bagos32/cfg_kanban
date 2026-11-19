@@ -1290,6 +1290,40 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	function create_dispatch_plan_dialog(profile) {
 		const customer_order = profile.plan_type === "Customer Order";
 		const open_route = profile.plan_type === "Open Route Stock";
+		let dialog, order_request = 0, loading_order = false, order_ready = false;
+		function replace_items(rows) {
+			dialog.fields_dict.items.df.data = rows;
+			dialog.fields_dict.items.grid.refresh();
+		}
+		async function load_order_items() {
+			if (!dialog) return;
+			const request = ++order_request;
+			const sales_order = dialog.get_value("sales_order");
+			order_ready = false;
+			loading_order = false;
+			replace_items([]);
+			dialog.enable_primary_action();
+			if (!sales_order) return;
+			loading_order = true;
+			dialog.disable_primary_action();
+			try {
+				const response = await frappe.call({
+					method: "cfg_kanban.services.dispatch_planning.get_dispatch_sales_order_lines",
+					args: {dispatch_profile: profile.name, sales_order,
+						customer_site: dialog.get_value("customer_site"), operator_session_token: state.token},
+				});
+				if (request !== order_request) return;
+				replace_items(response.message.lines || []);
+				order_ready = true;
+			} catch (error) {
+				if (request === order_request) scanner_error(server_error_message(error, __("Sales Order quantities could not be loaded.")));
+			} finally {
+				if (request === order_request) {
+					loading_order = false;
+					if (order_ready) dialog.enable_primary_action();
+				}
+			}
+		}
 		const fields = [
 			{ fieldname: "workflow", fieldtype: "HTML", options: `<div class="alert alert-info">
 				<strong>${frappe.utils.escape_html(profile.business_label)}</strong><br>
@@ -1297,9 +1331,13 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 			</div>` },
 			{ fieldname: "customer_site", label: __("Customer Site"), fieldtype: "Link",
 				options: "CFG Kanban Customer Scan Point", reqd: customer_order ? 1 : 0,
-				hidden: customer_order ? 0 : 1, default: profile.customer_site || "" },
+				hidden: customer_order ? 0 : 1, default: profile.customer_site || "",
+				onchange: () => { if (dialog?.get_value("sales_order")) return load_order_items(); } },
 			{ fieldname: "sales_order", label: __("Optional Submitted Sales Order"),
-				fieldtype: "Link", options: "Sales Order", hidden: customer_order ? 0 : 1 },
+				fieldtype: "Link", options: "Sales Order", hidden: customer_order ? 0 : 1,
+				get_query: () => ({filters: {docstatus: 1, company: profile.company,
+					status: ["not in", ["Closed", "On Hold", "Cancelled"]]}}),
+				onchange: load_order_items },
 			{ fieldname: "required_date", label: __("Required Date"), fieldtype: "Date",
 				hidden: customer_order ? 0 : 1, default: frappe.datetime.get_today() },
 			{ fieldname: "logistics_route", label: __("Logistics Route"), fieldtype: "Link",
@@ -1312,19 +1350,29 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				default: frappe.datetime.get_today() },
 			{ fieldname: "priority", label: __("Priority"), fieldtype: "Select",
 				options: "Low\nNormal\nHigh\nUrgent", default: "Normal", reqd: 1 },
+			{ fieldname: "quantity_help", fieldtype: "HTML", options: `<p class="text-muted">${__("Selecting a Sales Order loads its remaining undelivered stock quantities. Reduce quantities for a partial dispatch. Without a Sales Order, enter the Item and quantity manually. All quantities use the Item stock UOM.")}</p>` },
 			{ fieldname: "items", label: __("Required Stock"), fieldtype: "Table",
 				in_place_edit: true, reqd: 1, fields: [
 					{ fieldname: "item_code", label: __("Item"), fieldtype: "Link", options: "Item",
-						reqd: 1, in_list_view: 1, columns: 4 },
+						reqd: 1, in_list_view: 1, columns: 3 },
 					{ fieldname: "batch_no", label: __("Optional Batch"), fieldtype: "Link", options: "Batch",
-						in_list_view: 1, columns: 4 },
+						in_list_view: 1, columns: 2 },
+					{ fieldname: "stock_uom", label: __("Stock UOM"), fieldtype: "Data", read_only: 1,
+						in_list_view: 1, columns: 2 },
 					{ fieldname: "requested_qty", label: __("Requested Qty"), fieldtype: "Float",
-						reqd: 1, in_list_view: 1, columns: 4 },
+						reqd: 1, in_list_view: 1, columns: 3 },
 				] },
 		];
-		const dialog = new frappe.ui.Dialog({
+		dialog = new frappe.ui.Dialog({
 			title: __("Create Dispatch Plan"), size: "extra-large", fields,
 			primary_action_label: __("Create Draft Plan"), primary_action: async (values) => {
+				if (loading_order || (values.sales_order && !order_ready)) {
+					return scanner_error(__("Wait for the selected Sales Order quantities to load successfully."));
+				}
+				const items = values.items || [];
+				if (!items.length || items.some((row) => !row.item_code || !(Number(row.requested_qty) > 0))) {
+					return scanner_error(__("Enter an Item and a positive Requested Qty for every Required Stock row."));
+				}
 				const response = await frappe.call({
 					method: "cfg_kanban.services.dispatch_planning.create_dispatch_plan",
 					args: {
@@ -1343,7 +1391,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				focus_scanner();
 			},
 		});
-		dialog.onhide = focus_scanner;
+		dialog.onhide = () => { ++order_request; focus_scanner(); };
 		dialog.show();
 	}
 

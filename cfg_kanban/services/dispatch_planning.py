@@ -42,12 +42,12 @@ def create_dispatch_plan(dispatch_profile, lines, customer_site=None, sales_orde
     priority = priority or "Normal"
     if priority not in {"Low", "Normal", "High", "Urgent"}:
         frappe.throw("Priority must be Low, Normal, High or Urgent")
-    rows = _normalize_lines(lines, sales_order)
     context = _business_context(
         policy, customer_site=customer_site, sales_order=sales_order,
         logistics_route=logistics_route, territory=territory,
         required_date=required_date, trip_date=trip_date,
     )
+    rows = _normalize_lines(lines, sales_order)
     key = canonical_key("dispatch-plan-create", policy.name, event_token or "")
     existing = frappe.db.get_value(
         "CFG Kanban Dispatch Plan", {"idempotency_key": key}, "name"
@@ -107,6 +107,26 @@ def create_dispatch_plan(dispatch_profile, lines, customer_site=None, sales_orde
         notes=f"{plan.plan_type}; {plan.business_label}; no stock reserved",
     )
     return get_dispatch_plan(plan.name, operator_session_token)
+
+
+@frappe.whitelist()
+def get_dispatch_sales_order_lines(dispatch_profile, sales_order, customer_site=None,
+                                   operator_session_token=None):
+    """Read-only stock-UOM preview for an authorized Customer Order workflow."""
+    operator, _session = require_operator(operator_session_token, "start")
+    policy = _authorized_profile(dispatch_profile, operator)
+    if policy.plan_type != "Customer Order" or not sales_order:
+        frappe.throw("Select a Sales Order for a Customer Order Dispatch Profile")
+    _business_context(policy, customer_site=customer_site, sales_order=sales_order,
+                      required_date=today())
+    values = []
+    for item_code, item in _sales_order_item_map(sales_order).items():
+        stock_item = frappe.db.get_value("Item", item_code, "is_stock_item")
+        if stock_item and item["remaining_qty"] > 0:
+            values.append({"item_code": item_code, "requested_qty": item["remaining_qty"]})
+    if not values:
+        frappe.throw("Sales Order has no remaining stock Item quantities to dispatch")
+    return {"sales_order": sales_order, "lines": _normalize_lines(values, sales_order)}
 
 
 @frappe.whitelist()
@@ -1166,6 +1186,7 @@ def _normalize_lines(lines, sales_order=None):
         sales_order_items = _sales_order_item_map(sales_order)
     rows = []
     seen = set()
+    requested_by_item = {}
     for idx, value in enumerate(values, start=1):
         item_code = (value.get("item_code") or "").strip()
         batch_no = (value.get("batch_no") or "").strip() or None
@@ -1185,9 +1206,10 @@ def _normalize_lines(lines, sales_order=None):
         order_item = sales_order_items.get(item_code)
         if sales_order and not order_item:
             frappe.throw(f"Row {idx}: Item {item_code} is not in Sales Order {sales_order}")
-        if order_item and qty > flt(order_item["remaining_qty"]) + 0.000001:
+        requested_by_item[item_code] = requested_by_item.get(item_code, 0) + qty
+        if order_item and requested_by_item[item_code] > flt(order_item["remaining_qty"]) + 0.000001:
             frappe.throw(
-                f"Row {idx}: requested {qty} exceeds Sales Order remaining quantity "
+                f"Row {idx}: total requested {requested_by_item[item_code]} exceeds Sales Order remaining quantity "
                 f"{order_item['remaining_qty']} for {item_code}"
             )
         rows.append({
@@ -1236,12 +1258,12 @@ def _business_context(policy, **values):
         if values.get("sales_order"):
             order = frappe.db.get_value(
                 "Sales Order", values["sales_order"],
-                ["docstatus", "company", "customer"], as_dict=True,
+                ["docstatus", "company", "customer", "status"], as_dict=True,
             )
             if (not order or order.docstatus != 1 or order.company != policy.company
-                    or order.customer != site.customer):
+                    or order.customer != site.customer or order.status in {"Closed", "On Hold", "Cancelled"}):
                 frappe.throw(
-                    "Sales Order must be submitted for the same Company and Customer Site"
+                    "Sales Order must be open and submitted for the same Company and Customer Site"
                 )
     else:
         if not (route or territory):
@@ -1263,9 +1285,15 @@ def _sales_order_item_map(sales_order):
     order = frappe.get_doc("Sales Order", sales_order)
     mapping = {}
     for row in order.items:
+        remaining = max(flt(row.qty) - flt(row.delivered_qty), 0)
+        if remaining <= 0:
+            continue
+        factor = flt(row.conversion_factor)
+        if factor <= 0:
+            frappe.throw(f"Sales Order row {row.name} requires a positive stock UOM conversion factor")
         value = mapping.setdefault(row.item_code, {"names": [], "remaining_qty": 0})
         value["names"].append(row.name)
-        value["remaining_qty"] += max(flt(row.qty) - flt(row.delivered_qty), 0)
+        value["remaining_qty"] += remaining * factor
     return mapping
 
 

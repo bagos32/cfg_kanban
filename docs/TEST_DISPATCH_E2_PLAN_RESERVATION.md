@@ -43,7 +43,11 @@ Record the initial ERPNext stock balance and the tagged Handling Unit's `current
 2. Scan the Dispatch Operations card.
 3. Select the Customer Order Profile and **Create Dispatch Plan**.
 4. Select the Customer Site, optional submitted Sales Order, required date and priority.
-5. Add at least two lines: one for tagged stock and one for untagged ERP stock. Save the Draft.
+5. When a Sales Order is selected, its remaining undelivered **stock Item** quantities load
+   automatically in **stock UOM** (including Sales Order UOM conversion). Requested Qty stays
+   visible beside Item, optional Batch and stock UOM. Reduce quantities for a partial dispatch,
+   or remove unwanted lines. Without a Sales Order, enter Items and Requested Qty manually.
+6. Save the Draft. Test at least two lines: one for tagged stock and one for untagged ERP stock.
 
 Expected:
 
@@ -158,3 +162,35 @@ Compare against the values recorded before testing:
 
 Stop here. E3 vehicle claim, loading, Manifest creation and ERP Material Transfer are deliberately
 not part of this test.
+
+## Sales Order quantity regression and operator guidance
+
+Sales Order linkage supplies the default dispatch quantities. Requested Qty is the amount for
+this dispatch, so a partial delivery may be smaller than the order balance. Selecting another
+Sales Order or changing Customer Site clears the old rows and reloads after authorization.
+Clearing the Sales Order clears the order rows and allows manual entry. A failed lookup must
+leave creation blocked until a valid order loads or the order is cleared.
+
+Check on the development site:
+
+- order 5 cartons, delivered 2, conversion factor 12 Nos/carton: default 36 Nos;
+- partial dispatch 24 Nos accepted; 37 Nos rejected;
+- Item split into two Batch rows: the combined quantity cannot exceed 36 Nos;
+- fully delivered rows and non-stock services are not offered;
+- wrong Company/Customer, inactive workflow, unassigned responsibility, and closed/held order
+  cannot supply dispatch rows;
+- selecting a second order before the first lookup returns cannot restore stale quantities;
+- Requested Qty remains visible on the actual tablet, including the editable grid;
+- cancellation restores focus to Logistics Scanner.
+
+Offline regression commands:
+
+```bash
+python3 -B -m unittest cfg_kanban.tests.test_dispatch_order_quantities
+node cfg_kanban/tests/test_dispatch_order_quantities_ui.cjs
+```
+
+These use document/RPC/grid doubles. They do not verify live ERPNext balances, simultaneous
+Dispatch Plans, database transactions, or tablet/browser rendering. This change does not deduct
+other unfulfilled Dispatch Plans from the Sales Order preview; existing reservation controls still
+apply. Record the deployed revision and live test evidence separately before accepting this flow.
