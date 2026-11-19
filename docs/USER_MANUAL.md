@@ -5497,6 +5497,52 @@ Normal confirmed server rejection permits corrections. Offline tests do not veri
 live ERP, browser layout or kiosk/scanner acceptance.
 
 
+## Release Stock Tag directly from a reusable container
+
+Use **Kanban Logistics → scan container → Release Stock Tag**, or **Manage Contents →
+Release Stock Tag**. The top-level button also opens it without a preselected source.
+This supports Logistics Containers, Logistics Quantity Bins and Production Output
+Containers holding ERP-posted stock. It does not consume product, create ERP stock or
+move stock to another warehouse.
+
+1. Read the source container, or its already printed physical Stock Tag. When multiple
+   fills exist, select the exact numbered stock option; never guess a mixed-bin Item.
+2. Set **Quantity to Release**.
+3. If releasing a complete existing physical tag, leave New Main Stock Tag blank to keep
+   that tag. For an internal fill identified only by the container QR, or any partial
+   release, read an unused preprinted **Main Stock Tag**. A complete physical tag may
+   also be explicitly replaced with a new Main tag. Only unused Main tags are valid here; detachable Child tags are not replacement
+   Main tags. Range registration alone does not activate stock.
+4. Enter a reason, review, and **Release / Retry Original Release**. Then physically
+   remove that tagged product from the container. The released tag is standalone and
+   can be scanned independently into a warehouse-transfer Dispatch Manifest.
+
+Partial release leaves the remainder attached to the original container. Full release
+closes that membership episode; a container with no other contents becomes Empty. The
+new tag retains Item, Batch, UOM, Company, Warehouse, packing date, certificates and expiry.
+Certificate coverage/split policy is rechecked when a new tag is created. A whole existing
+physical-tag release changes membership/history only, with no duplicate quantity ledger.
+Reservations, held stock, pending Material Run use, open Manifest/delivery, serialized
+stock and conflicting production fills must be reconciled before release. Intermediate
+Hopper WIP has not become ERP stock and still uses its Work Order flow/Recover Hopper.
+
+Scanner: `CFG:CMD:RELEASE_CONTAINER_STOCK` → source → `CFG:SELECT:n` if necessary →
+`CFG:QTY:MATERIAL:n` → unused Main tag when required → reason → `CFG:CMD:CONFIRM`.
+Use `CFG:CMD:REPACK_NEW_TAG` before an optional replacement tag, and existing SOURCE /
+REASON arms and Next/Previous Material Choices for corrections/paging. Tab and Enter
+suffixes work. Camera Source/New Tag buttons target those roles; `CFG:CMD:REPACK_CAMERA`
+opens the general camera in this release dialog. `CFG:CMD:CANCEL` exits safely. Print
+these commands from **Kanban Operator → Scanner Command Labels**. Touch uses the same
+Read/Set, camera, choice and Confirm controls, with no destination-bin step.
+
+An unacknowledged release retains its exact method, token, operator and payload across
+Cancel/reopen/refresh. Reopen **Release Stock Tag** to retry it. An unresolved Move/Repack
+must be reconciled in Move/Repack before release; neither action can overwrite or replay
+the other as a different operation. Native ERP cancellation after tag conversion remains
+subject to the normal produced-stock/reversal guards. Never edit membership/quantity
+records manually to detach stock. Live tablet/kiosk and transaction acceptance is pending;
+see `docs/TEST_CONTAINER_STOCK_RELEASE.md`.
+
 ## Move / Repack received stock between containers
 
 The optional **Use New Tag / Clear if Blank** button starts hidden and appears for an

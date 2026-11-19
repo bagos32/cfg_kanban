@@ -103,7 +103,7 @@ def unload_content_tag(container_scan, content_scan, reason, event_token,
     container = _resolve_container(container_scan)
     if container.reusable_container_role == "Production Output Container":
         frappe.throw(
-            _("Production Output Container contents are released only by submitted production consumption or controlled ERP reversal")
+            _("Use Release Stock Tag for controlled release of posted Production Output Container stock; intermediate Hopper WIP uses Recover Hopper")
         )
     content = _resolve_content(content_scan, require_active=False)
     _lock_units(container.name, content.name)

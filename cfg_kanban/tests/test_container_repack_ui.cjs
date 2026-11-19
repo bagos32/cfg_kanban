@@ -7,11 +7,12 @@ function fixture(shared) {
  const map=shared?.map||new Map(), calls=[];let owner='EMP',nonce=0,closed=0,success=0,fail=null;
  const source={name:'S',visible_code:'TAG1',qty:10,available_qty:10,stock_uom:'Kg',item_code:'PRODUCT',batch_no:'BATCH'};
  const target={...source,name:'D',visible_code:'TAG2',qty:5};
- const env={storage:{getItem:k=>map.get(k)||null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k)},
+ const env={release:!!shared?.release,storage:{getItem:k=>map.get(k)||null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k)},
  locks:shared?.locks||{request:async(k,fn)=>fn()},owner:()=>owner,nonce:()=>`event-${++nonce}`,
  render(){},close(){closed++;},async success(){success++;},async rpc(method,args){
   calls.push({method,args:structuredClone(args)});
   if(method==='repack_source_context')return {options:[source]};
+  if(method==='release_source_context')return {options:[{...source,container:'A'}]};
   if(method==='repack_destination_context')return {destination:'B',visible_code:'BIN2',role:'Logistics Container',options:args.destination_scan==='EMPTY'?[]:[target],new_tag_allowed:args.destination_scan==='EMPTY'};
   if(method==='repack_new_tag_context')return {visible_code:args.new_tag};
   if(fail)throw fail;
@@ -21,7 +22,7 @@ function fixture(shared) {
  return {c,env,calls,map,source,target,owner:value=>{owner=value;},failure:value=>{fail=value;},closed:()=>closed,success:()=>success};
 }
 function dialogFixture(options={}) {
- const vm=require('node:vm'),f=fixture(options.shared);let focused=0,hidden=0,created;
+ const vm=require('node:vm'),f=fixture({...options.shared,release:options.release});let focused=0,hidden=0,created;
  class Dialog {
   constructor(config){created=this;this.config=config;this.values={};this.visible=false;this.events={};this.fields_dict={};
    for(const definition of config.fields){
@@ -51,7 +52,7 @@ function dialogFixture(options={}) {
   late(value){return this.config.on_scan({decodedText:value});}
  }
  const module={exports:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../public/js/container_repack.js'),'utf8'),{module,localStorage:f.env.storage,navigator:{locks:f.env.locks}});
- const open=()=>module.exports.open({frappe:{utils:{escape_html:value=>String(value??'').replaceAll('<','&lt;')},ui:{Dialog,...(options.cameraUnavailable?{}:{Scanner:Camera})},call:({method,args})=>f.env.rpc(method.split('.').at(-1),args).then(message=>({message}))},sourceScan:options.sourceScan,owner:f.env.owner,nonce:f.env.nonce,token:()=> 'SESSION',success:async()=>{},onClose:()=>{hidden++;},errorMessage:(error,fallback)=>error.message||fallback});
+ const open=()=>module.exports.open({frappe:{utils:{escape_html:value=>String(value??'').replaceAll('<','&lt;')},ui:{Dialog,...(options.cameraUnavailable?{}:{Scanner:Camera})},call:({method,args})=>f.env.rpc(method.split('.').at(-1),args).then(message=>({message}))},sourceScan:options.sourceScan,release:!!options.release,owner:f.env.owner,nonce:f.env.nonce,token:()=> 'SESSION',success:async()=>{},onClose:()=>{hidden++;},errorMessage:(error,fallback)=>error.message||fallback});
  return {...f,open,dialog:()=>created,focused:()=>focused,hidden:()=>hidden,cameras};
 }
 function scannerKey(dialog,value,key='Tab',extra={}) {
@@ -298,6 +299,77 @@ async function test(name,fn){await fn();checks++;console.log(`ok ${name}`);}
   const ui=fs.readFileSync(path.join(root,'public/js/container_repack.js'),'utf8');
   assert(logistics.includes('raw.toUpperCase() === "CFG:CMD:REPACK_CAMERA"'));assert(logistics.includes('cfg_repack_camera'));assert(production.includes('REPACK_CAMERA:'));
   assert(catalog.includes('CFG:CMD:REPACK_CAMERA'));assert(ui.includes('Scan New Tag with Camera'));assert(ui.includes('Tag Range registration alone does not assign stock'));
+ });
+ await test('release keeps a full physical tag without requiring a destination bin',async()=>{
+  const f=fixture({release:true});await f.c.scan('BIN1');await f.c.scan('CFG:QTY:MATERIAL:10');await f.c.scan('Leave the bin');await f.c.confirm();
+  assert.equal(f.calls.at(-1).method,'release_container_stock');assert.equal(f.calls.at(-1).args.new_tag,null);assert.equal(f.calls.at(-1).args.qty,10);
+  assert(!('destination_scan' in f.calls.at(-1).args));assert(!f.calls.some(row=>row.method==='repack_destination_context'));
+ });
+ await test('release internal fill scans new Main tag before reason without a second bin',async()=>{
+  const f=fixture({release:true});f.source.requires_new_tag=true;await f.c.scan('BIN1');await f.c.scan('CFG:QTY:MATERIAL:10');
+  await assert.rejects(()=>f.c.confirm(),/reason/);await f.c.scan('NEW001');await f.c.scan('Release loose product');await f.c.confirm();
+  assert.equal(f.calls.at(-1).method,'release_container_stock');assert.equal(f.calls.at(-1).args.new_tag,'NEW001');assert.equal(f.calls.at(-1).args.reason,'Release loose product');
+ });
+ await test('partial physical release cannot post until a new tag is supplied',async()=>{
+  const f=fixture({release:true});await f.c.source('TAG1');f.c.quantity(3);f.c.reason('Partial pack');
+  await assert.rejects(()=>f.c.confirm(),/unused preprinted/);assert(!f.calls.some(row=>row.method==='release_container_stock'));
+  await f.c.tag('NEW001');await f.c.confirm();assert.equal(f.calls.at(-1).args.qty,3);assert.equal(f.calls.at(-1).args.new_tag,'NEW001');
+ });
+ await test('release mode rejects destination scans and standalone source tags',async()=>{
+  const f=fixture({release:true});await f.c.source('TAG1');await assert.rejects(()=>f.c.destination('BIN2'),/does not need/);
+  f.c.state.source.container=null;f.c.quantity(10);f.c.reason('Release');await assert.rejects(()=>f.c.confirm(),/currently inside/);
+ });
+ await test('release unknown-result retries original method and payload after reopen',async()=>{
+  const f=fixture({release:true});await f.c.source('BIN1');f.c.quantity(10);f.c.reason('Release');f.failure(new Error('network'));
+  await assert.rejects(()=>f.c.confirm());const pending=f.calls.at(-1).args;assert.equal(JSON.parse(f.map.get(pendingKey)).method,'release_container_stock');
+  await f.c.scan('CFG:CMD:CANCEL');const next=fixture({map:f.map,release:true});next.c.restore();await next.c.confirm();
+  assert.equal(next.calls.at(-1).method,'release_container_stock');assert.deepEqual(next.calls.at(-1).args,pending);assert(!f.map.has(pendingKey));
+ });
+ await test('pending release cannot be retried as a move and pending move cannot become release',async()=>{
+  for(const release of [false,true]){
+   const f=fixture({release});await f.c.source('TAG1');f.c.quantity(release?10:3);if(!release)await f.c.destination('BIN2');f.c.reason('Original');f.failure(new Error('network'));
+   await assert.rejects(()=>f.c.confirm());const saved=f.map.get(pendingKey),other=fixture({map:f.map,release:!release});
+   assert.throws(()=>other.c.restore(),/Open (Release Stock Tag|Move)/);assert.equal(f.map.get(pendingKey),saved);
+  }
+ });
+ await test('legacy pending move without a method still replays safely',async()=>{
+  const f=fixture();await ready(f);f.failure(new Error('network'));await assert.rejects(()=>f.c.confirm());
+  const row=JSON.parse(f.map.get(pendingKey));delete row.method;f.map.set(pendingKey,JSON.stringify(row));
+  const next=fixture({map:f.map});next.c.restore();await next.c.confirm();assert.equal(next.calls.at(-1).method,'move_container_stock');
+ });
+ await test('release dialog supports Tab scans and hides destination controls',async()=>{
+  const f=dialogFixture({release:true}),handle=await f.open(),d=f.dialog();
+  assert(d.fields_dict.destination_scan.df.hidden);assert(d.fields_dict.read_destination.df.hidden);assert(d.fields_dict.camera_destination.df.hidden);
+  assert(!d.fields_dict.new_tag.df.hidden);assert(d.config.title.includes('Release Stock Tag'));
+  for(const value of ['BIN1','CFG:QTY:MATERIAL:10','Release original tag','CFG:CMD:CONFIRM'])await scannerKey(d,value).result;
+  assert.equal(f.calls.at(-1).method,'release_container_stock');assert.equal(handle.controller.state.completed,true);assert.equal(f.hidden(),1);
+ });
+ await test('internal-fill release works through tablet source and new-tag cameras',async()=>{
+  const f=dialogFixture({release:true});f.source.requires_new_tag=true;const handle=await f.open(),d=f.dialog();
+  await d.fields_dict.camera_source.click();await f.cameras.at(-1).decode('BIN1');d.values.qty=3;await d.fields_dict.set_quantity.click();
+  await d.fields_dict.camera_tag.click();await f.cameras.at(-1).decode('NEW001');d.values.reason='Tablet release';await d.fields_dict.set_reason.click();
+  assert(!f.calls.some(row=>row.method==='release_container_stock'));await d.config.primary_action();
+  assert.equal(f.calls.at(-1).method,'release_container_stock');assert.equal(f.calls.at(-1).args.new_tag,'NEW001');assert.equal(handle.controller.state.completed,true);
+ });
+ await test('release multi-fill preview requires explicit numbered selection',async()=>{
+  const f=fixture({release:true});f.env.rpc=async()=>({options:[{...f.source,name:'ONE',container:'A'},{...f.source,name:'TWO',container:'A'}]});
+  await f.c.source('BIN1');assert.equal(f.c.state.source,null);await assert.rejects(()=>f.c.scan('Other'),/numbered/);
+  await f.c.scan('CFG:SELECT:2');assert.equal(f.c.state.source.name,'TWO');
+ });
+ await test('release confirmed rejection permits correction but unknown response locks it',async()=>{
+  const f=fixture({release:true});await f.c.source('BIN1');f.c.quantity(10);f.c.reason('Release');f.failure({exc_type:'ValidationError'});
+  await assert.rejects(()=>f.c.confirm());assert(!f.map.has(pendingKey));f.c.reason('Corrected');f.failure(new Error('network'));
+  await assert.rejects(()=>f.c.confirm());assert.throws(()=>f.c.quantity(3),/Retry the original/);assert(f.map.has(pendingKey));
+ });
+ await test('wrong-mode release reopen closes safely without replacing the pending move',async()=>{
+  const old=fixture();await ready(old);old.failure(new Error('network'));await assert.rejects(()=>old.c.confirm());const saved=old.map.get(pendingKey);
+  const f=dialogFixture({release:true,shared:{map:old.map}});await assert.rejects(()=>f.open(),/Open Move/);assert.equal(f.hidden(),1);assert.equal(old.map.get(pendingKey),saved);
+ });
+ await test('release action ships lookup, contents, global routing and printable command',async()=>{
+  const root=path.resolve(__dirname,'..'),logistics=fs.readFileSync(path.join(root,'cfg_kanban/page/kanban_logistics/kanban_logistics.js'),'utf8');
+  const production=fs.readFileSync(path.join(root,'cfg_kanban/page/kanban_operator/kanban_operator.js'),'utf8'),catalog=fs.readFileSync(path.join(root,'api/operator.py'),'utf8');
+  assert(logistics.includes('lookup-release-stock'));assert(logistics.includes('release-content-stock'));assert(logistics.includes('release-container-stock'));
+  assert(logistics.includes('raw.toUpperCase() === "CFG:CMD:RELEASE_CONTAINER_STOCK"'));assert(logistics.includes('cfg_release_container_stock'));assert(production.includes('RELEASE_CONTAINER_STOCK:'));assert(catalog.includes('CFG:CMD:RELEASE_CONTAINER_STOCK'));
  });
  console.log(`${checks} container repack UI checks passed`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

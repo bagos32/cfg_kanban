@@ -102,6 +102,7 @@ def _option(unit, container=None):
             'company':unit.inventory_company,'warehouse':unit.current_warehouse,'expiry_date':unit.expiry_date,
             'process_certificate_set':unit.get('process_certificate_set'),
             'container':container.name if container else None,
+            'requires_new_tag':bool(unit.get('virtual_content')),
             'source_code':frappe.db.get_value('CFG Kanban Handling Unit',unit.origin_reference_name,'handling_unit_id')
                           if unit.origin_reference_doctype=='CFG Kanban Handling Unit' else None}
 
@@ -126,6 +127,14 @@ def repack_source_context(source_scan, operator_session_token=None):
     if not options:
         frappe.throw('This container has no received stock to repack; intermediate WIP uses Recover Hopper')
     return {'source_scan':source_scan,'options':options}
+
+
+@frappe.whitelist()
+def release_source_context(source_scan, operator_session_token=None):
+    result = repack_source_context(source_scan, operator_session_token)
+    if any(not row.get('container') for row in result['options']):
+        frappe.throw('This Stock Tag is already outside a container; no release is needed')
+    return result
 
 
 @frappe.whitelist()
@@ -199,7 +208,7 @@ def _new_stock(source, container, qty, new_tag, key):
     if new_tag:
         from cfg_kanban.services.tag_to_tag_transfer import _validate_unused_main_tag
         _validate_unused_main_tag(new_tag)
-    elif container.reusable_container_role=='Logistics Container':
+    elif not container or container.reusable_container_role=='Logistics Container':
         frappe.throw('A partial/internal source needs a new preprinted main tag in a Logistics Container')
     destination=frappe.copy_doc(source)
     destination.name=None
@@ -336,6 +345,109 @@ def move_container_stock(source_scan, source_stock, destination_scan, qty, reaso
                                 'destination_after':identity_snapshot(destination),'result':result},idempotency_key=key)
     if not audit or frappe.parse_json(audit.payload_json).get('request')!=request:
         frappe.throw('This retry token was used concurrently for different repacking data')
+    return result
+
+
+
+@frappe.whitelist()
+def release_container_stock(source_scan, source_stock, qty, reason, event_token,
+                            new_tag=None, operator_session_token=None):
+    """Detach existing posted stock to a physical tag; preserve ERP warehouse/quantity."""
+    actor = _auth(operator_session_token, write=True)
+    try:
+        qty = float(qty)
+    except (TypeError, ValueError):
+        frappe.throw('Enter a finite positive quantity')
+    reason = str(reason or '').strip()
+    if not reason or not event_token or not math.isfinite(qty) or qty <= EPSILON:
+        frappe.throw('A positive quantity, reason and stable event token are required')
+    source_scan = normalize_physical_code(source_scan)
+    new_tag = normalize_physical_code(new_tag) if new_tag else None
+    key = canonical_key('container-stock-release', event_token)
+    request = canonical_key('container-stock-release-request', source_scan, source_stock,
+                            qty, new_tag or '', reason)
+    scanned = _resolve(source_scan)
+    original_member = active_container_membership(source_stock)
+    holder_name = original_member.container_handling_unit if original_member else None
+    # Retain source/scanned locks even on historical replay after membership closes.
+    locked = _lock_units([scanned.name, source_stock, holder_name])
+    replay = frappe.db.sql('select payload_json from `tabCFG Kanban Event` where idempotency_key=%s for update', key)
+    if replay:
+        payload = frappe.parse_json(replay[0][0])
+        if payload['request'] != request:
+            frappe.throw('This retry token was used for different container release data')
+        return dict(payload['result'], duplicate=True)
+    source = _doc(source_stock, locked)
+    scanned = _doc(scanned.name, locked)
+    members = _memberships(stock_name=source.name)
+    if len(members) != 1 or members[0].container_handling_unit != holder_name:
+        frappe.throw('Source membership changed or this tag is already released; reload the container')
+    holder = _doc(holder_name, locked)
+    if ((scanned.tag_kind == 'Reusable Container' and scanned.name != holder.name)
+            or (scanned.tag_kind != 'Reusable Container' and scanned.name != source.name)):
+        frappe.throw('Select the exact Stock Tag currently inside the scanned container')
+    if source.get('virtual_content') and (scanned.tag_kind != 'Reusable Container'
+            or source.physical_container != holder.name):
+        frappe.throw('Scan the permanent container QR for its internal stock fill')
+    _container(holder)
+    _stock(source)
+    if holder.inventory_company != source.inventory_company or holder.current_warehouse != source.current_warehouse:
+        frappe.throw('Source container location does not match its stock')
+    if holder.reusable_container_role == 'Production Output Container' and len(_memberships(container_name=holder.name)) != 1:
+        frappe.throw('Reconcile this production container to one fill before releasing stock')
+    from cfg_kanban.services.operation_hoppers import assert_no_operation_fill
+    assert_no_operation_fill(holder.name, 'releasing posted stock; use Recover Hopper for intermediate operation WIP')
+    _current_transaction_guards(sorted(locked))
+    if frappe.db.get_value('UOM', source.stock_uom, 'must_be_whole_number') and abs(qty-round(qty)) > EPSILON:
+        frappe.throw('This stock UOM requires a whole-number quantity')
+    if qty > flt(source.available_qty) + EPSILON:
+        frappe.throw('Quantity exceeds available source stock')
+    whole = abs(qty-flt(source.current_qty)) <= EPSILON
+    keep_tag = whole and not source.get('virtual_content') and not new_tag
+    if not keep_tag and not new_tag:
+        frappe.throw('An internal fill or partial release requires an unused preprinted Main Stock Tag')
+    before = identity_snapshot(source)
+    ledger = None
+    if keep_tag:
+        destination = source
+        _close(members[0], actor, key, reason)
+        destination.db_set('last_scan_time', now_datetime(), update_modified=False)
+    else:
+        destination = _new_stock(source, None, qty, new_tag, key)
+        ledger = post_quantity_event(event_type='Split', qty=qty, stock_uom=source.stock_uom,
+            idempotency_key=canonical_key('container-release-ledger', key),
+            source_handling_unit=source.name, destination_handling_unit=destination.name,
+            item_code=source.item_code, batch_no=source.batch_no,
+            source_company=source.inventory_company, destination_company=source.inventory_company,
+            source_warehouse=source.current_warehouse, destination_warehouse=source.current_warehouse,
+            reference_doctype='CFG Kanban Handling Unit', reference_name=holder.name,
+            operator=actor.get('operator'), operator_session=actor.get('operator_session'),
+            device_id=event_token, reason='Release stock from container: '+reason)
+        source.reload()
+        destination.reload()
+        inherit_split_certificates(source, destination, qty, key, replacement=whole)
+        if whole:
+            source.db_set({'identity_state':'Empty', 'movement_state':'Empty'}, update_modified=False)
+            _close(members[0], actor, key, reason)
+    holder.db_set({'movement_state':'Packed' if _memberships(container_name=holder.name) else 'Empty',
+                   'last_scan_time':now_datetime()}, update_modified=False)
+    result = {'source_stock':source.name, 'source_container':holder.name,
+        'source_container_code':holder.handling_unit_id, 'destination_stock':destination.name,
+        'destination_container':None, 'destination_code':destination.handling_unit_id,
+        'destination_tag':destination.handling_unit_id, 'released_qty':qty, 'moved_qty':qty,
+        'destination_qty':flt(destination.current_qty),
+        'source_qty':flt(source.current_qty) if destination.name != source.name else 0,
+        'item_code':destination.item_code, 'batch_no':destination.batch_no,
+        'stock_uom':destination.stock_uom, 'warehouse':destination.current_warehouse,
+        'ledger':ledger.name if ledger else None, 'existing_tag_used':keep_tag}
+    audit = record('Container Stock Released', handling_unit=holder.name, qty=qty,
+        reference_doctype='CFG Kanban Handling Unit', reference_name=destination.name,
+        operator=actor.get('operator'), operator_session=actor.get('operator_session'),
+        terminal_user=actor.get('terminal_user'), notes=reason,
+        payload={'request':request, 'source_before':before,
+                 'destination_after':identity_snapshot(destination), 'result':result}, idempotency_key=key)
+    if not audit or frappe.parse_json(audit.payload_json).get('request') != request:
+        frappe.throw('This retry token was used concurrently for different container release data')
     return result
 
 
