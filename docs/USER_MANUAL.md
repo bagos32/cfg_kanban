@@ -5499,6 +5499,13 @@ live ERP, browser layout or kiosk/scanner acceptance.
 
 ## Move / Repack received stock between containers
 
+The optional **Use New Tag / Clear if Blank** button starts hidden and appears for an
+empty destination. It uses the same queued validation as the scanner new-tag command.
+If opening this dialog reports `Cannot read properties of undefined (reading 'on')`,
+deploy the hidden-button binding correction, rebuild assets, clear cache and reload
+Logistics. That opening error occurs before a move is submitted; this UI correction
+does not require changing bin balances or production records.
+
 Use **Kanban Logistics → Move / Repack**, or scan `CFG:CMD:MOVE_CONTAINER_STOCK`
 from the Production or Logistics panel. The operator needs **Stock Retagging** and
 **Container Loading** responsibilities plus Start permission (or the corresponding

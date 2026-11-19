@@ -62,3 +62,29 @@ Working changes based on `abd0d59` (not a deployed revision):
 - No site mutation, commit, push, pull or deployment was performed. All site
   scenarios above remain unrun, including real transaction rollback/concurrency,
   Frappe hook execution, ERP stock and kiosk/scanner acceptance.
+
+
+## Hidden-button dialog regression — 19 November 2026
+
+Base revision: `2b5b138`. Opening Move / Repack after scanning a production bin could
+fail with `Cannot read properties of undefined (reading 'on')`. The dialog bound a DOM
+click handler to its initially hidden optional new-tag Button before Frappe created
+that Button's input. Bind the Button's native `df.click` callback instead; it remains
+available when an empty destination reveals that control.
+
+The UI harness now models hidden Data/Button controls without inputs until shown.
+It reproduced the owner's exact exception before the fix. Coverage includes opening
+from a preselected production bin, touch/scanner completion, optional new-tag use and
+clearing after hide/show, source rejection/correction/cancel with focus restoration,
+and restoring the original uncertain request instead of reading a fresh source.
+Existing request identity, Web Locks, quantity, certificate, expiry, merge and stock
+rules remain in place. Backend services and scanner command payloads are unchanged.
+
+Site checks still pending: scan a reusable Production Output Container in Logistics,
+open Move / Repack, verify the source loads and the optional new-tag control starts
+hidden. Read an empty compatible destination, use the now-visible New Tag button,
+then switch to a loaded compatible destination and verify it hides again. Complete
+moves and Cancel using both touch and the existing scanner commands. Check focus,
+source/destination balances, certificates/expiry and original-token retry after a
+lost response. An intermediate operation Hopper fill must still route to Recover
+Hopper rather than posted-stock repacking. Record the deployed SHA and results.

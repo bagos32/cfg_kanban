@@ -172,7 +172,9 @@
 			nonce: options.nonce, render, rpc: (method, args) => f.call({ method: `cfg_kanban.services.container_repacking.${method}`, args: { ...args, operator_session_token: options.token() }, freeze: true, error: () => {} }).then((response) => response.message),
 			close: () => dialog.hide(), success: async (result) => { dialog.hide(); await options.success(result); } });
 		for (const [button, method, field] of [["read_source", "source", "source_scan"], ["read_destination", "destination", "destination_scan"], ["set_quantity", "quantity", "qty"], ["read_tag", "tag", "new_tag"], ["set_reason", "reason", "reason"]]) {
-			dialog.fields_dict[button].$input.on("click", () => enqueue(() => controller[method](dialog.get_value(field))));
+			// Frappe creates inputs lazily for hidden controls. The native callback
+			// survives revealing the optional new-tag button without rebinding it.
+			dialog.fields_dict[button].df.click = () => enqueue(() => controller[method](dialog.get_value(field)));
 		}
 		dialog.fields_dict.scan.$input.on("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); const value = dialog.get_value("scan"); dialog.set_value("scan", ""); enqueue(() => controller.scan(value)); } });
 		dialog.$wrapper.on("hidden.bs.modal", () => { controller.state.closed = true; options.onClose(); });

@@ -20,6 +20,31 @@ function fixture(shared) {
  const c=createController(env);
  return {c,env,calls,map,source,target,owner:value=>{owner=value;},failure:value=>{fail=value;},closed:()=>closed,success:()=>success};
 }
+function dialogFixture(options={}) {
+ const vm=require('node:vm'),f=fixture(options.shared);let focused=0,hidden=0,created;
+ class Dialog {
+  constructor(config){created=this;this.config=config;this.values={};this.visible=false;this.events={};this.fields_dict={};
+   for(const definition of config.fields){
+    const control={df:{...definition},handlers:{},$wrapper:{html(value){this.value=value;return this;},find(){return {on(){}};}}};
+    control.make_input=()=>{if(control.$input || control.df.hidden || control.df.fieldtype==='HTML')return;
+     const input={on:(event,callback)=>{control.handlers[event]=callback;return input;},trigger:(event)=>{if(event==='focus')focused++;return input;}};
+     control.$input=input;
+    };
+    control.click=()=>{assert(control.$input && !control.df.hidden,'touch requires a visible button');return control.df.click?control.df.click():control.handlers.click?.();};
+    control.make_input();this.fields_dict[definition.fieldname]=control;
+   }
+   this.initiallyHidden=Object.keys(this.fields_dict).filter(name=>!this.fields_dict[name].$input);
+   this.$wrapper={is:()=>this.visible,on:(event,callback)=>{this.events[event]=callback;}};
+  }
+  set_df_property(name,key,value){const field=this.fields_dict[name];field.df[key]=value;if(key==='hidden')field.make_input();}
+  get_primary_btn(){return {prop(){return this;}};}
+  get_value(name){return this.values[name];}set_value(name,value){this.values[name]=value;}
+  show(){this.visible=true;}hide(){this.visible=false;this.events['hidden.bs.modal']?.();}
+ }
+ const module={exports:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../public/js/container_repack.js'),'utf8'),{module,localStorage:f.env.storage,navigator:{locks:f.env.locks}});
+ const open=()=>module.exports.open({frappe:{utils:{escape_html:value=>String(value??'').replaceAll('<','&lt;')},ui:{Dialog},call:({method,args})=>f.env.rpc(method.split('.').at(-1),args).then(message=>({message}))},sourceScan:options.sourceScan,owner:f.env.owner,nonce:f.env.nonce,token:()=> 'SESSION',success:async()=>{},onClose:()=>{hidden++;},errorMessage:(error,fallback)=>error.message||fallback});
+ return {...f,open,dialog:()=>created,focused:()=>focused,hidden:()=>hidden};
+}
 async function ready(f){await f.c.source('TAG1');f.c.quantity(3);await f.c.destination('BIN2');f.c.reason('Repack');}
 async function test(name,fn){await fn();checks++;console.log(`ok ${name}`);}
 (async()=>{
@@ -56,26 +81,64 @@ async function test(name,fn){await fn();checks++;console.log(`ok ${name}`);}
   assert(logistics.includes('is_quantity_bin && row.virtual_content && row.return_to_source_supported ?'));assert(logistics.includes('repack_scanner_help'));assert(ui.includes('hidden.bs.modal'));assert(ui.includes('.finally(focus)'));
  });
  await test('real dialog adapter binds touch inputs and restores scanner focus after success',async()=>{
-  const vm=require('node:vm');const f=fixture();let focused=0,hidden=0,created;
-  const button={prop(){return this;}};
-  class Dialog {
-   constructor(config){created=this;this.config=config;this.values={};this.visible=false;this.events={};this.fields_dict={};
-    for(const field of config.fields){const handlers={};const input={on:(event,callback)=>{handlers[event]=callback;return input;},trigger:(event)=>{if(event==='focus')focused++;return input;}};
-     this.fields_dict[field.fieldname]={$input:input,handlers,$wrapper:{html(value){this.value=value;return this;},find(){return {on(){}};}}};}
-    this.$wrapper={is:()=>this.visible,on:(event,callback)=>{this.events[event]=callback;}};
-   }
-   set_df_property(){}get_primary_btn(){return button;}get_value(name){return this.values[name];}set_value(name,value){this.values[name]=value;}
-   show(){this.visible=true;}hide(){this.visible=false;this.events['hidden.bs.modal']?.();}
-  }
-  const module={exports:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../public/js/container_repack.js'),'utf8'),{module,localStorage:f.env.storage,navigator:{locks:f.env.locks}});
-  const handle=await module.exports.open({frappe:{utils:{escape_html:value=>String(value??'').replaceAll('<','&lt;')},ui:{Dialog},call:({method,args})=>f.env.rpc(method.split('.').at(-1),args).then(message=>({message}))},owner:f.env.owner,nonce:f.env.nonce,token:()=> 'SESSION',success:async()=>{},onClose:()=>{hidden++;},errorMessage:(error,fallback)=>error.message||fallback});
-  created.values.source_scan='TAG1';await created.fields_dict.read_source.handlers.click();
-  created.values.qty=3;await created.fields_dict.set_quantity.handlers.click();
-  created.values.destination_scan='BIN2';await created.fields_dict.read_destination.handlers.click();
-  created.values.reason='Touch repack';await created.fields_dict.set_reason.handlers.click();
+  const f=dialogFixture(),handle=await f.open(),created=f.dialog();
+  created.values.source_scan='TAG1';await created.fields_dict.read_source.click();
+  created.values.qty=3;await created.fields_dict.set_quantity.click();
+  created.values.destination_scan='BIN2';await created.fields_dict.read_destination.click();
+  created.values.reason='Touch repack';await created.fields_dict.set_reason.click();
   assert(created.fields_dict.summary.$wrapper.value.includes('Combined total: 8'));
-  await created.config.primary_action();assert.equal(hidden,1);assert(focused>=4);assert.equal(handle.controller.state.completed,true);
+  await created.config.primary_action();assert.equal(f.hidden(),1);assert(f.focused()>=4);assert.equal(handle.controller.state.completed,true);
   assert.equal(f.calls.at(-1).args.operator_session_token,'SESSION');
+ });
+ await test('production-bin entry opens with no input for initially hidden new-tag controls',async()=>{
+  const f=dialogFixture({sourceScan:'PRODUCTION-BIN'});f.source.visible_code='PRODUCTION-BIN';
+  const handle=await f.open(),dialog=f.dialog();
+  assert(dialog.initiallyHidden.includes('read_tag'));assert(dialog.initiallyHidden.includes('new_tag'));
+  assert.equal(dialog.fields_dict.read_tag.$input,undefined);assert.equal(dialog.fields_dict.new_tag.$input,undefined);
+  assert.equal(f.calls[0].method,'repack_source_context');assert.equal(f.calls[0].args.source_scan,'PRODUCTION-BIN');
+  assert.equal(handle.controller.state.source.name,'S');assert(dialog.visible);assert(f.focused()>0);
+  assert(!f.calls.some(call=>call.method==='move_container_stock'));
+ });
+ await test('new-tag touch callback works after hidden button is created and shown again',async()=>{
+  const f=dialogFixture({sourceScan:'BIN1'}),handle=await f.open(),d=f.dialog();
+  d.values.qty=3;await d.fields_dict.set_quantity.click();
+  d.values.destination_scan='EMPTY';await d.fields_dict.read_destination.click();
+  assert(d.fields_dict.read_tag.$input);assert(!d.fields_dict.read_tag.df.hidden);
+  d.values.new_tag='NEW001';await d.fields_dict.read_tag.click();assert.equal(handle.controller.state.newTag,'NEW001');
+  d.values.destination_scan='BIN2';await d.fields_dict.read_destination.click();assert(d.fields_dict.read_tag.df.hidden);
+  d.values.destination_scan='EMPTY';await d.fields_dict.read_destination.click();
+  d.values.new_tag='NEW002';await d.fields_dict.read_tag.click();
+  assert.equal(f.calls.filter(call=>call.method==='repack_new_tag_context').length,2);
+  d.values.new_tag='';await d.fields_dict.read_tag.click();assert.equal(handle.controller.state.newTag,'');
+  d.values.new_tag='NEW002';await d.fields_dict.read_tag.click();
+  d.values.reason='Partial bin repack';await d.fields_dict.set_reason.click();await d.config.primary_action();
+  assert.equal(f.calls.at(-1).args.new_tag,'NEW002');assert.equal(f.calls.at(-1).args.qty,3);
+  assert.equal(f.calls.filter(call=>call.method==='move_container_stock').length,1);
+ });
+ await test('same dialog remains fully scanner operable with initially hidden buttons',async()=>{
+  const f=dialogFixture({sourceScan:'BIN1'}),handle=await f.open();
+  await handle.scan('CFG:QTY:MATERIAL:3');await handle.scan('EMPTY');await handle.scan('CFG:CMD:REPACK_NEW_TAG');
+  await handle.scan('NEW001');await handle.scan('Physical move');await handle.scan('CFG:CMD:CONFIRM');
+  assert.equal(f.calls.at(-1).args.new_tag,'NEW001');assert.equal(f.calls.at(-1).args.operator_session_token,'SESSION');
+  assert.equal(handle.controller.state.completed,true);assert.equal(f.hidden(),1);
+ });
+ await test('source rejection keeps dialog open with inline error and restores focus for correction or cancel',async()=>{
+  const f=dialogFixture({sourceScan:'BIN1'}),original=f.env.rpc;
+  f.env.rpc=async(method,args)=>{if(method==='repack_source_context')throw new Error('Release the source reservation');return original(method,args);};
+  const handle=await f.open(),d=f.dialog();assert(d.visible);assert(f.focused()>0);
+  assert(d.fields_dict.summary.$wrapper.value.includes('Release the source reservation'));assert.equal(handle.controller.state.source,null);
+  f.env.rpc=original;d.values.source_scan='TAG1';await d.fields_dict.read_source.click();assert.equal(handle.controller.state.source.name,'S');
+  await d.config.secondary_action();assert(!d.visible);assert.equal(f.hidden(),1);
+  assert(!f.calls.some(call=>call.method==='move_container_stock'));
+ });
+ await test('reopening hidden-button dialog restores unknown move before a new source is read',async()=>{
+  const original=fixture();await ready(original);original.failure(new Error('network'));await assert.rejects(()=>original.c.confirm());
+  const pending=original.calls.at(-1).args;
+  const f=dialogFixture({shared:{map:original.map},sourceScan:'OTHER-BIN'}),handle=await f.open(),d=f.dialog();
+  assert(handle.controller.state.pending);assert.equal(f.calls.length,0);assert(d.fields_dict.read_tag.df.hidden);
+  assert(d.fields_dict.source_scan.df.read_only);await d.config.primary_action();
+  assert.deepEqual({...f.calls.at(-1).args,operator_session_token:undefined},{...pending,operator_session_token:undefined});
+  assert(!f.map.has(pendingKey));assert.equal(f.hidden(),1);
  });
  console.log(`${checks} container repack UI checks passed`);
 })().catch(error=>{console.error(error);process.exitCode=1;});
