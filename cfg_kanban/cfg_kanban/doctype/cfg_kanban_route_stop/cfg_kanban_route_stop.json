@@ -1,0 +1,317 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Route Stop",
+ "module": "CFG Kanban",
+ "autoname": "format:RST-{YYYY}-{#####}",
+ "naming_rule": "Expression",
+ "engine": "InnoDB",
+ "track_changes": 1,
+ "allow_rename": 0,
+ "field_order": [
+  "state",
+  "dispatch_plan",
+  "planned_sequence",
+  "actual_sequence",
+  "company",
+  "customer_scan_point",
+  "site_name",
+  "customer",
+  "customer_address",
+  "source_warehouse",
+  "vehicle_reference",
+  "delivery_session",
+  "delivery_note",
+  "delivery_proof",
+  "started_by_operator",
+  "started_on",
+  "completed_on",
+  "override_reason",
+  "override_approved_by",
+  "override_approved_on",
+  "override_key",
+  "skip_reason",
+  "skipped_by",
+  "skipped_on",
+  "skip_key",
+  "retry_of_stop",
+  "created_by_operator",
+  "created_on",
+  "idempotency_key",
+  "start_key",
+  "start_payload_hash",
+  "active_stop_key",
+  "actual_sequence_key"
+ ],
+ "fields": [
+  {
+   "fieldname": "state",
+   "label": "Stop State",
+   "fieldtype": "Select",
+   "reqd": 1,
+   "default": "Planned",
+   "read_only": 1,
+   "in_list_view": 1,
+   "options": "Planned\nIn Progress\nDelivery Note Pending\nDelivered\nCompleted\nCancelled\nSkipped\nException"
+  },
+  {
+   "fieldname": "dispatch_plan",
+   "label": "Open Route Dispatch Plan",
+   "fieldtype": "Link",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "options": "CFG Kanban Dispatch Plan",
+   "search_index": 1
+  },
+  {
+   "fieldname": "planned_sequence",
+   "label": "Planned Sequence",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "actual_sequence",
+   "label": "Actual Visit Sequence",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Selling Company",
+   "fieldtype": "Link",
+   "reqd": 1,
+   "read_only": 1,
+   "in_standard_filter": 1,
+   "options": "Company"
+  },
+  {
+   "fieldname": "customer_scan_point",
+   "label": "Customer Site",
+   "fieldtype": "Link",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "options": "CFG Kanban Customer Scan Point"
+  },
+  {
+   "fieldname": "site_name",
+   "label": "Customer Site Name",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "customer",
+   "label": "Customer",
+   "fieldtype": "Link",
+   "reqd": 1,
+   "read_only": 1,
+   "options": "Customer"
+  },
+  {
+   "fieldname": "customer_address",
+   "label": "Delivery Address",
+   "fieldtype": "Link",
+   "reqd": 1,
+   "read_only": 1,
+   "options": "Address"
+  },
+  {
+   "fieldname": "source_warehouse",
+   "label": "Company-specific Lorry Warehouse",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "vehicle_reference",
+   "label": "Vehicle Reference",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "delivery_session",
+   "label": "Customer Delivery Session",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "unique": 1,
+   "options": "CFG Kanban Delivery Session"
+  },
+  {
+   "fieldname": "delivery_note",
+   "label": "Delivery Note",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Delivery Note"
+  },
+  {
+   "fieldname": "delivery_proof",
+   "label": "Delivery Proof",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Delivery Proof"
+  },
+  {
+   "fieldname": "started_by_operator",
+   "label": "Visit Started By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "started_on",
+   "label": "Visit Started On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "completed_on",
+   "label": "Visit Completed On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "override_reason",
+   "label": "Sequence Override Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "override_approved_by",
+   "label": "Sequence Approved By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "override_approved_on",
+   "label": "Sequence Approved On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "override_key",
+   "label": "Sequence Approval Key",
+   "fieldtype": "Data",
+   "unique": 1,
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "skip_reason",
+   "label": "Skip Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "skipped_by",
+   "label": "Skipped By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "skipped_on",
+   "label": "Skipped On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "skip_key",
+   "label": "Skip Key",
+   "fieldtype": "Data",
+   "unique": 1,
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "retry_of_stop",
+   "label": "Cancelled Visit Being Retried",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Route Stop"
+  },
+  {
+   "fieldname": "created_by_operator",
+   "label": "Planned/Created By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "created_on",
+   "label": "Created On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "idempotency_key",
+   "label": "Creation Key",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "unique": 1,
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "start_key",
+   "label": "Visit Start Key",
+   "fieldtype": "Data",
+   "unique": 1,
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "start_payload_hash",
+   "label": "Visit Start Payload Hash",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "active_stop_key",
+   "label": "Active Stop For Plan Key",
+   "fieldtype": "Data",
+   "unique": 1,
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "actual_sequence_key",
+   "label": "Actual Sequence Key",
+   "fieldtype": "Data",
+   "unique": 1,
+   "read_only": 1,
+   "hidden": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Stock User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1
+  }
+ ]
+}

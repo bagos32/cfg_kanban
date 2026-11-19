@@ -109,8 +109,8 @@ function ui(options={}){
   for(const command of ['START_PREPARED_DELIVERY','PREPARED_DELIVERY_SOURCE','PREPARED_DELIVERY_CAMERA'])assert(catalogue.includes('CFG:CMD:'+command));
   assert(panel.includes('if (active_prepared_delivery) return active_prepared_delivery.scan(raw);'));
   const start=panel.indexOf('\tasync function process_scan(value)'),end=panel.indexOf('\n\tasync function lookup_tag(',start);let called;
-  const run=new Function('$scanner','active_prepared_delivery','opening_prepared_delivery','active_isolation','opening_isolation','active_repack','opening_repack','scanner_error','repack_scanner_help','open_prepared_delivery','state',panel.slice(start,end)+'\nreturn process_scan("CFG:CMD:START_PREPARED_DELIVERY");');
-  await run({find:()=>({val(){}})},null,false,null,false,null,false,()=>{},()=>{},(...args)=>{called=args;},{lookup:{dispatch_plan:{name:'DPL-1'}}});
+  const run=new Function('$scanner','active_route_delivery','opening_route_delivery','active_prepared_delivery','opening_prepared_delivery','active_isolation','opening_isolation','active_repack','opening_repack','scanner_error','repack_scanner_help','open_prepared_delivery','state',panel.slice(start,end)+'\nreturn process_scan("CFG:CMD:START_PREPARED_DELIVERY");');
+  await run({find:()=>({val(){}})},null,false,null,false,null,false,null,false,()=>{},()=>{},(...args)=>{called=args;},{lookup:{dispatch_plan:{name:'DPL-1'}}});
   assert.equal(called[0],'DPL-1');
  });
  await test('operator switch during creation does not show the old Session to the new operator',async()=>{

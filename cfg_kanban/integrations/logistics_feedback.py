@@ -822,12 +822,13 @@ def _assert_customer_delivery_reversal_is_safe(delivery, allocations, delivery_n
             )
     for container_name in {row.container_handling_unit for row in allocations
                            if row.container_handling_unit}:
-        active_content = frappe.db.get_value(
-            "CFG Kanban Container Content",
-            {"container_handling_unit": container_name, "state": "Loaded"},
-            "content_visible_code",
-        )
-        if active_content:
+        active_contents = frappe.get_all("CFG Kanban Container Content",
+            filters={"container_handling_unit": container_name, "state": "Loaded"},
+            fields=["content_handling_unit", "content_visible_code"], limit_page_length=0)
+        expected_units = {row.handling_unit for row in allocations if row.container_handling_unit == container_name}
+        active_units = {row.content_handling_unit for row in active_contents}
+        if active_units and (not delivery.get("route_stop") or active_units != expected_units):
+            active_content = ", ".join(str(row.content_visible_code) for row in active_contents)
             container_code = frappe.db.get_value(
                 "CFG Kanban Handling Unit", container_name, "handling_unit_id"
             )
@@ -884,7 +885,13 @@ def _unload_customer_container(delivery, container_name, delivery_note, now):
         pluck="name",
         limit_page_length=500,
     )
+    remaining = False
     for membership in memberships:
+        content = frappe.db.get_value("CFG Kanban Container Content", membership, "content_handling_unit")
+        qty = flt(frappe.db.get_value("CFG Kanban Handling Unit", content, "current_qty"))
+        if qty > 0.000001:
+            remaining = True
+            continue
         frappe.db.set_value(
             "CFG Kanban Container Content",
             membership,
@@ -903,7 +910,7 @@ def _unload_customer_container(delivery, container_name, delivery_note, now):
     frappe.db.set_value(
         "CFG Kanban Handling Unit",
         container_name,
-        {"movement_state": "Empty", "last_scan_time": now},
+        {"movement_state": "Packed" if remaining else "Empty", "last_scan_time": now},
         update_modified=False,
     )
 
@@ -912,6 +919,10 @@ def _restore_customer_container(delivery, container_name, delivery_note, allocat
     container = frappe.get_doc("CFG Kanban Handling Unit", container_name)
     for allocation in allocations:
         if allocation.container_handling_unit != container_name:
+            continue
+        if delivery.get("route_stop") and frappe.db.exists("CFG Kanban Container Content", {
+                "container_handling_unit": container_name, "content_handling_unit": allocation.handling_unit,
+                "state": "Loaded"}):
             continue
         load_key = canonical_key(
             "customer-delivery-container-restore", delivery.name, allocation.name, delivery_note

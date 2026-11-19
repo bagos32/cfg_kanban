@@ -6,7 +6,7 @@
  "title_field":"business_label",
  "search_fields":"profile_name,business_label,company,source_warehouse,plan_type,fulfilment_mode",
  "track_changes":1,
- "field_order":["identity_section","profile_name","business_label","active","display_colour","priority","instructions","dispatch_context_section","dispatch_point","company","source_warehouse","plan_type","fulfilment_mode","scope_section","customer_site","territory","logistics_route","destination_assignment_policy","destination_warehouse","staging_warehouse","transit_warehouse","policy_section","tag_policy","stock_rotation_policy","approval_required","allow_supervisor_override","auto_submit_stock_transfer","auto_submit_delivery_note","proof_policy","dispatch_responsibility","revision","notes"],
+ "field_order":["identity_section","profile_name","business_label","active","display_colour","priority","instructions","dispatch_context_section","dispatch_point","company","source_warehouse","plan_type","fulfilment_mode","scope_section","customer_site","territory","logistics_route","destination_assignment_policy","destination_warehouse","staging_warehouse","transit_warehouse","policy_section","tag_policy","stock_rotation_policy","approval_required","allow_supervisor_override","auto_submit_stock_transfer","auto_submit_delivery_note","proof_policy","dispatch_responsibility","revision","notes","route_stop_section","stop_sequence_policy","delivery_route_reference"],
  "fields":[
   {"fieldname":"identity_section","label":"Operator-facing Dispatch Workflow","fieldtype":"Section Break","description":"A Dispatch Profile identifies the intended workflow and is snapshotted into every E2 Dispatch Plan. The Profile itself never reserves or moves stock."},
   {"fieldname":"profile_name","label":"Profile Code","fieldtype":"Data","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1,"description":"Stable manager-controlled code, for example DSP-FZD-OPEN-ROUTE."},
@@ -39,7 +39,10 @@
   {"fieldname":"proof_policy","label":"Delivery Proof Policy","fieldtype":"Select","options":"Inherit Customer Site\nRequired\nOptional\nUnattended Delivery Allowed\nNo Proof Required","default":"Inherit Customer Site","reqd":1},
   {"fieldname":"dispatch_responsibility","label":"Dispatch Responsibility","fieldtype":"Link","options":"CFG Kanban Responsibility","reqd":1,"in_standard_filter":1},
   {"fieldname":"revision","label":"Revision","fieldtype":"Int","default":"1","reqd":1,"read_only":1},
-  {"fieldname":"notes","label":"Manager Notes","fieldtype":"Text"}
+  {"fieldname":"notes","label":"Manager Notes","fieldtype":"Text"},
+  {"fieldname":"route_stop_section","label":"Open Route Customer Stops","fieldtype":"Section Break","depends_on":"eval:doc.plan_type=='Open Route Stock'"},
+  {"fieldname":"stop_sequence_policy","label":"Customer Stop Sequence","fieldtype":"Select","default":"Flexible Order","reqd":1,"description":"Flexible permits out-of-order and unplanned eligible visits. Planned Order requires the next planned stop, or a recorded Supervisor approval.","options":"Flexible Order\nPlanned Order"},
+  {"fieldname":"delivery_route_reference","label":"Customer Delivery Route Reference","fieldtype":"Data","description":"Optional exact match to Customer Scan Point Route Reference; separate from the warehouse-loading Logistics Route."}
  ],
  "permissions":[
   {"role":"Stock Manager","read":1,"write":1,"create":1,"delete":1,"print":1},

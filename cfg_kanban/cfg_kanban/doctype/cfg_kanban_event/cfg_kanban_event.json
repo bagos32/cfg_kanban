@@ -35,7 +35,7 @@
   {"fieldname":"qty","label":"Qty","fieldtype":"Float"},
   {"fieldname":"reference_doctype","label":"Reference DocType","fieldtype":"Link","options":"DocType"},
   {"fieldname":"reference_name","label":"Reference Name","fieldtype":"Dynamic Link","options":"reference_doctype"},
-  {"fieldname":"device_id","label":"Device ID","fieldtype":"Data"},
+  {"fieldname":"device_id","label":"Device ID","fieldtype":"Data","search_index":1},
   {"fieldname":"payload_json","label":"Validated Source Payload","fieldtype":"Code","options":"JSON","read_only":1,"hidden":1},
   {"fieldname":"notes","label":"Notes","fieldtype":"Small Text"},
   {"fieldname":"system_generated","label":"System Generated","fieldtype":"Check"}

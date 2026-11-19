@@ -140,6 +140,7 @@ def get_delivery_session(delivery_session, operator_session_token):
             "item_code", "batch_no", "stock_uom", "allocated_qty", "delivered_qty",
             "delivery_note", "reserved_on", "released_on", "release_reason",
             "allocation_kind", "dispatch_allocation", "sales_order_item",
+            "route_stop", "route_source_kind",
         ],
         order_by="reserved_on asc",
         limit_page_length=500,
@@ -282,11 +283,11 @@ def confirm_delivery_allocations(delivery_session, event_token,
         return get_delivery_session(delivery.name, operator_session_token)
     if delivery.state != "Allocating Stock":
         frappe.throw(_("Only an Allocating Stock session can be confirmed"))
-    allocation_rows = frappe.get_all(
+    allocation_rows = frappe.db.get_values(
         "CFG Kanban Delivery Allocation",
         filters={"delivery_session": delivery.name, "state": "Reserved"},
-        fields=["name", "handling_unit", "container_handling_unit"],
-        limit_page_length=500,
+        fieldname=["name", "handling_unit", "container_handling_unit"],
+        as_dict=True, for_update=True,
     )
     names = [row.name for row in allocation_rows]
     if not names:
@@ -588,8 +589,7 @@ def cancel_delivery_session(delivery_session, reason, event_token,
 
 
 def _delivery_for_operator(delivery_session, profile):
-    frappe.db.sql("select name from `tabCFG Kanban Delivery Session` where name=%s for update", delivery_session)
-    delivery = frappe.get_doc("CFG Kanban Delivery Session", delivery_session)
+    delivery = frappe.get_doc("CFG Kanban Delivery Session", delivery_session, for_update=True)
     if not _can_view_delivery(profile, delivery):
         frappe.throw(_("Operator cannot access this Delivery Session"), frappe.PermissionError)
     return delivery
@@ -611,16 +611,17 @@ def _assert_allocation_session(delivery):
 def _customer_delivery_payload(delivery, required_erp_inputs=None):
     if frappe.db.get_value("Customer", delivery.customer, "disabled"):
         frappe.throw(_("Customer {0} is disabled").format(delivery.customer))
-    allocations = frappe.get_all(
+    allocations = frappe.db.get_values(
         "CFG Kanban Delivery Allocation",
         filters={"delivery_session": delivery.name, "state": "Delivery Pending"},
-        fields=[
+        fieldname=[
             "name", "handling_unit", "visible_code", "container_handling_unit",
             "container_visible_code", "item_code", "batch_no", "stock_uom",
             "allocated_qty", "source_warehouse", "dispatch_allocation", "sales_order_item",
+            "route_stop", "route_source_kind",
         ],
         order_by="reserved_on asc, name asc",
-        limit_page_length=500,
+        as_dict=True, for_update=True,
     )
     if not allocations:
         frappe.throw(_("Delivery Session has no confirmed stock allocations"))
@@ -939,8 +940,10 @@ def customer_delivery_context(scan_value, profile):
     site = _resolve_customer_site(scan_value)
     warehouses = _vehicle_warehouses(site.selling_company)
     from cfg_kanban.services.dispatch_fulfilment import prepared_plans
+    from cfg_kanban.services.route_delivery import eligible_route_plans
     return {
         "prepared_dispatch_plans": prepared_plans(site.name, profile),
+        "open_route_plans": eligible_route_plans(site, profile),
         "name": site.name,
         "site_code": site.site_code,
         "site_name": site.site_name,

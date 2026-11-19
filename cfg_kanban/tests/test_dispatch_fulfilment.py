@@ -61,7 +61,7 @@ class TestDispatchFulfilment(unittest.TestCase):
         self.frappe=Row(_dict=Row,parse_json=json.loads,as_json=json.dumps,
             get_doc=self.get_doc,get_all=self.e3.get_all,PermissionError=PermissionError,DuplicateEntryError=KeyError,
             throw=lambda msg,*args:(_ for _ in ()).throw(ValueError(msg)),
-            db=Row(get_value=self.get_value,set_value=self.e3.set_value,exists=self.exists,sql=self.sql,
+            db=Row(get_value=self.get_value,get_values=self.get_values,set_value=self.e3.set_value,exists=self.exists,sql=self.sql,
                    get_single_value=lambda *args:'SELL'))
         common=dict(frappe=self.frappe,json=json,flt=lambda n:float(n or 0),cint=lambda n:int(n or 0),
             getdate=lambda value:datetime.date.fromisoformat(str(value)[:10]),today=lambda:'2026-11-19',
@@ -103,7 +103,7 @@ class TestDispatchFulfilment(unittest.TestCase):
                           apply_required_erp_inputs=Mock(),get_required_erp_inputs=lambda doc:[])
         extract('integrations/erp_gateway.py',self.gateway,{'build_customer_delivery_note'})
         stock=types.ModuleType('erpnext.stock.utils');stock.get_stock_balance=lambda *args,**kwargs:self.erp_balance
-        batch=types.ModuleType('erpnext.stock.doctype.batch.batch');batch.get_batch_qty=lambda **kwargs:self.erp_balance
+        batch=types.ModuleType('erpnext.stock.doctype.batch.batch');batch.get_batch_qty=lambda batch_no=None,warehouse=None,item_code=None,posting_date=None,posting_time=None,ignore_voucher_nos=None,for_stock_levels=False,consider_negative_batches=False,do_not_check_future_batches=False:self.erp_balance
         self.patch=patch.dict(sys.modules,{self.bridge.__name__:self.bridge,self.engine.__name__:self.engine,
             self.feedback.__name__:self.feedback,'erpnext.stock.utils':stock,'erpnext.stock.doctype.batch.batch':batch})
         self.patch.start();self.addCleanup(self.patch.stop)
@@ -124,12 +124,15 @@ class TestDispatchFulfilment(unittest.TestCase):
         values.setdefault('doctype',dt)
         row=Record(name=name,_store=self.data,**values);self.data.setdefault(dt,{})[name]=row;return row
 
-    def get_doc(self,doctype,name=None):
+    def get_doc(self,doctype,name=None,**kwargs):
         if isinstance(doctype,dict):
             values=dict(doctype)
             if 'items' in values:values['items']=[Record(row) for row in values['items']]
             return Record(values,_store=self.data)
         return self.data[doctype][name]
+
+    def get_values(self,doctype,filters=None,fieldname=None,fields=None,**kwargs):
+        return self.e3.get_all(doctype,filters=filters)
 
     def exists(self,dt,filters):return self.get_value(dt,filters,'name')
     def get_value(self,dt,name,fields,**kwargs):
@@ -147,16 +150,25 @@ class TestDispatchFulfilment(unittest.TestCase):
         self.sql_calls.append((query,params))
         if 'for update' in query:return []
         if 'allocation.dispatch_plan' in query and 'allocation.handling_unit=%s' in query:
-            return [[r.dispatch_plan] for r in self.data[ALLOC].values() if r.handling_unit==params and r.state=='Loaded' and self.data[PLAN][r.dispatch_plan].prepared_stock_commitment
-                    and self.data[PLAN][r.dispatch_plan].fulfilment_status not in ('Completed','Delivered')]
-        if "plan.plan_type='Customer Order'" in query and 'sum(allocation.allocated_qty)' in query:
+            rows=[]
+            for source in self.data[ALLOC].values():
+                plan=self.data[PLAN].get(source.dispatch_plan)
+                if not plan or source.handling_unit!=params or source.state!='Loaded':continue
+                held=((plan.plan_type=='Customer Order' and plan.prepared_stock_commitment and plan.fulfilment_status not in ('Completed','Delivered')) or
+                      (plan.plan_type=='Open Route Stock' and plan.route_stock_commitment))
+                used=sum(float(r.allocated_qty) for r in self.data.get(DA,{}).values() if r.dispatch_allocation==source.name and r.state in ('Reserved','Delivery Pending','Exception','Delivered'))
+                if held and float(source.allocated_qty)>used+0.000001:rows.append([source.dispatch_plan,plan.plan_type])
+            return rows
+        if "plan.plan_type='Customer Order'" in query and 'greatest(allocation.allocated_qty' in query:
             value=0
             for row in self.data[ALLOC].values():
                 plan=self.data[PLAN].get(row.dispatch_plan)
-                if not plan or not plan.prepared_stock_commitment or plan.name==params.get('excluded') or plan.vehicle_warehouse!=params['warehouse'] or plan.fulfilment_status in ('Completed','Delivered'):continue
-                if row.state!='Loaded' or row.allocation_kind!='Untagged ERP Stock' or row.item_code!=params['item']:continue
-                if any(a.dispatch_allocation==row.name and a.state in ('Reserved','Delivery Pending','Exception','Delivered') for a in self.data.get(DA,{}).values()):continue
-                value+=float(row.allocated_qty)
+                if not plan or plan.name==params.get('excluded') or plan.vehicle_warehouse!=params['warehouse']:continue
+                held=((plan.plan_type=='Customer Order' and plan.prepared_stock_commitment and plan.fulfilment_status not in ('Completed','Delivered')) or
+                      (plan.plan_type=='Open Route Stock' and plan.route_stock_commitment))
+                if not held or row.state!='Loaded' or row.allocation_kind!='Untagged ERP Stock' or row.item_code!=params['item']:continue
+                used=sum(float(a.allocated_qty) for a in self.data.get(DA,{}).values() if a.dispatch_allocation==row.name and a.state in ('Reserved','Delivery Pending','Exception','Delivered'))
+                value+=max(float(row.allocated_qty)-used,0)
             return [[value]]
         if 'sum(delivered_qty)' in query:
             return [[sum(float(r.delivered_qty or 0) for r in self.data.get(DA,{}).values() if r.delivery_session==params and r.state=='Delivered')]]

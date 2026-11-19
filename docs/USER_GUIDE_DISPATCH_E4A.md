@@ -96,6 +96,7 @@ workflow still requires a live floor test; offline dialog tests do not establish
   multiple repeated order rows, split preparation by order row before loading. E4A fails closed
   rather than attach excessive quantity to the first Sales Order row.
 
-Open Route multi-customer delivery/Route Stops (E4B), Direct Warehouse Delivery and Customer Pickup
+Open Route multi-customer delivery/Route Stops are implemented in the separate E4B development
+increment; see [its guide](USER_GUIDE_DISPATCH_E4B.md). Direct Warehouse Delivery/Customer Pickup
 (E4C), E5 recovery/reconciliation and optional E6 remain separate increments. User-managed commit
 and deployment remain required before site verification.

@@ -2,13 +2,15 @@
 
 **Baseline identifier:** `CFG-DISPATCH-E3`
 **Decision status:** Locked
-**Current status:** E1–E3 implemented; E4A development implemented; E4B–E5 remain pending
+**Current status:** E1–E3 implemented; E4A/E4B development implemented; E4C–E5 remain pending
 **Implementation status:** Dispatch Profiles, permanent Dispatch Operations cards, the read-only
 operator launcher, Dispatch Plans, approval/cancellation, controlled tagged/untagged reservation,
 late lorry claim, physical loading confirmation, Manifest generation and controlled direct Material
 Transfer are implemented. E4A adds whole-load known-customer fulfilment through the existing
 Customer Delivery Session, tagged/untagged allocations, native Delivery Note and proof workflow.
-E4A live acceptance is pending; E3 loading remains a separate lifecycle.
+E4B adds Open Route multi-customer Stops, configurable flexible/planned order, controlled stock
+origins, partial quantity containers and persisted action reconciliation. E4A/E4B live acceptance is
+pending; E3 loading remains a separate lifecycle.
 
 ## 1. Objective
 
@@ -273,11 +275,20 @@ pending as recorded in its test guide. See [E4A setup/operator guide](USER_GUIDE
 [E4A acceptance test](TEST_DISPATCH_E4A_CUSTOMER_FULFILMENT.md). This development checkpoint is not
 live ERP, concurrency, kiosk or production acceptance.
 
-**Remaining E4B/E4C scope:**
+**E4B — Open Route Stock customer visits:** development implemented. Both **Flexible Order** and
+**Planned Order** are configurable during Profile setup and copied to each Plan, as requested by
+the owner on 19 November 2026. Planned and actual sequences, reasoned Supervisor approvals/skips,
+separate Customer Sessions/Delivery Notes/proof, prepared and unassigned tagged/untagged origins,
+partial posted-stock quantity containers, full mixed logistics containers and persistent retry/
+read-back/no-record cancellation controls reuse the existing delivery services. Routine delivery
+records do not settle or release the route; that remains E5. Direct/ad-hoc legacy delivery remains
+available independently. See [E4B guide](USER_GUIDE_DISPATCH_E4B.md) and
+[E4B acceptance test](TEST_DISPATCH_E4B_OPEN_ROUTE.md).
 
-- Open Route Stock delivery to multiple customers;
+**Remaining E4C scope:**
+
 - Direct Warehouse Delivery and Customer Pickup;
-- broader Route Stop and fulfilment integration with Delivery Notes and proof.
+- broader fulfilment-mode integration with Delivery Notes and proof.
 
 ### E5 — Reconciliation and recovery
 

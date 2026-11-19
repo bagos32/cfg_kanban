@@ -28,6 +28,7 @@ PROFILE_SNAPSHOT_FIELDS = (
     "staging_warehouse", "transit_warehouse", "tag_policy", "stock_rotation_policy",
     "approval_required", "allow_supervisor_override", "auto_submit_stock_transfer",
     "auto_submit_delivery_note", "proof_policy", "dispatch_responsibility",
+    "stop_sequence_policy", "delivery_route_reference",
 )
 
 
@@ -81,6 +82,8 @@ def create_dispatch_plan(dispatch_profile, lines, customer_site=None, sales_orde
         "staging_warehouse": policy.staging_warehouse,
         "transit_warehouse": policy.transit_warehouse,
         "proof_policy": policy.proof_policy,
+        "stop_sequence_policy": policy.get("stop_sequence_policy") or "Flexible Order",
+        "delivery_route_reference": policy.get("delivery_route_reference"),
         **context,
         "priority": priority or "Normal",
         "lines": rows,
@@ -614,6 +617,13 @@ def get_dispatch_plan(dispatch_plan, operator_session_token):
         plan.state == "Loaded" and plan.plan_type == "Customer Order"
         and plan.fulfilment_mode == "Vehicle Delivery" and operator.can_start
         and _customer_delivery_allowed(operator))
+    result["can_start_route_delivery"] = bool(
+        plan.state == "Loaded" and plan.plan_type == "Open Route Stock"
+        and plan.fulfilment_mode == "Vehicle Delivery" and operator.can_start
+        and _customer_delivery_allowed(operator))
+    if plan.plan_type == "Open Route Stock" and plan.fulfilment_mode == "Vehicle Delivery":
+        from cfg_kanban.services.route_delivery import plan_context
+        result["route_delivery"] = plan_context(plan, operator)
     result["policy_only_reservation"] = int(plan.state in RESERVABLE_STATES)
     result["vehicle_claim_active"] = int(plan.state in VEHICLE_LOADING_STATES)
     return result
@@ -789,6 +799,7 @@ def mark_plan_loaded(manifest_name, stock_entry_name):
         "state": "Loaded", "total_reserved_qty": 0,
         "total_loaded_qty": loaded_total, "loaded_on": now_datetime(),
         "prepared_stock_commitment": 1,
+        "route_stock_commitment": int(plan.plan_type == "Open Route Stock"),
     }, update_modified=True)
     record(
         "Dispatch Plan Loaded", movement_manifest=manifest.name,
@@ -1138,7 +1149,7 @@ def _assert_untagged_allocation_available(allocation):
         erp_balance = flt(get_batch_qty(
             batch_no=allocation.batch_no, warehouse=allocation.source_warehouse,
             item_code=allocation.item_code, posting_date=today(),
-            for_stock_levels=True, ignore_reserved_stock=True,
+            for_stock_levels=True,
         ))
         batch_condition = "and batch_no=%(batch)s"
     else:
@@ -1580,7 +1591,7 @@ def _untagged_available(company, warehouse, item_code, batch_no, exclude_prepare
 
         erp_balance = flt(get_batch_qty(
             batch_no=batch_no, warehouse=warehouse, item_code=item_code,
-            posting_date=today(), for_stock_levels=True, ignore_reserved_stock=True,
+            posting_date=today(), for_stock_levels=True,
         ))
     else:
         from erpnext.stock.utils import get_stock_balance

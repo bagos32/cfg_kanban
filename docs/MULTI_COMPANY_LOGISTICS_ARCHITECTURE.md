@@ -658,8 +658,13 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
 - **Development implemented in E4A:** prepared known-customer Vehicle Delivery connects loaded
   tagged/untagged quantities to the existing Customer Delivery Session, Delivery Note, native Sales
   Order linkage and proof. Live acceptance remains pending; see `TEST_DISPATCH_E4A_CUSTOMER_FULFILMENT.md`.
-- Route Stops and general ad-hoc/Open Route untagged or loose-container delivery remain later E4 scope.
-- Add reserved and unassigned-stock delivery flows.
+- **Development implemented in E4B:** loaded Open Route Plans serve multiple Customer Sites using
+  planned/actual Route Stops, configurable flexible/planned order, Supervisor sequence approval,
+  prepared/unassigned tagged and untagged stock, and partial posted-stock quantity containers.
+  Existing delivery/proof/return services remain the engine. Persistent requests have read-back
+  and reasoned no-record cancellation. See `TEST_DISPATCH_E4B_OPEN_ROUTE.md`; live acceptance is pending.
+- Direct Warehouse Delivery/Customer Pickup remain E4C. Wider ad-hoc trip/route aggregation and
+  final reserved/unassigned/returned/overnight settlement remain E5.
 - Add optional customer Sales Invoice commands. The controlled Delivery Note command is implemented.
 
 ### Package D — Proof, returns, and reconciliation

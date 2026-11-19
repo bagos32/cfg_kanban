@@ -44,7 +44,6 @@ def assert_erp_stock(unit, warehouse, qty):
             item_code=unit.item_code,
             posting_date=today(),
             for_stock_levels=True,
-            ignore_reserved_stock=True,
         )
     else:
         from erpnext.stock.utils import get_stock_balance

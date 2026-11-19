@@ -10,7 +10,8 @@ class CFGKanbanDeliveryAllocation(Document):
             frappe.throw("Unsupported customer delivery allocation kind")
         if kind == "Tagged Stock" and not self.handling_unit:
             frappe.throw("Tagged delivery allocation requires its physical Stock Tag")
-        if kind == "Untagged ERP Stock" and (self.handling_unit or not self.dispatch_allocation):
+        if kind == "Untagged ERP Stock" and (self.handling_unit or not (self.dispatch_allocation or
+                (self.get("route_stop") and self.get("route_source_kind") == "Unassigned Lorry Stock"))):
             frappe.throw("Untagged delivery requires a prepared Dispatch Allocation without a Stock Tag")
         if flt(self.allocated_qty) <= 0:
             frappe.throw("Allocated Qty must be positive")
@@ -22,6 +23,7 @@ class CFGKanbanDeliveryAllocation(Document):
                 for fieldname in (
                     "delivery_session", "handling_unit", "visible_code",
                     "allocation_kind", "dispatch_allocation", "sales_order_item",
+                    "route_stop", "route_source_kind", "route_request_key", "route_request_hash",
                     "container_handling_unit", "container_visible_code", "item_code",
                     "batch_no", "stock_uom", "allocated_qty", "source_warehouse",
                     "reserved_by_operator", "operator_session", "reserved_on",

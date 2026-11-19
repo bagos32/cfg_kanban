@@ -7,6 +7,9 @@ class CFGKanbanDispatchProfile(Document):
     """Manager policy resolved at a permanent Dispatch Point and snapshotted into E2 Plans."""
 
     def validate(self):
+        self.stop_sequence_policy = self.get("stop_sequence_policy") or "Flexible Order"
+        if self.get("stop_sequence_policy") not in (None, "", "Flexible Order", "Planned Order"):
+            frappe.throw("Customer Stop Sequence must be Flexible Order or Planned Order")
         self._validate_priority_and_revision()
         self._validate_dispatch_point()
         self._validate_company_warehouses()
@@ -26,7 +29,8 @@ class CFGKanbanDispatchProfile(Document):
                 "destination_warehouse", "staging_warehouse", "transit_warehouse",
                 "tag_policy", "stock_rotation_policy", "approval_required",
                 "allow_supervisor_override", "auto_submit_stock_transfer",
-                "auto_submit_delivery_note", "proof_policy", "dispatch_responsibility")):
+                "auto_submit_delivery_note", "proof_policy", "dispatch_responsibility",
+                "stop_sequence_policy", "delivery_route_reference")):
             self.revision = cint(before.revision) + 1
 
     def _validate_dispatch_point(self):
