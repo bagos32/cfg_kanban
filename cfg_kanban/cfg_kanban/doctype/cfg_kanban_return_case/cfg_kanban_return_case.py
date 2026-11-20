@@ -12,6 +12,17 @@ class CFGKanbanReturnCase(Document):
         self.scan_token = self.scan_token or str(uuid.uuid4())
 
     def validate(self):
+        method = self.get('intake_method') or 'Customer Site'
+        if method not in ('Customer Site', 'Direct Customer'):
+            frappe.throw('Select a valid return intake method')
+        if method == 'Direct Customer':
+            if (self.return_flow != 'Customer Return for QC' or self.customer_scan_point
+                    or self.site_code or self.site_name
+                    or self.original_delivery_session or self.original_delivery_note
+                    or not self.selling_company or not self.customer):
+                frappe.throw('Direct Customer intake requires Company/Customer QC custody without a Customer Site or delivery correction')
+        elif not self.customer_scan_point or not self.site_code or not self.site_name:
+            frappe.throw('Customer Site intake and delivery corrections require a Customer Scan Point and its Site snapshots')
         validate_warehouse_company(
             self.correction_return_warehouse, self.selling_company,
             "Correction Return Warehouse",
@@ -31,7 +42,7 @@ class CFGKanbanReturnCase(Document):
         if not before:
             return
         immutable = (
-            "scan_token", "customer_scan_point", "original_delivery_session",
+            "scan_token", "intake_method", "intake_payload_hash", "customer_scan_point", "original_delivery_session",
             "original_delivery_note", "delivery_proof", "selling_company", "customer",
             "customer_address", "site_code", "site_name", "return_flow",
             "inspection_location", "correction_return_warehouse", "claimed_on",
@@ -41,7 +52,10 @@ class CFGKanbanReturnCase(Document):
             "idempotency_key",
         )
         for fieldname in immutable:
-            if before.get(fieldname) != self.get(fieldname):
+            old, new = before.get(fieldname), self.get(fieldname)
+            if fieldname == 'intake_method':
+                old, new = old or 'Customer Site', new or 'Customer Site'
+            if old != new:
                 frappe.throw(f"{self.meta.get_label(fieldname)} is an immutable intake snapshot")
         old_lines = [row.as_dict() for row in before.lines]
         new_lines = [row.as_dict() for row in self.lines]

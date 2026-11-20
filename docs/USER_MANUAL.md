@@ -5776,3 +5776,53 @@ identity, and serialized stock needs its exact tag. Mixed dispositions/destinati
 recovery Plans remain later scope. See [E5B1 setup guide](USER_GUIDE_DISPATCH_E5B1.md) and
 [acceptance checklist](TEST_DISPATCH_E5B1_RECOVERY.md). Migration, native ERP/concurrency and real
 scanner/tablet acceptance remain unverified by offline checks.
+
+
+### Direct Customer Return without a Customer Site QR
+
+Open **Kanban Logistics → Direct Customer Return**. This creates the existing
+**Customer Return for QC** case; no Customer Scan Point or previous Delivery
+Session is required. The Site QR intake and wrong-Delivery-Note correction remain
+available through their existing actions.
+
+1. Enable **Customer Return Workflows** in CFG Kanban Settings. Give the operator
+   **Customer Return** responsibility and **Start** permission (or the existing
+   unrestricted Supervisor authority). The terminal's ERP user needs Read access
+   to the selected Company, Customer, Location, Items and any Address/Batch.
+2. Select the **Selling Company**, **Customer** and **Inspection Custody Location**
+   (an ERPNext Location). Customer Address is optional and must belong to that
+   Customer. A company-specific Location must match the selected Company.
+3. Enter the reason and physical returned Items/quantities in each Item's stock
+   UOM. Batch, printed expiry, visible Stock Tag/reference, condition and details
+   can be recorded. Customer representative acknowledgement is optional. Expiry
+   is an intake observation; QC and later stock disposition govern acceptance.
+4. **Review Return Details** shows Company, Customer, custody and quantities with
+   their stock UOM. **Issue Temporary Return Note** records custody awaiting QC.
+   **Return to Edit** changes details before submission. Print the note from the
+   resulting Return Case; its QR identifies that Case, not a Customer Site.
+5. Inspectors use **Receive and Start QC → Complete QC Result** with **Customer
+   Return QC** authority. Accounts selects the invoice/credit decision; authorized
+   Stock/QC staff records physical disposition using the existing Return Case.
+   Intake creates no available ERP stock, Return Delivery Note or accounting credit.
+
+Scanner path: `CFG:CMD:DIRECT_CUSTOMER_RETURN` opens from Logistics or Production.
+`CFG:SELECT:1` through `CFG:SELECT:10` select a displayed header input; scan its
+exact master code/value. `CFG:CMD:RETURN_ITEMS` selects the Items table;
+`CFG:CMD:RETURN_ADD_ITEM` adds a row. Numbered choices select columns and
+`CFG:QTY:MATERIAL:n` enters the current row's stock quantity. Use
+`RETURN_NEXT_ITEM` / `RETURN_PREVIOUS_ITEM` to move rows, `RETURN_INPUTS` to return
+to header inputs and `RETURN_REASON` to arm the reason. These action names use
+`CFG:CMD:`. `CONFIRM` first reviews, then `CONFIRM` issues; `RETURN_EDIT` returns
+to editing before submission. `RETURN_CAMERA` opens camera scanning. Standard
+Next/Previous Material Choices page input lists; Tab and Enter suffixes work.
+Print these labels from **Kanban Operator → Scanner Command Labels**.
+
+If a response is lost, the original operator's pending payload/token remains in
+this browser across closing/reopening or refreshing. **Retry Original Intake**
+reuses it. `RETURN_RECONCILE` reads the recorded outcome. A “Not Recorded” status
+alone does not permit correction: use `RETURN_VOID_REASON`, scan a reason, then
+`RETURN_VOID_PENDING` to abandon only an unrecorded request. An already recorded
+case opens instead; its intake snapshots remain immutable. `CANCEL` closes while
+preserving a pending request. Submission requires HTTPS/localhost and Web Locks
+(the previously confirmed supported-browser setup). Do not clear browser storage
+to resolve an uncertain submission.

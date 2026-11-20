@@ -388,6 +388,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
             ISOLATE_STOCK: () => { frappe.route_options={cfg_open_stock_isolation:1,cfg_isolation_action:1};frappe.set_route("kanban-logistics"); },
             RELEASE_STOCK: () => { frappe.route_options={cfg_open_stock_isolation:1,cfg_isolation_action:0};frappe.set_route("kanban-logistics"); },
             ALLOCATE_ROUTE_STOCK: () => { frappe.route_options = {cfg_open_route_delivery:1,cfg_route_action:"stock"}; frappe.set_route("kanban-logistics"); },
+            DIRECT_CUSTOMER_RETURN: () => { frappe.route_options={cfg_direct_customer_return:1};frappe.set_route("kanban-logistics"); },
             START_ROUTE_DELIVERY: () => { frappe.route_options = {cfg_open_route_delivery:1,cfg_route_action:"visit"}; frappe.set_route("kanban-logistics"); },
             PLAN_ROUTE_STOP: () => { frappe.route_options = {cfg_open_route_delivery:1,cfg_route_action:"plan"}; frappe.set_route("kanban-logistics"); },
             APPROVE_ROUTE_ORDER: () => { frappe.route_options = {cfg_open_route_delivery:1,cfg_route_action:"approve"}; frappe.set_route("kanban-logistics"); },
@@ -1053,6 +1054,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
 			primary_action: () => dialog.hide(),
 		});
 		dialog.$body.html(`<div class="cfg-scanner-help">
+			<p>${__("Direct Customer Return: scan CFG:CMD:DIRECT_CUSTOMER_RETURN to select Company, Customer and inspection custody without a Customer Site QR. Numbered inputs take exact values; RETURN_ITEMS / RETURN_ADD_ITEM and numbered columns enter physical Items and Material Qty. RETURN_NEXT_ITEM / RETURN_PREVIOUS_ITEM change rows; RETURN_INPUTS returns to headers. RETURN_REASON arms the reason and RETURN_CAMERA opens camera. Confirm reviews stock UOM quantities; Confirm again issues the temporary QC custody note. RETURN_EDIT corrects before submission. RETURN_RECONCILE reads a pending result; RETURN_VOID_REASON, a reason and RETURN_VOID_PENDING void only an unrecorded intake. Cancel retains pending details. All action commands use CFG:CMD:; print them using Scanner Command Labels.")}</p>
 			<p>${__("Keep this page open in full-screen or kiosk mode. Scan cards directly; the previous number is cleared automatically.")}</p>
 			<table class="table table-bordered"><thead><tr><th>${__("Function key")}</th><th>${__("Barcode / QR payload")}</th><th>${__("Action")}</th></tr></thead><tbody>
 			<tr><td>F1</td><td><code>CFG:CMD:HELP</code></td><td>${__("Show this guide")}</td></tr>
