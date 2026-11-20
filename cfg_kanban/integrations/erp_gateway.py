@@ -710,6 +710,9 @@ def create_customer_credit_return(command, payload):
         f"Accounting source basis: {payload['source_basis']}. "
         f"Decision: {payload['decision_notes']}"
     )
+    # Resolve only missing series defaults. Native insert owns before_naming,
+    # Document Naming Rule priority, counters and amendment naming.
+    _apply_native_naming_series_default(credit)
     credit.insert(ignore_permissions=True)
     case.db_set({
         "accounting_status": "Credit Pending",
@@ -727,6 +730,9 @@ def create_customer_credit_return(command, payload):
         "doctype": credit.doctype, "name": credit.name, "docstatus": credit.docstatus,
         "return_case": case.name, "return_against": source.name,
         "update_stock": 0, "accounting_revision": payload.get("accounting_revision") or 0,
+        "naming_series": credit.get("naming_series"),
+        "is_return": credit.get("is_return"),
+        "amended_from": credit.get("amended_from"),
     }
     return credit
 
@@ -822,15 +828,24 @@ def create_customer_return_material_receipt(command, payload):
     return entry
 
 
+def _apply_native_naming_series_default(doc):
+    """Fill a missing series through Frappe without allocating a document number.
+
+    A native new document respects configured field/default values before the
+    naming-series fallback. Keep a series already selected by the mapper/hooks;
+    insert() must remain the only place that applies naming rules and counters.
+    """
+    if doc.meta.get_field("naming_series") and not doc.get("naming_series"):
+        doc.naming_series = frappe.new_doc(doc.doctype).get("naming_series")
+        if not doc.naming_series:
+            doc.naming_series = get_default_naming_series(doc.doctype)
+
+
 def get_required_erp_inputs(doc):
     """Describe editable mandatory values still missing from an ERP document."""
-    # Frappe normally assigns the first configured naming-series option during
-    # document insertion. CFG preflights mandatory values before insertion, so
-    # resolve that same default here instead of asking a floor operator to choose
-    # accounting document numbering for every transaction.
-    naming_field = doc.meta.get_field("naming_series")
-    if naming_field and not doc.get("naming_series"):
-        doc.naming_series = get_default_naming_series(doc.doctype)
+    # Preflight runs before native insertion: expose the same native defaults,
+    # rather than requiring an operator to choose accounting document numbering.
+    _apply_native_naming_series_default(doc)
 
     requirements = []
     for field in doc.meta.fields:

@@ -147,3 +147,79 @@ D2B passes when the accountant can close a case as No Credit or prepare exactly 
 Draft Sales Invoice Return from QC-accepted quantities, ERPNext retains tax/e-Invoice submission
 control, submit/cancel feedback updates the Return Case, and neither the draft preparation nor the
 accounting return changes ERP stock.
+
+
+## 10. Native v15 credit-return numbering
+
+Accepted owner clarification, 20 November 2026: CFG must use ERPNext/Frappe's configured document
+series defaults and native Document Naming Rule precedence. Do not introduce an app-owned Credit
+Note prefix, infer a return series from option text, copy an original invoice's series manually,
+or generate a provisional document number before insertion.
+
+Implementation above base commit `132b44a`:
+
+- `_apply_native_naming_series_default` fills only a missing series from `frappe.new_doc`, then
+  uses `get_default_naming_series` if that native default is still empty. This corrects the common
+  ERP preflight's previous first-option-only choice and makes credit-return defaults explicit.
+- `create_customer_credit_return` still uses native `make_return_doc` and ordinary `insert`.
+  No early `set_new_name`, `make_autoname`, rule `apply`, counter update, or hardcoded return prefix
+  is added. Mapped/hook-selected series, Draft-only non-stock accounting, quantity controls,
+  idempotent existing credit reuse and amendment lineage remain in force.
+- The ERP Command result records the generated `name` independently of its `naming_series`,
+  together with `is_return` and `amended_from`. Native Naming Rules can assign an ID while leaving
+  the Series field at its default; this alone is not evidence that the rule was ignored.
+
+Verified upstream references for the reported versions:
+[Frappe v15.69.2 naming flow](https://github.com/frappe/frappe/blob/v15.69.2/frappe/model/naming.py),
+[native new-document defaults](https://github.com/frappe/frappe/blob/v15.69.2/frappe/model/create_new.py),
+[native insertion](https://github.com/frappe/frappe/blob/v15.69.2/frappe/model/document.py),
+[ERPNext v15.65.1 return mapper](https://github.com/frappe/erpnext/blob/v15.65.1/erpnext/controllers/sales_and_purchase_return.py).
+Native amendment naming, when applicable, precedes a new rule-generated name; the implementation
+preserves that order.
+
+### Offline evidence
+
+- The new gateway/default regression module has **12 passing application tests** with dependency
+  doubles: configured default versus first option, native fallback, existing selected series,
+  missing series fields, native-insert delegation, result evidence, no duplicate naming on retry,
+  same/different-source amendment lineage, source Company and remaining-quantity rejection.
+- **5 installed-Frappe naming-engine tests are skipped locally** because Frappe is not installed.
+  They cover native rule priority/Company matching, return versus invoice conditions, fallback,
+  Series field versus document ID, and amendment precedence with substituted counters. Even a
+  future pass of these isolated functions is not a native transaction/site acceptance.
+- The relevant schema/direct-return suite passed, as did the existing prepared/open-route/
+  warehouse-delivery, recovery and stock-identity regressions. No development-server test was run.
+
+The source audit found no explicit CFG bypass of native Naming Rules on this credit-return path.
+The existing mapper normally supplies a native default already. Therefore this change must not be
+reported as reproducing or fixing every site-specific rule mismatch: the reported development-site
+case still needs its actual rule, Company, generated ID and deployed revision checked below.
+
+### Native test-site checklist — all Not run
+
+Use an isolated test site, approved test Company and fresh accepted Return Cases. Record exact rule
+conditions/priorities, field default/series options, deployed Git revision, source invoices, created
+Credit Notes and command result evidence. Do not edit production numbering counters to run tests.
+
+| Case | Expected | Result |
+| --- | --- | --- |
+| Configured Series default differs from first option; no matching naming rule | Credit uses the same native default/fallback as a standard newly inserted Sales Invoice Return | Not run |
+| Enabled Sales Invoice rule with Is Return = 1 and correct Company | Native rule controls generated document ID on Kanban Draft insertion | Not run |
+| Two matching rules with differing priority | Native higher-priority rule controls ID; no CFG prefix override | Not run |
+| Wrong-Company, disabled or nonmatching return rule | Native remaining matching rule or standard fallback controls ID | Not run |
+| Inspect Series field versus document ID | Any difference caused by a rule is visible separately in ERP Command Result Payload; Series need not be rewritten by native rules | Not run |
+| Normal Sales Invoice | Existing native non-return numbering remains unchanged | Not run |
+| Repeated Prepare Accounting Decision / command replay | Existing Draft/submitted credit reopens with the original ID and no extra credit/number allocation | Not run |
+| Cancelled credit; same approved source | Native amendment naming/lineage is honoured according to installed settings | Not run |
+| Cancelled credit; different approved source | No amendment to the unrelated cancelled credit; native new-document naming applies | Not run |
+| Native Company/accounting/e-Invoice hooks and failed validation | Native hooks execute at insertion in their usual order; transaction/numbering behaviour matches ERPNext | Not run |
+
+Acceptance evidence / exceptions:
+
+- Deployed Git revision:
+- Site / date / accounting user:
+- Company / field default / series options:
+- Matching rules / conditions / priorities / amendment settings:
+- Return Cases / source invoices / Credit Note document IDs / Series values:
+- Command result / native audit evidence:
+- Decision / unresolved discrepancy:

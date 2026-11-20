@@ -4049,6 +4049,24 @@ and **Credit Document Status**. Preparing the Draft creates no GL Entry, e-Invoi
 Stock Ledger Entry. The accountant must open that Draft, complete all native/custom tax, account,
 cost-centre and e-Invoice requirements, then submit it in ERPNext.
 
+**Sales Return numbering follows native ERPNext/Frappe v15.** A missing **Series**
+(`naming_series`) is resolved from a fresh native Sales Invoice's configured defaults, with
+Frappe's naming-series fallback only if still empty. A value already selected by the native
+return mapper/hooks is retained. CFG does not derive a Credit Note prefix from the original
+invoice or add a separate return-series master.
+
+Native insertion then applies enabled **Document Naming Rules** in descending priority and uses
+the series fallback when no rule assigns the document number. **Is Return** (`is_return`) and
+Company can be rule conditions. Existing native amendment naming takes precedence for a same-source
+replacement; no number is generated during defaults/preflight. A naming rule can change the
+**document ID** without changing the **Series** field, so verify the generated ID as well as that
+field. The completed **CFG ERP Command → Result Payload** records `name`, `naming_series`,
+`is_return` and `amended_from` separately. Retrying an existing Draft/submitted credit reopens it;
+it does not renumber it. Existing documents retain their names.
+
+See [D2B numbering acceptance](TEST_PACKAGE_D2B_CUSTOMER_RETURN_ACCOUNTING.md#10-native-v15-credit-return-numbering).
+A return rule skipped on a development site is not reproduced or proven fixed by offline checks.
+
 On valid ERPNext submission, the Return Case becomes `Accounting Completed` / `Completed`. The
 submission hook blocks Company, Customer, source, Update Stock, Item or quantity divergence. If the
 submitted return is cancelled, the case reopens to `QC Completed - Accounting Pending`, records the
