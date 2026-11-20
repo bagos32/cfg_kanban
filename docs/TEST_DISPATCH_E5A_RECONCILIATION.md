@@ -7,8 +7,9 @@ days under one Plan, without forced daily closure.
 
 E5A implements review/freeze, Plan-specific stock summaries, D3 count linkage, overnight choices,
 variance Holds, guarded Resume, and exact submitted return/transfer evidence. It does not claim the
-whole E5 roadmap: guided transfer creation, mixed per-line dispositions, follow-on recovery Plans,
-wider partial/refused customer fulfilment and broad native operational hardening remain E5B.
+whole E5 roadmap. Guided whole-remainder transfer creation is now covered by
+[the E5B1 checklist](TEST_DISPATCH_E5B1_RECOVERY.md). Mixed per-line dispositions, follow-on recovery
+Plans, wider partial/refused customer fulfilment and broad native operational hardening remain later E5B scope.
 
 ## Recorded offline checks
 
@@ -76,8 +77,8 @@ multi-day trips. Dependency doubles do not establish native locking, atomicity o
 
 Return/transfer evidence in E5A covers all remaining prepared stock in one movement to one destination.
 Where the current floor workflow cannot represent loose Batch transfers, use only the approved
-Supervisor native ERP fallback. Guided recovery/mixed dispositions remain E5B; do not mark them
-accepted from an E5A pass. Package L1 and the other unrecorded acceptance gates remain open.
+Supervisor native ERP fallback. Guided whole-remainder recovery now has its own [E5B1 checklist](TEST_DISPATCH_E5B1_RECOVERY.md);
+mixed dispositions remain later scope. Do not mark either accepted from an E5A pass. Package L1 and the other unrecorded acceptance gates remain open.
 
 ## Change boundary
 

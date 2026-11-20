@@ -318,10 +318,20 @@ An optional formal overnight pause requires its balanced count and explicit next
 See [E5A guide](USER_GUIDE_DISPATCH_E5A.md) and
 [E5A acceptance checklist](TEST_DISPATCH_E5A_RECONCILIATION.md). Native/live acceptance is pending.
 
-**Remaining E5B:** guided recovery-transfer creation, mixed per-line or multiple-destination
-leftover dispositions, follow-on recovery Plans/vehicle reassignment, wider partial/refused
-known-customer fulfilment and native operational hardening. E5A consumes existing submitted movement
-evidence; it does not create stock corrections or a second ERP movement engine.
+**E5B1 — Guided return/transfer creation:** development implemented on 20 November 2026 above
+`5116653`. From an active Dispatch Review, a Supervisor explicitly selects an approved same-Company
+Direct Transfer route from the original lorry, confirms every tagged/container or exact loose
+Item/Batch/stock-UOM source, prepares and creates/posts the existing Movement Manifest Stock Entry.
+One recovery covers all remaining prepared allocations to one destination. Native feedback preserves
+certificates/expiry and original E3 loading/vehicle/allocation links; a fresh balanced D3 count and
+E5A settlement are still required. Current reads protect competing loose commitments; guarded
+replay/reopen, unused cancellation, saved-Draft validation/delete protection and scanner/camera/
+mandatory ERP-input controls are included. See [E5B1 guide](USER_GUIDE_DISPATCH_E5B1.md) and
+[acceptance checklist](TEST_DISPATCH_E5B1_RECOVERY.md). Native/live acceptance is pending.
+
+**Remaining E5B:** mixed per-line or multiple-destination leftover dispositions, follow-on recovery
+Plans/vehicle reassignment, wider partial/refused known-customer fulfilment and native operational
+hardening. E5B1 creates no quantity correction, write-off, credit or replacement delivery engine.
 
 ### Optional E6 — Destination selected at receipt
 

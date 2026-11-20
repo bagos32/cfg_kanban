@@ -389,6 +389,7 @@ def build_internal_transfer_stock_entry(manifest, payload, command=None):
             "cfg_handling_unit": row.handling_unit,
             "cfg_manifest_line": row.name,
             **erp_identity_fields(row, "Stock Entry Detail", transfer=True),
+            **({"use_serial_batch_fields": 1} if row.batch_no else {}),
         })
     entry = frappe.get_doc({
         "doctype": "Stock Entry",

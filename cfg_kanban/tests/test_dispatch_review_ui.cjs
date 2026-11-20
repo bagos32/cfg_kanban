@@ -26,7 +26,7 @@ function adapter(options={}){
  }
  const launch=()=>open({frappe:{utils:{escape_html:v=>String(v??'').replaceAll('<','&lt;')},ui:{Dialog,...(!options.noCamera?{Scanner:Camera}:{})},
   call:async({method,args})=>({message:await f.env.rpc(method.split('.').at(-1),args)})},mode:f.env.mode,planScan:options.planScan,
-  owner:f.env.owner,token:f.env.token,nonce:f.env.nonce,success:f.env.success,onClose(){},errorMessage:(err,fallback)=>err.message||fallback});
+  owner:f.env.owner,token:f.env.token,nonce:f.env.nonce,success:f.env.success,recover:plan=>f.env.recover(plan),onClose(){},errorMessage:(err,fallback)=>err.message||fallback});
  return {...f,launch,dialog:()=>dialog,focused:()=>focused,hidden:()=>hidden,cameras};
 }
 (async()=>{
@@ -105,6 +105,17 @@ function adapter(options={}){
   const a=panel.indexOf('\tasync function process_scan(value)'),b=panel.indexOf('\n\tasync function lookup_tag(',a);let observed;
   const run=new Function('$scanner','state','open_dispatch_review','command',`let active_dispatch_review=null,opening_dispatch_review=false,active_delivery_action=null,opening_delivery_action=false,active_route_delivery=null,opening_route_delivery=false,active_prepared_delivery=null,opening_prepared_delivery=false,active_isolation=null,opening_isolation=false,active_repack=null,opening_repack=false;\n`+panel.slice(a,b)+'\nreturn process_scan(command);');
   await run({find:()=>({val(){}})},{lookup:{dispatch_plan:{name:'DPL-1'}}},(...args)=>{observed=args;},'CFG:CMD:FINISH_DISPATCH_REVIEW');assert.deepEqual(observed,['finish','DPL-1']);
+ });
+ await test('linked recovery preselects its exact submitted movement and disposition',async()=>{
+  const f=fixture();f.context.recovery={state:'Received',dispatch_stock_entry:'MOVE-RECOVERY',recovery_action:actions[3]};await f.c.load('DPL-1');
+  assert.equal(f.c.state.movement,'MOVE-RECOVERY');assert.equal(f.c.state.action,actions[3]);assert(!f.c.ready());
+  const g=adapter({planScan:'DPL-1'});g.context.recovery={state:'Received',dispatch_stock_entry:'MOVE-RECOVERY',recovery_action:actions[3]};await g.launch();assert.equal(g.dialog().values.movement,'MOVE-RECOVERY');
+ });
+ await test('recovery navigation waits for the Review dialog to close and keeps the Plan',async()=>{
+  const f=adapter({planScan:'DPL-1'});let observed;f.env.recover=plan=>{assert.equal(f.hidden(),1);observed=plan;};const view=await f.launch();await view.scan('CFG:CMD:RECOVER_DISPATCH');assert.equal(observed,'DPL-1');assert(view.controller.state.closed);
+ });
+ await test('terminal Reviews cannot open another recovery checklist',async()=>{
+  const f=fixture({state:'Completed'});await f.c.load('DPL-1');await assert.rejects(()=>f.c.scan('CFG:CMD:RECOVER_DISPATCH'),/Begin a Dispatch Review/);assert(!f.c.state.closed);
  });
  console.log(`${checks} E5 review UI checks passed`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

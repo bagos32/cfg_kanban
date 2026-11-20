@@ -674,8 +674,16 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
   evidence. Both overnight choices are selected at closing. Normal two-to-three-day trips retain one
   Plan without forced daily settlement. Holds, explicit Resume, immutable vehicle history and
   reversal/evidence guards preserve audit. See `TEST_DISPATCH_E5A_RECONCILIATION.md`; live acceptance
-  remains pending. Guided transfers, mixed dispositions, follow-on recovery Plans, wider partial/
-  refused customer fulfilment and native hardening remain E5B.
+  remains pending. Mixed dispositions, follow-on recovery Plans, wider partial/refused customer
+  fulfilment and native hardening remain later E5B scope.
+- **Development implemented in E5B1:** an active Review can create one guided whole-remainder
+  return/transfer through an approved same-Company Direct Transfer route and the existing Manifest/
+  Stock Entry engine. Exact source confirmations, certificates/expiry, original loading history,
+  native feedback, current commitment reads, unused cancellation and scanner/tablet controls are
+  preserved. E5A still requires a fresh balanced D3 count and final settlement. See
+  `USER_GUIDE_DISPATCH_E5B1.md` / `TEST_DISPATCH_E5B1_RECOVERY.md`; native acceptance is pending.
+  Mixed dispositions/destinations, follow-on recovery Plans/reassignment and wider partial/refused
+  known-customer fulfilment remain later increments.
 - Add optional customer Sales Invoice commands. The controlled Delivery Note command is implemented.
 
 ### Package D — Proof, returns, and reconciliation

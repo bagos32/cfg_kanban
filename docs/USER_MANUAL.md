@@ -3,7 +3,7 @@
 **Application:** CFG Kanban for ERPNext/Frappe v15  
 **Guide version:** 2.45
 
-**Updated:** 11 November 2026
+**Updated:** 20 November 2026
 
 **Scope:** Current repository code; Frappe/ERPNext v15
 
@@ -5744,5 +5744,35 @@ status before a correction.
 
 See [E5A setup/operator guide](USER_GUIDE_DISPATCH_E5A.md) and
 [acceptance checklist](TEST_DISPATCH_E5A_RECONCILIATION.md). E5A creates no stock write-off or transfer;
-guided transfer creation, mixed leftover dispositions and follow-on recovery Plans remain E5B.
+guided transfer creation is available in E5B1 below. Mixed leftover dispositions and follow-on
+recovery Plans remain later E5B increments.
 Offline passes do not establish native ERP, concurrency, migration or kiosk/device acceptance.
+
+
+## Guided dispatch leftover return / transfer — E5B1
+
+Begin an E5A Dispatch Review, then select **Return / Transfer Leftovers** or scan
+`CFG:CMD:RECOVER_DISPATCH`. A Supervisor with Override, the Plan/Reconciliation responsibilities
+and both chosen-route responsibilities explicitly selects an approved same-Company Direct Transfer
+route from the original lorry. Confirm its reason to create the recovery checklist. Scan each tag
+or full reusable container; select each loose row, enter its exact counted Item/Batch/stock-UOM
+quantity and Confirm. Confirm **Prepare and Reserve**, then **Post / Create ERP Movement**.
+Native Stock Entry submission moves stock and updates tag/container locations. If the route creates
+an ERP Draft, submit that existing document through authorized ERP review and Refresh.
+
+The scanner flow uses `RECOVERY_REASON`, `RECOVERY_SOURCE`, `RECOVERY_PREPARE`, `RECOVERY_POST`,
+`RECOVERY_CANCEL`, `RECOVERY_REFRESH` and `RECOVERY_CAMERA` with the `CFG:CMD:` prefix. Use numbered
+choices 1–10 and Next/Previous Material Choices, `CFG:QTY:MATERIAL:n`, Confirm/Cancel and Tab/Enter.
+Mandatory ERP scalar/table inputs reuse the existing delivery-input scanner controls. Camera
+buttons support tablets. Cancel closes safely; **Cancel Unused Recovery** needs a new reason and
+releases reservations only before ERP work is created. Reopen/Refresh reads the saved Manifest;
+an uncertain result retains the original action details for retry.
+
+After posting, evaluate/close a fresh balanced D3 count and **Finish Dispatch Review** with its
+linked Stock Entry before using recovered stock. The action moves the complete prepared remainder
+to one destination and preserves certificates, expiry and original lorry/loading history. It creates
+no receiving Dispatch Plan, reassignment, write-off or credit. Loose stock cannot infer certificate
+identity, and serialized stock needs its exact tag. Mixed dispositions/destinations and follow-on
+recovery Plans remain later scope. See [E5B1 setup guide](USER_GUIDE_DISPATCH_E5B1.md) and
+[acceptance checklist](TEST_DISPATCH_E5B1_RECOVERY.md). Migration, native ERP/concurrency and real
+scanner/tablet acceptance remain unverified by offline checks.

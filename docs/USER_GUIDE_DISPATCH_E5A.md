@@ -4,9 +4,10 @@ E5A connects a loaded Dispatch Plan to the existing lorry stock count (D3) and s
 movements. It records how the trip ended, releases or retains its prepared-stock commitments, and
 preserves the original loading/delivery/vehicle history. It creates no stock movement or write-off.
 
-This is the first E5 development increment. Guided recovery-transfer creation, mixed per-line
-leftover dispositions, follow-on recovery Plans and the wider partial/refused known-customer
-workflow remain E5B. Live site acceptance is still pending.
+This is the first E5 development increment. Guided whole-remainder return/transfer creation is
+available in [E5B1](USER_GUIDE_DISPATCH_E5B1.md). Mixed per-line leftover dispositions, follow-on
+recovery Plans and the wider partial/refused known-customer workflow remain later E5 scope.
+Live site acceptance is still pending.
 
 ## Normal two-to-three-day trip
 
@@ -49,7 +50,8 @@ their own closure workflow and are not Vehicle Delivery trip reviews.
    scan the Plan. Confirm the prepared-stock summary to begin the review.
 3. The new **CFG Kanban Dispatch Review** (`KDR-...`) freezes new fulfilment and preserves the opening
    loaded/delivered/remaining quantities. No stock quantity changes.
-4. If returning/transferring leftovers, complete the existing authorized stock movement **after
+4. If returning/transferring leftovers, use the [guided E5B1 recovery](USER_GUIDE_DISPATCH_E5B1.md)
+   or complete an existing authorized stock movement **after
    beginning the review and before closing the physical count**. Record its submitted Stock Entry.
 5. Use the existing Route Stock Count panel to scan tags/containers and enter actual loose stock.
    Evaluate and close the balanced count. A variance must be resolved through D3; an unexplained

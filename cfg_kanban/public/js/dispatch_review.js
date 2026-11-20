@@ -14,6 +14,7 @@
     const result=await env.rpc('get_dispatch_review_context',{scan_value:value,operator_session_token:env.token()});
     if(s.closed)return;if(env.owner()!==env.openedOwner)fail('Operator changed; reopen the review.');
     s.context=result;
+    if(result.recovery?.state==='Received'){s.action=result.recovery.recovery_action;s.movement=result.recovery.dispatch_stock_entry;}
     if(s.mode==='begin'&&['Reviewing','Held'].includes(result.review?.state))s.mode='finish';
     s.message=result.review?.state==='Overnight'?'This Plan retains its overnight commitments. Use Resume Review and a reason to continue.':
      result.review?.state==='Completed'?'This trip is reconciled. Its closing snapshot is retained below.':
@@ -48,13 +49,18 @@
    }catch(error){const type=error?.exc_type||error?.responseJSON?.exc_type;if(!retry&&type&&type!=='DispatchReviewReplayError')s.pending=null;throw error;}
    finally{s.busy=false;changed();}
   }
+  function recover(){
+   edit();if(!['Reviewing','Held'].includes(s.context?.review?.state))fail('Begin a Dispatch Review before preparing recovery.');
+   s.closed=true;return env.recover(s.context.plan.name);
+  }
   async function scan(raw){
    const value=String(raw||'').trim(),upper=value.toUpperCase();if(!value||s.closed)return;
    if(upper==='CFG:CMD:CANCEL'){s.closed=true;env.close();return;}
    if(upper==='CFG:CMD:CONFIRM')return confirm();
    if(upper==='CFG:CMD:DISPATCH_REVIEW_CAMERA')return env.camera();
-   if(upper==='CFG:CMD:HELP'){s.message='Scan DPL/KDR, select CFG:SELECT:1–5, scan the closed KREC count. DISPATCH_REVIEW_MOVEMENT arms a Stock Entry; DISPATCH_REVIEW_REASON arms the reason. Confirm submits; Cancel closes. Refresh reads server state before a new correction.';changed();return;}
+   if(upper==='CFG:CMD:HELP'){s.message='RECOVER_DISPATCH opens the guided return/transfer checklist for this active Review. Scan DPL/KDR, select CFG:SELECT:1–5, scan the closed KREC count. DISPATCH_REVIEW_MOVEMENT arms a Stock Entry; DISPATCH_REVIEW_REASON arms the reason. Confirm submits; Cancel closes. Refresh reads server state before a new correction.';changed();return;}
    edit();
+   if(upper==='CFG:CMD:RECOVER_DISPATCH')return recover();
    const command=upper.replace(/^CFG:CMD:/,'');if(upper.startsWith('CFG:CMD:')&&modeCommands[command])return mode(modeCommands[command]);
    if(upper==='CFG:CMD:DISPATCH_REVIEW_REFRESH')return load(s.context?.plan.name||'');
    if(upper==='CFG:CMD:DISPATCH_REVIEW_REASON'){s.arm='reason';return;}
@@ -66,10 +72,10 @@
    if(upper.startsWith('KREC-'))return set('count',value);
    return load(value);
   }
-  return {state:s,mode,load,set,select,ready,confirm,scan};
+  return {state:s,mode,load,set,select,ready,confirm,recover,scan};
  }
  async function open(options){
-  const f=options.frappe,e=f.utils.escape_html;let dialog,controller,tail=Promise.resolve(),camera=null;
+  const f=options.frappe,e=f.utils.escape_html;let dialog,controller,tail=Promise.resolve(),camera=null,nextAction=null,renderedContext=null,renderedMode=null;
   const focus=()=>{if(!controller.state.closed)dialog.fields_dict.scan.$input.focus();};
   function queue(work){tail=tail.then(work).catch(error=>{controller.state.message=options.errorMessage(error,error.message||'Dispatch Review failed.');render(controller.state);}).finally(focus);return tail;}
   function stopCamera(){const old=camera;camera=null;old?.hide_dialog?.();}
@@ -90,6 +96,11 @@
     `<div class="alert ${controller.ready()?'alert-success':'alert-warning'}">${e(s.message)}</div><p>${e(context?.plan.name||'')} · ${e(review?.name||'')} · ${e(review?.state||'')}</p>${context?`<p>${e(context.boundary)}</p><table class="table table-bordered"><tr><th>Item / Batch</th><th>Tag</th><th>Loaded</th><th>Delivered</th><th>Prepared remaining</th></tr>${rows}</table>`:''}<p><strong>Current ERP lorry stock</strong><br>${lorry||'No ERP stock remaining'}</p><p><strong>Additional unassigned stock delivered</strong><br>${additional||'None recorded'}</p><p>${e(s.action)} · ${e(s.count)} · ${e(s.movement)} · ${e(s.reason)}</p>${s.mode==='finish'?choices:''}${s.pending?`<div class="alert alert-warning">Retry original action: ${e(JSON.stringify(s.pending.args))}</div>`:''}${review?.closing_snapshot_json?`<details><summary>Recorded closing stock snapshot</summary><pre>${e(review.closing_snapshot_json)}</pre></details>`:''}`);
    dialog.fields_dict.summary.$wrapper.find('.review-choice').on('click',function(){queue(()=>controller.select(Number(this.dataset.number)));});
    for(const name of ['count','movement','reason'])dialog.set_df_property?.(name,'hidden',s.mode==='begin'||(name!=='reason'&&s.mode!=='finish')?1:0);
+   if(!privatePending&&(renderedContext!==s.context||renderedMode!==s.mode)){
+    renderedContext=s.context;renderedMode=s.mode;
+    for(const name of ['count','movement','reason'])if(String(dialog.get_value(name)||'')!==s[name])dialog.set_value(name,s[name]);
+   }
+   dialog.set_df_property?.('recover','hidden',['Reviewing','Held'].includes(review?.state)?0:1);
    if(controller.ready())dialog.enable_primary_action();else dialog.disable_primary_action();
   }
   const openedOwner=options.owner();options={...options,openedOwner};
@@ -97,18 +108,20 @@
    {fieldname:'scan',label:'Scanner',fieldtype:'Data'},
    {fieldname:'camera',label:'Scan with Camera',fieldtype:'Button',click:()=>queue(()=>startCamera())},
    {fieldname:'summary',fieldtype:'HTML'},
+   {fieldname:'recover',label:'Prepare Return / Transfer',fieldtype:'Button',click:()=>queue(()=>controller.recover())},
    {fieldname:'finish',label:'Finish Review',fieldtype:'Button',click:()=>queue(()=>controller.mode('finish'))},
    {fieldname:'hold',label:'Hold for Investigation',fieldtype:'Button',click:()=>queue(()=>controller.mode('hold'))},
    {fieldname:'resume',label:'Resume Plan',fieldtype:'Button',click:()=>queue(()=>controller.mode('resume'))},
    {fieldname:'refresh',label:'Refresh Recorded Review',fieldtype:'Button',click:()=>queue(()=>controller.scan('CFG:CMD:DISPATCH_REVIEW_REFRESH'))},
-   {fieldname:'count',label:'Closed Lorry Stock Count',fieldtype:'Link',options:'CFG Kanban Route Reconciliation',onchange:()=>queue(()=>controller.set('count',dialog.get_value('count')))},
-   {fieldname:'movement',label:'Submitted Recovery Stock Entry',fieldtype:'Link',options:'Stock Entry',onchange:()=>queue(()=>controller.set('movement',dialog.get_value('movement')))},
-   {fieldname:'reason',label:'Decision / Resume Reason',fieldtype:'Small Text',onchange:()=>queue(()=>controller.set('reason',dialog.get_value('reason')))},
+   {fieldname:'count',label:'Closed Lorry Stock Count',fieldtype:'Link',options:'CFG Kanban Route Reconciliation',onchange:()=>{const value=dialog.get_value('count');if(String(value||'')!==controller.state.count)return queue(()=>controller.set('count',value));}},
+   {fieldname:'movement',label:'Submitted Recovery Stock Entry',fieldtype:'Link',options:'Stock Entry',onchange:()=>{const value=dialog.get_value('movement');if(String(value||'')!==controller.state.movement)return queue(()=>controller.set('movement',value));}},
+   {fieldname:'reason',label:'Decision / Resume Reason',fieldtype:'Small Text',onchange:()=>{const value=dialog.get_value('reason');if(String(value||'')!==controller.state.reason)return queue(()=>controller.set('reason',value));}},
   ],primary_action_label:'Confirm Reviewed Decision',primary_action:()=>queue(()=>controller.confirm())});
   controller=createController({mode:options.mode,owner:options.owner,openedOwner,token:options.token,nonce:options.nonce,
    rpc:async(method,args)=>(await f.call({method:'cfg_kanban.services.dispatch_reconciliation.'+method,args})).message,
-   render,camera:startCamera,close:()=>dialog.hide(),success:options.success});
-  dialog.onhide=()=>{controller.state.closed=true;stopCamera();options.onClose();};
+   render,camera:startCamera,close:()=>dialog.hide(),success:options.success,
+   recover:plan=>{nextAction=()=>options.recover(plan);dialog.hide();}});
+  dialog.onhide=()=>{controller.state.closed=true;stopCamera();options.onClose();nextAction?.();};
   dialog.fields_dict.scan.$input.on('keydown',event=>{
    if(!['Tab','Enter'].includes(event.key)||event.shiftKey||event.ctrlKey||event.altKey||event.metaKey||event.isComposing)return;
    const value=String(dialog.get_value('scan')||'').trim();if(event.key==='Tab'&&!value)return;

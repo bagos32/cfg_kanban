@@ -41,6 +41,8 @@ class CFGKanbanMovementManifest(Document):
         }
         for fieldname, value in values.items():
             self.set(fieldname, value)
+        if self.dispatch_plan and self.get('dispatch_recovery_review'):
+            frappe.throw('A recovery Manifest cannot replace the original Plan loading Manifest')
         if self.dispatch_plan:
             self._apply_dispatch_plan_vehicle_snapshot(route)
 
@@ -98,6 +100,8 @@ class CFGKanbanMovementManifest(Document):
             "auto_submit_receipt_pr",
             "auto_submit_internal_dispatch", "auto_submit_internal_receipt",
             "dispatch_plan", "vehicle_warehouse", "vehicle_reference",
+            "dispatch_recovery_review", "recovery_action", "recovery_reason",
+            "recovery_snapshot_json", "recovery_payload_hash",
         )
         for fieldname in immutable:
             if before.get(fieldname) != self.get(fieldname):

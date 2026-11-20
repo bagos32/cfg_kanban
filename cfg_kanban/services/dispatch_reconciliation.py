@@ -118,7 +118,9 @@ def _current_context(plan, review=None):
         uom=next((row['stock_uom'] for row in balances if row['item_code']==item),None) or frappe.db.get_value('Item',item,'stock_uom')
         lorry_balances.append(dict(item_code=item,batch_no=batch,stock_uom=uom,erp_qty=qty,
             prepared_remaining_budget=prepared))
-    return dict(plan=plan.as_dict(), review=review.as_dict() if review else None,
+    recovery = frappe.db.get_value('CFG Kanban Movement Manifest', review.recovery_manifest,
+        ['name','state','dispatch_stock_entry','recovery_action'], as_dict=True) if review and review.get('recovery_manifest') else None
+    return dict(plan=plan.as_dict(), review=review.as_dict() if review else None, recovery=recovery,
                 lorry_balances=lorry_balances,
                 unassigned_deliveries=unassigned,
                 balances=balances, balance_hash=_hash(balances), quantity_totals=quantities,
@@ -318,6 +320,9 @@ def finish_dispatch_review(dispatch_review, action, reconciliation_name, reason,
         frappe.throw('Prepared stock remains; select its actual disposition')
     if action!='No Remaining Prepared Stock' and not remaining:
         frappe.throw('No prepared stock remains; use No Remaining Prepared Stock')
+    if review.get('recovery_manifest'):
+        from cfg_kanban.services.dispatch_recovery import assert_review_disposition
+        assert_review_disposition(review, action, movement_stock_entry)
     count=_count_evidence(plan,review,reconciliation_name)
     destination=None
     if action in ('Returned to Warehouse','Transferred to Another Lorry'):
@@ -400,6 +405,9 @@ def resume_dispatch_review(dispatch_review, reason, event_token, operator_sessio
         frappe.throw('Only an open or overnight review can resume, with a reason; a held review requires counted settlement')
     if review.state=='Reviewing':
         _supervisor(operator)
+    if review.get('recovery_manifest'):
+        from cfg_kanban.services.dispatch_recovery import assert_review_disposition
+        assert_review_disposition(review)
     _counts()._validate_vehicle_warehouse(plan.company, plan.vehicle_warehouse)
     _no_open_delivery(plan)
     rows=_balances(plan,current=True)

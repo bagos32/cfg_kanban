@@ -1594,8 +1594,29 @@ def _lock_erp_bin(item_code, warehouse):
     )
 
 
-def _untagged_available(company, warehouse, item_code, batch_no, exclude_prepared_plan=None):
+def _untagged_available(company, warehouse, item_code, batch_no, exclude_prepared_plan=None, current=False):
     validate_warehouse_company(warehouse, company, "Dispatch source Warehouse")
+    if current:
+        # Native quantity and every competing commitment are current reads after the Bin lock.
+        _lock_erp_bin(item_code, warehouse)
+        from cfg_kanban.services.route_reconciliation import _erp_balances
+        from cfg_kanban.services.dispatch_fulfilment import active_untagged_delivery_qty, waiting_prepared_untagged_qty
+        erp_balance = _erp_balances(company, warehouse, now_datetime(), current=True).get((item_code, batch_no or ''), 0)
+        # SQL handles NULL/empty Batch consistently; use locking row reads rather than aggregates.
+        condition = 'and batch_no=%(batch)s' if batch_no else "and ifnull(batch_no,'')=''"
+        params = dict(company=company, warehouse=warehouse, item=item_code, batch=batch_no)
+        tagged = frappe.db.sql(f"""select current_qty from `tabCFG Kanban Handling Unit`
+            where inventory_company=%(company)s and current_warehouse=%(warehouse)s
+              and item_code=%(item)s and identity_state='Active' and current_qty>0 {condition}
+            order by name for update""", params, as_dict=True)
+        reserved = frappe.db.sql(f"""select allocated_qty from `tabCFG Kanban Dispatch Allocation`
+            where allocation_kind='Untagged ERP Stock' and state='Reserved'
+              and source_company=%(company)s and source_warehouse=%(warehouse)s
+              and item_code=%(item)s {condition} order by name for update""", params, as_dict=True)
+        delivered = active_untagged_delivery_qty(company, warehouse, item_code, batch_no, current=True)
+        waiting = waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclude_prepared_plan, current=True)
+        return max(flt(erp_balance)-sum(flt(row.current_qty) for row in tagged)
+                   -sum(flt(row.allocated_qty) for row in reserved)-delivered-waiting, 0)
     if batch_no:
         from erpnext.stock.doctype.batch.batch import get_batch_qty
 

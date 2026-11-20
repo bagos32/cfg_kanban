@@ -820,7 +820,9 @@ def validate_stock_entry(doc, method=None):
         validate_withdrawal_stock_entry(doc)
         return
     if doc.get("cfg_movement_manifest"):
+        from cfg_kanban.services.dispatch_recovery import validate_recovery_stock_entry
         from cfg_kanban.integrations.logistics_feedback import validate_internal_stock_entry
+        validate_recovery_stock_entry(doc)
         validate_internal_stock_entry(doc)
         return
     from cfg_kanban.services.production_certificates import (

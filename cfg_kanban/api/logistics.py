@@ -24,7 +24,7 @@ TERMINAL_STATES = {"Received", "Billing Pending", "Partially Billed", "Billed", 
 MANIFEST_LIST_FIELDS = [
     "name", "manifest_type", "internal_transfer_mode", "inventory_control_mode",
     "logistics_route", "state",
-    "dispatch_plan", "vehicle_warehouse", "vehicle_reference",
+    "dispatch_plan", "dispatch_recovery_review", "vehicle_warehouse", "vehicle_reference",
     "kanban_cycle", "source_signal", "source_company", "source_warehouse",
     "destination_company", "destination_warehouse", "total_quantity",
     "total_received_quantity", "dispatch_delivery_note", "receipt_purchase_receipt",
@@ -561,6 +561,7 @@ def get_manifest(manifest_name, operator_session_token):
         not manifest.kanban_cycle or result["transfer_tag_policy"] != "No Physical Tag"
     )
     result["dispatch_plan_loading"] = bool(manifest.dispatch_plan)
+    result["dispatch_recovery"] = bool(manifest.get("dispatch_recovery_review"))
     result["loading_confirmed_count"] = sum(
         1 for row in manifest.lines if row.loading_confirmed
     )
@@ -873,6 +874,10 @@ def scan_dispatch_tag(manifest_name, scan_value, event_token, operator_session_t
     manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
     route = frappe.get_doc("CFG Kanban Logistics Route", manifest.logistics_route)
     _require_route_responsibility(profile, route.dispatch_responsibility, "dispatch")
+    if manifest.get('dispatch_recovery_review'):
+        from cfg_kanban.services.dispatch_recovery import scan_dispatch_recovery
+        scan_dispatch_recovery(manifest.name, scan_value, event_token, operator_session_token)
+        return get_manifest(manifest.name, operator_session_token)
     if manifest.dispatch_plan:
         from cfg_kanban.services.dispatch_planning import confirm_plan_tag_loaded
         return confirm_plan_tag_loaded(
@@ -1067,6 +1072,8 @@ def remove_dispatch_tag(manifest_name, operator_session_token, handling_unit=Non
     """Remove one Draft selection, including ordinary ERP stock without a physical tag."""
     profile, session = require_operator(operator_session_token, "start")
     manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
+    if manifest.get('dispatch_recovery_review'):
+        frappe.throw('Recovery rows are the exact prepared remainder; cancel the unused recovery to change it')
     if manifest.dispatch_plan:
         frappe.throw(
             "Dispatch Plan stock is controlled by its E2 reservation. Release the vehicle claim "
@@ -1110,6 +1117,17 @@ def prepare_manifest(manifest_name, event_token, operator_session_token):
     manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
     route = frappe.get_doc("CFG Kanban Logistics Route", manifest.logistics_route)
     _require_route_responsibility(profile, route.dispatch_responsibility, "dispatch")
+    if manifest.get('dispatch_recovery_review'):
+        from cfg_kanban.services.dispatch_recovery import prepare_recovery_manifest, validate_recovery_manifest
+        from cfg_kanban.services.dispatch_reconciliation import _supervisor
+        _supervisor(profile)
+        if manifest.state == 'Prepared':
+            validate_recovery_manifest(manifest, profile, reserved=True)
+        elif manifest.state == 'Draft':
+            prepare_recovery_manifest(manifest, profile, session, event_token)
+        else:
+            frappe.throw('Recovery preparation requires a Draft or Prepared Manifest')
+        return get_manifest(manifest.name, operator_session_token)
     if manifest.state == "Prepared":
         return get_manifest(manifest.name, operator_session_token)
     if manifest.state != "Draft" or not manifest.lines:
@@ -1206,6 +1224,13 @@ def confirm_dispatch(
     manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
     route = frappe.get_doc("CFG Kanban Logistics Route", manifest.logistics_route)
     _require_route_responsibility(profile, route.dispatch_responsibility, "dispatch")
+    if manifest.get('dispatch_recovery_review'):
+        from cfg_kanban.services.dispatch_recovery import validate_recovery_manifest
+        from cfg_kanban.services.dispatch_reconciliation import _supervisor
+        _supervisor(profile)
+        if manifest.state == 'Received':
+            return get_manifest(manifest.name, operator_session_token)
+        validate_recovery_manifest(manifest, profile, reserved=True)
     if (_is_non_stock_operational_manifest(manifest)
             and manifest.state in ("Awaiting Receipt", "Received")):
         return get_manifest(manifest.name, operator_session_token)
@@ -1484,6 +1509,10 @@ def confirm_receipt(manifest_name, event_token, operator_session_token):
 def cancel_manifest(manifest_name, reason, operator_session_token, event_token=None):
     profile, session = require_operator(operator_session_token, "override")
     manifest = frappe.get_doc("CFG Kanban Movement Manifest", manifest_name)
+    if manifest.get('dispatch_recovery_review'):
+        from cfg_kanban.services.dispatch_recovery import cancel_dispatch_recovery
+        cancel_dispatch_recovery(manifest.name, reason, event_token, operator_session_token)
+        return get_manifest(manifest.name, operator_session_token)
     if manifest.state not in ("Draft", "Prepared"):
         frappe.throw("Only a Draft or Prepared Manifest without ERP documents can be cancelled")
     if (manifest.dispatch_delivery_note or manifest.receipt_purchase_receipt

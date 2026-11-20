@@ -215,8 +215,20 @@ def _order_assignments(plan, allocations):
     return order, assigned
 
 
-def active_untagged_delivery_qty(company, warehouse, item_code, batch_no):
+def active_untagged_delivery_qty(company, warehouse, item_code, batch_no, current=False):
     condition = 'and allocation.batch_no=%(batch)s' if batch_no else "and ifnull(allocation.batch_no,'')=''"
+    if current:
+        rows = frappe.db.sql(f'''
+            select allocation.allocated_qty
+            from `tabCFG Kanban Delivery Allocation` allocation
+            inner join `tabCFG Kanban Delivery Session` delivery on delivery.name=allocation.delivery_session
+            where allocation.allocation_kind='Untagged ERP Stock'
+              and allocation.state in ('Reserved','Delivery Pending','Exception')
+              and delivery.selling_company=%(company)s and allocation.source_warehouse=%(warehouse)s
+              and allocation.item_code=%(item)s {condition}
+            order by allocation.name for update
+            ''', {'company':company,'warehouse':warehouse,'item':item_code,'batch':batch_no}, as_dict=True)
+        return sum(flt(row.allocated_qty) for row in rows)
     return flt(frappe.db.sql(f'''
         select coalesce(sum(allocation.allocated_qty),0)
         from `tabCFG Kanban Delivery Allocation` allocation
@@ -419,9 +431,32 @@ def assert_prepared_tag_scope(handling_unit, delivery):
         frappe.throw('Stock Tag belongs to a prepared Customer Order/Route load; start that Plan instead of ad-hoc allocation')
 
 
-def waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclude_plan=None):
+def waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclude_plan=None, current=False):
     """Keep each undelivered prepared quantity committed without double-counting reservations."""
     condition='and allocation.batch_no=%(batch)s' if batch_no else "and ifnull(allocation.batch_no,'')=''"
+    if current:
+        rows = frappe.db.sql(f"""
+        select allocation.name, allocation.allocated_qty
+        from `tabCFG Kanban Dispatch Allocation` allocation
+        inner join `tabCFG Kanban Dispatch Plan` plan on plan.name=allocation.dispatch_plan
+        where allocation.allocation_kind='Untagged ERP Stock' and allocation.state='Loaded'
+          and plan.state='Loaded' and plan.fulfilment_mode='Vehicle Delivery' and plan.company=%(company)s
+          and plan.vehicle_warehouse=%(warehouse)s and allocation.item_code=%(item)s
+          and ((plan.plan_type='Customer Order' and plan.prepared_stock_commitment=1
+                and ifnull(plan.fulfilment_status,'Not Started') not in ('Completed','Delivered'))
+               or (plan.plan_type='Open Route Stock' and plan.route_stock_commitment=1))
+          and (%(excluded)s is null or plan.name!=%(excluded)s) {condition}
+        order by allocation.name for update
+        """, {'company':company,'warehouse':warehouse,'item':item_code,'batch':batch_no,
+               'excluded':exclude_plan}, as_dict=True)
+        picked = {}
+        if rows:
+            for row in frappe.db.get_values('CFG Kanban Delivery Allocation',
+                    {'dispatch_allocation':['in',[row.name for row in rows]],
+                     'state':['in',['Reserved','Delivery Pending','Exception','Delivered']]},
+                    ['dispatch_allocation','allocated_qty'], as_dict=True, for_update=True, order_by='name'):
+                picked[row.dispatch_allocation] = picked.get(row.dispatch_allocation, 0) + flt(row.allocated_qty)
+        return sum(max(flt(row.allocated_qty)-picked.get(row.name, 0), 0) for row in rows)
     return flt(frappe.db.sql(f"""
         select coalesce(sum(greatest(allocation.allocated_qty - coalesce((
             select sum(picked.allocated_qty) from `tabCFG Kanban Delivery Allocation` picked

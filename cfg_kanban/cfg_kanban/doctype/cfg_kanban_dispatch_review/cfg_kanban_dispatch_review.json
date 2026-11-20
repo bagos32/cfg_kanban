@@ -19,6 +19,7 @@
   "reason",
   "route_reconciliation",
   "movement_stock_entry",
+  "recovery_manifest",
   "destination_warehouse",
   "variance_exception",
   "opening_snapshot_json",
@@ -249,6 +250,13 @@
    "read_only": 1,
    "unique": 1,
    "hidden": 1
+  },
+  {
+   "fieldname": "recovery_manifest",
+   "label": "Guided Recovery Manifest",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Movement Manifest"
   }
  ],
  "permissions": [
