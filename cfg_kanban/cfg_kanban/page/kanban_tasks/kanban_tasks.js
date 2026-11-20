@@ -4,7 +4,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	const live_poll_ms = 15000;
 	const state = { token: localStorage.getItem(session_key), operator: null, tasks: [],
 		live_timer: null, live_revision: null, live_request: false, task_filter: null,
-		interaction_epoch: 0 };
+		interaction_epoch: 0, service_card: null, scanned_task: null };
 	const $sticky_header = $("<div class='cfg-service-sticky-shell'></div>").appendTo(page.main);
 	const $scanner = $(`<div class="frappe-card cfg-service-scanner mb-3">
 		<div class="cfg-service-scanner-heading"><div><strong>${__("Service Task / Action Card Scanner")}</strong>
@@ -16,7 +16,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			<button class="btn btn-primary camera-service-task">${__("Scan Task / Action Card QR")}</button>
 			<button class="btn btn-default find-service-task">${__("Find Task / Card")}</button>
 			<button class="btn btn-default clear-service-filter">${__("Show All")}</button>
-		</div><div class="text-muted scanner-message"><small>${__("Before login, a scan identifies the operator. After login, scan a Service Task or reusable DocType Action Card.")}</small></div>
+		</div><div class="text-muted scanner-message"><small>${__("Identify the operator, then scan a Service Task, General Service Point Location Card, or reusable DocType Action Card.")}</small></div>
 	</div>`).appendTo($sticky_header);
 	const $identity = $("<div class='mb-3'></div>").appendTo($sticky_header);
 	const $active_root = $("<div class='cfg-service-active-work'></div>").appendTo(page.main);
@@ -45,16 +45,23 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		if (event.key === "Enter") { event.preventDefault(); process_scanner_value(); }
 	});
 
+	function task_list_args(token = state.token) {
+		return { operator_session_token: token,
+			service_card: state.service_card?.name || null, scanned_task: state.scanned_task || null };
+	}
+
 	async function load() {
 		state.interaction_epoch += 1;
 		sync_session_from_storage();
 		if (!state.token) return show_login_required();
 		const requested_token = state.token;
+		const requested_args = task_list_args();
 		$active_root.html(`<div class="text-muted p-4">${__("Loading active work...")}</div>`);
 		$root.html(`<div class="text-muted p-4">${__("Loading ready tasks...")}</div>`);
 		try {
 			const session = await frappe.call({ method: "cfg_kanban.api.operator.operator_session_status",
 				args: { operator_session_token: state.token } });
+			if (state.token !== requested_token || (state.service_card?.name || null) !== requested_args.service_card || (state.scanned_task || null) !== requested_args.scanned_task) return;
 			state.operator = session.message;
 			render_identity();
 			let live_revision = null;
@@ -64,7 +71,8 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				live_revision = live.message?.revision || null;
 			} catch (_live_error) { /* The task list remains usable while the next live check retries. */ }
 			const response = await frappe.call({ method: "cfg_kanban.api.task.get_open_tasks",
-				args: { operator_session_token: state.token } });
+				args: requested_args });
+			if (state.token !== requested_token || (state.service_card?.name || null) !== requested_args.service_card || (state.scanned_task || null) !== requested_args.scanned_task) return;
 			state.tasks = response.message || [];
 			state.live_revision = live_revision;
 			if (state.task_filter && !state.tasks.some((task) => task.name === state.task_filter)) {
@@ -76,6 +84,13 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		} catch (error) {
 			const latest_token = localStorage.getItem(session_key);
 			if (latest_token && latest_token !== requested_token) return load();
+			if ((state.service_card?.name || null) !== requested_args.service_card || (state.scanned_task || null) !== requested_args.scanned_task) return;
+			if ((state.service_card || state.scanned_task) && !operator_session_expired(error)) {
+				state.tasks = [];
+				render_task_view();
+				restore_task_scanner(__("Could not refresh this Service Point. Retry or select Show All."));
+				return;
+			}
 			clear_session(requested_token);
 			show_login_required(__("The operator session expired. Identify the operator again on this page."));
 		}
@@ -89,6 +104,8 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		state.tasks = [];
 		state.live_revision = null;
 		state.task_filter = null;
+		state.service_card = null;
+		state.scanned_task = null;
 		return true;
 	}
 
@@ -120,7 +137,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 			const revision = response.message?.revision;
 			if (!revision || revision === state.live_revision) return;
 			const tasks = await frappe.call({ method: "cfg_kanban.api.task.get_open_tasks",
-				args: { operator_session_token: requested_token }, error: () => {} });
+				args: task_list_args(requested_token), error: () => {} });
 			if (!live_refresh_safe(requested_token, requested_epoch)) return;
 			state.tasks = tasks.message || [];
 			state.live_revision = revision;
@@ -207,6 +224,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		if (!raw) { focus_scanner(); return; }
 		$input.val("");
 		const operator = operator_token_from_url(raw);
+		if (!operator && await load_service_card(raw)) return;
 		if (!state.token || operator) {
 			try { await login_operator(operator || raw); }
 			catch (error) { scanner_error(__("Operator identification failed. Check the credential and retry.")); }
@@ -221,6 +239,8 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 					scanner_error(__(resolved.message.message));
 					return;
 				}
+				state.service_card = null;
+				state.scanned_task = resolved.message.task.name;
 				await load();
 				find_service_task(resolved.message.task.name);
 				return;
@@ -233,6 +253,14 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		const known_task = state.tasks.some((task) => [task.name, task.task_name, task.task_schedule]
 			.filter(Boolean).some((candidate) => String(candidate).toLowerCase() === task_value.toLowerCase()));
 		if (/^KTASK-/i.test(task_value) || known_task || task_value !== raw) {
+			const exact_name = state.tasks.find((task) => task.name.toLowerCase() === task_value.toLowerCase())?.name;
+			const scanned_name = exact_name || (/^KTASK-/i.test(task_value) || task_value !== raw ? task_value : null);
+			if (scanned_name) {
+				state.service_card = null;
+				state.scanned_task = scanned_name;
+				state.task_filter = null;
+				await load();
+			}
 			find_service_task(task_value);
 			return;
 		}
@@ -252,6 +280,28 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		}
 		try { await login_operator(raw); }
 		catch (error) { scanner_error(__("The scan is not an open Service Task, DocType Action Card, or valid operator credential.")); }
+	}
+
+	async function load_service_card(raw) {
+		try {
+			const response = await frappe.call({ method: "cfg_kanban.api.task.resolve_service_card_scan",
+				args: { scan_value: raw, operator_session_token: state.token } });
+			const result = response.message || {};
+			if (!result.matched) return false;
+			if (result.requires_operator) {
+				scanner_error(__(result.message));
+				return true;
+			}
+			state.service_card = result.card;
+			state.scanned_task = null;
+			state.task_filter = null;
+			await load();
+			focus_scanner();
+			return true;
+		} catch (error) {
+			restore_task_scanner(__("Service Location Card could not be opened. Check the operator session and Card configuration."));
+			return true;
+		}
 	}
 
 	function open_action_card_selector(context) {
@@ -360,9 +410,15 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		focus_scanner();
 	}
 
-	function clear_task_filter() {
+	async function clear_task_filter() {
 		state.task_filter = null;
-		if (state.token) render(state.tasks);
+		const was_scoped = Boolean(state.service_card || state.scanned_task);
+		state.service_card = null;
+		state.scanned_task = null;
+		if (state.token) {
+			if (was_scoped) await load();
+			else render(state.tasks);
+		}
 		$scanner.find(".service-scan-input").val("");
 		$scanner.find(".scanner-message").html(`<small>${__("Ready for the next operator or Service Task scan.")}</small>`);
 		focus_scanner();
@@ -453,6 +509,9 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		}, freeze: true, freeze_message: __("Identifying operator...") });
 		state.token = response.message.session_token;
 		state.operator = response.message.operator;
+		state.service_card = null;
+		state.scanned_task = null;
+		state.task_filter = null;
 		localStorage.setItem(session_key, state.token);
 		if (station) localStorage.setItem("cfg_kanban_station", station);
 		await load();
@@ -467,7 +526,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		const stored_token = localStorage.getItem(session_key);
 		if (!expected_token || stored_token === expected_token) localStorage.removeItem(session_key);
 		state.token = null; state.operator = null; state.tasks = [];
-		state.live_revision = null; state.task_filter = null;
+		state.live_revision = null; state.task_filter = null; state.service_card = null; state.scanned_task = null;
 		update_scanner_mode();
 	}
 
@@ -516,20 +575,30 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 	function render(tasks) {
 		$active_root.empty();
 		$root.empty();
+		if (state.service_card) {
+			const e = frappe.utils.escape_html;
+			const card = state.service_card;
+			$root.append(`<div class="alert alert-info cfg-service-location-context"><strong>${card.card_type === "Task Card" ? __("Task Card") : card.card_type === "Asset Card" ? __("Asset Card") : __("General Service Point")}: ${e(card.label || card.location)}</strong><br>
+				<small>${e(card.card_number)}${card.company ? ` · ${e(card.company)}` : ""} · ${__("Open tasks for this Card. Select Show All to return to your responsibility queue.")}</small>
+				${!tasks.length ? `<div class="mt-2">${__("No open Service Tasks are available to this operator for this Card.")}</div>` : ""}</div>`);
+		}
 		const employee = state.operator && state.operator.employee;
 		const active_statuses = ["In Progress", "Overdue", "Correction Required", "Pending Document Posting"];
-		const active = tasks.filter((task) => task.assigned_employee === employee && task.started_on &&
+		const references = tasks.filter((task) => task.scan_view_only);
+		const active = tasks.filter((task) => !task.scan_view_only && task.assigned_employee === employee && task.started_on &&
 			active_statuses.includes(task.status)).sort((a, b) => String(b.modified || b.started_on || "")
 				.localeCompare(String(a.modified || a.started_on || "")));
-		const supervisor = tasks.filter((task) => state.operator && ["Supervisor", "Development Proxy"].includes(state.operator.kanban_role) &&
+		const supervisor = tasks.filter((task) => !task.scan_view_only && state.operator && ["Supervisor", "Development Proxy"].includes(state.operator.kanban_role) &&
 			task.assigned_employee && task.assigned_employee !== employee && !active.includes(task));
-		const ready = tasks.filter((task) => !active.includes(task) && !supervisor.includes(task));
+		const ready = tasks.filter((task) => !task.scan_view_only && !active.includes(task) && !supervisor.includes(task));
 		render_task_section($active_root, active, __("Active Work"),
 			__("Tasks currently started by this operator."), "green", true);
 		render_task_section($root, ready, __("Ready / Open Tasks"),
 			__("Start a task to move it immediately into Active Work."), "blue", false);
 		if (supervisor.length) render_task_section($root, supervisor, __("Supervisor Attention"),
 			__("Monitor active operator work, verify submitted tasks, or control other assigned work when View All Service Tasks is enabled."), "orange", false);
+		if (references.length) render_task_section($root, references, __("Scanned Tasks — View Only"),
+			__("Tasks outside your responsibility or assignment. Review their status; action permissions still apply."), "blue", false);
 		if (!tasks.length) {
 			$root.append(`<div class="frappe-card text-center p-5"><h4>${__("No open service tasks")}</h4>
 				<p class="text-muted">${__("A Senior Operator or Supervisor can select Create Task. Scheduled tasks appear automatically when due.")}</p></div>`);
@@ -539,7 +608,7 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 
 	function render_task_section($container, tasks, title, help, color, active_section) {
 		const block_class = active_section ? "active-work" : color === "orange" ? "supervisor-work" : "ready-work";
-		const chip_label = active_section ? __("ACTIVE WORK") : color === "orange" ? __("SUPERVISOR VIEW") : __("OPEN TASK");
+		const chip_label = tasks.length && tasks.every((task) => task.scan_view_only) ? __("VIEW ONLY") : active_section ? __("ACTIVE WORK") : color === "orange" ? __("SUPERVISOR VIEW") : __("OPEN TASK");
 		const $section = $(`<section class="cfg-service-work-block ${block_class}"></section>`).appendTo($container);
 		$section.append(`<div class="cfg-service-list-heading"><div><h3>${title}</h3>
 			<small class="text-muted">${help}</small></div>
@@ -575,10 +644,11 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 					<strong>${__("Required document is pending")}</strong><br>
 					${__("This task will not be shown as completed until its controlled DocType Action reaches the configured Draft or Submitted result.")}
 					${task.doctype_action_run ? `<small>${__("Action Run")}: ${e(task.doctype_action_run)} · ${e(task.doctype_action_state || __("Form pending"))}</small>` : ""}</div>` : ""}
+				<div class="text-muted mb-2"><small>${__("Responsibility")}: ${e(task.responsible_role || __("Shared"))}</small></div>
 				<div class="actions cfg-service-task-actions"></div></div>`).appendTo($section);
 			const $actions = $row.find(".actions");
 			const can_execute = task.can_operate || task.can_assist;
-			if (task.progress_count) button($actions, __("View Progress"), "btn-default", () => progress_history_dialog(task));
+			if (task.progress_count && !task.scan_view_only) button($actions, __("View Progress"), "btn-default", () => progress_history_dialog(task));
 			if (task.doctype_action_run && can_open_action(task, can_execute)) button(
 				$actions,
 				task.status === "Pending Document Posting" ? __("Complete Required Document") : __("Open Document Form"),

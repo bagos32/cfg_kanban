@@ -18,6 +18,41 @@ the recurrence and records a skip event without generating an occurrence. A Supe
 cancel an unwanted occurrence or bypass it for an approved exception. Both actions require a
 reason and retain the audit record; neither deletes task history.
 
+## Service queue responsibility and explicit scans
+
+The default **Ready / Open Tasks** queue includes unassigned tasks whose **Responsible Kanban
+Role** matches **Operator Profile → Responsible Roles**. An empty responsibility list is no
+longer unrestricted: shared unassigned tasks and direct Employee assignments remain visible.
+Job Codes do not grant Service Task responsibility. Scoped Supervisor assistance and **View All
+Service Tasks** retain their existing authority. Operator Profile changes invalidate the live
+revision so the list refreshes even when no Task has changed.
+
+An explicit scan can reveal other open tasks as status references:
+
+- **General Service Point Location Card:** Card Type = Location Card; Location Purpose = General
+  Service Point; Location Reference matches the tasks' Location.
+- **Task Card:** exact Task Schedule.
+- **Asset Card:** exact Asset.
+- **Task QR/ID:** one exact occurrence.
+
+Cards must be active and unblocked. Their Company scopes the results when set; Workstation
+restrictions remain in effect. Outside-role or other-Employee references appear separately under
+**Scanned Tasks — View Only**, with no execution, private evidence or document-form controls.
+Matching actionable tasks take priority before the 200-row display limit. Server action and
+private-evidence APIs continue to apply responsibility, assignment and authority checks.
+
+For a Location Card, use **Print Kanban → Print General Service Location Card**. Identify the
+operator in **Kanban Service Tasks**, then scan by camera or keyboard wedge. The view retains its
+scope through Refresh and live updates; **Show All** returns to the responsibility queue. A Card
+scanned before login asks for operator identification and a rescan; it never becomes an Employee
+credential. Empty Card contexts show an empty-work message. Logistics-purpose Location Cards
+remain outside this service view.
+
+Identity Cards only open existing tasks. A Task Schedule's permanent Service Point QR may also
+create a due occurrence, but only with the matching responsibility and Start authority. An
+existing outside-role occurrence resolves only to its Task ID for reference; it does not expose
+its execution/evidence payload or create an Action Run.
+
 ## Service Task lifecycle
 
 Every normal Service Task must be started before progress or completion can be reported.

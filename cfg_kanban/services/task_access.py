@@ -23,7 +23,6 @@ def responsibility_allowed(responsible_role, profile):
     return bool(
         can_view_all_service_tasks(profile)
         or not responsible_role
-        or not responsibilities
         or responsible_role in responsibilities
     )
 

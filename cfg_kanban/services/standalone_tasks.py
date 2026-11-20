@@ -16,6 +16,7 @@ from cfg_kanban.services.task_access import (
     assert_responsibility,
     assert_service_task_access,
     assert_service_task_execution_access,
+    can_view_service_task,
 )
 
 
@@ -114,9 +115,8 @@ def resolve_service_point(scan_value, session_token):
     schedule_name = _service_schedule_name(scan_value)
     schedule = frappe.get_doc("CFG Kanban Task Schedule", schedule_name)
     profile, _session = require_operator(
-        session_token, "task_start", workstation=schedule.workstation
+        session_token, workstation=schedule.workstation
     )
-    assert_responsibility(schedule.responsible_role, profile)
     open_name = frappe.db.get_value(
         "CFG Kanban Task",
         {"task_schedule": schedule.name,
@@ -127,13 +127,17 @@ def resolve_service_point(scan_value, session_token):
     generated = False
     if not task and schedule.active and schedule.next_due_on and \
             get_datetime(schedule.next_due_on) <= now_datetime():
+        assert_responsibility(schedule.responsible_role, profile)
+        require_operator(session_token, "task_start", workstation=schedule.workstation)
         task = create_from_schedule(schedule.name, scheduled_for=schedule.next_due_on)
         generated = True
+    task_data = None
     if task:
-        assert_service_task_access(task, profile)
+        # A scan grants status discovery only; detailed evidence and actions keep their own gates.
+        task_data = task.as_dict() if can_view_service_task(task, profile) else {"name": task.name}
     return {
         "schedule": schedule.as_dict(),
-        "task": task.as_dict() if task else None,
+        "task": task_data,
         "generated": generated,
         "operator": profile.employee,
         "message": ("Current Service Task resolved" if task else

@@ -325,10 +325,19 @@ note, attachment, completion, and event records the Supervisor's Employee identi
 Assigned Employee is preserved. This assistance does not permit the Supervisor to start or take over
 an unstarted task, cancel/bypass the occurrence, or operate another Supervisor's assigned task. When
 **View All Service Tasks** is enabled, the Supervisor can also fully control work assigned to other
-Employees and work across all Kanban Responsibilities. For backward compatibility, an Operator
-Profile with an empty Responsible Roles table remains unrestricted for unassigned tasks until
-responsibilities are deliberately assigned. It does not grant assistance or control over another
-Employee's role-specific assigned work; the Supervisor must hold that explicit Responsibility.
+Employees and work across all Kanban Responsibilities. An Operator Profile with an empty
+**Responsible Roles** table now sees shared unassigned work and tasks directly assigned to that
+Employee; it does not expose all role-specific unassigned work. Populate **Responsible Roles** to
+match the Task's **Responsible Kanban Role**. **Job Codes** do not replace this responsibility list.
+
+An explicit scan of a General Service Point Location Card, Task Card, Asset Card, or exact Task
+identity can reveal other matching open tasks within Workstation scope (and the Card Company
+when specified). Those outside the Employee's responsibility or assignment appear separately under
+**Scanned Tasks — View Only**, with their Responsibility shown. They cannot be started, progressed,
+completed, verified, cancelled/bypassed, or used to open private evidence/document forms through
+that reference. Direct assignments, scoped Supervisor assistance and **View All Service Tasks**
+retain their existing action authority. **Show All** returns to the normal responsibility queue;
+Refresh and live updates retain an explicitly scanned context.
 
 ERPNext permissions still apply. A Kanban role does not automatically grant permission to Items,
 BOMs, Work Orders, Job Cards, Stock Entries, Warehouses, or Batches.
@@ -1415,8 +1424,9 @@ The panel rechecks those protections after every background response. If a popup
 operator scans/types, a frozen transaction starts, or the active credential changes while a check
 is already in flight, that response is discarded without rendering or advancing the revision
 marker; the next safe check retries it. Live refresh never moves focus back to the main scanner.
-Background checks do not extend the operator inactivity timeout; an expired session still requires
-the operator credential.
+Operator Profile changes also invalidate the live revision so edited responsibilities and access
+are rechecked without waiting for a Task update. Background checks do not extend the operator
+inactivity timeout; an expired session still requires the operator credential.
 
 Large touch controls for **Refresh**, **Scan / Switch Operator**, **Create Task**, and panel switching
 appear after Active Work and before the ready queue. Each task is displayed as a separate touch card
@@ -2943,6 +2953,18 @@ The Production Operator scanner also recognises `CFG:PROCESS_TASK:<task>` and
 `CFG:SAMPLE:<task>` identities. It loads the owning production card and opens the exact Process
 Task action appropriate to its status. The Service Task scanner recognises permanent
 `CFG:SERVICE:SCHEDULE:<schedule>` identities and resolves them to the current occurrence.
+It also accepts **Location Cards → General Service Point**. Set the Card's **Location Reference**
+to the exact **Location** used by its Service Tasks/Task Schedules, enable **Active**, and print
+**Print Kanban → Print General Service Location Card**. Identify the operator, then scan that Card
+with the camera or keyboard scanner. It opens existing tasks at that location, scoped to the Card
+Company when set and to the operator's Workstations. Tasks outside the operator's responsibility
+or assignment appear under **Scanned Tasks — View Only**; scanning does not grant action or private
+evidence access. **Task Cards** similarly scope to one Task Schedule and **Asset Cards** to one
+Asset. The scan context survives Refresh and live updates; **Show All** restores the matching
+responsibility queue. No matching tasks gives an empty-view message, not an operator-credential
+error. These Cards do not generate or start tasks. A Task Schedule Service Point QR can show an
+existing occurrence for reference; due-occurrence generation additionally requires the matching
+responsibility and Start authority.
 
 The server scan APIs support stable event tokens for retry/idempotency. Custom scanner clients
 must retain the same event token when retrying the same physical scan.

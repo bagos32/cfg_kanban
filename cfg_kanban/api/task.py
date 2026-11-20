@@ -4,6 +4,7 @@ import frappe
 from frappe.utils import cint, now_datetime
 
 from cfg_kanban.services.operator_auth import require_operator
+from cfg_kanban.services.doctype_action_runs import _scan_identity
 from cfg_kanban.services.media import list_reference_media
 from cfg_kanban.services.standalone_tasks import (complete_task, create_manual, start_task,
                                                   disposition_task, reject_task, resolve_service_point,
@@ -23,9 +24,20 @@ from cfg_kanban.services.task_access import (
 
 
 @frappe.whitelist()
-def get_open_tasks(operator_session_token=None):
+def get_open_tasks(operator_session_token=None, service_card=None, scanned_task=None):
     profile, _session = require_operator(operator_session_token)
     filters = {"status": ["not in", ("Completed", "Cancelled", "Bypassed")]}
+    if service_card and scanned_task:
+        frappe.throw("Select one Service Card or one exact Service Task")
+    if service_card:
+        card = _service_identity_card(service_card)
+        fieldname, value = _service_card_scope(card)
+        filters[fieldname] = value
+        if card.company:
+            filters["company"] = card.company
+    if scanned_task:
+        filters["name"] = scanned_task
+    explicit_scan = bool(service_card or scanned_task)
     rows = frappe.get_all(
         "CFG Kanban Task", filters=filters,
         fields=["name", "task_name", "task_category", "status", "priority", "requested_on",
@@ -55,6 +67,7 @@ def get_open_tasks(operator_session_token=None):
         )
     } if action_run_names else {}
     visible = []
+    references = []
     for row in rows:
         action_run = action_runs.get(row.doctype_action_run)
         row["doctype_action_state"] = action_run.state if action_run else None
@@ -82,12 +95,72 @@ def get_open_tasks(operator_session_token=None):
             and (row.can_operate or row.can_assist)
         )
         row["monitor_only"] = not row.can_operate and not row.can_assist
-        if (row.can_resume_action
-                or can_view_service_task(
-                    row, profile, assigned_roles.get(row.assigned_employee)
-                )):
+        normal_view = row.can_resume_action or can_view_service_task(
+            row, profile, assigned_roles.get(row.assigned_employee)
+        )
+        if normal_view:
+            row["scan_view_only"] = False
             visible.append(row)
+        elif explicit_scan and workstation_allowed(row.workstation, profile):
+            # A physical identity opens status for reference, never grants execution/evidence access.
+            row["scan_view_only"] = True
+            references.append(row)
+    visible.extend(references)
     return visible[:200]
+
+
+def _service_card_scope(card):
+    return {
+        "Location Card": ("location", card.location_reference),
+        "Task Card": ("task_schedule", card.task_schedule),
+        "Asset Card": ("asset", card.asset),
+    }[card.card_type]
+
+
+def _service_identity_card(card_name):
+    card = frappe.get_doc("CFG Kanban Card", card_name)
+    if card.card_type not in ("Location Card", "Task Card", "Asset Card"):
+        frappe.throw("Scan a Service Location, Task or Asset Card in the Service Task panel")
+    if card.card_type == "Location Card" and card.location_purpose != "General Service Point":
+        frappe.throw("Scan a General Service Point Location Card in the Service Task panel")
+    if not card.active:
+        frappe.throw("This Service Card is inactive")
+    if card.blocked:
+        frappe.throw("This Service Card is blocked")
+    fieldname, value = _service_card_scope(card)
+    if not (value or "").strip():
+        label = {"location": "Location Reference", "task_schedule": "Task Schedule", "asset": "Asset"}[fieldname]
+        frappe.throw(f"Set the {label} on this Service Card")
+    return card
+
+
+@frappe.whitelist()
+def resolve_service_card_scan(scan_value, operator_session_token=None):
+    """Classify a permanent service identity before credential fallback; never start work."""
+    value = _scan_identity(scan_value)
+    if not value:
+        return {"matched": False}
+    card_name = None
+    for fieldname in ("qr_code", "uuid", "card_number", "name"):
+        card_name = frappe.db.get_value(
+            "CFG Kanban Card", {fieldname: value,
+                                "card_type": ["in", ("Location Card", "Task Card", "Asset Card")]}, "name"
+        )
+        if card_name:
+            break
+    if not card_name:
+        return {"matched": False}
+    # Recognition before operator identification returns no Card or task data.
+    if not operator_session_token:
+        return {"matched": True, "requires_operator": True,
+                "message": "Identify the operator first, then scan the Service Card again"}
+    require_operator(operator_session_token)
+    card = _service_identity_card(card_name)
+    _fieldname, label = _service_card_scope(card)
+    return {"matched": True, "card": {
+        "name": card.name, "card_number": card.card_number, "card_type": card.card_type,
+        "location": card.location_reference, "label": label, "company": card.company,
+    }}
 
 
 @frappe.whitelist()
@@ -99,6 +172,7 @@ def get_service_tasks_live_revision(operator_session_token=None):
         f"task:{frappe.db.get_value('CFG Kanban Task', {}, 'max(modified)') or ''}",
         f"open:{frappe.db.count('CFG Kanban Task', open_filters)}",
         f"action:{frappe.db.get_value('CFG Kanban DocType Action Run', {}, 'max(modified)') or ''}",
+        f"access:{frappe.db.get_value('CFG Kanban Operator Profile', {}, 'max(modified)') or ''}",
     ]
     revision = hashlib.sha256("|".join(markers).encode("utf-8")).hexdigest()
     return {"revision": revision, "checked_at": now_datetime()}
