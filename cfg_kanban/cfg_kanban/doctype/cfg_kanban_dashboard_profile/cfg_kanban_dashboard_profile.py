@@ -5,6 +5,11 @@ from frappe.utils import cint
 
 class CFGKanbanDashboardProfile(Document):
     def validate(self):
+        if self.view_type == "Logistics and Delivery":
+            if not self.company:
+                frappe.throw("Logistics and Delivery requires a Company")
+            if self.warehouse and frappe.db.get_value("Warehouse", self.warehouse, "company") != self.company:
+                frappe.throw("Logistics dashboard Warehouse must belong to its Company")
         if self.refresh_interval_seconds and self.refresh_interval_seconds < 10:
             frappe.throw("Refresh Interval must be at least 10 seconds")
         if self.queue_depth and self.queue_depth < 1:

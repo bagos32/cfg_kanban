@@ -80,7 +80,13 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
     operator, session = require_operator(operator_session_token, 'start')
     engine, planning = _delivery_services(), _planning_services()
     engine._require_customer_delivery(operator)
+    candidate=frappe.get_doc('CFG Kanban Dispatch Plan',dispatch_plan)
+    route_scope_lock=None
+    if candidate.get('route_approval_required') or candidate.get('route_sequence_scope')=='Combined Lorry Trip' or candidate.get('active_route_sheet'):
+        from cfg_kanban.services.route_sheets import lock_plan_route_scope, check_plan_route_scope
+        route_scope_lock=lock_plan_route_scope(candidate,operator)
     plan = planning._locked_authorized_plan(dispatch_plan, operator)
+    if route_scope_lock:check_plan_route_scope(plan,route_scope_lock)
     if plan.get('fulfilment_mode') in ('Direct Warehouse Delivery','Customer Pickup'):
         from cfg_kanban.services.warehouse_fulfilment import start_warehouse_delivery
         return start_warehouse_delivery(plan,customer_scan,event_token,operator,session,operator_session_token)
@@ -106,6 +112,9 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
     if (site.name != plan.customer_site or site.selling_company != plan.company or
             site.customer != plan.customer or site.customer_address != plan.customer_address):
         frappe.throw('Scanned Customer Site does not match the prepared Plan Company, Customer and address')
+    if plan.get('route_approval_required') or plan.get('route_sequence_scope')=='Combined Lorry Trip' or plan.get('active_route_sheet'):
+        from cfg_kanban.services.route_sheets import assert_visit_allowed
+        assert_visit_allowed(plan,site.name)
     manifest = frappe.get_doc('CFG Kanban Movement Manifest', plan.movement_manifest)
     if (manifest.dispatch_plan != plan.name or manifest.state != 'Received' or
             manifest.source_company != plan.company or manifest.source_warehouse != plan.source_warehouse or

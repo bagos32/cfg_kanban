@@ -34,10 +34,20 @@ frappe.pages["kanban-floor"].on_page_load = function (wrapper) {
 
 	async function load_dashboard() {
 		if (!state.profile) return;
+		const requested_profile=state.profile;
 		const response = await frappe.call({
 			method: "cfg_kanban.api.dashboard.get_dashboard", args: { profile_name: state.profile },
 			freeze: !state.timer, freeze_message: __("Loading production floor..."),
 		});
+		if (state.profile!==requested_profile) return;
+		if (response.message.mode === "logistics") {
+			await frappe.require("/assets/cfg_kanban/js/logistics_floor.js");
+			if (state.profile!==requested_profile) return;
+			state.data=response.message;
+			$root.html(window.cfg_logistics_floor.render(response.message,frappe.utils.escape_html));
+			schedule(response.message.profile.refresh_interval_seconds || 30);
+			return;
+		}
 		render(response.message);
 		schedule(response.message.profile.refresh_interval_seconds || 30);
 	}

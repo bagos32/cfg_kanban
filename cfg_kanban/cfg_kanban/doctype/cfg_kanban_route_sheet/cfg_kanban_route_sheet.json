@@ -1,0 +1,211 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Route Sheet",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "track_changes": 1,
+ "field_order": [
+  "state",
+  "scope",
+  "company",
+  "dispatch_plan",
+  "vehicle_warehouse",
+  "vehicle_reference",
+  "trip_date",
+  "sequence_policy",
+  "verification_policy",
+  "route_template",
+  "template_revision",
+  "template_snapshot_json",
+  "stops",
+  "revision",
+  "approved_by_operator",
+  "approved_on",
+  "created_by_operator",
+  "created_on",
+  "closed_on",
+  "decision_notes",
+  "active_scope_key"
+ ],
+ "fields": [
+  {
+   "fieldname": "state",
+   "label": "Route State",
+   "fieldtype": "Select",
+   "default": "Draft",
+   "read_only": 1,
+   "in_list_view": 1,
+   "options": "Draft\nApproved\nIn Progress\nReady to Close\nCompleted\nCancelled"
+  },
+  {
+   "fieldname": "scope",
+   "label": "Route Scope",
+   "fieldtype": "Select",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "options": "Per Dispatch Plan\nCombined Lorry Trip"
+  },
+  {
+   "fieldname": "company",
+   "label": "Selling Company",
+   "fieldtype": "Link",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "options": "Company"
+  },
+  {
+   "fieldname": "dispatch_plan",
+   "label": "Dispatch Plan",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Dispatch Plan"
+  },
+  {
+   "fieldname": "vehicle_warehouse",
+   "label": "Lorry Warehouse",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "in_list_view": 1,
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "vehicle_reference",
+   "label": "Physical Lorry",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "trip_date",
+   "label": "Trip Date",
+   "fieldtype": "Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sequence_policy",
+   "label": "Customer Stop Sequence",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "options": "Flexible Order\nPlanned Order"
+  },
+  {
+   "fieldname": "verification_policy",
+   "label": "Customer Verification",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "options": "Require Customer Site QR\nAllow Assigned Stop Selection"
+  },
+  {
+   "fieldname": "route_template",
+   "label": "Route Template",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Route Template"
+  },
+  {
+   "fieldname": "template_revision",
+   "label": "Template Revision",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "template_snapshot_json",
+   "label": "Template Snapshot",
+   "fieldtype": "Long Text",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "stops",
+   "label": "Approved Customer Sequence",
+   "fieldtype": "Table",
+   "read_only": 1,
+   "options": "CFG Kanban Route Sheet Stop"
+  },
+  {
+   "fieldname": "revision",
+   "label": "Route Revision",
+   "fieldtype": "Int",
+   "default": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_by_operator",
+   "label": "Approved By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "approved_on",
+   "label": "Approved On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "created_by_operator",
+   "label": "Created By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "created_on",
+   "label": "Created On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closed_on",
+   "label": "Closed On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "decision_notes",
+   "label": "Decision Notes",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "active_scope_key",
+   "label": "Active Route Scope",
+   "fieldtype": "Data",
+   "unique": 1,
+   "read_only": 1,
+   "hidden": 1,
+   "length": 200
+  }
+ ],
+ "autoname": "format:DRS-{YYYY}-{#####}",
+ "allow_rename": 0,
+ "permissions": [
+  {
+   "role": "Stock User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1
+  }
+ ],
+ "naming_rule": "Expression"
+}

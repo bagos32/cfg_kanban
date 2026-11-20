@@ -348,3 +348,35 @@ E4 only after the E3 acceptance test passes. The owner-reported E3 path and auth
 proceed with E4A on 19 November 2026 are recorded above; unreported acceptance cases remain pending. Keep production execution behaviour separate, add
 regression tests, and stop for user-managed commit/deployment before each later package.
 
+
+## 14. Lorry visibility and approved customer trip sequences — local extension
+
+On 20 November 2026 the owner requested persistent lorry stock/customer visibility after E3,
+a logistics loading floor, selectable customer sequence templates and Supervisor drag/reordering
+before approval. The accepted setup supports **Per Dispatch Plan** and **Combined Lorry Trip**;
+the current requested workflow is **one combined sequence per lorry trip** across known-customer
+and Open Route Stock Plans. **Require Customer Site QR** versus **Allow Assigned Stop Selection**
+is a Supervisor-controlled setup option. Existing QR enforcement remains the default.
+
+Local development now includes:
+
+- current posted ERP Item/Batch/UOM balance with tag coverage, untagged remainder and identity
+  variance, independent of whether a loading Manifest has finished;
+- assigned loaded Plans, customer/address/stop details and active approved Route Sheets on lorry
+  Warehouse cards, plus preparation/ready/assigned loading work on the Logistics and Delivery floor;
+- versioned Company-specific Customer Site templates selectable while creating a Plan;
+- explicit source-Plan assignment, Supervisor draft drag/touch/scanner reordering, immutable approved
+  order and template snapshots, numbered choices and optional enforced Site QR at delivery;
+- one active combined sequence per Company-specific lorry Warehouse, strictest member verification/
+  order policy, actual visit ordering, proof barriers, stable retries/read-back/void and E5 closure.
+
+This extends the existing E4A/E4B customer-delivery and E5 review engines; it does not merge several
+Plans into one Delivery Note, combine Company ownership, optimize routes, infer customers for old
+stock or reset two/three-day trips at midnight. Templates/approval may be used per Plan as well.
+Legacy Plans retain their captured policy. Every member must be physically Loaded before saving
+or approving its trip Sheet; E5 settlement remains required before final Sheet closure.
+
+See [the setup/operator guide](USER_GUIDE_LORRY_ROUTES_AND_FLOOR.md) and
+[the requirements and acceptance record](TEST_LORRY_ROUTES_AND_FLOOR.md). Offline verification is
+recorded there. Native migration, ERP/concurrency/permission and device acceptance are **Not run**;
+the separate L1 gate and outstanding E5B scope above remain open.

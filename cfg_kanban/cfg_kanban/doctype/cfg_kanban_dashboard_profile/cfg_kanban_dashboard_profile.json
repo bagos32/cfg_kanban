@@ -25,6 +25,10 @@
  "permissions":[
   {"role":"Manufacturing User","read":1},
   {"role":"Manufacturing Manager","read":1,"write":1,"create":1,"delete":1},
+  {"role":"Stock User","read":1},
+  {"role":"Sales User","read":1},
+  {"role":"Stock Manager","read":1,"write":1,"create":1},
+  {"role":"Sales Manager","read":1,"write":1,"create":1},
   {"role":"System Manager","read":1,"write":1,"create":1,"delete":1}
  ]
 }

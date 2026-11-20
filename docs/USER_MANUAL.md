@@ -5826,3 +5826,44 @@ case opens instead; its intake snapshots remain immutable. `CANCEL` closes while
 preserving a pending request. Submission requires HTTPS/localhost and Web Locks
 (the previously confirmed supported-browser setup). Do not clear browser storage
 to resolve an uncertain submission.
+
+
+## Lorry stock, customer route sheets and the Logistics floor
+
+A **Warehouse Operations** lorry card now shows current ERP stock independently of open loading
+Manifests, including tagged coverage and untagged remainder. Loaded customer Plans, customer stops
+and active Route Sheets remain readable after dispatch loading completes. Loaded quantities are
+historical; current stock follows submitted ERP movements. Stock remaining after E5 settlement
+can be visible without an active customer commitment.
+
+Create an ordered **CFG Kanban Route Template** of existing Customer Sites. On **CFG Kanban
+Dispatch Profile**, choose **Route Sequence Scope → Combined Lorry Trip** for one approved sequence
+across Customer Order and Open Route Stock Plans on the same Company-specific lorry Warehouse.
+**Per Dispatch Plan** is also available. Set the default template and **Customer Stop Sequence**
+(Planned Order or Flexible Order). **Customer Verification at Stop** lets the Supervisor configure
+mandatory Customer Site QR or permitted assigned-stop selection. Combined trips always require
+route approval and apply the stricter member policies. Historical Plans retain their captured rules.
+
+Select the customer template while operating the Dispatch Card. After E3 loading, a Supervisor
+opens **Plan / Approve Route Sequence** from the lorry/Plan, explicitly assigns any ambiguous source
+Plans, then drags stops or uses Move Up/Down and approves. Approved order is frozen. Drivers open
+**Lorry Route Sheet**, read customer names/full addresses/sequence before arrival, select the exact
+stop, scan its Site QR if required and Confirm. The existing Customer Delivery Session, allocation,
+Delivery Note and proof steps continue. Multi-day trips remain active until explicit E5 settlement;
+**Close Settled Trip** needs every Plan settled and a Supervisor reason.
+
+For **Kanban Floor**, create an active **CFG Kanban Dashboard Profile** with **View Type → Logistics
+and Delivery**, Company and optional source/lorry Warehouse. Leave Workstations empty. The read-only
+board shows Upcoming Preparation, Ready to Load and assigned lorries; Stock/Sales terminal roles
+and native Profile/Company/Warehouse read permissions apply.
+
+Scanner entry commands are `CFG:CMD:VIEW_LORRY_ROUTE` and `CFG:CMD:EDIT_ROUTE_SEQUENCE` in both
+Production and Logistics. Route Template/Add Stop/Assign Plan, numbered choices 1–10 with paging,
+Move Up/Down, Save Draft, Approve, reason, Confirm/Cancel, Refresh/Reconcile, void-if-unrecorded and
+camera controls are available through the printable command catalogue. Unknown submissions retain
+the original actor, payload and event token across reopen/refresh; Not Recorded alone does not
+permit corrections. Do not clear browser storage to resolve an uncertain request.
+
+See [the setup/operator guide](USER_GUIDE_LORRY_ROUTES_AND_FLOOR.md) and
+[the acceptance checklist](TEST_LORRY_ROUTES_AND_FLOOR.md). Local offline tests do not establish
+native Frappe migration, stock posting, concurrency, permissions or scanner/tablet acceptance.

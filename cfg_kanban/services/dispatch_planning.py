@@ -29,6 +29,7 @@ PROFILE_SNAPSHOT_FIELDS = (
     "approval_required", "allow_supervisor_override", "auto_submit_stock_transfer",
     "auto_submit_delivery_note", "proof_policy", "dispatch_responsibility",
     "stop_sequence_policy", "delivery_route_reference", "pickup_acknowledgement",
+    "route_sequence_scope", "route_template", "route_approval_required", "customer_verification",
 )
 
 
@@ -36,7 +37,7 @@ PROFILE_SNAPSHOT_FIELDS = (
 def create_dispatch_plan(dispatch_profile, lines, customer_site=None, sales_order=None,
                          logistics_route=None, territory=None, required_date=None,
                          trip_date=None, priority="Normal", event_token=None,
-                         operator_session_token=None):
+                         operator_session_token=None, route_template=None):
     _require_event_token(event_token)
     operator, session = require_operator(operator_session_token, "start")
     policy = _authorized_profile(dispatch_profile, operator)
@@ -56,7 +57,15 @@ def create_dispatch_plan(dispatch_profile, lines, customer_site=None, sales_orde
     if existing:
         return get_dispatch_plan(existing, operator_session_token)
 
+    selected_template = route_template or policy.get('route_template')
+    template_data = None
+    if selected_template:
+        from cfg_kanban.services.route_sheets import template_snapshot
+        template_data = template_snapshot(selected_template,policy.company)
     snapshot = {fieldname: policy.get(fieldname) for fieldname in PROFILE_SNAPSHOT_FIELDS}
+    snapshot['route_sequence_scope']=policy.get('route_sequence_scope') or 'Per Dispatch Plan'
+    snapshot['customer_verification']=policy.get('customer_verification') or 'Require Customer Site QR'
+    snapshot['route_approval_required']=cint(policy.get('route_approval_required')) or int(snapshot['route_sequence_scope']=='Combined Lorry Trip')
     snapshot_json = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), default=str)
     plan = frappe.get_doc({
         "doctype": "CFG Kanban Dispatch Plan",
@@ -84,6 +93,11 @@ def create_dispatch_plan(dispatch_profile, lines, customer_site=None, sales_orde
         "proof_policy": policy.proof_policy,
         "stop_sequence_policy": policy.get("stop_sequence_policy") or "Flexible Order",
         "delivery_route_reference": policy.get("delivery_route_reference"),
+        "route_sequence_scope": policy.get('route_sequence_scope') or 'Per Dispatch Plan',
+        "route_approval_required": cint(policy.get('route_approval_required')) or int(policy.get('route_sequence_scope')=='Combined Lorry Trip'),
+        "customer_verification": policy.get('customer_verification') or 'Require Customer Site QR',
+        "route_template": selected_template,
+        "route_template_snapshot_json": json.dumps(template_data,sort_keys=True,default=str) if template_data else None,
         **context,
         "priority": priority or "Normal",
         "lines": rows,

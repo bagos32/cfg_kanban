@@ -1,0 +1,96 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Route Template",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "track_changes": 1,
+ "field_order": [
+  "template_name",
+  "active",
+  "company",
+  "revision",
+  "stops",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "template_name",
+   "label": "Route Template",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "active",
+   "label": "Active",
+   "fieldtype": "Check",
+   "default": "1",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Selling Company",
+   "fieldtype": "Link",
+   "reqd": 1,
+   "in_list_view": 1,
+   "options": "Company"
+  },
+  {
+   "fieldname": "revision",
+   "label": "Revision",
+   "fieldtype": "Int",
+   "default": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stops",
+   "label": "Customer Stop Sequence",
+   "fieldtype": "Table",
+   "reqd": 1,
+   "options": "CFG Kanban Route Template Stop"
+  },
+  {
+   "fieldname": "notes",
+   "label": "Notes",
+   "fieldtype": "Small Text"
+  }
+ ],
+ "autoname": "field:template_name",
+ "allow_rename": 0,
+ "permissions": [
+  {
+   "role": "Stock User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "print": 1,
+   "write": 1,
+   "create": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "print": 1,
+   "write": 1,
+   "create": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1,
+   "write": 1,
+   "create": 1
+  }
+ ],
+ "naming_rule": "By fieldname",
+ "title_field": "template_name"
+}

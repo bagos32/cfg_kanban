@@ -1,0 +1,110 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Route Sheet Stop",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "track_changes": 1,
+ "field_order": [
+  "row_key",
+  "dispatch_plan",
+  "customer_scan_point",
+  "site_name",
+  "customer",
+  "customer_address",
+  "address_display",
+  "instructions",
+  "source_route_stop",
+  "delivery_session",
+  "state",
+  "actual_sequence"
+ ],
+ "fields": [
+  {
+   "fieldname": "row_key",
+   "label": "Stop Identity",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "dispatch_plan",
+   "label": "Dispatch Plan",
+   "fieldtype": "Link",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "options": "CFG Kanban Dispatch Plan"
+  },
+  {
+   "fieldname": "customer_scan_point",
+   "label": "Customer Site",
+   "fieldtype": "Link",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "options": "CFG Kanban Customer Scan Point"
+  },
+  {
+   "fieldname": "site_name",
+   "label": "Site Name",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "customer",
+   "label": "Customer",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Customer"
+  },
+  {
+   "fieldname": "customer_address",
+   "label": "Address",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Address"
+  },
+  {
+   "fieldname": "address_display",
+   "label": "Delivery Address",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "instructions",
+   "label": "Instructions",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_route_stop",
+   "label": "Open Route Visit",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Route Stop"
+  },
+  {
+   "fieldname": "delivery_session",
+   "label": "Delivery Session",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Delivery Session"
+  },
+  {
+   "fieldname": "state",
+   "label": "Visit Status",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "actual_sequence",
+   "label": "Actual Sequence",
+   "fieldtype": "Int",
+   "read_only": 1
+  }
+ ],
+ "istable": 1
+}

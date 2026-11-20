@@ -1,5 +1,6 @@
 frappe.ui.form.on("CFG Kanban Dispatch Profile", {
 	setup(frm) {
+		frm.set_query("route_template", () => ({filters:{company:frm.doc.company || "",active:1}}));
 		frm.set_query("dispatch_point", () => ({
 			filters: { card_type: "Location Card", location_purpose: "Dispatch Operations", active: 1, blocked: 0 },
 		}));

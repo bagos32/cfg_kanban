@@ -11,15 +11,21 @@ STATUS_ORDER = {"In Progress": 0, "Paused": 1, "Ready": 2, "Waiting Input": 3,
 
 
 def _require_dashboard_role():
-    frappe.only_for(("Manufacturing User", "Manufacturing Manager", "System Manager"))
+    frappe.only_for(("Manufacturing User", "Manufacturing Manager", "System Manager",
+                     "Stock User", "Stock Manager", "Sales User", "Sales Manager"))
 
 
 @frappe.whitelist()
 def get_profiles():
     _require_dashboard_role()
+    filters = {"active": 1}
+    if not set(frappe.get_roles()).intersection({"Manufacturing User", "Manufacturing Manager", "System Manager"}):
+        filters["view_type"] = "Logistics and Delivery"
+    elif not set(frappe.get_roles()).intersection({"Stock User", "Stock Manager", "Sales User", "Sales Manager", "System Manager"}):
+        filters["view_type"] = ["!=", "Logistics and Delivery"]
     return frappe.get_list(
         "CFG Kanban Dashboard Profile",
-        filters={"active": 1},
+        filters=filters,
         fields=["name", "profile_name", "view_type", "access_mode", "description"],
         order_by="profile_name asc",
         limit_page_length=500,
@@ -31,6 +37,16 @@ def get_dashboard(profile_name):
     _require_dashboard_role()
     profile = frappe.get_doc("CFG Kanban Dashboard Profile", profile_name)
     profile.check_permission("read")
+    if not profile.active:
+        frappe.throw("Dashboard Profile is inactive")
+    if profile.view_type == "Logistics and Delivery":
+        frappe.only_for(("Stock User", "Stock Manager", "Sales User", "Sales Manager", "System Manager"))
+        if not profile.company:
+            frappe.throw("Select Company on the Logistics and Delivery Dashboard Profile")
+        frappe.get_doc("Company", profile.company).check_permission("read")
+        from cfg_kanban.services.vehicle_overview import floor_context
+        return floor_context(profile)
+    frappe.only_for(("Manufacturing User", "Manufacturing Manager", "System Manager"))
     selected = sorted(
         (row for row in profile.workstations if row.enabled),
         key=lambda row: (row.display_order, row.idx),

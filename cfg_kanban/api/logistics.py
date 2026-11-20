@@ -140,12 +140,18 @@ def get_logistics_console(operator_session_token):
 
 
 @frappe.whitelist()
-def get_logistics_live_revision(operator_session_token, selected_manifest=None):
+def get_logistics_live_revision(operator_session_token, selected_manifest=None, selected_warehouse=None):
     """Return a lightweight opaque revision for Logistics panel background checks."""
     profile, _session = require_operator(operator_session_token, touch_activity=False)
     route_names = _authorized_route_names(profile)
     responsibilities = _responsibilities(profile)
     markers = []
+    if selected_warehouse:
+        warehouse=frappe.get_doc("Warehouse",selected_warehouse)
+        warehouse.check_permission("read")
+        for doctype,filters in (("Stock Ledger Entry",{"warehouse":warehouse.name,"company":warehouse.company}),
+                                ("CFG Kanban Handling Unit",{"current_warehouse":warehouse.name,"inventory_company":warehouse.company})):
+            markers.append(doctype+":"+str(frappe.db.get_value(doctype,filters,"max(modified)") or ""))
     if route_names:
         manifest_filters = {"logistics_route": ["in", list(route_names)]}
         markers.append(
@@ -157,6 +163,8 @@ def get_logistics_live_revision(operator_session_token, selected_manifest=None):
         ("CFG Kanban Logistics Route", {"active": 1}),
         ("CFG Kanban Delivery Session", {}),
         ("CFG Kanban Return Case", {}),
+        ("CFG Kanban Route Sheet", {}),
+        ("CFG Kanban Route Template", {}),
         ("CFG Kanban Route Reconciliation", {}),
         ("Stock Entry", {"purpose": "Material Transfer"}),
     ):
@@ -328,6 +336,10 @@ def get_warehouse_operations_context(card, profile):
     if warehouse and warehouse.cfg_is_vehicle_warehouse and warehouse.cfg_vehicle_reference:
         from cfg_kanban.services.dispatch_planning import claimable_vehicle_plans
         claimable_plans = claimable_vehicle_plans(card.current_warehouse, profile)
+    vehicle_overview = None
+    if warehouse and warehouse.cfg_is_vehicle_warehouse and warehouse.cfg_vehicle_reference:
+        from cfg_kanban.services.vehicle_overview import vehicle_context
+        vehicle_overview = vehicle_context(card.current_warehouse, profile)
     return {
         "mode": "warehouse_operations",
         "location_card": card.name,
@@ -351,6 +363,7 @@ def get_warehouse_operations_context(card, profile):
         ),
         "vehicle_reference": (warehouse.cfg_vehicle_reference if warehouse else None),
         "claimable_dispatch_plans": claimable_plans,
+        "vehicle_overview": vehicle_overview,
     }
 
 
@@ -382,6 +395,7 @@ def get_dispatch_operations_context(card, profile):
             "stock_rotation_policy", "approval_required", "allow_supervisor_override",
             "auto_submit_stock_transfer", "auto_submit_delivery_note", "proof_policy",
             "dispatch_responsibility", "revision", "pickup_acknowledgement",
+            "route_sequence_scope", "route_template", "route_approval_required", "customer_verification",
         ],
         order_by="priority asc, business_label asc",
         limit_page_length=200,

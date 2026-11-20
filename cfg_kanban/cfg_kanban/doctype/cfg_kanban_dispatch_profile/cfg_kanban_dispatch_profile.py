@@ -7,6 +7,19 @@ class CFGKanbanDispatchProfile(Document):
     """Manager policy resolved at a permanent Dispatch Point and snapshotted into E2 Plans."""
 
     def validate(self):
+        self.route_sequence_scope = self.get('route_sequence_scope') or 'Per Dispatch Plan'
+        self.customer_verification = self.get('customer_verification') or 'Require Customer Site QR'
+        if self.route_sequence_scope not in ('Per Dispatch Plan','Combined Lorry Trip'):
+            frappe.throw('Select a valid Route Sequence Scope')
+        if self.customer_verification not in ('Require Customer Site QR','Allow Assigned Stop Selection'):
+            frappe.throw('Select a valid Customer Verification policy')
+        if self.route_sequence_scope=='Combined Lorry Trip':
+            self.route_approval_required=1
+        if self.get('route_template'):
+            from cfg_kanban.services.route_sheets import template_snapshot
+            template_snapshot(self.route_template,self.company)
+        if self.fulfilment_mode!='Vehicle Delivery' and (self.route_sequence_scope=='Combined Lorry Trip' or self.get('route_template')):
+            frappe.throw('Lorry route templates and combined scope apply to Vehicle Delivery')
         self.stop_sequence_policy = self.get("stop_sequence_policy") or "Flexible Order"
         if self.get("stop_sequence_policy") not in (None, "", "Flexible Order", "Planned Order"):
             frappe.throw("Customer Stop Sequence must be Flexible Order or Planned Order")
@@ -40,7 +53,7 @@ class CFGKanbanDispatchProfile(Document):
                 "tag_policy", "stock_rotation_policy", "approval_required",
                 "allow_supervisor_override", "auto_submit_stock_transfer",
                 "auto_submit_delivery_note", "proof_policy", "dispatch_responsibility",
-                "stop_sequence_policy", "delivery_route_reference", "pickup_acknowledgement")):
+                "stop_sequence_policy", "delivery_route_reference", "pickup_acknowledgement", "route_sequence_scope", "route_template", "route_approval_required", "customer_verification")):
             self.revision = cint(before.revision) + 1
 
     def _validate_dispatch_point(self):

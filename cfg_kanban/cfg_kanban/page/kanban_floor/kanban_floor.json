@@ -5,8 +5,26 @@
  "title": "Kanban Floor",
  "standard": "Yes",
  "roles": [
-  {"role": "Manufacturing User"},
-  {"role": "Manufacturing Manager"},
-  {"role": "System Manager"}
+  {
+   "role": "Manufacturing User"
+  },
+  {
+   "role": "Manufacturing Manager"
+  },
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Stock User"
+  },
+  {
+   "role": "Stock Manager"
+  },
+  {
+   "role": "Sales User"
+  },
+  {
+   "role": "Sales Manager"
+  }
  ]
 }

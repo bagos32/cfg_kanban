@@ -316,7 +316,13 @@ def start_route_stop(dispatch_plan, customer_scan, event_token, operator_session
     operator, session = require_operator(operator_session_token, 'start')
     engine = _engine()
     engine._require_customer_delivery(operator)
+    candidate=frappe.get_doc('CFG Kanban Dispatch Plan',dispatch_plan)
+    route_scope_lock=None
+    if candidate.get('route_approval_required') or candidate.get('route_sequence_scope')=='Combined Lorry Trip' or candidate.get('active_route_sheet'):
+        from cfg_kanban.services.route_sheets import lock_plan_route_scope, check_plan_route_scope
+        route_scope_lock=lock_plan_route_scope(candidate,operator)
     plan = _locked_plan(dispatch_plan, operator)
+    if route_scope_lock:check_plan_route_scope(plan,route_scope_lock)
     key = canonical_key('route-stop-start', plan.name, event_token)
     identity = engine.resolve_logistics_scan(customer_scan)
     if not identity or identity.get('identity_type') != 'Customer Scan Point':
@@ -354,6 +360,9 @@ def start_route_stop(dispatch_plan, customer_scan, event_token, operator_session
         next_stop = next((row for row in planned if cint(row.planned_sequence)>0), None)
         if next_stop and next_stop.name != stop.name and not (stop.override_approved_by and stop.override_reason):
             frappe.throw('Visit the next planned Customer Stop or obtain a reasoned Supervisor sequence approval')
+    if plan.get('route_approval_required') or plan.get('route_sequence_scope')=='Combined Lorry Trip' or plan.get('active_route_sheet'):
+        from cfg_kanban.services.route_sheets import assert_visit_allowed
+        assert_visit_allowed(plan,site.name,stop.name if stop else None)
     _validate_loaded_route(plan)
     if not stop:
         stop = _new_stop(plan, site, operator, canonical_key('route-stop-unplanned', key))
