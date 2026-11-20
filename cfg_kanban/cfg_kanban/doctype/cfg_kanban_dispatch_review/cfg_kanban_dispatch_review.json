@@ -1,0 +1,281 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Dispatch Review",
+ "module": "CFG Kanban",
+ "autoname": "KDR-.YYYY.-.#####",
+ "track_changes": 1,
+ "title_field": "dispatch_plan",
+ "field_order": [
+  "state",
+  "dispatch_plan",
+  "company",
+  "vehicle_warehouse",
+  "vehicle_reference",
+  "opened_on",
+  "opened_by_operator",
+  "operator_session",
+  "active_plan_key",
+  "action",
+  "reason",
+  "route_reconciliation",
+  "movement_stock_entry",
+  "destination_warehouse",
+  "variance_exception",
+  "opening_snapshot_json",
+  "opening_snapshot_hash",
+  "closing_snapshot_json",
+  "closing_snapshot_hash",
+  "closed_on",
+  "closed_by_operator",
+  "resume_reason",
+  "resumed_on",
+  "resumed_by_operator",
+  "idempotency_key",
+  "finish_key",
+  "finish_payload_hash",
+  "hold_key",
+  "resume_key"
+ ],
+ "fields": [
+  {
+   "fieldname": "state",
+   "label": "Review State",
+   "fieldtype": "Select",
+   "default": "Reviewing",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "options": "Reviewing\nHeld\nOvernight\nCompleted\nResumed"
+  },
+  {
+   "fieldname": "dispatch_plan",
+   "label": "Dispatch Plan",
+   "fieldtype": "Link",
+   "reqd": 1,
+   "read_only": 1,
+   "search_index": 1,
+   "in_list_view": 1,
+   "options": "CFG Kanban Dispatch Plan"
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "reqd": 1,
+   "read_only": 1,
+   "options": "Company"
+  },
+  {
+   "fieldname": "vehicle_warehouse",
+   "label": "Lorry Warehouse",
+   "fieldtype": "Link",
+   "reqd": 1,
+   "read_only": 1,
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "vehicle_reference",
+   "label": "Physical Vehicle",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "opened_on",
+   "label": "Review Opened On",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "opened_by_operator",
+   "label": "Opened by Operator",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "operator_session",
+   "label": "Opening Operator Session",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Operator Session"
+  },
+  {
+   "fieldname": "active_plan_key",
+   "label": "Active Plan Key",
+   "fieldtype": "Data",
+   "unique": 1,
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "action",
+   "label": "Closing Choice",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "options": "\nNo Remaining Prepared Stock\nClose Trip - Stock Stays\nContinue Same Plan Overnight\nReturned to Warehouse\nTransferred to Another Lorry"
+  },
+  {
+   "fieldname": "reason",
+   "label": "Closing / Hold Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "route_reconciliation",
+   "label": "Closed D3 Count",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Route Reconciliation"
+  },
+  {
+   "fieldname": "movement_stock_entry",
+   "label": "Submitted Recovery Stock Entry",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "search_index": 1,
+   "options": "Stock Entry",
+   "unique": 1
+  },
+  {
+   "fieldname": "destination_warehouse",
+   "label": "Recovery Destination",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "variance_exception",
+   "label": "Variance Hold",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Exception"
+  },
+  {
+   "fieldname": "opening_snapshot_json",
+   "label": "Prepared Stock at Opening",
+   "fieldtype": "Code",
+   "reqd": 1,
+   "read_only": 1,
+   "options": "JSON"
+  },
+  {
+   "fieldname": "opening_snapshot_hash",
+   "label": "Opening Balance Hash",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "closing_snapshot_json",
+   "label": "Prepared Stock at Closing",
+   "fieldtype": "Code",
+   "read_only": 1,
+   "options": "JSON"
+  },
+  {
+   "fieldname": "closing_snapshot_hash",
+   "label": "Closing Balance Hash",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closed_on",
+   "label": "Review Closed On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closed_by_operator",
+   "label": "Closed by Operator",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "resume_reason",
+   "label": "Resume Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resumed_on",
+   "label": "Resumed On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resumed_by_operator",
+   "label": "Resumed by Operator",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "idempotency_key",
+   "label": "Opening Key",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "unique": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "finish_key",
+   "label": "Finish Key",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "unique": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "finish_payload_hash",
+   "label": "Finish Request Hash",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "hold_key",
+   "label": "Hold Key",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "unique": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "resume_key",
+   "label": "Resume Key",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "unique": 1,
+   "hidden": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Stock User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1
+  }
+ ]
+}

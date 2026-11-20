@@ -98,5 +98,6 @@ workflow still requires a live floor test; offline dialog tests do not establish
 
 Open Route multi-customer delivery/Route Stops are implemented in the separate E4B development
 increment; see [its guide](USER_GUIDE_DISPATCH_E4B.md). Direct Warehouse Delivery/Customer Pickup
-(E4C), E5 recovery/reconciliation and optional E6 remain separate increments. User-managed commit
+are implemented in the E4C development increment; see [its guide](USER_GUIDE_DISPATCH_E4C.md).
+E5 recovery/reconciliation and optional E6 remain separate increments. User-managed commit
 and deployment remain required before site verification.

@@ -2,16 +2,17 @@
 (function(root){
  'use strict';
  function createController(env){
-  const s={plans:[],plan:null,customerScan:'',page:0,busy:false,pending:null,closed:false,completed:false,message:'Scan the loaded Dispatch Plan or Customer Site.'};
+  const s={plans:[],plan:null,customerScan:'',page:0,busy:false,pending:null,closed:false,completed:false,message:'Scan a prepared Dispatch Plan or Customer Site.'};
   const changed=()=>env.render(s),fail=msg=>{throw new Error(msg);};
   function select(n){
    if(s.pending)fail('Retry the original prepared delivery before changing it.');
    const plan=s.plans[s.page*10+n-1];if(!plan)fail('Select one of the displayed numbered Plans.');
-   s.plan=plan;s.message=s.customerScan?'Ready: confirm this prepared customer load.':'Scan the Customer Site printed at the delivery location.';changed();
+   s.plan=plan;s.message=s.customerScan?'Ready: confirm this prepared customer fulfilment.':'Scan the Customer Site printed at the delivery location.';changed();
   }
   async function context(value){
    if(env.owner()!==env.openedOwner)fail('Identify the original operator before selecting prepared work.');
    if(s.pending)fail('Retry the original prepared delivery before changing it.');
+   s.customerScan='';changed();
    const result=await env.rpc('prepared_delivery_context',{scan_value:value,operator_session_token:env.token()});
    if(s.closed)return;
    if(env.owner()!==env.openedOwner){s.plans=[];s.plan=null;s.customerScan='';changed();fail('Operator changed; close this dialog and identify the intended operator.');}
@@ -23,8 +24,8 @@
     s.plans=result.plans||[];s.plan=null;s.page=0;s.customerScan=result.customer_scan||'';
     if(s.plans.length===1)select(1);
    }
-   s.message=!s.plans.length?'No eligible loaded Customer Order Plans at this site.':
-    !s.plan?'Select the exact numbered Plan.':!s.customerScan?'Scan the Customer Site printed at the delivery location.':'Ready: confirm this prepared customer load.';
+   s.message=!s.plans.length?'No eligible prepared Customer Order Plans at this site.':
+    !s.plan?'Select the exact numbered Plan.':!s.customerScan?'Scan the Customer Site printed at the delivery location.':'Ready: confirm this prepared customer fulfilment.';
    changed();
   }
   async function confirm(){
@@ -53,7 +54,7 @@
    if(upper==='CFG:CMD:PREPARED_DELIVERY_CAMERA')return env.camera();
    if(upper==='CFG:CMD:HELP'){s.message='Scan a Plan or Customer Site, choose CFG:SELECT:1–10 when needed, then Confirm. Next/Previous Material Choices page Plans. Cancel closes safely. No quantity re-entry is required.';changed();return;}
    if(s.pending)fail('Retry the original prepared delivery before changing it.');
-   if(upper==='CFG:CMD:PREPARED_DELIVERY_SOURCE'){s.plan=null;s.customerScan='';s.plans=[];s.page=0;s.message='Scan another loaded Plan or Customer Site.';changed();return;}
+   if(upper==='CFG:CMD:PREPARED_DELIVERY_SOURCE'){s.plan=null;s.customerScan='';s.plans=[];s.page=0;s.message='Scan another prepared Plan or Customer Site.';changed();return;}
    if(upper==='CFG:CMD:NEXT_MATERIALS'||upper==='CFG:CMD:PREVIOUS_MATERIALS'){
     s.page=Math.max(0,Math.min(Math.ceil(s.plans.length/10)-1,s.page+(upper.includes('NEXT_')?1:-1)));changed();return;
    }
@@ -81,12 +82,12 @@
   }
   function summary(plan){
    if(plan.quantity_summary)return plan.quantity_summary;
-   const quantities={};for(const row of plan.lines||[])quantities[row.stock_uom]=(quantities[row.stock_uom]||0)+Number(row.loaded_qty||0);
+   const quantities={};for(const row of plan.lines||[])quantities[row.stock_uom]=(quantities[row.stock_uom]||0)+Number(row.loaded_qty||row.requested_qty||0);
    return Object.entries(quantities).map(([uom,qty])=>`${qty} ${uom}`).join(' / ');
   }
   function render(s){
    const rows=s.plans.slice(s.page*10,s.page*10+10).map((plan,i)=>
-    `<button type="button" class="btn btn-default btn-block text-left prepared-plan-choice" data-number="${i+1}">${i+1}. ${e(plan.name)} · ${e(plan.business_label||'')} · ${e(plan.vehicle_reference||plan.vehicle_warehouse||'')} · ${e(summary(plan))}${s.plan?.name===plan.name?' ✓':''}</button>`).join('');
+    `<button type="button" class="btn btn-default btn-block text-left prepared-plan-choice" data-number="${i+1}">${i+1}. ${e(plan.name)} · ${e(plan.business_label||'')} · ${e(plan.fulfilment_mode||'Vehicle Delivery')} · ${e(plan.vehicle_reference||plan.vehicle_warehouse||plan.source_warehouse||'')} · ${e(summary(plan))}${s.plan?.name===plan.name?' ✓':''}</button>`).join('');
    dialog.fields_dict.review.$wrapper.html(`<p>${e(s.message)}</p>${rows}<p>${e(s.customerScan||'Customer Site scan required')}</p>`);
    dialog.fields_dict.review.$wrapper.find('.prepared-plan-choice').on('click',function(){const n=Number(this.dataset.number);enqueue(()=>controller.select(n));});
    if(s.busy||!s.plan||!s.customerScan)dialog.disable_primary_action();else dialog.enable_primary_action();

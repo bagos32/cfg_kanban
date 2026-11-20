@@ -381,7 +381,7 @@ def get_dispatch_operations_context(card, profile):
             "staging_warehouse", "transit_warehouse", "tag_policy",
             "stock_rotation_policy", "approval_required", "allow_supervisor_override",
             "auto_submit_stock_transfer", "auto_submit_delivery_note", "proof_policy",
-            "dispatch_responsibility", "revision",
+            "dispatch_responsibility", "revision", "pickup_acknowledgement",
         ],
         order_by="priority asc, business_label asc",
         limit_page_length=200,

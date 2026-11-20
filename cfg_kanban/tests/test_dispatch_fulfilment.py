@@ -241,7 +241,7 @@ class TestDispatchFulfilment(unittest.TestCase):
 
     def test_missing_loose_balance_rejects_delivery(self):
         self.loose();self.erp_balance=10
-        with self.assertRaisesRegex(ValueError,'Untagged lorry stock'):self.start()
+        with self.assertRaisesRegex(ValueError,'Untagged source stock'):self.start()
 
     def test_changed_tag_quantity_blocks_delivery(self):
         self.unit.current_qty=4

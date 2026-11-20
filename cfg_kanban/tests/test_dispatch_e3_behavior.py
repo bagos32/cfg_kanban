@@ -97,7 +97,7 @@ class TestDispatchE3Behavior(unittest.TestCase):
         rows=[row for row in self.data.get(doctype,{}).values() if self.matches(row,filters)]
         return [r.get(pluck) for r in rows] if pluck else rows
 
-    def get_doc(self,doctype,name=None):
+    def get_doc(self,doctype,name=None,**kwargs):
         if isinstance(doctype,dict):return Doc(doctype,_store=self.data)
         return self.data[doctype][name]
 

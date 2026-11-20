@@ -16,7 +16,7 @@ from cfg_kanban.services.logistics_foundation import (
 from cfg_kanban.services.operator_auth import require_operator
 
 
-RESERVABLE_STATES = {"Approved", "Picking", "Ready for Vehicle"}
+RESERVABLE_STATES = {"Approved", "Picking", "Ready for Vehicle", "Ready for Fulfilment"}
 ACTIVE_ALLOCATION_STATES = {"Reserved"}
 VEHICLE_LOADING_STATES = {
     "Vehicle Claimed", "Loading", "Ready to Dispatch", "Dispatch Pending",
@@ -28,7 +28,7 @@ PROFILE_SNAPSHOT_FIELDS = (
     "staging_warehouse", "transit_warehouse", "tag_policy", "stock_rotation_policy",
     "approval_required", "allow_supervisor_override", "auto_submit_stock_transfer",
     "auto_submit_delivery_note", "proof_policy", "dispatch_responsibility",
-    "stop_sequence_policy", "delivery_route_reference",
+    "stop_sequence_policy", "delivery_route_reference", "pickup_acknowledgement",
 )
 
 
@@ -617,6 +617,9 @@ def get_dispatch_plan(dispatch_plan, operator_session_token):
         plan.state == "Loaded" and plan.plan_type == "Customer Order"
         and plan.fulfilment_mode == "Vehicle Delivery" and operator.can_start
         and _customer_delivery_allowed(operator))
+    if plan.fulfilment_mode in ("Direct Warehouse Delivery", "Customer Pickup"):
+        result["can_start_fulfilment"] = bool(plan.state in ("Ready for Fulfilment", "Fulfilment In Progress")
+            and operator.can_start and _customer_delivery_allowed(operator))
     result["can_start_route_delivery"] = bool(
         plan.state == "Loaded" and plan.plan_type == "Open Route Stock"
         and plan.fulfilment_mode == "Vehicle Delivery" and operator.can_start
@@ -624,6 +627,11 @@ def get_dispatch_plan(dispatch_plan, operator_session_token):
     if plan.plan_type == "Open Route Stock" and plan.fulfilment_mode == "Vehicle Delivery":
         from cfg_kanban.services.route_delivery import plan_context
         result["route_delivery"] = plan_context(plan, operator)
+    result["can_review_dispatch"] = bool(plan.fulfilment_mode == "Vehicle Delivery" and plan.state in ("Loaded","Reconciled")
+        and (_view_all(operator) or "Logistics Reconciliation" in _responsibilities(operator)))
+    if plan.get("dispatch_review_state"):
+        result["can_start_fulfilment"] = False
+        result["can_start_route_delivery"] = False
     result["policy_only_reservation"] = int(plan.state in RESERVABLE_STATES)
     result["vehicle_claim_active"] = int(plan.state in VEHICLE_LOADING_STATES)
     return result
@@ -642,6 +650,7 @@ def dispatch_point_plans(card, operator):
             "state": ["in", [
                 "Draft", "Awaiting Approval", "Approved", "Picking", "Ready for Vehicle",
                 "Vehicle Claimed", "Loading", "Ready to Dispatch", "Dispatch Pending",
+                "Ready for Fulfilment", "Fulfilment In Progress",
             ]],
         },
         fields=[
@@ -1343,7 +1352,7 @@ def _locked_authorized_plan(name, operator):
     frappe.db.sql(
         "select name from `tabCFG Kanban Dispatch Plan` where name=%s for update", name
     )
-    plan = frappe.get_doc("CFG Kanban Dispatch Plan", name)
+    plan = frappe.get_doc("CFG Kanban Dispatch Plan", name, for_update=True)
     _assert_plan_authorized(plan, operator)
     return plan
 
@@ -1472,11 +1481,12 @@ def _refresh_plan_totals(plan_name):
         )
     values = {"total_reserved_qty": total}
     if plan.state in RESERVABLE_STATES:
-        new_state = "Ready for Vehicle" if complete else ("Picking" if total else "Approved")
+        ready_state = "Ready for Fulfilment" if plan.fulfilment_mode in ("Direct Warehouse Delivery", "Customer Pickup") else "Ready for Vehicle"
+        new_state = ready_state if complete else ("Picking" if total else "Approved")
         values["state"] = new_state
-        if new_state == "Ready for Vehicle" and not plan.ready_on:
+        if new_state == ready_state and not plan.ready_on:
             values["ready_on"] = now_datetime()
-        elif new_state != "Ready for Vehicle":
+        elif new_state != ready_state:
             values["ready_on"] = None
     plan.db_set(values, update_modified=True)
 

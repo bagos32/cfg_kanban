@@ -104,7 +104,8 @@ doc_events = {
     },
     "Stock Entry": {
         "before_cancel": ["cfg_kanban.services.hopper_carry_in.protect_source_cancellation",
-                          "cfg_kanban.services.container_repacking.protect_receipt_cancellation"],
+                          "cfg_kanban.services.container_repacking.protect_receipt_cancellation",
+                          "cfg_kanban.services.dispatch_reconciliation.protect_review_movement_cancellation"],
         "before_validate": ["cfg_kanban.integrations.erp_feedback.prepare_stock_entry",
                             "cfg_kanban.services.logistics_stock_identity.prepare_controlled_transfer"],
         "before_submit": ["cfg_kanban.services.logistics_stock_identity.validate_logistics_document",

@@ -2,15 +2,18 @@
 
 **Baseline identifier:** `CFG-DISPATCH-E3`
 **Decision status:** Locked
-**Current status:** E1–E3 implemented; E4A/E4B development implemented; E4C–E5 remain pending
+**Current status:** E1–E3 implemented; E4A/E4B/E4C and E5A development implemented; E5B remains pending
 **Implementation status:** Dispatch Profiles, permanent Dispatch Operations cards, the read-only
 operator launcher, Dispatch Plans, approval/cancellation, controlled tagged/untagged reservation,
 late lorry claim, physical loading confirmation, Manifest generation and controlled direct Material
 Transfer are implemented. E4A adds whole-load known-customer fulfilment through the existing
 Customer Delivery Session, tagged/untagged allocations, native Delivery Note and proof workflow.
 E4B adds Open Route multi-customer Stops, configurable flexible/planned order, controlled stock
-origins, partial quantity containers and persisted action reconciliation. E4A/E4B live acceptance is
-pending; E3 loading remains a separate lifecycle.
+origins, partial quantity containers and persisted action reconciliation. E4C adds direct warehouse
+fulfilment/pickup with reservation handoff and configurable attended acknowledgement. E4A/E4B/E4C
+live acceptance is pending; E3 loading remains a separate lifecycle. E5A adds guarded Plan reviews,
+D3 count/evidence linkage and both overnight choices. E5B guided recovery and wider hardening remain
+pending; E5A is not acceptance of the whole E5 roadmap.
 
 ## 1. Objective
 
@@ -285,16 +288,40 @@ records do not settle or release the route; that remains E5. Direct/ad-hoc legac
 available independently. See [E4B guide](USER_GUIDE_DISPATCH_E4B.md) and
 [E4B acceptance test](TEST_DISPATCH_E4B_OPEN_ROUTE.md).
 
-**Remaining E4C scope:**
-
-- Direct Warehouse Delivery and Customer Pickup;
-- broader fulfilment-mode integration with Delivery Notes and proof.
+**E4C — Direct Warehouse Delivery and Customer Pickup:** development implemented on 20 November
+2026. Customer Order Plans use the selling-company source Warehouse without a vehicle claim,
+Manifest or Stock Entry. Fully prepared tagged/untagged reservations hand off atomically to the
+existing Customer Delivery Session; exact source/quantity, native Sales Order, Delivery Note and
+proof controls are reused. Readiness is Ready for Fulfilment; ERP submission posts quantities and
+required proof/acknowledgement closes the Plan. The owner requested setup options for recipient
+name, signature, or both; the captured Pickup Acknowledgement requirement adds to Customer Site
+evidence and always requires an attended pickup. Early correction uses release-all, empty-session
+cancellation and explicit re-preparation. Scanner/camera actions include confirmation, required ERP
+scalar/table inputs and acknowledgement. See [E4C guide](USER_GUIDE_DISPATCH_E4C.md) and
+[E4C live acceptance checklist](TEST_DISPATCH_E4C_WAREHOUSE_FULFILMENT.md). Offline checks do not
+establish native transaction, ERP, media or kiosk acceptance.
 
 ### E5 — Reconciliation and recovery
 
-- loaded, delivered, remaining, returned, overnight, and variance control;
-- reassignment and cancellation guardrails;
-- system test package and User Manual update.
+**E5A — Dispatch trip review/settlement:** development implemented on 20 November 2026. The owner
+explicitly authorized this work above the pending E4C change set. Review freezes new fulfilment,
+preserves prepared-stock snapshots, separates extra unassigned deliveries, links the existing D3
+balanced count and validates exact submitted return/transfer evidence. Original vehicle/loading
+history stays unchanged. Holds, guarded Resume, evidence reuse/cancellation protection, source and
+count freshness, retry guards and scanner/camera controls are included.
+
+The owner specified both overnight choices at closing: release old Plan commitments while stock
+stays in the lorry, or retain the same Plan until explicit Resume. Normal long-distance trips use
+one Plan for two to three days with separate Customer Sessions and final reconciliation at the
+actual trip end. Trip Date is the planned departure date; no forced daily closure/reset is added.
+An optional formal overnight pause requires its balanced count and explicit next-day Resume.
+See [E5A guide](USER_GUIDE_DISPATCH_E5A.md) and
+[E5A acceptance checklist](TEST_DISPATCH_E5A_RECONCILIATION.md). Native/live acceptance is pending.
+
+**Remaining E5B:** guided recovery-transfer creation, mixed per-line or multiple-destination
+leftover dispositions, follow-on recovery Plans/vehicle reassignment, wider partial/refused
+known-customer fulfilment and native operational hardening. E5A consumes existing submitted movement
+evidence; it does not create stock corrections or a second ERP movement engine.
 
 ### Optional E6 — Destination selected at receipt
 

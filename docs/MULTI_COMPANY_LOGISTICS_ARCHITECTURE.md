@@ -663,8 +663,19 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
   prepared/unassigned tagged and untagged stock, and partial posted-stock quantity containers.
   Existing delivery/proof/return services remain the engine. Persistent requests have read-back
   and reasoned no-record cancellation. See `TEST_DISPATCH_E4B_OPEN_ROUTE.md`; live acceptance is pending.
-- Direct Warehouse Delivery/Customer Pickup remain E4C. Wider ad-hoc trip/route aggregation and
-  final reserved/unassigned/returned/overnight settlement remain E5.
+- **Development implemented in E4C:** prepared known-customer Direct Warehouse Delivery and Pickup
+  hand reservations to the existing delivery engine directly from the selling-company source.
+  Tagged/untagged quantities, native Sales Order linkage, Delivery Note/proof and controlled reset
+  are retained. Profile setup offers name, signature or both for attended pickup, with additional
+  Site evidence. Scanner controls cover confirmation, required ERP scalar/table inputs and proof.
+  See `TEST_DISPATCH_E4C_WAREHOUSE_FULFILMENT.md`; native/live acceptance remains pending.
+- **Development implemented in E5A:** Dispatch Reviews freeze new fulfilment and connect prepared
+  source budgets, additional unassigned deliveries, current D3 counts and exact submitted movement
+  evidence. Both overnight choices are selected at closing. Normal two-to-three-day trips retain one
+  Plan without forced daily settlement. Holds, explicit Resume, immutable vehicle history and
+  reversal/evidence guards preserve audit. See `TEST_DISPATCH_E5A_RECONCILIATION.md`; live acceptance
+  remains pending. Guided transfers, mixed dispositions, follow-on recovery Plans, wider partial/
+  refused customer fulfilment and native hardening remain E5B.
 - Add optional customer Sales Invoice commands. The controlled Delivery Note command is implemented.
 
 ### Package D — Proof, returns, and reconciliation

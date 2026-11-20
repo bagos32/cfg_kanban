@@ -436,7 +436,7 @@ def _locked_reconciliation(name):
         "select name from `tabCFG Kanban Route Reconciliation` where name=%s for update",
         name,
     )
-    return frappe.get_doc("CFG Kanban Route Reconciliation", name)
+    return frappe.get_doc("CFG Kanban Route Reconciliation", name, for_update=True)
 
 
 def _require_counting(doc):
@@ -495,7 +495,7 @@ def _assert_no_open_vehicle_work(doc):
 
 def _validate_scan_snapshot(doc):
     for row in doc.scans:
-        unit = frappe.get_doc("CFG Kanban Handling Unit", row.handling_unit)
+        unit = frappe.get_doc("CFG Kanban Handling Unit", row.handling_unit, for_update=True)
         if (
             unit.identity_state != "Active"
             or unit.inventory_company != doc.company
@@ -564,7 +564,7 @@ def _replace_lines(doc, opening, expected, loose=None):
         })
 
 
-def _erp_balances(company, warehouse, at_datetime):
+def _erp_balances(company, warehouse, at_datetime, current=False):
     moment = get_datetime(at_datetime)
     sle_meta = frappe.get_meta("Stock Ledger Entry")
     cancel_clause = " and ifnull(sle.is_cancelled, 0)=0" \
@@ -574,23 +574,29 @@ def _erp_balances(company, warehouse, at_datetime):
     bundle_clause = " and ifnull(sle.serial_and_batch_bundle, '')=''" \
         if sle_meta.has_field("serial_and_batch_bundle") else ""
     params = (company, warehouse, moment.date(), moment.date(), moment.time(), EPSILON)
+    direct_qty = 'sle.actual_qty' if current else 'sum(sle.actual_qty)'
+    bundle_qty = 'entry.qty' if current else 'sum(entry.qty)'
+    direct_group = 'order by sle.name for update' if current else f'group by sle.item_code, {batch_expression} having abs(sum(sle.actual_qty)) > %s'
+    bundle_group = 'order by sle.name, entry.name for update' if current else "group by sle.item_code, ifnull(entry.batch_no, '') having abs(sum(entry.qty)) > %s"
     rows = frappe.db.sql(
         f"""
         select sle.item_code, {batch_expression} as batch_no,
-               sum(sle.actual_qty) as qty
+               {direct_qty} as qty
         from `tabStock Ledger Entry` sle
         where sle.company=%s and sle.warehouse=%s
           and (sle.posting_date < %s or
                (sle.posting_date=%s and sle.posting_time <= %s))
           {cancel_clause}
           {bundle_clause}
-        group by sle.item_code, {batch_expression}
-        having abs(sum(sle.actual_qty)) > %s
+        {direct_group}
         """,
-        params,
+        params[:-1] if current else params,
         as_dict=True,
     )
-    balances = {(row.item_code, row.batch_no or ""): flt(row.qty) for row in rows}
+    balances = {}
+    for row in rows:
+        key=(row.item_code,row.batch_no or "")
+        balances[key]=balances.get(key,0)+flt(row.qty)
 
     # ERPNext v15 may keep batch quantities in Serial and Batch Bundle children
     # rather than the legacy Stock Ledger Entry.batch_no column. Read both forms,
@@ -602,7 +608,7 @@ def _erp_balances(company, warehouse, at_datetime):
         bundle_rows = frappe.db.sql(
             f"""
             select sle.item_code, ifnull(entry.batch_no, '') as batch_no,
-                   sum(entry.qty) as qty
+                   {bundle_qty} as qty
             from `tabStock Ledger Entry` sle
             inner join `tabSerial and Batch Bundle` bundle
                     on bundle.name=sle.serial_and_batch_bundle
@@ -612,10 +618,9 @@ def _erp_balances(company, warehouse, at_datetime):
               and (sle.posting_date < %s or
                    (sle.posting_date=%s and sle.posting_time <= %s))
               {cancel_clause}
-            group by sle.item_code, ifnull(entry.batch_no, '')
-            having abs(sum(entry.qty)) > %s
+            {bundle_group}
             """,
-            params,
+            params[:-1] if current else params,
             as_dict=True,
         )
         for row in bundle_rows:

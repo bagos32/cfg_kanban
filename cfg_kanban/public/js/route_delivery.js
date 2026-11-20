@@ -81,7 +81,7 @@
   function ready(){
    if(s.pending)return !s.pending.invalid&&s.pending.owner===env.owner()&&(!s.cancelPending||!!s.pendingReason);if(s.loading||s.choosing)return false;
    if(s.mode==='stock')return !!s.choice&&(s.choice.contents||s.qty>0&&s.qty<=Number(s.choice.available_qty));
-   if(!s.plan)return false;
+   if(!s.plan||s.plan.dispatch_review_state)return false;
    if(['approve','skip'].includes(s.mode))return !!s.stop&&!!s.reason&&(s.mode!=='approve'||!!s.plan.can_approve_order);
    if(!s.customerScan)return false;
    if(s.mode==='plan')return !!s.plan.can_plan_stops;

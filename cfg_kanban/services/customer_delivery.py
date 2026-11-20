@@ -43,8 +43,18 @@ def start_delivery_session(customer_scan, source_warehouse, event_token,
 def _start_delivery_session(site, source_warehouse, event_token, profile, operator_session,
                             snapshots=None):
     """Shared internal factory; callers authorize and validate any prepared Plan snapshots."""
-    vehicle = _vehicle_warehouse(source_warehouse, site.selling_company)
     snapshots = snapshots or {}
+    mode = snapshots.get("fulfilment_mode") or "Vehicle Delivery"
+    if mode in ("Direct Warehouse Delivery", "Customer Pickup"):
+        from cfg_kanban.services.warehouse_fulfilment import source_warehouse as validate_source
+        validate_source(source_warehouse, site.selling_company)
+        plan = frappe.get_doc("CFG Kanban Dispatch Plan", snapshots.get("dispatch_plan"), for_update=True)
+        if (plan.fulfilment_mode != mode or plan.source_warehouse != source_warehouse
+                or plan.company != site.selling_company or plan.customer_site != site.name):
+            frappe.throw("Warehouse Session source must match its prepared Customer Plan")
+        vehicle = frappe._dict(vehicle_reference=None)
+    else:
+        vehicle = _vehicle_warehouse(source_warehouse, site.selling_company)
     frappe.db.sql("select name from `tabEmployee` where name=%s for update", profile.employee)
     price_list = snapshots.get("price_list") or site.default_price_list or frappe.db.get_single_value(
         "Selling Settings", "selling_price_list"
@@ -93,6 +103,7 @@ def _start_delivery_session(site, source_warehouse, event_token, profile, operat
         "territory": site.territory,
         "route_reference": site.route_reference,
         "source_warehouse": source_warehouse,
+        "fulfilment_mode": mode,
         "vehicle_reference": vehicle.vehicle_reference,
         "price_list": price_list,
         "auto_submit_delivery_note": site.auto_submit_delivery_note,
@@ -776,7 +787,7 @@ def _validate_container(container, delivery):
         )
     if container.current_warehouse != delivery.source_warehouse:
         frappe.throw(
-            _("Reusable container is in {0}, not selected lorry Warehouse {1}").format(
+            _("Reusable container is in {0}, not selected source Warehouse {1}").format(
                 container.current_warehouse, delivery.source_warehouse
             )
         )
@@ -807,7 +818,7 @@ def _validate_allocation_unit(unit, delivery, expected_container=None):
         )
     if unit.current_warehouse != delivery.source_warehouse:
         frappe.throw(
-            _("Stock Tag is in {0}, not selected lorry Warehouse {1}").format(
+            _("Stock Tag is in {0}, not selected source Warehouse {1}").format(
                 unit.current_warehouse, delivery.source_warehouse
             )
         )
@@ -941,9 +952,11 @@ def customer_delivery_context(scan_value, profile):
     warehouses = _vehicle_warehouses(site.selling_company)
     from cfg_kanban.services.dispatch_fulfilment import prepared_plans
     from cfg_kanban.services.route_delivery import eligible_route_plans
+    from cfg_kanban.services.warehouse_fulfilment import warehouse_plans
     return {
         "prepared_dispatch_plans": prepared_plans(site.name, profile),
         "open_route_plans": eligible_route_plans(site, profile),
+        "warehouse_dispatch_plans": warehouse_plans(site.name, profile),
         "name": site.name,
         "site_code": site.site_code,
         "site_name": site.site_name,

@@ -1227,7 +1227,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("Start Allocation Scanning", panel)
         self.assertIn("Confirm Customer Allocation", panel)
         self.assertIn("Create Delivery Note", panel)
-        self.assertIn("Required Customer Delivery Note Details", panel)
+        self.assertIn("Customer Delivery Note Details", panel)
         self.assertIn("Capture / Close Delivery", panel)
         self.assertIn("Submit Proof and Close", panel)
 
@@ -1431,7 +1431,7 @@ class TestDocTypeSchema(TestCase):
         self.assertIn("render_dispatch_operations", panel)
         self.assertIn("render_dispatch_operations", panel)
         self.assertIn("Profile policy used by every new Dispatch Plan", panel)
-        self.assertIn("E1–E3 dispatch planning and vehicle loading", panel)
+        self.assertIn("Prepare and fulfil customer stock", panel)
         self.assertIn("dialog.onhide = focus_scanner", panel)
         self.assertIn("Source Warehouse must match Dispatch Operations Card", profile_controller)
         self.assertIn("Select at Receipt is valid only for Goods in Transit", profile_controller)
@@ -1464,7 +1464,7 @@ class TestDocTypeSchema(TestCase):
         }.issubset(plan_fields))
         self.assertEqual(
             plan_fields["state"]["options"],
-            "Draft\nAwaiting Approval\nApproved\nPicking\nReady for Vehicle\nVehicle Claimed\nLoading\nReady to Dispatch\nDispatch Pending\nLoaded\nCancelled\nException",
+            "Draft\nAwaiting Approval\nApproved\nPicking\nReady for Vehicle\nReady for Fulfilment\nFulfilment In Progress\nFulfilled\nVehicle Claimed\nLoading\nReady to Dispatch\nDispatch Pending\nLoaded\nReconciled\nCancelled\nException",
         )
         self.assertEqual(plan_fields["lines"]["options"], "CFG Kanban Dispatch Plan Line")
 

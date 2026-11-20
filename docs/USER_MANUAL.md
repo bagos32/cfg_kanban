@@ -5678,3 +5678,71 @@ Material Run within an allocation that still has quantity remaining remains supp
 Operator Complete allows early closure of a positive partial allocation; it does not
 increase that allocation's upper quantity limit. No automatic expansion or stock reset
 is performed. Existing scanner and touch controls follow the same checks.
+
+
+## Direct Warehouse Delivery and Customer Pickup
+
+A Customer Order Dispatch Profile can use **Direct Warehouse Delivery** or **Customer Pickup**.
+Prepare the exact tagged/untagged quantities at its selling-company source Warehouse. Fully
+reserved Plans become **Ready for Fulfilment**. Start/resume from the Plan or scan
+`CFG:CMD:START_WAREHOUSE_DELIVERY`, then the Plan and exact Customer Site. Numbered choices resolve
+multiple eligible Plans. The existing Delivery Session takes over one stock hold without a lorry,
+loading Manifest or intermediate Stock Entry. Confirm allocations and create the Delivery Note;
+only native submission posts delivery stock.
+
+In the Profile, **Pickup Acknowledgement** offers **Recipient Name**, **Signature**, or
+**Recipient Name and Signature**. Customer Site name/signature/photo/GPS requirements also apply.
+Pickup always requires attended acknowledgement after posting, even when the general proof policy
+says No Proof Required. Submit the private proof to close the Session and fulfil the Plan.
+
+Scanner commands in the existing Session: `CONFIRM_CUSTOMER_ALLOCATION`,
+`CREATE_CUSTOMER_DELIVERY_NOTE`, `CAPTURE_DELIVERY_PROOF`, `ACKNOWLEDGE_PICKUP`,
+`DELIVERY_RECIPIENT` and `DELIVERY_CAMERA`, all with the `CFG:CMD:` prefix. Numbered choices select
+mandatory ERP inputs; for tables use `DELIVERY_ADD_ROW`, `DELIVERY_NEXT_ROW`,
+`DELIVERY_PREVIOUS_ROW`, numbered columns, scanned values and `DELIVERY_INPUTS`. Standard paging,
+Confirm/Cancel and Enter/Tab suffixes apply. Tablets use the same controls plus the existing photo
+and signature tools.
+
+Before ERP creation, changing prepared quantities requires releasing all Delivery allocations,
+cancelling the empty Session with a reason, and preparing the Plan again. Posted stock and
+submitted proof retain the controlled cancellation/return protections. See
+[the E4C setup/operator guide](USER_GUIDE_DISPATCH_E4C.md) and
+[live acceptance checklist](TEST_DISPATCH_E4C_WAREHOUSE_FULFILMENT.md). Site migration, native ERP,
+concurrency, private media and kiosk/device acceptance remain pending; offline checks do not prove
+them. Route reconciliation/recovery remains the separate E5 package.
+
+
+## Multi-day Dispatch Plans, trip reviews and overnight closing
+
+One loaded Vehicle Delivery Dispatch Plan can cover a two-to-three-day trip. **Trip Date** is the
+planned departure date. Keep that Plan active across days, complete a separate Customer Session/
+Delivery Note/proof at each visit and reconcile at the actual trip end. Re-identify when the login
+session expires. No automatic daily Plan closure or quantity reset occurs. An optional formal
+overnight pause is separate from merely continuing a long trip.
+
+At trip end, an operator with Plan responsibility and Logistics Reconciliation opens
+**Review / Reconcile Trip** (`CFG:CMD:REVIEW_DISPATCH`) and confirms the summary. This creates a
+Dispatch Review and freezes new fulfilment. Finish any required existing return/transfer movement,
+then physically count and close the balanced D3 lorry reconciliation. **Finish Dispatch Review**
+(`FINISH_DISPATCH_REVIEW`) selects one of: no prepared stock remaining; close trip with stock staying;
+continue the same Plan overnight; returned stock; or transferred stock. Leftover decisions require
+Supervisor Override and a reason.
+
+**Close Trip - Stock Stays** releases this Plan's commitments without moving stock. **Continue Same
+Plan Overnight** retains them and needs **Resume Plan** (`RESUME_DISPATCH_REVIEW`) before further
+visits. Both are chosen at closing. A variance Hold (`HOLD_DISPATCH_REVIEW`) retains controls and
+requires a counted disposition to resolve. New fulfilment or old Delivery Note reversal cannot
+bypass a frozen/settled trip. A return/transfer needs exact submitted stock evidence, including the
+completed manifest/ledger for tags; original vehicle history is retained.
+
+All named commands use `CFG:CMD:`. Scan Plan/Review, numbered `CFG:SELECT:1`–`5` closing choice,
+closed `KREC-...` count, `DISPATCH_REVIEW_MOVEMENT` then the Stock Entry when needed,
+`DISPATCH_REVIEW_REASON` then reason, and Confirm. `DISPATCH_REVIEW_COUNT`,
+`DISPATCH_REVIEW_CAMERA`, `DISPATCH_REVIEW_REFRESH` and Cancel are available. Touch and Enter/Tab
+scanning share the same controls. A lost response retries its original details; reopen/read recorded
+status before a correction.
+
+See [E5A setup/operator guide](USER_GUIDE_DISPATCH_E5A.md) and
+[acceptance checklist](TEST_DISPATCH_E5A_RECONCILIATION.md). E5A creates no stock write-off or transfer;
+guided transfer creation, mixed leftover dispositions and follow-on recovery Plans remain E5B.
+Offline passes do not establish native ERP, concurrency, migration or kiosk/device acceptance.

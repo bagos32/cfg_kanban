@@ -610,7 +610,7 @@ def _on_customer_delivery_submit(doc, delivery_session):
         _resolve_delivery_exception(
             delivery.exception, f"Delivery Note {doc.name} submitted successfully"
         )
-    no_proof = delivery.proof_policy == "No Proof Required"
+    no_proof = delivery.proof_policy == "No Proof Required" and delivery.get("fulfilment_mode") != "Customer Pickup"
     delivery.db_set({
         "delivery_note": doc.name,
         "state": "Closed" if no_proof else "Delivered",
@@ -639,6 +639,10 @@ def _on_customer_delivery_submit(doc, delivery_session):
 
 def _on_customer_delivery_cancel(doc, delivery_session):
     delivery = frappe.get_doc("CFG Kanban Delivery Session", delivery_session)
+    if delivery.get("dispatch_plan"):
+        plan=frappe.get_doc("CFG Kanban Dispatch Plan",delivery.dispatch_plan,for_update=True)
+        if plan.get("dispatch_review_state") or plan.state=="Reconciled":
+            frappe.throw("This delivery belongs to a reviewed/frozen trip; use controlled return/recovery instead of reopening it")
     previous_delivery_state = delivery.state
     if delivery.delivery_proof and frappe.db.get_value(
         "CFG Kanban Delivery Proof", delivery.delivery_proof, "state"
@@ -827,7 +831,7 @@ def _assert_customer_delivery_reversal_is_safe(delivery, allocations, delivery_n
             fields=["content_handling_unit", "content_visible_code"], limit_page_length=0)
         expected_units = {row.handling_unit for row in allocations if row.container_handling_unit == container_name}
         active_units = {row.content_handling_unit for row in active_contents}
-        if active_units and (not delivery.get("route_stop") or active_units != expected_units):
+        if active_units and (not (delivery.get("route_stop") or delivery.get("fulfilment_mode") in ("Direct Warehouse Delivery","Customer Pickup")) or active_units != expected_units):
             active_content = ", ".join(str(row.content_visible_code) for row in active_contents)
             container_code = frappe.db.get_value(
                 "CFG Kanban Handling Unit", container_name, "handling_unit_id"
@@ -920,7 +924,7 @@ def _restore_customer_container(delivery, container_name, delivery_note, allocat
     for allocation in allocations:
         if allocation.container_handling_unit != container_name:
             continue
-        if delivery.get("route_stop") and frappe.db.exists("CFG Kanban Container Content", {
+        if (delivery.get("route_stop") or delivery.get("fulfilment_mode") in ("Direct Warehouse Delivery","Customer Pickup")) and frappe.db.exists("CFG Kanban Container Content", {
                 "container_handling_unit": container_name, "content_handling_unit": allocation.handling_unit,
                 "state": "Loaded"}):
             continue

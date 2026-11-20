@@ -55,7 +55,9 @@ def _supervisor(operator):
         frappe.throw('A Supervisor with Override permission must authorize this Route Stop action')
 
 
-def _assert_route_plan(plan, loaded=True):
+def _assert_route_plan(plan, loaded=True, allow_review=False):
+    if not allow_review and (plan.get('dispatch_review_state') or plan.state=='Reconciled'):
+        frappe.throw('Resolve the frozen Dispatch Review before changing this route')
     if plan.plan_type != 'Open Route Stock' or plan.fulfilment_mode != 'Vehicle Delivery':
         frappe.throw('Select an Open Route Stock / Vehicle Delivery Dispatch Plan')
     if plan.state in ('Cancelled', 'Exception') or (loaded and plan.state != 'Loaded'):
@@ -97,17 +99,17 @@ def _stops(plan, current=False):
 
 def plan_context(plan, operator):
     _planning()._assert_plan_authorized(plan, operator)
-    _assert_route_plan(plan, loaded=False)
+    _assert_route_plan(plan, loaded=False, allow_review=True)
     stops = _stops(plan)
     active = next((row for row in stops if row.name == plan.get('active_route_stop')), None)
     can_resume = not active or not active.delivery_session or _engine()._can_view_delivery(
         operator, frappe.get_doc('CFG Kanban Delivery Session',active.delivery_session))
-    customer_role = _engine()._customer_delivery_allowed(operator)
+    customer_role = _engine()._customer_delivery_allowed(operator) and not plan.get('dispatch_review_state') and plan.state!='Reconciled'
     return {'name': plan.name, 'business_label': plan.business_label, 'company': plan.company,
             'state': plan.state, 'vehicle_warehouse': plan.vehicle_warehouse,
             'vehicle_reference': plan.vehicle_reference, 'stop_sequence_policy': _sequence_policy(plan),
             'delivery_route_reference': plan.get('delivery_route_reference'),
-            'territory': plan.territory, 'stops': stops, 'can_resume_stop': bool(can_resume),
+            'territory': plan.territory, 'stops': stops, 'can_resume_stop': bool(can_resume and not plan.get('dispatch_review_state')), 'dispatch_review_state':plan.get('dispatch_review_state'),
             'can_approve_order': bool(customer_role and cint(plan.get('allow_supervisor_override')) and
                                       operator.kanban_role in ('Supervisor','Development Proxy') and cint(operator.get('can_override'))),
             'can_plan_stops': bool(customer_role and operator.kanban_role in ('Supervisor', 'Development Proxy') and
@@ -144,6 +146,8 @@ def eligible_route_plans(site, operator):
     plans = []
     for name in names:
         plan = frappe.get_doc('CFG Kanban Dispatch Plan', name)
+        if plan.get('dispatch_review_state'):
+            continue
         if not (_planning()._view_all(operator) or plan.dispatch_responsibility in _planning()._responsibilities(operator)):
             continue
         # Queue filtering is read-only. A specific Plan/scan still gets an exact rejection.

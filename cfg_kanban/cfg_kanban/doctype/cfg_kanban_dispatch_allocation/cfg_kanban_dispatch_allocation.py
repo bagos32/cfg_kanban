@@ -7,7 +7,7 @@ class CFGKanbanDispatchAllocation(Document):
     """Immutable reservation audit created only by the controlled E2 service."""
 
     def validate(self):
-        if self.state not in {"Reserved", "Loaded", "Released", "Cancelled", "Exception"}:
+        if self.state not in {"Reserved", "Loaded", "Released", "Cancelled", "Exception", "In Fulfilment", "Fulfilled"}:
             frappe.throw(f"Unsupported Dispatch Allocation state {self.state}")
         if self.allocation_kind not in {"Tagged Stock", "Untagged ERP Stock"}:
             frappe.throw(f"Unsupported Dispatch Allocation kind {self.allocation_kind}")
@@ -31,7 +31,7 @@ class CFGKanbanDispatchAllocation(Document):
         if warehouse_company != self.source_company:
             frappe.throw("Dispatch Allocation source Warehouse and Company do not match")
         if self.allocation_kind == "Tagged Stock":
-            if not self.handling_unit or self.active_handling_unit_key != self.handling_unit:
+            if not self.handling_unit or (self.state == "Reserved" and self.active_handling_unit_key != self.handling_unit):
                 frappe.throw("Tagged Allocation requires its exact active Handling Unit key")
         elif self.handling_unit or self.active_handling_unit_key:
             frappe.throw("Untagged ERP stock Allocation cannot carry a Handling Unit identity")

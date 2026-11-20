@@ -81,8 +81,10 @@ need to be recorded in [the E4B test guide](TEST_DISPATCH_E4B_OPEN_ROUTE.md).
    Session-per-operator rule still applies. Another operator cannot adopt the driver’s Session.
 
 The Plan shows visits started/completed and the Stop history. **A completed visit is not a settled
-route.** Existing D3 stock counting remains available; E5 will connect final route reconciliation,
-returns, overnight balances, reassignment and release/carry-forward of remaining commitments.
+route.** Existing D3 stock counting remains available. E5A now connects final Plan reviews, balanced
+counts, existing submitted return/transfer evidence and release/carry-forward of commitments;
+see [the E5A guide](USER_GUIDE_DISPATCH_E5A.md). Normal multi-day trips keep one Plan until their
+actual end. Guided transfers and wider reassignment/recovery remain E5B.
 
 ## 4. Reusable containers and stock identity
 

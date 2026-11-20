@@ -1,7 +1,7 @@
 {
  "doctype":"DocType","name":"CFG Kanban Delivery Session","module":"CFG Kanban","autoname":"KDS-.YYYY.-.#####","title_field":"site_name","track_changes":1,
  "search_fields":"site_code,site_name,customer,selling_company,source_warehouse,vehicle_reference,delivery_note",
- "field_order":["state","customer_section","customer_scan_point","site_code","site_name","selling_company","customer","customer_address","territory","route_reference","vehicle_section","source_warehouse","vehicle_reference","price_list","auto_submit_delivery_note","proof_section","proof_policy","require_recipient_name","require_signature","require_photo","require_gps","unattended_reason_required","delivery_proof","proof_disposition","proof_submitted_on","erp_section","delivery_note","delivery_command","delivery_key","delivery_revision","exception","sales_invoice","delivery_audit_section","delivery_confirmed_by","delivery_operator_session","delivery_confirmed_on","audit_section","started_by_operator","operator_session","started_on","confirmed_on","completed_on","cancelled_by_operator","cancelled_on","cancellation_reason","idempotency_key","dispatch_plan","active_dispatch_plan_key","sales_order","sales_order_context_json","route_stop"],
+ "field_order":["state","customer_section","customer_scan_point","site_code","site_name","selling_company","customer","customer_address","territory","route_reference","vehicle_section","source_warehouse","vehicle_reference","price_list","auto_submit_delivery_note","proof_section","proof_policy","require_recipient_name","require_signature","require_photo","require_gps","unattended_reason_required","delivery_proof","proof_disposition","proof_submitted_on","erp_section","delivery_note","delivery_command","delivery_key","delivery_revision","exception","sales_invoice","delivery_audit_section","delivery_confirmed_by","delivery_operator_session","delivery_confirmed_on","audit_section","started_by_operator","operator_session","started_on","confirmed_on","completed_on","cancelled_by_operator","cancelled_on","cancellation_reason","idempotency_key","dispatch_plan","active_dispatch_plan_key","sales_order","sales_order_context_json","route_stop","fulfilment_mode","pickup_acknowledgement"],
  "fields":[
   {"fieldname":"state","label":"Delivery State","fieldtype":"Select","options":"Customer Identified\nAllocating Stock\nAwaiting Confirmation\nERP Document Pending\nDelivered\nInvoicing Pending\nInvoiced\nClosed\nPartial\nRejected\nException\nCancelled","default":"Customer Identified","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"customer_section","label":"Immutable Customer Site Snapshot","fieldtype":"Section Break"},
@@ -13,9 +13,9 @@
   {"fieldname":"customer_address","label":"Delivery Address","fieldtype":"Link","options":"Address","reqd":1,"read_only":1,"in_standard_filter":1},
   {"fieldname":"territory","label":"Territory","fieldtype":"Link","options":"Territory","read_only":1},
   {"fieldname":"route_reference","label":"Route Reference","fieldtype":"Data","read_only":1},
-  {"fieldname":"vehicle_section","label":"Company-specific Vehicle Stock Context","fieldtype":"Section Break"},
-  {"fieldname":"source_warehouse","label":"Selling-company Lorry Warehouse","fieldtype":"Link","options":"Warehouse","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
-  {"fieldname":"vehicle_reference","label":"Physical Vehicle Reference","fieldtype":"Data","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"vehicle_section","label":"Selling-company Stock Context","fieldtype":"Section Break"},
+  {"fieldname":"source_warehouse","label":"Source Warehouse","fieldtype":"Link","options":"Warehouse","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"vehicle_reference","label":"Physical Vehicle Reference","fieldtype":"Data","mandatory_depends_on":"eval:!doc.fulfilment_mode || doc.fulfilment_mode=='Vehicle Delivery'","read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"price_list","label":"Locked Selling Price List","fieldtype":"Link","options":"Price List","reqd":1,"read_only":1},
   {"fieldname":"auto_submit_delivery_note","label":"Auto-submit Customer Delivery Note","fieldtype":"Check","read_only":1},
   {"fieldname":"proof_section","label":"Proof Policy Snapshot","fieldtype":"Section Break","collapsible":1},
@@ -53,7 +53,9 @@
   {"fieldname":"active_dispatch_plan_key","label":"Active Prepared Plan Key","fieldtype":"Data","read_only":1,"unique":1,"hidden":1},
   {"fieldname":"sales_order","label":"Prepared Sales Order","fieldtype":"Link","read_only":1,"options":"Sales Order"},
   {"fieldname":"sales_order_context_json","label":"Sales Order Currency Snapshot","fieldtype":"Code","read_only":1,"hidden":1},
-  {"fieldname":"route_stop","label":"Open Route Customer Stop","fieldtype":"Link","read_only":1,"options":"CFG Kanban Route Stop"}
+  {"fieldname":"route_stop","label":"Open Route Customer Stop","fieldtype":"Link","read_only":1,"options":"CFG Kanban Route Stop"},
+  {"fieldname":"fulfilment_mode","label":"Fulfilment Mode","fieldtype":"Select","default":"Vehicle Delivery","read_only":1,"options":"Vehicle Delivery\nDirect Warehouse Delivery\nCustomer Pickup"},
+  {"fieldname":"pickup_acknowledgement","label":"Pickup Acknowledgement","fieldtype":"Data","read_only":1}
  ],
  "permissions":[
   {"role":"Stock User","read":1,"print":1},

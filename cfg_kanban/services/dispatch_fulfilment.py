@@ -30,9 +30,9 @@ def prepared_plans(site_name, operator):
         'customer_site': site_name,
     }, fields=['name', 'company', 'customer', 'customer_site', 'vehicle_warehouse',
                'vehicle_reference', 'business_label', 'dispatch_responsibility',
-               'delivery_session', 'fulfilment_status', 'total_loaded_qty'],
+               'delivery_session', 'fulfilment_status', 'total_loaded_qty', 'dispatch_review_state'],
         order_by='loaded_on asc, name asc', limit_page_length=200)
-    eligible = [row for row in rows if row.fulfilment_status != 'Completed' and
+    eligible = [row for row in rows if not row.get('dispatch_review_state') and row.fulfilment_status != 'Completed' and
             (planning._view_all(operator) or row.dispatch_responsibility in planning._responsibilities(operator)) and
             (not row.delivery_session or delivery._can_view_delivery(operator,
              frappe.get_doc('CFG Kanban Delivery Session', row.delivery_session)))]
@@ -54,6 +54,13 @@ def prepared_delivery_context(scan_value, operator_session_token):
     if value.upper().startswith('DPL-') or frappe.db.exists('CFG Kanban Dispatch Plan', value):
         plan = frappe.get_doc('CFG Kanban Dispatch Plan', value)
         _planning_services()._assert_plan_authorized(plan, operator)
+        if plan.get('fulfilment_mode') in ('Direct Warehouse Delivery','Customer Pickup'):
+            from cfg_kanban.services.warehouse_fulfilment import _assert_plan
+            _assert_plan(plan)
+            if plan.delivery_session and not delivery._can_view_delivery(operator,
+                    frappe.get_doc('CFG Kanban Delivery Session',plan.delivery_session)):
+                frappe.throw('Prepared Delivery Session belongs to another operator')
+            return {'plans':[plan.as_dict()],'customer_scan':None}
         if plan.state != 'Loaded' or plan.plan_type != 'Customer Order' or plan.fulfilment_mode != 'Vehicle Delivery':
             frappe.throw('Select a Loaded Customer Order / Vehicle Delivery Plan')
         if plan.delivery_session:
@@ -62,7 +69,8 @@ def prepared_delivery_context(scan_value, operator_session_token):
                 frappe.throw('Prepared Delivery Session belongs to another operator')
         return {'plans': [plan.as_dict()], 'customer_scan': None}
     site = delivery._resolve_customer_site(value)
-    return {'plans': prepared_plans(site.name, operator), 'customer_scan': value}
+    from cfg_kanban.services.warehouse_fulfilment import warehouse_plans
+    return {'plans': prepared_plans(site.name, operator) + warehouse_plans(site.name, operator), 'customer_scan': value}
 
 
 @frappe.whitelist()
@@ -73,6 +81,9 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
     engine, planning = _delivery_services(), _planning_services()
     engine._require_customer_delivery(operator)
     plan = planning._locked_authorized_plan(dispatch_plan, operator)
+    if plan.get('fulfilment_mode') in ('Direct Warehouse Delivery','Customer Pickup'):
+        from cfg_kanban.services.warehouse_fulfilment import start_warehouse_delivery
+        return start_warehouse_delivery(plan,customer_scan,event_token,operator,session,operator_session_token)
     # A Plan lock serializes creation; the Session also has a unique active Plan key.
     request_token = canonical_key('prepared-customer-delivery', plan.name, event_token)
     replay = frappe.db.get_value('CFG Kanban Delivery Session',
@@ -87,6 +98,8 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
         if result.dispatch_plan != plan.name or not engine._can_view_delivery(operator, result):
             frappe.throw('Prepared Delivery Session belongs to another Plan or operator')
         return engine.get_delivery_session(result.name, operator_session_token)
+    if plan.get('dispatch_review_state'):
+        frappe.throw('Resolve the frozen Dispatch Review before starting customer fulfilment')
     if plan.state != 'Loaded' or plan.plan_type != 'Customer Order' or plan.fulfilment_mode != 'Vehicle Delivery':
         frappe.throw('Customer fulfilment requires a Loaded Customer Order / Vehicle Delivery Plan')
     site = engine._resolve_customer_site(customer_scan)
@@ -229,7 +242,7 @@ def _reserve_untagged(delivery, source, event_token, operator, session, snapshot
     available = planning._untagged_available(delivery.selling_company, delivery.source_warehouse,
                                             source.item_code, source.batch_no, exclude_prepared_plan=delivery.dispatch_plan if prepared else None)
     if flt(source.allocated_qty) > available + 0.000001:
-        frappe.throw(f'Untagged lorry stock available for {source.item_code} is {available}')
+        frappe.throw(f'Untagged source stock available for {source.item_code} is {available}')
     return frappe.get_doc({'doctype':'CFG Kanban Delivery Allocation', 'state':'Reserved',
         'allocation_kind':'Untagged ERP Stock', 'delivery_session':delivery.name,
         'visible_code':'ERP STOCK', 'item_code':source.item_code, 'batch_no':source.batch_no,
@@ -256,6 +269,9 @@ def validate_prepared_allocations(delivery, allocations=None):
         return validate_route_allocations(delivery, allocations)
     if not delivery.get('dispatch_plan'):
         return
+    if delivery.get('fulfilment_mode') in ('Direct Warehouse Delivery','Customer Pickup'):
+        from cfg_kanban.services.warehouse_fulfilment import validate_warehouse_allocations
+        return validate_warehouse_allocations(delivery,allocations)
     plan = frappe.get_doc('CFG Kanban Dispatch Plan', delivery.dispatch_plan)
     if (plan.state != 'Loaded' or plan.customer_site != delivery.customer_scan_point or
             plan.company != delivery.selling_company or plan.customer != delivery.customer or
@@ -315,6 +331,9 @@ def sync_plan_delivery(delivery):
         return sync_route_delivery(delivery)
     if not delivery.get('dispatch_plan'):
         return
+    if delivery.get('fulfilment_mode') in ('Direct Warehouse Delivery','Customer Pickup'):
+        from cfg_kanban.services.warehouse_fulfilment import sync_warehouse_delivery
+        return sync_warehouse_delivery(delivery)
     # Delivery services hold their Session lock before this Plan lock. Start holds Plan only
     # while creating a new Session; it never locks an existing Session during replay.
     frappe.db.sql('select name from `tabCFG Kanban Dispatch Plan` where name=%s for update',delivery.dispatch_plan)

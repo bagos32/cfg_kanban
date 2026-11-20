@@ -137,8 +137,8 @@ function adapter(options={}){
   const root=path.resolve(__dirname,'../..'),catalogue=fs.readFileSync(path.join(root,'cfg_kanban/api/operator.py'),'utf8'),panel=fs.readFileSync(path.join(root,'cfg_kanban/cfg_kanban/page/kanban_logistics/kanban_logistics.js'),'utf8');
   for(const command of ['START_ROUTE_DELIVERY','ALLOCATE_ROUTE_STOCK','PLAN_ROUTE_STOP','APPROVE_ROUTE_ORDER','SKIP_ROUTE_STOP','ROUTE_CAMERA','ROUTE_SOURCE','ROUTE_ITEM','ROUTE_BATCH','ROUTE_REASON'])assert(catalogue.includes('CFG:CMD:'+command));
   const start=panel.indexOf('\tasync function process_scan(value)'),end=panel.indexOf('\n\tasync function lookup_tag(',start);let args;
-  const run=new Function('$scanner','active_route_delivery','opening_route_delivery','active_prepared_delivery','opening_prepared_delivery','active_isolation','opening_isolation','active_repack','opening_repack','scanner_error','repack_scanner_help','open_route_action','state',panel.slice(start,end)+'\nreturn process_scan("CFG:CMD:PLAN_ROUTE_STOP");');
-  await run({find:()=>({val(){}})},null,false,null,false,null,false,null,false,()=>{},()=>{},(...value)=>{args=value;},{lookup:{dispatch_plan:{name:'DPL-ROUTE'}}});
+  const run=new Function('$scanner','active_dispatch_review','opening_dispatch_review','active_delivery_action','opening_delivery_action','active_route_delivery','opening_route_delivery','active_prepared_delivery','opening_prepared_delivery','active_isolation','opening_isolation','active_repack','opening_repack','scanner_error','repack_scanner_help','open_route_action','state',panel.slice(start,end)+'\nreturn process_scan("CFG:CMD:PLAN_ROUTE_STOP");');
+  await run({find:()=>({val(){}})},null,false,null,false,null,false,null,false,null,false,null,false,()=>{},()=>{},(...value)=>{args=value;},{lookup:{dispatch_plan:{name:'DPL-ROUTE'}}});
   assert.deepEqual(args,['plan','DPL-ROUTE',null]);
  });
  await test('a failed retry keeps the earlier uncertain intent locked',async()=>{

@@ -25,6 +25,7 @@ def get_or_create_delivery_proof(delivery_session, operator_session_token):
     profile, operator_session = require_operator(operator_session_token)
     _require_responsibility(profile)
     delivery = assert_delivery_access(delivery_session, profile)
+    delivery = frappe.get_doc("CFG Kanban Delivery Session", delivery.name, for_update=True)
     proof_name = delivery.delivery_proof or frappe.db.get_value(
         "CFG Kanban Delivery Proof", {"delivery_session": delivery.name}, "name"
     )
@@ -32,7 +33,7 @@ def get_or_create_delivery_proof(delivery_session, operator_session_token):
         return get_delivery_proof(proof_name, operator_session_token)
     if delivery.state != "Delivered":
         frappe.throw(_("Submit the ERPNext Delivery Note before recording delivery proof"))
-    if delivery.proof_policy == "No Proof Required":
+    if delivery.proof_policy == "No Proof Required" and delivery.get("fulfilment_mode") != "Customer Pickup":
         frappe.throw(_("This Customer Site closes automatically without a proof record"))
     if not delivery.delivery_note or frappe.db.get_value(
         "Delivery Note", delivery.delivery_note, "docstatus"
@@ -77,6 +78,8 @@ def get_delivery_proof(proof_name, operator_session_token):
         proof.doctype, proof.name, permission_checked=True
     )
     result["delivery_state"] = delivery.state
+    result["fulfilment_mode"] = delivery.get("fulfilment_mode")
+    result["pickup_acknowledgement"] = delivery.get("pickup_acknowledgement")
     return result
 
 
@@ -91,6 +94,9 @@ def submit_delivery_proof(proof_name, disposition, event_token,
         frappe.throw(_("A stable event token is required"))
     proof = frappe.get_doc("CFG Kanban Delivery Proof", proof_name)
     delivery = assert_delivery_access(proof.delivery_session, profile)
+    delivery = frappe.get_doc("CFG Kanban Delivery Session", delivery.name, for_update=True)
+    # Session first, then proof: use the same mutation lock order as delivery/proof creation.
+    proof = frappe.get_doc("CFG Kanban Delivery Proof", proof_name, for_update=True)
     if proof.state == "Submitted":
         return get_delivery_proof(proof.name, operator_session_token)
     if delivery.state != "Delivered":
@@ -101,6 +107,8 @@ def submit_delivery_proof(proof_name, disposition, event_token,
             disposition, proof.proof_policy
         ))
 
+    if delivery.get("fulfilment_mode") == "Customer Pickup" and disposition != "Attended":
+        frappe.throw(_("Customer Pickup requires attended acknowledgement"))
     media_rows = list_reference_media(proof.doctype, proof.name, permission_checked=True)
     counts = {"photo": 0, "signature": 0, "attachment": 0}
     for row in media_rows:

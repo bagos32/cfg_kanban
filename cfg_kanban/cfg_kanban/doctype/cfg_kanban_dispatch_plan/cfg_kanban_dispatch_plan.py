@@ -8,6 +8,7 @@ from frappe.utils import flt
 
 ACTIVE_STATES = {
     "Draft", "Awaiting Approval", "Approved", "Picking", "Ready for Vehicle",
+    "Ready for Fulfilment", "Fulfilment In Progress", "Fulfilled",
     "Vehicle Claimed", "Loading", "Ready to Dispatch", "Dispatch Pending", "Loaded",
 }
 
@@ -16,7 +17,7 @@ class CFGKanbanDispatchPlan(Document):
     """E2 business authorization and reservation header; never an ERP stock document."""
 
     def validate(self):
-        if self.state not in ACTIVE_STATES | {"Cancelled", "Exception"}:
+        if self.state not in ACTIVE_STATES | {"Cancelled", "Exception", "Reconciled"}:
             frappe.throw(f"Unsupported Dispatch Plan state {self.state}")
         if self.priority not in {"Low", "Normal", "High", "Urgent"}:
             frappe.throw("Priority must be Low, Normal, High or Urgent")
@@ -28,6 +29,9 @@ class CFGKanbanDispatchPlan(Document):
             frappe.throw("Open Route Stock requires a Logistics Route or Territory")
         if self.plan_type == "Open Route Stock" and not self.trip_date:
             frappe.throw("Open Route Stock requires a Trip Date")
+        if self.fulfilment_mode in ("Direct Warehouse Delivery", "Customer Pickup"):
+            if self.plan_type != "Customer Order" or self.vehicle_warehouse or self.movement_manifest:
+                frappe.throw("Warehouse fulfilment requires a Customer Order without a vehicle or loading Manifest")
         if not self.lines:
             frappe.throw("Dispatch Plan requires at least one Item line")
         seen = set()

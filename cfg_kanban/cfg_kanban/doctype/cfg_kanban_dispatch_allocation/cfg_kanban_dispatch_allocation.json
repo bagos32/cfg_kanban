@@ -8,7 +8,7 @@
  "track_changes":0,
  "field_order":["state","allocation_kind","dispatch_plan","dispatch_plan_line","identity_section","handling_unit","visible_code","item_code","batch_no","stock_uom","allocated_qty","source_company","source_warehouse","loading_section","movement_manifest","manifest_line","load_confirmed","loaded_by_operator","loaded_operator_session","loaded_on","load_key","audit_section","reserved_by_operator","operator_session","reserved_on","movement_state_before_reservation","reservation_ledger","reservation_key","active_handling_unit_key","released_by_operator","released_operator_session","released_on","release_reason","release_ledger","release_key"],
  "fields":[
-  {"fieldname":"state","label":"Allocation State","fieldtype":"Select","options":"Reserved\nLoaded\nReleased\nCancelled\nException","default":"Reserved","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"state","label":"Allocation State","fieldtype":"Select","options":"Reserved\nLoaded\nIn Fulfilment\nFulfilled\nReleased\nCancelled\nException","default":"Reserved","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"allocation_kind","label":"Allocation Kind","fieldtype":"Select","options":"Tagged Stock\nUntagged ERP Stock","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"dispatch_plan","label":"Dispatch Plan","fieldtype":"Link","options":"CFG Kanban Dispatch Plan","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"dispatch_plan_line","label":"Dispatch Plan Line","fieldtype":"Data","reqd":1,"read_only":1},

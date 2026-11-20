@@ -16,6 +16,16 @@ class CFGKanbanDispatchProfile(Document):
         self._validate_scope()
         self._validate_route()
         self._validate_responsibility()
+        self.pickup_acknowledgement = self.get("pickup_acknowledgement") or "Recipient Name"
+        if self.pickup_acknowledgement not in ("Recipient Name", "Signature", "Recipient Name and Signature"):
+            frappe.throw("Select a valid Pickup Acknowledgement requirement")
+        if self.fulfilment_mode in ("Direct Warehouse Delivery", "Customer Pickup"):
+            if self.plan_type != "Customer Order":
+                frappe.throw("Direct Warehouse Delivery and Customer Pickup require Customer Order Plans")
+            from cfg_kanban.services.warehouse_fulfilment import source_warehouse
+            source_warehouse(self.source_warehouse, self.company)
+            if self.staging_warehouse or self.destination_warehouse:
+                frappe.throw("Warehouse fulfilment uses its source directly; clear staging and destination Warehouses")
 
     def _validate_priority_and_revision(self):
         if cint(self.priority) < 1:
@@ -30,7 +40,7 @@ class CFGKanbanDispatchProfile(Document):
                 "tag_policy", "stock_rotation_policy", "approval_required",
                 "allow_supervisor_override", "auto_submit_stock_transfer",
                 "auto_submit_delivery_note", "proof_policy", "dispatch_responsibility",
-                "stop_sequence_policy", "delivery_route_reference")):
+                "stop_sequence_policy", "delivery_route_reference", "pickup_acknowledgement")):
             self.revision = cint(before.revision) + 1
 
     def _validate_dispatch_point(self):
