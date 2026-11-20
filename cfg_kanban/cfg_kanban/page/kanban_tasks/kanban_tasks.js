@@ -585,10 +585,10 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 				task.status === "Pending Document Posting" ? "btn-warning" : "btn-default",
 				() => open_action_form(task.doctype_action_run, task),
 			);
-			if (task.can_operate && ["Planned", "Due", "Assigned", "Overdue"].includes(task.status)) button($actions, __("Start"), "btn-primary", () => task_dialog(task, "Start"));
+			if (task.can_operate && !task.started_on && ["Planned", "Due", "Assigned", "Overdue"].includes(task.status)) button($actions, __("Start"), "btn-primary", () => task_dialog(task, "Start"));
 			if (can_execute && task.started_on && ["In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, __("Report Progress"), "btn-info", () => task_dialog(task, "Progress"));
 			const start_action_ready = task.doctype_action_trigger !== "On Task Start" || task.doctype_action_run;
-			if (can_execute && start_action_ready && ["Due", "Assigned", "In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, task.status === "Correction Required" ? __("Correct and Resubmit") : __("Complete"), "btn-success", () => task_dialog(task, "Complete"));
+			if (can_execute && task.started_on && start_action_ready && ["In Progress", "Overdue", "Correction Required"].includes(task.status)) button($actions, task.status === "Correction Required" ? __("Correct and Resubmit") : __("Complete"), "btn-success", () => task_dialog(task, "Complete"));
 			if (task.can_operate && task.status === "Awaiting Verification") button($actions, __("Verify"), "btn-warning", () => task_dialog(task, "Verify"));
 			if (task.can_operate && state.operator && state.operator.permissions.task_verify && !["Completed", "Cancelled", "Bypassed"].includes(task.status)) {
 				button($actions, __("Cancel / Bypass"), "btn-default", () => disposition_dialog(task));
@@ -633,10 +633,31 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 		}, __("Cancel or Bypass Task Occurrence"), __("Apply Disposition"));
 	}
 
+	function task_start_message(action) {
+		return { Progress: "Start the Service Task before reporting progress",
+			Complete: "Start the Service Task before completing it" }[action];
+	}
+
+	function task_started_for_action(task, action) {
+		const message = task_start_message(action);
+		if (!message || task.started_on) return true;
+		scanner_error(__(message));
+		return false;
+	}
+
+	function restore_task_scanner(message) {
+		const $message = $(".modal:visible").last();
+		const ready = () => scanner_error(__(message));
+		if ($message.length) $message.one("hidden.bs.modal", ready);
+		else ready();
+	}
+
 	async function task_dialog(task, action) {
+		if (!task_started_for_action(task, action)) return;
 		const response = await frappe.call({ method: "cfg_kanban.api.task.get_task_form", args: {
 			task_name: task.name, capture_on: action, operator_session_token: state.token } });
 		const details = response.message.task;
+		if (!task_started_for_action(details, action)) return;
 		const definitions = response.message.fields || [];
 		const checklist = (details.checklist || "").split("\n").map((row) => row.trim()).filter(Boolean);
 		const existing_checklist = details.checklist_evidence || [];
@@ -672,7 +693,18 @@ frappe.pages["kanban-tasks"].on_page_load = function (wrapper) {
 					values: visible_dynamic_definitions(definitions, values).map((definition) => ({ field_key: definition.field_key,
 						value: values[`dynamic_${definition.field_key}`] })), notes: values.notes };
 				if (action === "Complete") args.checklist_results = checklist.map((item, index) => ({ item, completed: values[`check_${index}`] ? 1 : 0 }));
-				const result = await frappe.call({ method: `cfg_kanban.api.task.${method}`, args, freeze: true });
+				let result;
+				try {
+					result = await frappe.call({ method: `cfg_kanban.api.task.${method}`, args, freeze: true });
+				} catch (error) {
+					const message = task_start_message(action);
+					const response = error?.responseJSON || error || {};
+					const detail = [error?.message, response.exception, response.exc, response._server_messages].join(" ");
+					if (!message || !detail.includes(message)) throw error;
+					dialog.$wrapper.one("hidden.bs.modal", () => restore_task_scanner(message));
+					dialog.hide();
+					return;
+				}
 				const updated_task = result.message || {};
 				dialog.hide();
 				if (updated_task.doctype_action_run && should_open_action_after_event(updated_task, action)) {

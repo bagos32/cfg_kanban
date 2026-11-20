@@ -34,6 +34,7 @@
   "maximum_auto_submit_po_value",
   "customer_return_section",
   "enable_customer_returns",
+  "default_custom_credit_note",
   "private_media_section",
   "enable_private_media",
   "media_configuration_status",
@@ -184,6 +185,13 @@
    "label": "Enable Customer Return Workflows",
    "fieldtype": "Check",
    "default": "1"
+  },
+  {
+   "fieldname": "default_custom_credit_note",
+   "label": "Use Custom Credit Note by Default",
+   "fieldtype": "Check",
+   "default": "0",
+   "description": "Preselect Create Custom Credit Note in new post-QC Accounting Decisions when the custom DocType is available and permitted. Accountants can change the choice for each decision. This does not create or submit a document automatically."
   },
   {
    "fieldname": "private_media_section",

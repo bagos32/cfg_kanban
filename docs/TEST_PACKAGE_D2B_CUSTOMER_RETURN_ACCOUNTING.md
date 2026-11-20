@@ -270,3 +270,18 @@ submission or native migration/transaction acceptance was performed.
 Record deployed revision, Company, source invoice, Return Case, custom Note and linked native return,
 actual permissions/GL/e-Invoice evidence, exceptions and the acceptance decision. Existing numbering
 counters and historical transactional documents must not be edited to make the test pass.
+
+
+### Configurable initial custom Credit Note choice
+
+The owner requested a checked-by-default option after `a44c0b0`. The setting is **CFG Kanban
+Settings → Customer Return Workflows → Use Custom Credit Note by Default**. Its install default
+is off. When enabled, new Accounting Decision dialogs preselect the custom choice only if it is
+installed/migrated and the user has the existing custom permissions. Each decision remains editable;
+No Credit clears it, and old Drafts/commands and omitted API parameters keep their previous meaning.
+
+Native acceptance is **Not run**: migrate/build, save the global default, reopen a fresh eligible
+Return Case, verify the checked state, uncheck for one standard return, try No Credit and a user
+without custom Create permission, then turn the setting off. Confirm that existing documents keep
+their target and no document is created by saving Settings. Automated context/UI coverage exercises
+these choices offline; it does not verify test-site settings persistence or native accounting.

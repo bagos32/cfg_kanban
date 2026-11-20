@@ -33,6 +33,16 @@ native defaults, Naming Rules, counters and amendment settings; CFG hardcodes no
 4. Keep Company, Customer, approved submitted source invoice and QC-accepted stock quantities valid.
    Accounting remains separate from physical quarantine/rework/return stock disposition.
 
+## Default choice in Settings
+
+Open **CFG Kanban Settings → Customer Return Workflows**, enable **Use Custom Credit Note by
+Default** and Save. This makes **Create Custom Credit Note** checked when opening a new Accounting
+Decision dialog, when the custom DocType and permissions are available. Accountants may uncheck it
+for an individual decision. The new setting initially defaults to off, preserving the existing
+standard Sales Invoice Return choice. No Credit clears the checkbox. Existing Drafts, recorded
+commands and historical decisions are unchanged; the setting does not automatically create or
+submit documents. API calls that omit the per-decision option retain their standard return default.
+
 ## Prepare the selected Draft
 
 Open a fresh QC-completed Return Case, choose Exact Sales Invoice or Substitute Historical Sales

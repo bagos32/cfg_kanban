@@ -213,9 +213,11 @@ def complete_task(task_name, session_token, values=None, checklist_results=None,
     task = frappe.get_doc("CFG Kanban Task", task_name)
     profile, session = require_operator(session_token, "task_complete", workstation=task.workstation)
     _validate_execution_assignment(task, profile)
+    if not task.started_on:
+        frappe.throw("Start the Service Task before completing it")
     if task.status == "Completed":
         return task
-    if task.status not in ("Due", "Assigned", "In Progress", "Overdue", "Correction Required"):
+    if task.status not in ("In Progress", "Overdue", "Correction Required"):
         frappe.throw(f"Task cannot complete while it is {task.status}")
     if (task.doctype_action_profile
             and task.doctype_action_trigger == "On Task Start"

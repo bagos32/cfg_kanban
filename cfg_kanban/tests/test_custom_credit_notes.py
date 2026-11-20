@@ -302,3 +302,20 @@ class TestCustomCreditNotes(unittest.TestCase):
             self.assertEqual('Credit Note' in captured[-1],installed)
             if installed:self.assertEqual({f['fieldname'] for f in captured[-1]['Credit Note']},{'cfg_return_case','cfg_scan_event'})
         self.frappe.db.exists=original
+
+    def test_accounting_context_uses_configured_initial_choice(self):
+        self.frappe.db.get_single_value=Mock(return_value=1)
+        self.frappe.db.get_value=Mock(return_value='Kg')
+        context=self.returns.get_accounting_context('CASE')
+        self.assertEqual(context['default_use_custom_credit_note'],1)
+        self.frappe.db.get_single_value.assert_called_with('CFG Kanban Settings','default_custom_credit_note')
+        self.frappe.db.get_single_value.return_value='0'
+        self.assertEqual(self.returns.get_accounting_context('CASE')['default_use_custom_credit_note'],0)
+
+    def test_accounting_context_does_not_default_to_unavailable_or_unauthorized_custom_note(self):
+        self.frappe.db.get_single_value=Mock(return_value=1)
+        self.frappe.db.get_value=Mock(return_value='Kg')
+        self.installed=False
+        self.assertEqual(self.returns.get_accounting_context('CASE')['default_use_custom_credit_note'],0)
+        self.installed=True;self.permissions[('Credit Note','create')]=False
+        self.assertEqual(self.returns.get_accounting_context('CASE')['default_use_custom_credit_note'],0)

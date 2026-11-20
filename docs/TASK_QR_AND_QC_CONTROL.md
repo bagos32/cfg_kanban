@@ -18,6 +18,23 @@ the recurrence and records a skip event without generating an occurrence. A Supe
 cancel an unwanted occurrence or bypass it for an approved exception. Both actions require a
 reason and retain the audit record; neither deletes task history.
 
+## Service Task lifecycle
+
+Every normal Service Task must be started before progress or completion can be reported.
+Unstarted Planned, Due, Assigned and Overdue tasks show **Start**, with no **Report Progress**
+or **Complete** action. `started_on` decides whether an Overdue task has already started.
+After Start, In Progress and started Overdue tasks expose Progress and Complete and hide Start.
+A started task in Correction Required retains **Correct and Resubmit**. Existing required
+DocType Action and independent verification gates still apply, including Supervisor completion
+on behalf of an operator.
+
+Direct completion requests without a start timestamp are rejected with
+`Start the Service Task before completing it`, before recording evidence, resolving an Action
+Run or recording a completion event. The Service Panel also guards stale completion dialogs
+and returns keyboard-scanner focus after this rejection or after its message is dismissed.
+Starting a task refreshes the panel and moves the assigned task into **Active Work**.
+Supervisors may still **Cancel / Bypass** an unstarted invalid or holiday occurrence with a reason.
+
 ## Cycle-bound process and sample identities
 
 Each Process Task belongs to one Kanban Cycle. Controlled QC profiles can enable a Sample

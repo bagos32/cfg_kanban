@@ -378,6 +378,7 @@ def get_accounting_context(return_case):
             flt(coverage.get(item_code)) + 0.000001 >= qty
             for item_code, qty in accepted.items()
         )
+    custom_available = _custom_credit_note_available()
     return {
         "return_case": case.name, "state": case.state,
         "accounting_status": case.accounting_status,
@@ -391,7 +392,9 @@ def get_accounting_context(return_case):
         "selected_source": case.accounting_reference,
         "credit_document": case.credit_document,
         "credit_document_status": case.credit_document_status,
-        "custom_credit_note_available": _custom_credit_note_available(),
+        "custom_credit_note_available": custom_available,
+        "default_use_custom_credit_note": int(custom_available and flt(frappe.db.get_single_value(
+            "CFG Kanban Settings", "default_custom_credit_note")) == 1),
     }
 
 

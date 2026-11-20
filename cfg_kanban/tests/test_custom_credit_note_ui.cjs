@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../public/js/cfg_kanban_return_case.js'), 'utf8');
-function fixture(available = true) {
+function fixture(available = true, preferCustom = false) {
   const state = { calls: [], routes: [], alerts: [], properties: [], buttons: [] };
   const frappe = {
     user_roles: ['Accounts User'], utils: { escape_html: s => String(s ?? ''), get_random: () => 'EVENT' },
@@ -12,7 +12,7 @@ function fixture(available = true) {
     set_route: (...args) => state.routes.push(args), show_alert: value => state.alerts.push(value), msgprint: () => {},
     call: async request => {
       state.calls.push(request);
-      if (request.method.endsWith('get_accounting_context')) return { message: { custom_credit_note_available: available, accepted_items: [], candidate_invoices: [] } };
+      if (request.method.endsWith('get_accounting_context')) return { message: { custom_credit_note_available: available, default_use_custom_credit_note: preferCustom ? 1 : 0, accepted_items: [], candidate_invoices: [] } };
       if (state.error) throw state.error;
       return { message: state.result || { credit_document: 'NATIVE-1', credit_document_doctype: 'Sales Invoice' } };
     }
@@ -87,6 +87,25 @@ test('existing custom document and its native accounting invoice open separately
   s.buttons.find(b => b.name === 'Open Credit Return').action(); assert.equal(s.routes.at(-1)[1], 'Credit Note');
   s.buttons.find(b => b.name === 'Open Accounting Sales Invoice Return').action(); assert.equal(s.routes.at(-1)[2], 'SINV-RET-1');
   assert.equal(s.buttons.some(b => b.name === 'Prepare Accounting Decision'), false);
+});
+test('configured custom default preselects and submits custom Credit Note', async () => {
+  const s = fixture(true, true); const d = await s.open(); assert.equal(d.values.use_custom_credit_note, 1);
+  s.result = { credit_document: 'CN-1', credit_document_doctype: 'Credit Note' };
+  await s.submit(); assert.equal(s.calls.at(-1).args.use_custom_credit_note, 1);
+  assert.equal(s.routes.at(-1)[1], 'Credit Note');
+});
+test('accountant can uncheck a configured custom default for one decision', async () => {
+  const s = fixture(true, true); await s.open(); await s.submit({ use_custom_credit_note: 0 });
+  assert.equal(s.calls.at(-1).args.use_custom_credit_note, 0); assert.equal(s.routes.at(-1)[1], 'Sales Invoice');
+});
+test('custom default cannot preselect an unavailable or unauthorized target', async () => {
+  const s = fixture(false, true); const d = await s.open();
+  assert.equal(d.values.use_custom_credit_note, 0); assert.equal(d.fields_dict.use_custom_credit_note.df.read_only, true);
+});
+test('No Credit clears the preselected custom default', async () => {
+  const s = fixture(true, true); const d = await s.open(); d.values.source_basis = 'No Credit';
+  d.fields_dict.source_basis.df.onchange(); assert.equal(d.values.use_custom_credit_note, 0);
+  await s.submit(); assert.equal(s.calls.at(-1).args.use_custom_credit_note, 0);
 });
 (async () => {
   for (const [name, fn] of tests) { await fn(); console.log('ok '+name); }

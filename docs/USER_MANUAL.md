@@ -1429,7 +1429,16 @@ end the shared session from the active operator banner.
 Work instructions, completion checklist, measurements, and notes are presented as separate sections.
 Dynamic fields use their exact **Capture On** stage: Start appears in the Start dialog, Progress in
 **Report Progress**, Complete in the completion dialog, and Verify in the independent verification
-dialog. A task must be started before Progress can be reported. Every Progress submission is kept as
+dialog. Every normal Service Task must be started before progress or completion can be reported.
+Before Start, Planned, Due, Assigned and unstarted Overdue tasks show **Start** without
+**Report Progress** or **Complete**. Once started, In Progress and Overdue tasks hide Start and
+show Progress/Complete; started Correction Required tasks retain **Correct and Resubmit**.
+The start timestamp, rather than Overdue status alone, controls these actions. Direct API
+completion is also rejected before any completion evidence, Action Run or completion event
+is recorded. A premature completion shows **Start the Service Task before completing it**;
+keyboard-scanner focus returns after the dialog/message closes. Authorized Supervisor
+**Cancel / Bypass** remains available before Start. DocType Action and verification gates
+continue to apply, including completion on behalf of an operator. Every Progress submission is kept as
 a separate timestamped measurement row. The task card shows **Progress Reports**, the latest
 operator/time and latest summary. **View Progress** opens all timestamped Progress measurements and
 notes, including while the task is still In Progress, so a Supervisor can monitor work before
@@ -4067,7 +4076,11 @@ it does not renumber it. Existing documents retain their names.
 See [D2B numbering acceptance](TEST_PACKAGE_D2B_CUSTOMER_RETURN_ACCOUNTING.md#10-native-v15-credit-return-numbering).
 A return rule skipped on a development site is not reproduced or proven fixed by offline checks.
 
-The dialog now includes **Create Custom Credit Note**, unchecked by default. Check it to create the
+The dialog includes **Create Custom Credit Note**. Its initial choice is controlled by **CFG Kanban
+Settings → Customer Return Workflows → Use Custom Credit Note by Default** (initially off). Enable
+and Save that setting to precheck new dialogs; accountants may still change each decision. The
+preselection is available only for an installed, migrated and permitted custom DocType. Existing
+Drafts and recorded requests keep their original target. Check it to create the
 site's separate **Credit Note** Draft instead of the initial Sales Invoice Return. The choice is
 available only with the optional DocType, migrated trace fields and Credit Note Read/Create access.
 Its own defaults/Naming Rules control numbering; no app-owned Credit Note prefix is introduced.

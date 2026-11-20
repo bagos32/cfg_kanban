@@ -169,7 +169,8 @@ async function open_accounting_dialog(frm) {
 				get_query: () => ({ filters: { company: context.selling_company, customer: context.customer, docstatus: 1, is_return: 0 } }),
 			},
 			{ fieldtype: "Check", fieldname: "use_custom_credit_note", label: __("Create Custom Credit Note"),
-				default: 0, read_only: !context.custom_credit_note_available,
+				default: context.custom_credit_note_available && Number(context.default_use_custom_credit_note || 0) === 1 ? 1 : 0,
+				read_only: !context.custom_credit_note_available,
 				description: __("Unchecked: standard Sales Invoice Return. Checked: the site's Credit Note Draft, using its own naming settings. Its existing submit process creates the accounting Sales Invoice Return.") },
 			{ fieldtype: "Small Text", fieldname: "decision_notes", label: __("Accounting Decision Notes"), reqd: 1 },
 			{ fieldtype: "HTML", fieldname: "candidate_invoices" },
@@ -230,7 +231,7 @@ function render_guidance(context) {
 	).join("");
 	return `<div class="alert alert-warning">
 		<strong>${__("Accounting control")}</strong><br>
-		${__("This creates the selected Draft credit document only. Sales Invoice Return is the default; the optional custom Credit Note keeps its existing accounting handoff. Review taxes and e-Invoice requirements before submission.")}
+		${__("This creates the selected Draft credit document only. Kanban Settings controls the initial choice; the optional custom Credit Note keeps its existing accounting handoff. Review taxes and e-Invoice requirements before submission.")}
 	</div><table class="table table-bordered"><thead><tr><th>${__("Item")}</th><th>${__("QC Accepted")}</th><th>${__("UOM")}</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
