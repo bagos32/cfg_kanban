@@ -6,6 +6,11 @@ frappe.ui.form.on("CFG Kanban Return Case", {
 				frappe.set_route("Form", frm.doc.credit_document_doctype || "Sales Invoice", frm.doc.credit_document);
 			});
 		}
+		if (frm.doc.accounting_sales_invoice && frm.doc.accounting_sales_invoice !== frm.doc.credit_document) {
+			frm.add_custom_button(__("Open Accounting Sales Invoice Return"), () => {
+				frappe.set_route("Form", "Sales Invoice", frm.doc.accounting_sales_invoice);
+			});
+		}
 		if (can_prepare_accounting(frm)) {
 			frm.add_custom_button(__("Prepare Accounting Decision"), () => open_accounting_dialog(frm), __("Accounting"));
 		}
@@ -163,6 +168,9 @@ async function open_accounting_dialog(frm) {
 				options: "Sales Invoice",
 				get_query: () => ({ filters: { company: context.selling_company, customer: context.customer, docstatus: 1, is_return: 0 } }),
 			},
+			{ fieldtype: "Check", fieldname: "use_custom_credit_note", label: __("Create Custom Credit Note"),
+				default: 0, read_only: !context.custom_credit_note_available,
+				description: __("Unchecked: standard Sales Invoice Return. Checked: the site's Credit Note Draft, using its own naming settings. Its existing submit process creates the accounting Sales Invoice Return.") },
 			{ fieldtype: "Small Text", fieldname: "decision_notes", label: __("Accounting Decision Notes"), reqd: 1 },
 			{ fieldtype: "HTML", fieldname: "candidate_invoices" },
 		],
@@ -179,6 +187,7 @@ async function open_accounting_dialog(frm) {
 					args: {
 						return_case: frm.docname,
 						source_basis: values.source_basis,
+						use_custom_credit_note: values.source_basis === "No Credit" ? 0 : Number(values.use_custom_credit_note || 0),
 						source_sales_invoice: values.source_basis === "No Credit" ? null : values.source_sales_invoice,
 						decision_notes: values.decision_notes,
 						event_token: frappe.utils.get_random(24),
@@ -188,8 +197,9 @@ async function open_accounting_dialog(frm) {
 				});
 				dialog.hide();
 				if (result.message && result.message.credit_document) {
-					frappe.show_alert({ message: __("Draft Sales Invoice Return prepared for accountant review."), indicator: "green" });
-					frappe.set_route("Form", "Sales Invoice", result.message.credit_document);
+					const type = result.message.credit_document_doctype || "Sales Invoice";
+					frappe.show_alert({ message: type === "Credit Note" ? __("Draft Credit Note prepared for accountant review.") : __("Draft Sales Invoice Return prepared for accountant review."), indicator: "green" });
+					frappe.set_route("Form", type, result.message.credit_document);
 				} else {
 					await frm.reload_doc();
 				}
@@ -204,7 +214,11 @@ async function open_accounting_dialog(frm) {
 		const no_credit = dialog.get_value("source_basis") === "No Credit";
 		dialog.set_df_property("source_sales_invoice", "reqd", !no_credit);
 		dialog.set_df_property("source_sales_invoice", "hidden", no_credit);
-		if (no_credit) dialog.set_value("source_sales_invoice", "");
+		dialog.set_df_property("use_custom_credit_note", "hidden", no_credit);
+		if (no_credit) {
+			dialog.set_value("source_sales_invoice", "");
+			dialog.set_value("use_custom_credit_note", 0);
+		}
 	};
 	dialog.show();
 }
@@ -216,7 +230,7 @@ function render_guidance(context) {
 	).join("");
 	return `<div class="alert alert-warning">
 		<strong>${__("Accounting control")}</strong><br>
-		${__("This creates a non-stock Draft Sales Invoice Return only. Review taxes and e-Invoice requirements in ERPNext before submission.")}
+		${__("This creates the selected Draft credit document only. Sales Invoice Return is the default; the optional custom Credit Note keeps its existing accounting handoff. Review taxes and e-Invoice requirements before submission.")}
 	</div><table class="table table-bordered"><thead><tr><th>${__("Item")}</th><th>${__("QC Accepted")}</th><th>${__("UOM")}</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 

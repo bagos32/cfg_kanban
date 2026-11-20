@@ -126,7 +126,16 @@ doc_events = {
         "on_submit": "cfg_kanban.integrations.logistics_feedback.on_delivery_note_submit",
         "on_cancel": "cfg_kanban.integrations.logistics_feedback.on_delivery_note_cancel",
     },
+    "Credit Note": {
+        "before_submit": "cfg_kanban.services.custom_credit_notes.before_submit",
+        "on_submit": "cfg_kanban.services.custom_credit_notes.on_submit",
+        "before_cancel": "cfg_kanban.services.custom_credit_notes.before_cancel",
+        "on_cancel": "cfg_kanban.services.custom_credit_notes.on_cancel",
+    },
     "Sales Invoice": {
+        "before_insert": "cfg_kanban.services.custom_credit_notes.bind_invoice",
+        "before_submit": "cfg_kanban.services.custom_credit_notes.bind_invoice",
+        "on_trash": "cfg_kanban.services.custom_credit_notes.invoice_draft_deleted",
         "on_submit": "cfg_kanban.integrations.return_accounting_feedback.on_submit",
         "on_cancel": "cfg_kanban.integrations.return_accounting_feedback.on_cancel",
     },

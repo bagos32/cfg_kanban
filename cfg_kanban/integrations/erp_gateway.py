@@ -641,14 +641,20 @@ def create_customer_credit_return(command, payload):
     """
     from erpnext.controllers.sales_and_purchase_return import make_return_doc
 
+    target = payload.get("credit_document_doctype") or "Sales Invoice"
+    if target not in ("Sales Invoice", "Credit Note"):
+        frappe.throw("Select Sales Invoice Return or the optional Credit Note")
     case = frappe.get_doc("CFG Kanban Return Case", command.return_case)
     if case.return_flow != "Customer Return for QC" or \
             case.state != "QC Completed - Accounting Pending":
         frappe.throw("Customer Return Case is not ready for a credit return")
     if case.credit_document:
-        existing_status = frappe.db.get_value("Sales Invoice", case.credit_document, "docstatus")
+        existing_type = case.get("credit_document_doctype") or "Sales Invoice"
+        existing_status = frappe.db.get_value(existing_type, case.credit_document, "docstatus")
         if existing_status in (0, 1):
-            return frappe.get_doc("Sales Invoice", case.credit_document)
+            if existing_type != target:
+                frappe.throw("An active credit document already exists with another DocType; open it for accounting review")
+            return frappe.get_doc(existing_type, case.credit_document)
     source_name = payload["source_sales_invoice"]
     source = frappe.get_doc("Sales Invoice", source_name)
     if source.docstatus != 1 or source.is_return:
@@ -695,14 +701,16 @@ def create_customer_credit_return(command, payload):
         )
     credit.set("items", kept)
     credit.update_stock = 0
+    if target == "Credit Note":
+        from cfg_kanban.services.custom_credit_notes import build_draft
+        credit = build_draft(credit, source)
     credit.cfg_return_case = case.name
     credit.cfg_scan_event = command.idempotency_key
-    if case.credit_document and frappe.db.get_value(
-        "Sales Invoice", case.credit_document, "docstatus"
+    previous_type = case.get("credit_document_doctype") or "Sales Invoice"
+    if case.credit_document and previous_type == target and frappe.db.get_value(
+        target, case.credit_document, "docstatus"
     ) == 2:
-        cancelled_source = frappe.db.get_value(
-            "Sales Invoice", case.credit_document, "return_against"
-        )
+        cancelled_source = frappe.db.get_value(target, case.credit_document, "return_against")
         if cancelled_source == source.name:
             credit.amended_from = case.credit_document
     credit.remarks = (
@@ -722,9 +730,11 @@ def create_customer_credit_return(command, payload):
         "accounting_decided_by": command.terminal_user or frappe.session.user,
         "accounting_decided_on": now_datetime(),
         "accounting_decision_notes": payload["decision_notes"],
-        "credit_document_doctype": "Sales Invoice",
+        "credit_document_doctype": target,
         "credit_document": credit.name,
         "credit_document_status": "Draft",
+        "accounting_sales_invoice": credit.name if target == "Sales Invoice" else None,
+        "accounting_sales_invoice_status": "Draft" if target == "Sales Invoice" else None,
     }, update_modified=True)
     credit._cfg_command_result = {
         "doctype": credit.doctype, "name": credit.name, "docstatus": credit.docstatus,

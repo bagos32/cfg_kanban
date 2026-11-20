@@ -391,13 +391,15 @@ def get_accounting_context(return_case):
         "selected_source": case.accounting_reference,
         "credit_document": case.credit_document,
         "credit_document_status": case.credit_document_status,
+        "custom_credit_note_available": _custom_credit_note_available(),
     }
 
 
 @frappe.whitelist()
 def prepare_accounting_decision(return_case, source_basis, decision_notes,
-                                source_sales_invoice=None, event_token=None):
-    """Close as no-credit or prepare a Draft ERPNext Sales Invoice Return.
+                                source_sales_invoice=None, event_token=None,
+                                use_custom_credit_note=0):
+    """Close as no-credit or prepare the selected accountant-owned Draft credit.
 
     This Desk action is deliberately unavailable to floor operator sessions. The
     generated accounting document remains Draft for tax/e-Invoice review.
@@ -413,13 +415,18 @@ def prepare_accounting_decision(return_case, source_basis, decision_notes,
     notes = (decision_notes or "").strip()
     if not notes:
         frappe.throw(_("Accounting decision notes are required"))
+    if str(use_custom_credit_note or 0) not in ("0", "1", "False", "True"):
+        frappe.throw(_("Select a valid custom Credit Note option"))
+    target = "Credit Note" if str(use_custom_credit_note) in ("1", "True") else "Sales Invoice"
     if source_basis == "No Credit":
+        if target == "Credit Note":
+            frappe.throw(_("No Credit must not request a Credit Note"))
         if source_sales_invoice:
             frappe.throw(_("No Credit decision must not select a Sales Invoice"))
         if case.credit_document and frappe.db.get_value(
-            "Sales Invoice", case.credit_document, "docstatus"
+            case.get("credit_document_doctype") or "Sales Invoice", case.credit_document, "docstatus"
         ) in (0, 1):
-            frappe.throw(_("Cancel the existing Sales Invoice Return before choosing No Credit"))
+            frappe.throw(_("Resolve the existing credit document before choosing No Credit"))
         previous_state = case.state
         new_state = "Closed" if case.disposition_status == "Completed" else "Accounting Completed"
         case.db_set({
@@ -443,12 +450,18 @@ def prepare_accounting_decision(return_case, source_basis, decision_notes,
     if source_basis not in ("Exact Sales Invoice", "Substitute Historical Sales Invoice"):
         frappe.throw(_("Select Exact Sales Invoice, Substitute Historical Sales Invoice, or No Credit"))
     _require_sales_invoice_create()
+    if target == "Credit Note":
+        from cfg_kanban.services.custom_credit_notes import assert_available
+        assert_available()
     source = _validate_accounting_source(case, source_sales_invoice)
     if case.credit_document and frappe.db.get_value(
-        "Sales Invoice", case.credit_document, "docstatus"
+        case.get("credit_document_doctype") or "Sales Invoice", case.credit_document, "docstatus"
     ) in (0, 1):
+        if (case.get("credit_document_doctype") or "Sales Invoice") != target:
+            frappe.throw(_("An active credit document already exists with another DocType; open it for accounting review"))
         return {
             "return_case": case.name, "credit_document": case.credit_document,
+            "credit_document_doctype": case.get("credit_document_doctype") or "Sales Invoice",
             "credit_document_status": case.credit_document_status,
             "already_exists": True,
         }
@@ -460,17 +473,22 @@ def prepare_accounting_decision(return_case, source_basis, decision_notes,
         "accepted_items": _accepted_item_totals(case),
         "decision_notes": notes,
         "accounting_revision": revision,
+        "credit_document_doctype": target,
     })
     command, created = insert_once(frappe.get_doc({
         "doctype": "CFG ERP Command",
         "command_type": "Create Customer Credit Return",
         "return_case": case.name,
         "status": "Pending",
-        "target_doctype": "Sales Invoice",
+        "target_doctype": target,
         "request_payload": command_payload,
         "terminal_user": frappe.session.user,
         "requested_on": now_datetime(), "created_by_system": 1,
     }), command_key, ignore_permissions=True)
+    if not created:
+        original = frappe.parse_json(command.request_payload or "{}")
+        if (original.get("credit_document_doctype") or "Sales Invoice") != target:
+            frappe.throw(_("This accounting revision already requested another credit DocType; reconcile the original command"))
     if not created and command.status == "Failed":
         command.db_set({
             "request_payload": command_payload,
@@ -484,12 +502,13 @@ def prepare_accounting_decision(return_case, source_basis, decision_notes,
     record(
         "Customer Credit Return Draft Prepared", return_case=case.name,
         previous_state=case.state, new_state=case.state,
-        qty=case.accepted_total_qty, reference_doctype="Sales Invoice",
+        qty=case.accepted_total_qty, reference_doctype=credit.doctype,
         reference_name=credit.name, device_id=command_key,
         notes=f"{source_basis}: {source.name}. {notes}",
     )
     return {
         "return_case": case.name, "credit_document": credit.name,
+        "credit_document_doctype": credit.doctype,
         "credit_document_status": "Draft", "already_exists": False,
     }
 
@@ -774,3 +793,8 @@ def _require_qc(profile):
 def _can_view_all(profile):
     return bool(profile.kanban_role in ("Supervisor", "Development Proxy")
                 and profile.get("view_all_responsibilities"))
+
+
+def _custom_credit_note_available():
+    from cfg_kanban.services.custom_credit_notes import available
+    return available()

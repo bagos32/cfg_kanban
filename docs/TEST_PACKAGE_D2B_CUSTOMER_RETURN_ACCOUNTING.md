@@ -223,3 +223,50 @@ Acceptance evidence / exceptions:
 - Return Cases / source invoices / Credit Note document IDs / Series values:
 - Command result / native audit evidence:
 - Decision / unresolved discrepancy:
+
+
+## 11. Optional custom Credit Note choice — development extension
+
+Approved requirement and owner-provided schema/controller evidence, 20 November 2026, above
+`7c503b8`: keep standard Sales Invoice Return as the default; checking **Create Custom Credit Note**
+creates the separate custom Credit Note Draft. Read [the setup guide](USER_GUIDE_CUSTOM_CREDIT_NOTE_RETURNS.md).
+The existing custom controller creates an additional native Sales Invoice Return Draft on submit;
+accounting completes only on native posting. This is separate from the earlier native-series fix.
+
+Offline verification exercises actual gateway, adapter, accounting feedback and Desk UI functions
+with dependency substitutes. It covers both choices, native/custom identity separation, exact QC
+stock quantity/UOM/source row, optional-app/schema/permission rejection, idempotent reuse/target
+conflicts, generated native linkage, duplicate-return rejection, posting/cancellation/amendment and
+explicit generated-Draft discard audit. Native custom-controller/tax, migration, database,
+transaction, permission and live-site acceptance are not established by these checks.
+
+Final local verification on 20 November 2026: **291 Python tests passed, 5 installed-Frappe
+naming tests skipped**. This includes **25 new custom Credit Note tests**. **35 JavaScript UI
+checks passed**, including 8 for the new Desk choice and 27 existing direct-return checks.
+Source/schema and diff-whitespace checks passed for the scoped changes. No live-site/custom-app
+submission or native migration/transaction acceptance was performed.
+
+### Test-site acceptance — Not run
+
+| Case | Expected | Result |
+| --- | --- | --- |
+| Optional DocType absent | Core migration and default Sales Invoice Return work; custom choice unavailable | Not run |
+| Optional DocType installed, migration | Only CFG trace fields added to existing Credit Note; original custom app/schema/controller preserved | Not run |
+| Default checkbox | One non-stock Draft Sales Invoice Return using native numbering; no custom Note | Not run |
+| Checked custom choice | One Draft Credit Note with its own native CN/default/rule numbering, Credit Note Item rows, original invoice source and exact QC stock quantities | Not run |
+| Amounts/taxes/currency | Existing custom controller correctly recalculates partial accepted quantities, taxes, currency and account defaults | Not run |
+| Permissions and Company | Existing accountant role/Create gates plus custom Note Read/Create; wrong source Company/Customer rejected | Not run |
+| Retry/target conflict | Original document reused; changed target cannot create another credit for the same accounting revision | Not run |
+| No Credit | Custom choice cleared; no accounting document; active custom/default credit prevents conflicting No Credit | Not run |
+| Submit custom Note | Exactly one native Draft with exact Return Against Credit Note link; Case keeps custom identity and records native link; accounting still pending | Not run |
+| Missing native link/controller error | Entire failed submit rolls back; no orphan or silently guessed native invoice | Not run |
+| Native posting | Accountant submits native return; Case accounting completes; stock disposition remains independent | Not run |
+| Tampering/duplicate source rows | Wrong identity/source/UOM/conversion/quantity or second active return rejected; custom repeated Item/UOM ambiguity directs to standard path | Not run |
+| Cancellation and amendment | Active native document blocks custom cancellation; native cancellation reopens accounting; permitted native amendment and later custom cancellation preserve both histories | Not run |
+| Explicit generated-Draft deletion | Native Draft discard audit retained; Case native link cleared before normal reference checks; custom cancellation can proceed | Not run |
+| Two sessions/partial failures | One credit per Case/revision; native rollback, hook ordering and locks verified under concurrency | Not run |
+| Desk opening | Creation and existing-document buttons open the selected DocType; native accounting button opens its separate invoice | Not run |
+
+Record deployed revision, Company, source invoice, Return Case, custom Note and linked native return,
+actual permissions/GL/e-Invoice evidence, exceptions and the acceptance decision. Existing numbering
+counters and historical transactional documents must not be edited to make the test pass.

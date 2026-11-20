@@ -4067,6 +4067,22 @@ it does not renumber it. Existing documents retain their names.
 See [D2B numbering acceptance](TEST_PACKAGE_D2B_CUSTOMER_RETURN_ACCOUNTING.md#10-native-v15-credit-return-numbering).
 A return rule skipped on a development site is not reproduced or proven fixed by offline checks.
 
+The dialog now includes **Create Custom Credit Note**, unchecked by default. Check it to create the
+site's separate **Credit Note** Draft instead of the initial Sales Invoice Return. The choice is
+available only with the optional DocType, migrated trace fields and Credit Note Read/Create access.
+Its own defaults/Naming Rules control numbering; no app-owned Credit Note prefix is introduced.
+Existing active credit documents are reused or rejected as conflicts, rather than converted.
+
+The supplied custom Credit Note controller creates a Draft Sales Invoice Return when the accountant
+submits the custom Note. **Final Credit Document** retains that Note; **Accounting Sales Invoice
+Return / Status** tracks the generated native invoice separately. **Accounting Status stays Credit
+Pending until the native invoice is submitted.** Use **Open Accounting Sales Invoice Return** to
+review/post it. Cancel or explicitly discard that native document before cancelling the custom
+Note. Its normal ERPNext numbering, tax/e-Invoice and permission rules remain authoritative.
+Repeated Item/UOM source rows are rejected by the custom path because its existing controller
+cannot distinguish them; the default standard return path remains available for such invoices.
+See [the optional Credit Note setup guide](USER_GUIDE_CUSTOM_CREDIT_NOTE_RETURNS.md).
+
 On valid ERPNext submission, the Return Case becomes `Accounting Completed` / `Completed`. The
 submission hook blocks Company, Customer, source, Update Stock, Item or quantity divergence. If the
 submitted return is cancelled, the case reopens to `QC Completed - Accounting Pending`, records the

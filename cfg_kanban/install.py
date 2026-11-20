@@ -10,6 +10,14 @@ def after_install():
     from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
     fields_by_doctype = _custom_fields()
+    # The site's custom Credit Note app is optional; create no DocType or hard dependency.
+    if frappe.db.exists("DocType", "Credit Note"):
+        fields_by_doctype["Credit Note"] = [
+            {"fieldname": "cfg_return_case", "label": "Customer Return Case", "fieldtype": "Link",
+             "options": "CFG Kanban Return Case", "read_only": 1, "no_copy": 1, "insert_after": "return_against"},
+            {"fieldname": "cfg_scan_event", "label": "Kanban Accounting Event Identity", "fieldtype": "Data",
+             "read_only": 1, "no_copy": 1, "insert_after": "cfg_return_case"},
+        ]
     for fields in fields_by_doctype.values():
         for field in fields:
             field.setdefault("module", "CFG Kanban")
