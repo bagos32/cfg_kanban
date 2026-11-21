@@ -5936,3 +5936,30 @@ permit corrections. Do not clear browser storage to resolve an uncertain request
 See [the setup/operator guide](USER_GUIDE_LORRY_ROUTES_AND_FLOOR.md) and
 [the acceptance checklist](TEST_LORRY_ROUTES_AND_FLOOR.md). Local offline tests do not establish
 native Frappe migration, stock posting, concurrency, permissions or scanner/tablet acceptance.
+
+
+## Office Delivery Trip planning — Phase 1
+
+Use **CFG Dispatch Control → Standard Routes / Templates** to configure Company, region/direction,
+Delivery or Visit Only stops and their default order on a normal Desk form. Sales chooses
+**Standard Delivery Route** on the Sales Order. Its saved draft/submitted lines and native Customer
+PO reference appear in the route inbox; office staff explicitly assign submitted open SO quantities
+to a dated **CFG Kanban Delivery Trip**.
+
+The trip uses full-form tabs for stops, inline SO inbox, assignments, existing Dispatch Plan links,
+and **LIFO Loading Sequence**. Last delivery stop loads first. Visit-only and non-stock Items create
+no loading lines. Saved Draft/Planned quantities are planning commitments, checked against native
+SO undelivered quantities and other trips, not stock reservations. Linked existing Plan allocations
+show tagged/untagged source details alongside unprepared balances. Multi-day dates and optional
+early vehicle assignment are supported.
+
+Existing Dispatch Plans/E3 loading, approved Route Sheets, Delivery Sessions, proof and E5 remain
+the execution authority. The trip's policy is an office instruction in this phase; it does not
+replace the existing enforced customer sequence or enforce physical loading scan order. Source
+execution freezes the office planning snapshot. Close/cancel needs a reason and settled/cancelled
+linked Plans, preserves history and releases planning commitments without altering ERP stock.
+
+See [office setup and use](USER_GUIDE_OFFICE_DELIVERY_TRIP.md) and
+[Phase 1 acceptance](TEST_OFFICE_DELIVERY_TRIP_PHASE1.md). Driver terminal, maps/GPS, live sequence
+approvals and simplified refused/old-return handling remain later phases. Offline checks do not
+verify native migration, source posting, concurrency or device behaviour.

@@ -1,0 +1,115 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Delivery Trip Order",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "track_changes": 1,
+ "field_order": [
+  "stop_key",
+  "stop_sequence",
+  "sales_order",
+  "sales_order_item",
+  "customer",
+  "customer_po",
+  "item_code",
+  "item_name",
+  "is_stock_item",
+  "stock_uom",
+  "planned_qty",
+  "delivery_date"
+ ],
+ "fields": [
+  {
+   "fieldname": "stop_key",
+   "label": "Stop Identity",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "stop_sequence",
+   "label": "Stop No.",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "sales_order",
+   "label": "Sales Order",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Sales Order",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "sales_order_item",
+   "label": "Sales Order Item Row",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "customer",
+   "label": "Customer",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Customer"
+  },
+  {
+   "fieldname": "customer_po",
+   "label": "Customer PO Reference",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "item_code",
+   "label": "Item",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Item",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "item_name",
+   "label": "Item Name",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "is_stock_item",
+   "label": "Physical Stock Item",
+   "fieldtype": "Check",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stock_uom",
+   "label": "Stock UOM",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "UOM",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "planned_qty",
+   "label": "Assigned Stock Qty",
+   "fieldtype": "Float",
+   "precision": 6,
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "delivery_date",
+   "label": "SO Delivery Date",
+   "fieldtype": "Date",
+   "read_only": 1
+  }
+ ],
+ "istable": 1
+}

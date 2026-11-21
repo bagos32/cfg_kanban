@@ -1,0 +1,173 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Delivery Trip Load",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "track_changes": 1,
+ "field_order": [
+  "loading_sequence",
+  "delivery_sequence",
+  "stop_key",
+  "customer",
+  "customer_site",
+  "sales_order",
+  "customer_po",
+  "item_code",
+  "stock_uom",
+  "qty",
+  "loaded_qty",
+  "allocation_kind",
+  "source_state",
+  "dispatch_plan",
+  "dispatch_allocation",
+  "handling_unit",
+  "tag_code",
+  "batch_no",
+  "instruction"
+ ],
+ "fields": [
+  {
+   "fieldname": "loading_sequence",
+   "label": "Load No.",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "delivery_sequence",
+   "label": "Delivery Stop",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "stop_key",
+   "label": "Stop Identity",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "customer",
+   "label": "Customer",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Customer",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "customer_site",
+   "label": "Customer Site",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Customer Scan Point"
+  },
+  {
+   "fieldname": "sales_order",
+   "label": "Sales Order",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Sales Order"
+  },
+  {
+   "fieldname": "customer_po",
+   "label": "Customer PO Reference",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "item_code",
+   "label": "Item",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Item",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "stock_uom",
+   "label": "Stock UOM",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "UOM",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "qty",
+   "label": "Planned / Assigned Qty",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "precision": 6,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "loaded_qty",
+   "label": "ERP-Loaded Qty (Historical)",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "precision": 6
+  },
+  {
+   "fieldname": "allocation_kind",
+   "label": "Stock Kind",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_state",
+   "label": "Source Stage",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "dispatch_plan",
+   "label": "Dispatch Plan",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Dispatch Plan"
+  },
+  {
+   "fieldname": "dispatch_allocation",
+   "label": "Dispatch Allocation",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Dispatch Allocation"
+  },
+  {
+   "fieldname": "handling_unit",
+   "label": "Stock Identity",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Handling Unit"
+  },
+  {
+   "fieldname": "tag_code",
+   "label": "Physical Tag",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "batch_no",
+   "label": "Batch",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Batch"
+  },
+  {
+   "fieldname": "instruction",
+   "label": "Instruction",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  }
+ ],
+ "istable": 1
+}

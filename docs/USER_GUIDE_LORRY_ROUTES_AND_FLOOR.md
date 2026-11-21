@@ -67,6 +67,12 @@ Template changes increment its revision. Plans/Route Sheets keep captured snapsh
 master template does not rewrite an active trip. Repeated visits are permitted for Open Route
 stock, using distinct stop identities.
 
+Office planning is also available through **CFG Dispatch Control → Office Delivery Trips**.
+Templates now support region/direction and Visit Only rows. These visits are retained in the new
+office planner and omitted from this guide's existing stock-delivery execution sequence. See the
+[office Delivery Trip guide](USER_GUIDE_OFFICE_DELIVERY_TRIP.md) for the SO route inbox and LIFO
+loading instructions. Existing Route Sheet approval and driver controls below continue unchanged.
+
 ## 3. Dispatch Profile setup
 
 Use **CFG Kanban Dispatch Profile** with Vehicle Delivery:

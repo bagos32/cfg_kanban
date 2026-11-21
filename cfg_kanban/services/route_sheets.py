@@ -55,8 +55,11 @@ def template_snapshot(name,company):
     doc.check_permission('read')
     if not doc.active or doc.company!=company:
         frappe.throw('Select an active Route Template for this Company')
-    return dict(name=doc.name,revision=cint(doc.revision),company=doc.company,
-        stops=[dict(customer_scan_point=row.customer_scan_point,instructions=row.instructions or '') for row in doc.stops])
+    stops=[dict(customer_scan_point=row.customer_scan_point,instructions=row.instructions or '')
+           for row in doc.stops if (row.get('stop_purpose') or 'Delivery') == 'Delivery']
+    if not stops:
+        frappe.throw('This template has only Visit Only stops; select Delivery stops for dispatch execution')
+    return dict(name=doc.name,revision=cint(doc.revision),company=doc.company,stops=stops)
 
 
 def _supervisor(operator):

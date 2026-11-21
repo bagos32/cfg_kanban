@@ -1,0 +1,97 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Delivery Trip Stop",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "track_changes": 1,
+ "field_order": [
+  "stop_key",
+  "template_row",
+  "delivery_sequence",
+  "stop_purpose",
+  "customer_scan_point",
+  "customer",
+  "site_name",
+  "customer_address",
+  "address_display",
+  "instructions"
+ ],
+ "fields": [
+  {
+   "fieldname": "stop_key",
+   "label": "Stop Identity",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "template_row",
+   "label": "Template Row",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "delivery_sequence",
+   "label": "Stop No.",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "stop_purpose",
+   "label": "Purpose",
+   "fieldtype": "Select",
+   "options": "Delivery\nVisit Only",
+   "default": "Delivery",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "customer_scan_point",
+   "label": "Customer Site",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Customer Scan Point",
+   "mandatory_depends_on": "eval:doc.stop_purpose=='Delivery'",
+   "in_list_view": 1,
+   "columns": 4
+  },
+  {
+   "fieldname": "customer",
+   "label": "Customer",
+   "fieldtype": "Link",
+   "options": "Customer",
+   "reqd": 1,
+   "in_list_view": 1,
+   "read_only_depends_on": "eval:!!doc.customer_scan_point",
+   "columns": 3
+  },
+  {
+   "fieldname": "site_name",
+   "label": "Stop Name",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "customer_address",
+   "label": "Customer Address",
+   "fieldtype": "Link",
+   "options": "Address",
+   "read_only_depends_on": "eval:!!doc.customer_scan_point"
+  },
+  {
+   "fieldname": "address_display",
+   "label": "Address Details",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "instructions",
+   "label": "Stop / Visit Instructions",
+   "fieldtype": "Small Text"
+  }
+ ],
+ "istable": 1
+}

@@ -1,0 +1,292 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Delivery Trip",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "track_changes": 1,
+ "field_order": [
+  "trip_details",
+  "trip_title",
+  "state",
+  "company",
+  "route_template",
+  "trip_date",
+  "expected_return_date",
+  "driver",
+  "vehicle_warehouse",
+  "source_warehouse",
+  "region",
+  "direction",
+  "sequence_policy",
+  "planning_revision",
+  "template_revision",
+  "template_snapshot_json",
+  "planning_help",
+  "stops_tab",
+  "stops",
+  "inbox_tab",
+  "order_inbox",
+  "orders_tab",
+  "orders",
+  "plans_tab",
+  "dispatch_plans",
+  "loading_tab",
+  "loading_sequence",
+  "loading_live",
+  "notes_tab",
+  "notes",
+  "closure_reason",
+  "closed_by",
+  "closed_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "trip_details",
+   "label": "Trip Details",
+   "fieldtype": "Tab Break"
+  },
+  {
+   "fieldname": "trip_title",
+   "label": "Trip Title",
+   "fieldtype": "Data"
+  },
+  {
+   "fieldname": "state",
+   "label": "Planning Status",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "options": "Draft\nPlanned\nClosed\nCancelled",
+   "default": "Draft",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "route_template",
+   "label": "Standard Route / Template",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Route Template",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "trip_date",
+   "label": "Departure / Trip Date",
+   "fieldtype": "Date",
+   "reqd": 1,
+   "default": "Today",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "expected_return_date",
+   "label": "Expected Return Date",
+   "fieldtype": "Date"
+  },
+  {
+   "fieldname": "driver",
+   "label": "Assigned Driver",
+   "fieldtype": "Link",
+   "options": "Employee"
+  },
+  {
+   "fieldname": "vehicle_warehouse",
+   "label": "Lorry Warehouse (Optional Until Assigned)",
+   "fieldtype": "Link",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "source_warehouse",
+   "label": "Loading Source Warehouse (Optional)",
+   "fieldtype": "Link",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "region",
+   "label": "Region",
+   "fieldtype": "Data"
+  },
+  {
+   "fieldname": "direction",
+   "label": "Direction / Corridor",
+   "fieldtype": "Data"
+  },
+  {
+   "fieldname": "sequence_policy",
+   "label": "Customer Stop Sequence",
+   "fieldtype": "Select",
+   "options": "Flexible Order\nPlanned Order",
+   "default": "Flexible Order",
+   "reqd": 1,
+   "description": "Office planning instruction in Phase 1. Existing Dispatch Profile and approved Route Sheet still enforce live stop order."
+  },
+  {
+   "fieldname": "planning_revision",
+   "label": "Planning Revision",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "default": "1"
+  },
+  {
+   "fieldname": "template_revision",
+   "label": "Template Revision",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "template_snapshot_json",
+   "label": "Template Snapshot",
+   "fieldtype": "Code",
+   "read_only": 1,
+   "options": "JSON",
+   "hidden": 1
+  },
+  {
+   "fieldname": "planning_help",
+   "label": "Planning Instructions",
+   "fieldtype": "HTML"
+  },
+  {
+   "fieldname": "stops_tab",
+   "label": "Customer Stops",
+   "fieldtype": "Tab Break"
+  },
+  {
+   "fieldname": "stops",
+   "label": "Customer Stops",
+   "fieldtype": "Table",
+   "options": "CFG Kanban Delivery Trip Stop",
+   "reqd": 1
+  },
+  {
+   "fieldname": "inbox_tab",
+   "label": "SO Route Inbox",
+   "fieldtype": "Tab Break"
+  },
+  {
+   "fieldname": "order_inbox",
+   "label": "Sales Order Route Inbox",
+   "fieldtype": "HTML"
+  },
+  {
+   "fieldname": "orders_tab",
+   "label": "Order Assignments",
+   "fieldtype": "Tab Break"
+  },
+  {
+   "fieldname": "orders",
+   "label": "Trip Order Assignments",
+   "fieldtype": "Table",
+   "options": "CFG Kanban Delivery Trip Order",
+   "description": "Use SO Route Inbox to assign or change the stop. Remove an assignment to release its planning quantity before dispatch execution starts."
+  },
+  {
+   "fieldname": "plans_tab",
+   "label": "Linked Dispatch Plans",
+   "fieldtype": "Tab Break"
+  },
+  {
+   "fieldname": "dispatch_plans",
+   "label": "Existing Dispatch Plans",
+   "fieldtype": "Table",
+   "options": "CFG Kanban Delivery Trip Plan"
+  },
+  {
+   "fieldname": "loading_tab",
+   "label": "LIFO Loading Sequence",
+   "fieldtype": "Tab Break"
+  },
+  {
+   "fieldname": "loading_sequence",
+   "label": "Saved Loading Instructions",
+   "fieldtype": "Table",
+   "options": "CFG Kanban Delivery Trip Load",
+   "read_only": 1
+  },
+  {
+   "fieldname": "loading_live",
+   "label": "Current Dispatch Source Details",
+   "fieldtype": "HTML"
+  },
+  {
+   "fieldname": "notes_tab",
+   "label": "Notes and History",
+   "fieldtype": "Tab Break"
+  },
+  {
+   "fieldname": "notes",
+   "label": "Planning Notes",
+   "fieldtype": "Small Text"
+  },
+  {
+   "fieldname": "closure_reason",
+   "label": "Closure / Cancellation Reason",
+   "fieldtype": "Small Text"
+  },
+  {
+   "fieldname": "closed_by",
+   "label": "Closed / Cancelled By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "User"
+  },
+  {
+   "fieldname": "closed_on",
+   "label": "Closed / Cancelled On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  }
+ ],
+ "autoname": "KTRIP-.YYYY.-.#####",
+ "title_field": "trip_title",
+ "search_fields": "trip_title,route_template,company,driver,vehicle_warehouse",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "allow_rename": 0,
+ "permissions": [
+  {
+   "role": "Stock User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "print": 1,
+   "create": 1,
+   "write": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "print": 1,
+   "create": 1,
+   "write": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1,
+   "create": 1,
+   "write": 1
+  },
+  {
+   "role": "CFG Kanban System Maintenance",
+   "read": 1,
+   "print": 1,
+   "create": 1,
+   "write": 1
+  }
+ ],
+ "quick_entry": 0
+}

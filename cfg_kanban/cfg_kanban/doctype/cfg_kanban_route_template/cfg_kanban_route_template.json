@@ -9,8 +9,13 @@
   "active",
   "company",
   "revision",
+  "region",
+  "direction",
+  "sequence_policy",
   "stops",
-  "notes"
+  "notes",
+  "inbox_section",
+  "order_inbox"
  ],
  "fields": [
   {
@@ -44,6 +49,24 @@
    "read_only": 1
   },
   {
+   "fieldname": "region",
+   "label": "Region",
+   "fieldtype": "Data"
+  },
+  {
+   "fieldname": "direction",
+   "label": "Direction / Corridor",
+   "fieldtype": "Data"
+  },
+  {
+   "fieldname": "sequence_policy",
+   "label": "Default Customer Stop Sequence",
+   "fieldtype": "Select",
+   "options": "Flexible Order\nPlanned Order",
+   "default": "Flexible Order",
+   "reqd": 1
+  },
+  {
    "fieldname": "stops",
    "label": "Customer Stop Sequence",
    "fieldtype": "Table",
@@ -54,6 +77,16 @@
    "fieldname": "notes",
    "label": "Notes",
    "fieldtype": "Small Text"
+  },
+  {
+   "fieldname": "inbox_section",
+   "label": "SO Route Inbox",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "order_inbox",
+   "label": "Sales Order Route Inbox",
+   "fieldtype": "HTML"
   }
  ],
  "autoname": "field:template_name",
@@ -92,5 +125,6 @@
   }
  ],
  "naming_rule": "By fieldname",
- "title_field": "template_name"
+ "title_field": "template_name",
+ "quick_entry": 0
 }

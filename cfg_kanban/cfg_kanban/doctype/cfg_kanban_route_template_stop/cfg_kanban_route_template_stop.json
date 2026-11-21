@@ -5,6 +5,7 @@
  "engine": "InnoDB",
  "track_changes": 1,
  "field_order": [
+  "stop_purpose",
   "customer_scan_point",
   "site_name",
   "customer",
@@ -13,40 +14,54 @@
  ],
  "fields": [
   {
+   "fieldname": "stop_purpose",
+   "label": "Stop Purpose",
+   "fieldtype": "Select",
+   "options": "Delivery\nVisit Only",
+   "default": "Delivery",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
    "fieldname": "customer_scan_point",
    "label": "Customer Site",
    "fieldtype": "Link",
-   "reqd": 1,
    "in_list_view": 1,
-   "options": "CFG Kanban Customer Scan Point"
+   "options": "CFG Kanban Customer Scan Point",
+   "mandatory_depends_on": "eval:doc.stop_purpose == 'Delivery'",
+   "columns": 3
   },
   {
    "fieldname": "site_name",
    "label": "Site Name",
    "fieldtype": "Data",
    "read_only": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "columns": 2
   },
   {
    "fieldname": "customer",
    "label": "Customer",
    "fieldtype": "Link",
-   "read_only": 1,
    "in_list_view": 1,
-   "options": "Customer"
+   "options": "Customer",
+   "read_only_depends_on": "eval:!!doc.customer_scan_point",
+   "columns": 2
   },
   {
    "fieldname": "customer_address",
    "label": "Address",
    "fieldtype": "Link",
-   "read_only": 1,
-   "options": "Address"
+   "options": "Address",
+   "read_only_depends_on": "eval:!!doc.customer_scan_point"
   },
   {
    "fieldname": "instructions",
    "label": "Delivery Instructions",
    "fieldtype": "Small Text",
-   "in_list_view": 1
+   "in_list_view": 1,
+   "columns": 1
   }
  ],
  "istable": 1

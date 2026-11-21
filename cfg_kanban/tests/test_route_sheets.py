@@ -274,8 +274,19 @@ class TestRouteSheets(unittest.TestCase):
         result=self.save('Close',expected_revision=1,event_token='CLOSE',reason='Trip ended')
         self.assertEqual(result['sheet']['state'],'Completed');self.assertFalse(self.sheet().active_scope_key);self.assertEqual(len(self.sheet().stops),2)
 
+    def test_legacy_template_execution_excludes_visit_only_stops(self):
+        template=self.data['CFG Kanban Route Template']['TEMPLATE']
+        template.stops.insert(1,Doc(stop_purpose='Visit Only',customer='C1',instructions='Collect info'))
+        self.assertEqual([row['customer_scan_point'] for row in self.ns['template_snapshot']('TEMPLATE','B')['stops']],['S1','S2'])
+        template.stops=[template.stops[1]]
+        with self.assertRaisesRegex(ValueError,'Visit Only'):self.ns['template_snapshot']('TEMPLATE','B')
+
     def test_template_controller_increments_revision_only_for_business_sequence_change(self):
-        namespace=load('cfg_kanban/doctype/cfg_kanban_route_template/cfg_kanban_route_template.py',dict(self.common,Document=Doc))
+        import re, uuid
+        office=load('services/delivery_trips.py',dict(self.common,re=re,uuid=uuid))
+        office['_address']=lambda name,customer:''  # Address validation has dedicated office-trip coverage.
+        namespace=load('cfg_kanban/doctype/cfg_kanban_route_template/cfg_kanban_route_template.py',
+                       dict(self.common,Document=Doc,_company=office['_company'],validate_stops=office['validate_stops']))
         cls=namespace['CFGKanbanRouteTemplate']
         before=cls(name='T',company='B',active=1,revision=3,stops=[Doc(customer_scan_point='S1'),Doc(customer_scan_point='S2')])
         current=cls(dict(before,_before=before));current.validate();self.assertEqual(current.revision,3)

@@ -380,3 +380,32 @@ See [the setup/operator guide](USER_GUIDE_LORRY_ROUTES_AND_FLOOR.md) and
 [the requirements and acceptance record](TEST_LORRY_ROUTES_AND_FLOOR.md). Offline verification is
 recorded there. Native migration, ERP/concurrency/permission and device acceptance are **Not run**;
 the separate L1 gate and outstanding E5B scope above remain open.
+
+
+## 15. Office Delivery Trip — approved Phase 1 extension
+
+On 21 November 2026 the owner approved a normal office DocType page, reusable route template,
+SO route inbox and LIFO loading instructions. A route is a reusable customer/region/direction
+itinerary; its dated trip is separate from warehouse-to-lorry dispatch authorization. “PO” means
+the customer PO reference on a Sales Order. Selecting a route puts the SO in its order inbox;
+the office chooses the dated trip explicitly.
+
+Local development includes Company-checked route selection on Sales Orders, template region/
+direction/policy and Delivery/Visit Only stops, native **CFG Kanban Delivery Trip** forms, exact
+SO row/stock-UOM planning quantities and stable stop assignments, optional lorry/source/driver,
+multi-day dates, revision snapshots, linked existing Customer Order Vehicle Delivery Plans and
+a derived reverse-stop loading list of tagged/untagged allocations and unprepared quantities.
+Saved Draft and Planned assignments hold planning capacity; submitted linked native DNs reduce
+outstanding commitments. Native stock remains outside this planning record. Closed/Cancelled
+planning history cannot be deleted/reopened; source execution freezes the office snapshot.
+
+This extension does not create another stock or delivery engine. Existing E3 confirmation,
+Manifest posting, FEFO/FIFO/certificate checks, approved Route Sheets, E4 delivery/proof and E5
+reconciliation continue. No automatic office-trip-to-driver-route publication, enforced LIFO scan
+order, driver terminal, live sequence override, map/GPS, printer subsystem or new QC-return queue
+is claimed in Phase 1. Legacy execution templates omit the new Visit Only rows.
+
+See [office setup guide](USER_GUIDE_OFFICE_DELIVERY_TRIP.md) and
+[Phase 1 acceptance record](TEST_OFFICE_DELIVERY_TRIP_PHASE1.md). Implementation and offline
+verification are separate from native-site acceptance, which is Not run. Preserve the L1 gate,
+remaining E5B scope and owner-managed commit/deployment boundary before the next package.

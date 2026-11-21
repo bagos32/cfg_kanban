@@ -83,6 +83,8 @@ doc_events = {
         "on_update": "cfg_kanban.services.dispatch.on_execution_update",
     },
     "Sales Order": {
+        "validate": "cfg_kanban.services.delivery_trips.validate_sales_order_route",
+        "before_update_after_submit": "cfg_kanban.services.delivery_trips.validate_sales_order_route",
         "on_submit": "cfg_kanban.integrations.sales_order_feedback.on_submit",
         "on_update_after_submit": "cfg_kanban.integrations.sales_order_feedback.on_update_after_submit",
         "on_cancel": "cfg_kanban.integrations.sales_order_feedback.on_cancel",

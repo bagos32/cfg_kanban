@@ -186,6 +186,7 @@ def _custom_fields():
             {"fieldname": "cfg_planned_batch", "label": "MTO Planned Batch", "fieldtype": "Link", "options": "Batch", "read_only": 1, "insert_after": "cfg_sales_order"},
         ],
         "Sales Order": [
+            {"fieldname": "cfg_delivery_route", "label": "Standard Delivery Route", "fieldtype": "Link", "options": "CFG Kanban Route Template", "insert_after": "delivery_date", "allow_on_submit": 1, "module": "CFG Kanban", "description": "Active Company route. Saved orders appear in its office inbox; the office assigns a dated Delivery Trip. Customer PO uses the standard Customer PO No field."},
             {"fieldname": "cfg_kanban_demand_section", "label": "CFG Kanban Demand", "fieldtype": "Section Break", "insert_after": "terms", "module": "CFG Kanban", "collapsible": 1},
             {"fieldname": "cfg_production_line", "label": "Kanban Production Line", "fieldtype": "Data", "insert_after": "cfg_kanban_demand_section", "module": "CFG Kanban", "description": "Optional routing value used by Production Line demand scope."},
             {"fieldname": "cfg_po_allows_extra_qty", "label": "Customer PO Allows Extra Quantity", "fieldtype": "Check", "insert_after": "cfg_production_line", "module": "CFG Kanban"},
