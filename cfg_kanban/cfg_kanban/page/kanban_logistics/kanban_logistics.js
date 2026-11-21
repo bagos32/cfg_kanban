@@ -31,6 +31,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	const $active = $("<div class='cfg-logistics-active mt-3'></div>").appendTo(page.main);
 	const $reconciliation = $("<div class='cfg-logistics-reconciliation mt-3'></div>").appendTo(page.main);
 	const $actions = $(`<div class="cfg-logistics-toolbar mt-3 mb-3">
+		<button class="btn btn-default driver-route">${__("Driver Route")}</button>
 		<button class="btn btn-default view-lorry-route">${__("Lorry Route Sheet")}</button>
 		<button class="btn btn-default direct-customer-return">${__("Direct Customer Return")}</button>
 		<button class="btn btn-primary new-manifest">${__("New Dispatch Manifest")}</button>
@@ -59,6 +60,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	$actions.find(".release-container-stock").on("click", () => open_container_repack(null,true));
 	$actions.find(".repack-help").on("click", repack_scanner_help);
 	$actions.find(".view-lorry-route").on("click", () => open_lorry_route("driver"));
+	$actions.find(".driver-route").on("click", () => frappe.set_route("kanban-driver-route"));
 	$actions.find(".direct-customer-return").on("click", () => open_direct_customer_return());
 	$actions.find(".new-manifest").on("click", new_manifest_dialog);
 	$actions.find(".route-reconciliation").on("click", reconciliation_dialog);
@@ -3578,6 +3580,12 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	const initial_load = load().then(() => { if (initial_scan && state.token) return lookup_tag(initial_scan); });
 	frappe.pages["kanban-logistics"].on_page_show = async () => {
 		await initial_load;
+		if (frappe.route_options?.cfg_driver_delivery_session) {
+			const name=frappe.route_options.cfg_driver_delivery_session;
+			delete frappe.route_options.cfg_driver_delivery_session;
+			if (sync_session_from_storage()) await load();
+			return open_delivery_session(name);
+		}
 		if (frappe.route_options?.cfg_lorry_route) {
 			const mode=frappe.route_options.cfg_lorry_route;delete frappe.route_options.cfg_lorry_route;
 			if (sync_session_from_storage()) await load();

@@ -5963,3 +5963,28 @@ See [office setup and use](USER_GUIDE_OFFICE_DELIVERY_TRIP.md) and
 [Phase 1 acceptance](TEST_OFFICE_DELIVERY_TRIP_PHASE1.md). Driver terminal, maps/GPS, live sequence
 approvals and simplified refused/old-return handling remain later phases. Offline checks do not
 verify native migration, source posting, concurrency or device behaviour.
+
+
+## Driver Route — assigned trip and stop view
+
+Open **CFG Dispatch Control → Driver Route**, **Kanban Logistics → Driver Route** or **Driver Route**
+on a saved office Delivery Trip. The separate page reuses operator login and lists Employee-assigned
+trips, including active multi-day trips. Office must assign the driver's Employee and link the
+existing Customer Order Vehicle Dispatch Plans. Customer Delivery responsibility and native
+Trip/Company/source-document read permissions apply; a Supervisor additionally needs View All to
+browse other drivers. Kanban Terminal alone does not grant every source read.
+
+Read the next/current Customer Site, address, instructions, SO/customer PO, products, physical
+Stock Tags/Batch and untagged allocations. Planned, posted loaded, posted delivered, unprepared
+and remaining-from-load quantities are distinguished in stock UOM. Complete mapped approved
+Route Sheet order takes precedence; otherwise the page labels office guidance and any review
+needed. Awaiting proof stays current. Closed planning does not imply full delivery.
+
+Camera and Enter/Tab scanner input, manual Refresh, 15-second visible-page refresh, closed history,
+permission/session expiry and stale-response handling are included. The view performs no stock or
+visit mutation. **Open existing delivery** navigates to the exact accessible active Session in the
+existing Logistics workflow. Visit-only completion, new delivery actions, publication/approval,
+maps/GPS, simplified returns/QC and Bluetooth printing remain subsequent work.
+
+See [Driver Route setup and use](USER_GUIDE_DRIVER_ROUTE.md) and
+[acceptance cases](TEST_DRIVER_ROUTE_VIEW.md). Offline tests are not native-site verification.

@@ -14,6 +14,7 @@ frappe.ui.form.on('CFG Kanban Delivery Trip', {
   async refresh(frm) {
     await frappe.require('/assets/cfg_kanban/js/office_delivery_trip.js');
     const ui = window.cfg_office_delivery_trip;
+    if (!frm.is_new()) frm.add_custom_button(__('Driver Route'), () => frappe.set_route('kanban-driver-route', frm.doc.name));
     frm.fields_dict.planning_help.$wrapper.html(`<p class="text-muted">${__('Plan the trip here. Assigned order quantities are planning commitments; actual stock picking and loading use the linked Dispatch Plans. Load the last delivery stop first.')}</p>`);
     if (ui.editable(frm)) frm.add_custom_button(__('Load Route Template'), () => ui.loadTemplate(frm));
     frm.add_custom_button(__('Refresh SO Inbox'), () => ui.inbox(frm, 'order_inbox', true));

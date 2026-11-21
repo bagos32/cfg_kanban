@@ -409,3 +409,27 @@ See [office setup guide](USER_GUIDE_OFFICE_DELIVERY_TRIP.md) and
 [Phase 1 acceptance record](TEST_OFFICE_DELIVERY_TRIP_PHASE1.md). Implementation and offline
 verification are separate from native-site acceptance, which is Not run. Preserve the L1 gate,
 remaining E5B scope and owner-managed commit/deployment boundary before the next package.
+
+
+## 16. Driver Route view — Phase 2 visibility
+
+On 21 November 2026 the owner requested a separate driver page linked to the office Delivery Trip,
+with a trip list, next/current stop and Item/tag details. Local development above `91ab7da` adds
+`kanban-driver-route`, native office/Logistics/workspace launchers, existing operator login reuse,
+assigned-Employee and native Company/source read checks, camera/wedge entry, manual/automatic
+refresh, source timestamps and safe operator/response handling.
+
+The page distinguishes office assignments, prepared sources, posted loading, posted delivery and
+remaining assigned load. Exact approved operational order takes precedence when the mapping is
+complete; ambiguous/partial/draft mapping is visibly an office plan requiring review. An unfinished
+proof keeps its current stop. Existing accessible Sessions open directly in Logistics without
+creating another delivery or stock transaction. Multi-day active trips remain visible.
+
+This package is visibility and established-session navigation. It creates no route publication,
+Start Route/Complete Stop/Visit Only completion, customer skip/resequence approval, stock allocation,
+DN, proof, refusal/return/QC workflow, mapping/GPS or print integration. Those remain subsequent
+packages; existing E3/E4/E5 engines and native read permissions are retained.
+
+See [Driver Route setup](USER_GUIDE_DRIVER_ROUTE.md) and
+[native acceptance checklist](TEST_DRIVER_ROUTE_VIEW.md). Native migration, Desk/tablet/scanner,
+MariaDB/permissions and live posting acceptance remain **Not run**.

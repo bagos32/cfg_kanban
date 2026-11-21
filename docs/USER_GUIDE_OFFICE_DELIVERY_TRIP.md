@@ -139,7 +139,8 @@ planning instruction. Existing Dispatch Profile and approved Route Sheet policie
 live stop order and QR requirements; the office trip does not automatically replace or approve
 that operational Sheet. Use the current approved Route Sheet workflow for live delivery.
 
-The separate driver terminal, automatic office-trip publication to operational routes, live
-resequence approval, maps/GPS, refusal resale, return/QC monitoring and Bluetooth printing are
+The separate [Driver Route view](USER_GUIDE_DRIVER_ROUTE.md) now reads assigned saved trips and
+existing operational feedback. Automatic office-trip publication to operational routes, live
+resequence approval, maps/GPS, refusal resale, return/QC monitoring and Bluetooth printing remain
 later development. Local tests do not verify live-site behavior. Run
 [the Phase 1 site checklist](TEST_OFFICE_DELIVERY_TRIP_PHASE1.md) after manual deployment.
