@@ -5965,26 +5965,39 @@ approvals and simplified refused/old-return handling remain later phases. Offlin
 verify native migration, source posting, concurrency or device behaviour.
 
 
-## Driver Route — assigned trip and stop view
+## Driver Route — departure and customer completion
 
-Open **CFG Dispatch Control → Driver Route**, **Kanban Logistics → Driver Route** or **Driver Route**
-on a saved office Delivery Trip. The separate page reuses operator login and lists Employee-assigned
-trips, including active multi-day trips. Office must assign the driver's Employee and link the
-existing Customer Order Vehicle Dispatch Plans. Customer Delivery responsibility and native
-Trip/Company/source-document read permissions apply; a Supervisor additionally needs View All to
-browse other drivers. Kanban Terminal alone does not grant every source read.
+Open **CFG Dispatch Control → Driver Route**, **Kanban Logistics → Driver Route**, or the saved
+Delivery Trip's **Driver Route** button. The separate page shows the assigned multi-day trip,
+next/current customer, instructions, SO/customer PO, product quantities, Stock Tags/Batch and
+untagged sources. Native Company/source reads, assigned Employee, Customer Delivery, existing
+Plan dispatch responsibility and start/complete flags apply.
 
-Read the next/current Customer Site, address, instructions, SO/customer PO, products, physical
-Stock Tags/Batch and untagged allocations. Planned, posted loaded, posted delivered, unprepared
-and remaining-from-load quantities are distinguished in stock UOM. Complete mapped approved
-Route Sheet order takes precedence; otherwise the page labels office guidance and any review
-needed. Awaiting proof stays current. Closed planning does not imply full delivery.
+The office marks the full-form Trip **Planned**, links exact Customer Order Vehicle Delivery
+Plans, completes every physical quantity's E3 loading, and obtains any required existing Route
+Sheet approval. **Start Route** records departure and freezes its execution snapshot; it creates
+no customer Session or Delivery Note at the warehouse. Strict Trip/Sheet order and required Site
+QR remain enforced. Flexible order permits an eligible alternative while preserving the current
+customer/proof barrier.
 
-Camera and Enter/Tab scanner input, manual Refresh, 15-second visible-page refresh, closed history,
-permission/session expiry and stale-response handling are included. The view performs no stock or
-visit mutation. **Open existing delivery** navigates to the exact accessible active Session in the
-existing Logistics workflow. Visit-only completion, new delivery actions, publication/approval,
-maps/GPS, simplified returns/QC and Bluetooth printing remain subsequent work.
+At the customer choose **Complete Stop**, review prepared goods and confirm. The inline panel
+uses the existing prepared Session, allocation confirmation, native DN and proof services. Routine
+steps advance automatically; mandatory ERP inputs, a Draft awaiting authorized submission and
+required recipient/signature/photo/GPS pause the flow. Several SO Plans retain separate native
+DNs/proof records. The stop closes only after all submitted native delivery/proof feedback agrees.
+Visit Only records notes and completion without ERP stock or financial documents.
 
-See [Driver Route setup and use](USER_GUIDE_DRIVER_ROUTE.md) and
-[acceptance cases](TEST_DRIVER_ROUTE_VIEW.md). Offline tests are not native-site verification.
+**Continue / Check saved action** restores an uncertain request even after native completion.
+Retries retain the original actor/payload/token across tabs and reopen. Not Recorded alone never
+unlocks new details. A first explicit rejection permits correction; uncertainty followed by a
+retry rejection remains locked. An authorized Supervisor may void an unrecorded request with a
+reason. Scanner Confirm/Cancel/Refresh/Help, numbered inputs, ERP table row commands and tablet
+camera/signature controls are available. Proof photos use the existing private S3 lifecycle.
+
+Driver completion remains separate from E5 reconciliation. For an unfinished trip, settle/cancel
+its linked Plans through existing controls, then an authorized office manager can close/cancel
+with a reason, record Closed Incomplete and release the lorry without fabricating stop delivery.
+Live route-edit approvals, maps/tracking, integrated refusal/return collection/QC and Bluetooth
+printing remain later phases. See [setup and operator steps](USER_GUIDE_DRIVER_ROUTE.md) and
+[native execution acceptance](TEST_DRIVER_ROUTE_EXECUTION.md). Offline tests do not verify live
+migration, ERP posting, concurrency or devices.

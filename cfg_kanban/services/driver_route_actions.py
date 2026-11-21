@@ -1,0 +1,436 @@
+"""Audited driver steps over the existing prepared delivery, ERP gateway and proof services."""
+import json
+
+import frappe
+from frappe.utils import cint, flt, now_datetime
+from cfg_kanban.services.events import record
+from cfg_kanban.services.idempotency import canonical_key
+from cfg_kanban.services.operator_auth import require_operator
+
+TRIP = 'CFG Kanban Delivery Trip'
+ACTIONS = ('Start Route', 'Begin Delivery', 'Confirm Allocations', 'Create Delivery Note',
+           'Open Proof', 'Submit Proof', 'Complete Stop')
+PAYLOAD_FIELDS = {
+    'Start Route': set(), 'Begin Delivery': {'customer_scan'}, 'Confirm Allocations': set(),
+    'Create Delivery Note': {'required_erp_inputs'}, 'Open Proof': set(),
+    'Submit Proof': {'proof_name', 'disposition', 'recipient_name', 'unattended_reason',
+                     'latitude', 'longitude', 'location_accuracy', 'notes'},
+    'Complete Stop': {'notes'},
+}
+
+class DriverActionConflict(frappe.ValidationError):
+    """An action identity already describes a different or voided request."""
+
+
+def _views():
+    from cfg_kanban.services import driver_routes
+    return driver_routes
+
+
+def _delivery():
+    from cfg_kanban.services import customer_delivery
+    return customer_delivery
+
+
+def _prepared():
+    from cfg_kanban.services import dispatch_fulfilment
+    return dispatch_fulfilment
+
+
+def _sheets():
+    from cfg_kanban.services import route_sheets
+    return route_sheets
+
+
+def _proof():
+    from cfg_kanban.services import delivery_proof
+    return delivery_proof
+
+
+def _planning():
+    from cfg_kanban.services import dispatch_planning
+    return dispatch_planning
+
+
+def _core(doc):
+    from cfg_kanban.services.delivery_trips import _business
+    return canonical_key('driver-trip-scope', _business(doc))
+
+
+def _read(doctype, name, current=False):
+    doc = frappe.get_doc(doctype, name, **({'for_update': True} if current else {}))
+    doc.check_permission('read')
+    return doc
+
+
+def _root(name):
+    # Trip is always first. Native delivery mutations retain their Session -> Plan lock order.
+    doc = _read(TRIP, name, current=True)
+    _read('Company', doc.company)
+    return doc
+
+
+def _owned(doc, operator):
+    if not (_views()._all(operator) or (doc.driver and doc.driver == operator.employee)):
+        frappe.throw('This Delivery Trip is not assigned to this driver', frappe.PermissionError)
+    _delivery()._require_customer_delivery(operator)
+
+
+def _request(trip_name, action, stop_key, dispatch_plan, payload, expected_revision, scope_hash):
+    if action not in ACTIONS:
+        frappe.throw('Select a supported driver route action')
+    values = json.loads(payload or '{}') if isinstance(payload, str) else (payload or {})
+    if not isinstance(values, dict) or set(values) - PAYLOAD_FIELDS[action]:
+        frappe.throw('Unexpected driver action fields; quantities and stock sources come from the saved trip')
+    if expected_revision is None or cint(expected_revision) < 0 or not scope_hash:
+        frappe.throw('Refresh the route before confirming its current revision')
+    return dict(trip_name=trip_name, action=action, stop_key=stop_key or None,
+        dispatch_plan=dispatch_plan or None, payload=values,
+        expected_revision=cint(expected_revision), scope_hash=str(scope_hash))
+
+
+def _key(doc, actor, event_token):
+    if not str(event_token or '').strip() or len(str(event_token)) > 200:
+        frappe.throw('A stable driver action token is required')
+    return canonical_key('driver-route-action', doc.name, actor, str(event_token))
+
+
+def _receipt(key, request):
+    rows = frappe.db.sql('SELECT payload_json FROM `tabCFG Kanban Event` WHERE idempotency_key=%s FOR UPDATE',
+                         (key,), as_dict=True)
+    if not rows:
+        return None
+    data = json.loads(rows[0].payload_json or '{}')
+    if data.get('request_hash') != canonical_key('driver-route-request', request):
+        frappe.throw('This driver action token belongs to different original details', DriverActionConflict)
+    return data
+
+
+def _record(doc, operator, session, key, request, result=None, void_reason=None, actor=None):
+    receipt = dict(request_hash=canonical_key('driver-route-request', request),
+        status='Voided' if void_reason else 'Recorded', action=request['action'],
+        trip_name=doc.name, stop_key=request['stop_key'], dispatch_plan=request['dispatch_plan'],
+        request_actor=actor or operator.employee, result=result or {}, void_reason=void_reason)
+    record('Driver Route Action Voided' if void_reason else 'Driver Route ' + request['action'],
+        reference_doctype=TRIP, reference_name=doc.name, operator=operator.employee,
+        operator_session=session.name, terminal_user=session.terminal_user,
+        idempotency_key=key, payload=receipt, notes=void_reason)
+    return receipt
+
+
+def _build_snapshot(doc, context, operator):
+    """Validate exact execution links; do not publish or approve an operational Route Sheet."""
+    if not doc.stops:
+        frappe.throw('Add at least one saved customer stop before departure')
+    by_stop = {row.stop_key: row for row in doc.stops}
+    plans = {row.dispatch_plan: _read('CFG Kanban Dispatch Plan', row.dispatch_plan) for row in doc.dispatch_plans}
+    if len(plans) != len(doc.dispatch_plans):
+        frappe.throw('Duplicate Dispatch Plan links require office review')
+    linked = {row.dispatch_plan: row.stop_key for row in doc.dispatch_plans}
+    vehicles = {plan.vehicle_warehouse for plan in plans.values() if plan.vehicle_warehouse}
+    if doc.vehicle_warehouse:
+        vehicles.add(doc.vehicle_warehouse)
+    for vehicle in sorted(vehicles):
+        _planning()._vehicle_warehouse(vehicle, doc.company)
+    deliveries = [row for row in doc.stops if row.stop_purpose != 'Visit Only']
+    if deliveries and (not plans or len(vehicles) != 1):
+        frappe.throw('Assign one actual lorry and prepare every delivery before starting the route')
+    if len(vehicles) > 1:
+        frappe.throw('Trip sources belong to different lorries')
+    for row in deliveries:
+        if not any(link.stop_key == row.stop_key for link in doc.dispatch_plans):
+            frappe.throw('Prepare every Delivery stop, or configure an information-only stop as Visit Only')
+    for stop in context['stops']:
+        if stop['purpose'] == 'Delivery':
+            physical = [row for row in stop['items'] if row['is_stock_item']]
+            if not physical or any(row['loaded_qty'] + 0.000001 < row['planned_qty'] for row in physical):
+                frappe.throw('Every planned physical quantity must have completed lorry loading')
+    signatures = {}; policies = {}
+    for name, plan in plans.items():
+        _planning()._assert_plan_authorized(plan, operator)
+        if plan.state != 'Loaded' or plan.get('dispatch_review_state') not in (None, '', 'Settled'):
+            frappe.throw('Resolve Dispatch Review and use Loaded Customer Order Plans')
+        _prepared().validate_prepared_loading(plan)
+        need = bool(plan.route_approval_required or plan.route_sequence_scope == 'Combined Lorry Trip' or plan.active_route_sheet)
+        if need:
+            if not plan.active_route_sheet:
+                frappe.throw('Supervisor must approve the existing operational Route Sheet before departure')
+        if plan.active_route_sheet:
+            sheet = _read('CFG Kanban Route Sheet', plan.active_route_sheet)
+            if (sheet.company != doc.company or sheet.vehicle_warehouse != plan.vehicle_warehouse
+                    or sheet.state not in ('Approved', 'In Progress', 'Ready to Close')):
+                frappe.throw('The operational Route Sheet must be approved for this Company and lorry')
+            if sheet.name not in signatures:
+                seen = set(); keys = []; rows = []
+                for source in sheet.stops:
+                    target = linked.get(source.dispatch_plan)
+                    if not target or source.dispatch_plan in seen or source.customer_scan_point != by_stop[target].customer_scan_point:
+                        frappe.throw('The approved route must map exactly to this trip; reconcile ambiguous or outside stops')
+                    seen.add(source.dispatch_plan); keys.append(target)
+                    rows.append((source.row_key, source.dispatch_plan, source.customer_scan_point))
+                distinct = []
+                for value in keys:
+                    if not distinct or distinct[-1] != value:
+                        distinct.append(value)
+                if len(distinct) != len(set(distinct)):
+                    frappe.throw('Separate interleaved visits before starting this driver route')
+                signatures[sheet.name] = dict(revision=cint(sheet.revision), rows=rows,
+                    sequence_policy=sheet.sequence_policy, verification_policy=sheet.verification_policy)
+            matches = [row for row in sheet.stops if row.dispatch_plan == name]
+            if len(matches) != 1:
+                frappe.throw('Each loaded Plan needs one exact approved route stop')
+            policies[name] = dict(sheet=sheet.name, row_key=matches[0].row_key,
+                require_scan=sheet.verification_policy == _sheets().QR)
+        else:
+            policies[name] = dict(sheet=None, row_key=None, require_scan=_sheets().verification(plan) != _sheets().SELECT)
+    order = [row['stop_key'] for row in context['stops']]
+    # Visits absent from an operational Sheet retain office position. Delivery order must agree.
+    if context['sequence_source'] != 'Approved Route Sheet':
+        for signature in signatures.values():
+            subset = []
+            for _row, name, _site in signature['rows']:
+                target = linked[name]
+                if not subset or subset[-1] != target:
+                    subset.append(target)
+            if signature['sequence_policy'] == 'Planned Order' and [key for key in order if key in subset] != subset:
+                frappe.throw('Office delivery order conflicts with the approved route; Supervisor must reconcile it')
+    allocations = sorted([(row['dispatch_plan'], row['dispatch_allocation'], row['item_code'], row['stock_uom'],
+                           row['batch_no'], row['tag_code'], row['assigned_qty'])
+                          for stop in context['stops'] for row in stop['sources']])
+    return dict(scope_hash=_core(doc), stop_order=order, policies=policies, sheets=signatures, allocations=allocations,
+        strict=bool(doc.sequence_policy == 'Planned Order' or any(s['sequence_policy'] == 'Planned Order' for s in signatures.values())),
+        vehicle=next(iter(vehicles)) if vehicles else None)
+
+
+def _execution(doc, operator, context):
+    # Pass the operator explicitly through this wrapper; no module-global actor is retained.
+    return _build_snapshot(doc, context, operator)
+
+
+def _session(plan, operator):
+    if not plan.delivery_session:
+        frappe.throw('Start the exact prepared delivery for this stop first')
+    session = _read('CFG Kanban Delivery Session', plan.delivery_session, current=True)
+    if session.dispatch_plan != plan.name or not _delivery()._can_view_delivery(operator, session):
+        frappe.throw('This Delivery Session belongs to another Plan or operator', frappe.PermissionError)
+    return session
+
+
+def _is_ready(doc, stop, operator, token):
+    if stop.stop_purpose == 'Visit Only':
+        return True
+    links = [row for row in doc.dispatch_plans if row.stop_key == stop.stop_key]
+    if not links:
+        return False
+    for link in links:
+        plan = _read('CFG Kanban Dispatch Plan', link.dispatch_plan)
+        if not plan.delivery_session:
+            return False
+        delivery = _session(plan, operator)
+        if delivery.state != 'Closed' or plan.fulfilment_status != 'Completed':
+            return False
+        note = _read('Delivery Note', delivery.delivery_note)
+        if note.docstatus != 1 or note.is_return or note.company != doc.company or note.customer != stop.customer:
+            return False
+        if delivery.proof_policy != 'No Proof Required':
+            if not delivery.delivery_proof:
+                return False
+            proof = _read('CFG Kanban Delivery Proof', delivery.delivery_proof)
+            if proof.state != 'Submitted' or proof.delivery_session != delivery.name or proof.delivery_note != note.name:
+                return False
+    context = _views().get_driver_trip(doc.name, token)
+    target = next(row for row in context['stops'] if row['stop_key'] == stop.stop_key)
+    return all(not row['is_stock_item'] or row['delivered_qty'] + 0.000001 >= row['planned_qty'] for row in target['items'])
+
+
+def _finish(doc, stop, operator, token, notes=None):
+    if stop.get('driver_completed_on'):
+        return True
+    if stop.stop_purpose != 'Visit Only' and not _is_ready(doc, stop, operator, token):
+        return False
+    stop.db_set(dict(driver_completed_on=now_datetime(), driver_completed_by=operator.employee,
+                     driver_visit_notes=(notes or '').strip() or None), update_modified=False)
+    values = dict(driver_active_stop_key=None)
+    if all(row.get('driver_completed_on') for row in doc.stops):
+        values.update(driver_route_state='Completed', driver_route_completed_on=now_datetime(),
+                      driver_active_vehicle_key=None)
+    doc.db_set(values, update_modified=True)
+    return True
+
+
+def _target(doc, request, snapshot):
+    if doc.driver_route_state != 'In Progress':
+        frappe.throw('Start Route before completing a customer stop')
+    stop = next((row for row in doc.stops if row.stop_key == request['stop_key']), None)
+    if not stop:
+        frappe.throw('Select the exact saved trip stop')
+    if stop.get('driver_completed_on'):
+        frappe.throw('This stop is already completed; refresh its recorded outcome')
+    active = doc.get('driver_active_stop_key')
+    if active and active != stop.stop_key:
+        frappe.throw('Complete the current customer stop and proof first')
+    pending = [key for key in snapshot['stop_order'] if not next(row for row in doc.stops if row.stop_key == key).get('driver_completed_on')]
+    if snapshot['strict'] and pending and pending[0] != stop.stop_key:
+        frappe.throw('Complete the next stop in the enforced trip sequence')
+    return stop
+
+
+@frappe.whitelist()
+def driver_action_context(trip_name, operator_session_token, stop_key=None):
+    operator, _session = require_operator(operator_session_token)
+    doc = _views()._trip(trip_name, operator)
+    context = _views().get_driver_trip(trip_name, operator_session_token)
+    result = dict(trip_name=doc.name, route_state=doc.get('driver_route_state') or 'Not Started',
+        revision=cint(doc.driver_route_revision), scope_hash=_core(doc),
+        can_start=bool(operator.can_start), can_complete=bool(operator.can_complete),
+        planning_state=doc.state, next_step='Start Route', stop_key=stop_key, dispatch_plan=None)
+    if doc.state != 'Planned':
+        return dict(result, next_step='Blocked', message='Office must mark this trip Planned before driver execution')
+    if result['route_state'] == 'Completed':
+        return dict(result, next_step='Done')
+    if result['route_state'] == 'Not Started':
+        return dict(result, stop_key=None)
+    snapshot = json.loads(doc.driver_route_snapshot_json or '{}')
+    key = stop_key or doc.driver_active_stop_key or next((key for key in snapshot.get('stop_order', [])
+        if not next(row for row in doc.stops if row.stop_key == key).get('driver_completed_on')), None)
+    stop = next((row for row in doc.stops if row.stop_key == key), None)
+    if not stop or stop.get('driver_completed_on'):
+        return dict(result, next_step='Done')
+    request = dict(stop_key=key)
+    _target(doc, request, snapshot)
+    result.update(stop_key=key, site_name=stop.site_name or stop.customer, purpose=stop.stop_purpose)
+    if stop.stop_purpose == 'Visit Only':
+        return dict(result, next_step='Complete Stop')
+    rows = [row for row in doc.dispatch_plans if row.stop_key == key]
+    for row in rows:
+        plan = _read('CFG Kanban Dispatch Plan', row.dispatch_plan)
+        _planning()._assert_plan_authorized(plan, operator)
+        if not plan.delivery_session:
+            return dict(result, next_step='Begin Delivery', dispatch_plan=plan.name,
+                require_scan=snapshot['policies'][plan.name]['require_scan'])
+        delivery = _delivery().get_delivery_session(plan.delivery_session, operator_session_token)
+        state = delivery['state']
+        if state == 'Closed':
+            continue
+        result.update(dispatch_plan=plan.name, delivery_session=delivery['name'], session_state=state,
+            auto_submit_delivery_note=delivery['auto_submit_delivery_note'])
+        if state == 'Allocating Stock':
+            return dict(result, next_step='Confirm Allocations')
+        if state in ('Awaiting Confirmation', 'ERP Document Pending'):
+            requirements = _delivery().get_customer_delivery_requirements(delivery['name'], operator_session_token)
+            return dict(result, next_step='Await ERP' if requirements.get('existing_draft') else 'Create Delivery Note',
+                        requirements=requirements, delivery_note=delivery.get('delivery_note'))
+        if state == 'Delivered':
+            proof_name = delivery.get('delivery_proof')
+            return dict(result, next_step='Submit Proof' if proof_name else 'Open Proof',
+                        proof=_proof().get_delivery_proof(proof_name, operator_session_token) if proof_name else None)
+        return dict(result, next_step='Blocked', message='Use the existing supervised recovery for this Delivery Session')
+    return dict(result, next_step='Complete Stop')
+
+
+@frappe.whitelist()
+def perform_driver_action(trip_name, action, event_token, operator_session_token, expected_revision=None,
+                          scope_hash=None, stop_key=None, dispatch_plan=None, payload=None):
+    operator, session = require_operator(operator_session_token)
+    doc = _root(trip_name)
+    request = _request(trip_name, action, stop_key, dispatch_plan, payload, expected_revision, scope_hash)
+    key = _key(doc, operator.employee, event_token)
+    receipt = _receipt(key, request)
+    if receipt:
+        if receipt['status'] == 'Voided':
+            frappe.throw('This driver request was explicitly voided', DriverActionConflict)
+        return receipt
+    _owned(doc, operator)
+    require_operator(operator_session_token, 'start' if action in ('Start Route', 'Begin Delivery') else 'complete')
+    if doc.state != 'Planned' or request['scope_hash'] != _core(doc) or request['expected_revision'] != cint(doc.driver_route_revision):
+        frappe.throw('Trip planning or execution changed; refresh before submitting new details')
+    context = _views().get_driver_trip(doc.name, operator_session_token)
+    snapshot = _execution(doc, operator, context)
+    values = request['payload']; result = {}
+    if action in ('Start Route', 'Complete Stop') and dispatch_plan:
+        frappe.throw('This action applies to the trip or stop, not a separate Dispatch Plan')
+    if action == 'Start Route':
+        if doc.get('driver_route_state') not in (None, '', 'Not Started'):
+            frappe.throw('This route has already started')
+        active_key = canonical_key('driver-active-lorry', doc.company, snapshot['vehicle']) if snapshot['vehicle'] else None
+        if active_key and frappe.db.exists(TRIP, {'driver_active_vehicle_key': active_key}):
+            frappe.throw('This lorry already has an active driver route')
+        try:
+            doc.db_set(dict(driver_route_state='In Progress', driver_route_started_on=now_datetime(),
+                driver_route_started_by=operator.employee, driver_route_snapshot_json=frappe.as_json(snapshot),
+                driver_active_vehicle_key=active_key), update_modified=True)
+        except frappe.UniqueValidationError:
+            frappe.throw('This lorry already has an active driver route')
+        result['route_started'] = True
+    else:
+        saved = json.loads(doc.driver_route_snapshot_json or '{}')
+        if canonical_key('driver-snapshot', snapshot) != canonical_key('driver-snapshot', saved):
+            frappe.throw('The saved execution route changed; Supervisor must reconcile it before continuing')
+        stop = _target(doc, request, snapshot)
+        links = {row.dispatch_plan for row in doc.dispatch_plans if row.stop_key == stop.stop_key}
+        plan = _read('CFG Kanban Dispatch Plan', dispatch_plan) if dispatch_plan else None
+        if action != 'Complete Stop' and (not plan or plan.name not in links):
+            frappe.throw('Select an exact prepared Plan belonging to this trip stop')
+        if action == 'Begin Delivery':
+            for link in doc.dispatch_plans:
+                if link.dispatch_plan == plan.name:
+                    continue
+                other = _read('CFG Kanban Dispatch Plan', link.dispatch_plan)
+                if other.delivery_session:
+                    active = _read('CFG Kanban Delivery Session', other.delivery_session)
+                    if active.state not in ('Closed', 'Cancelled'):
+                        frappe.throw('Complete the existing customer Delivery Note and proof before starting another delivery')
+            policy = snapshot['policies'][plan.name]
+            scan = str(values.get('customer_scan') or '').strip()
+            if policy['require_scan'] and not scan:
+                frappe.throw('Scan the assigned Customer Site QR before confirming this stop')
+            if policy['sheet']:
+                delivery = _sheets().start_route_sheet_stop(policy['sheet'], policy['row_key'], key, operator_session_token, scan or None)
+            else:
+                site = _delivery()._resolve_customer_site(scan or stop.customer_scan_point)
+                delivery = _prepared().start_prepared_delivery(plan.name, site.site_code, key, operator_session_token)
+            doc.db_set('driver_active_stop_key', stop.stop_key, update_modified=True)
+            result['delivery_session'] = delivery['name']
+        elif action == 'Complete Stop':
+            if not _finish(doc, stop, operator, operator_session_token, values.get('notes')):
+                frappe.throw('Complete every Delivery Note and required proof before closing this stop')
+            result['stop_completed'] = True
+        else:
+            delivery = _session(plan, operator)
+            if action == 'Confirm Allocations':
+                _delivery().confirm_delivery_allocations(delivery.name, key, operator_session_token)
+            elif action == 'Create Delivery Note':
+                _delivery().create_customer_delivery_document(delivery.name, key, operator_session_token,
+                    frappe.as_json(values.get('required_erp_inputs') or {'parent': {}, 'tables': {}}))
+            elif action == 'Open Proof':
+                result['proof_name'] = _proof().get_or_create_delivery_proof(delivery.name, operator_session_token)['name']
+            elif action == 'Submit Proof':
+                if values.get('proof_name') != delivery.delivery_proof:
+                    frappe.throw('Proof record does not belong to this exact Delivery Session')
+                _proof().submit_delivery_proof(event_token=key, operator_session_token=operator_session_token, **values)
+            result['delivery_session'] = delivery.name
+            # Closure is always based on native submitted DN/proof feedback, never a button click alone.
+            result['stop_completed'] = _finish(doc, stop, operator, operator_session_token)
+    doc.db_set('driver_route_revision', cint(doc.driver_route_revision) + 1, update_modified=True)
+    return _record(doc, operator, session, key, request, result)
+
+
+@frappe.whitelist()
+def reconcile_driver_action(trip_name, action, event_token, operator_session_token, expected_revision=None,
+                            scope_hash=None, stop_key=None, dispatch_plan=None, payload=None,
+                            request_actor=None, void_reason=None):
+    operator, session = require_operator(operator_session_token)
+    doc = _root(trip_name)
+    actor = request_actor or operator.employee
+    if actor != operator.employee and not (_views()._all(operator) and operator.can_override):
+        frappe.throw('Only an authorized Supervisor may reconcile another operator request', frappe.PermissionError)
+    _delivery()._require_customer_delivery(operator)
+    request = _request(trip_name, action, stop_key, dispatch_plan, payload, expected_revision, scope_hash)
+    key = _key(doc, actor, event_token); receipt = _receipt(key, request)
+    if receipt:
+        return receipt
+    if not void_reason:
+        return dict(status='Not Recorded')
+    if not str(void_reason).strip() or not (_views()._all(operator) and operator.can_override):
+        frappe.throw('Supervisor authority and a reason are required to void an unrecorded driver request')
+    return _record(doc, operator, session, key, request, void_reason=str(void_reason).strip(), actor=actor)

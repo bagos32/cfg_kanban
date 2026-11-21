@@ -31,11 +31,11 @@
   }
   function controller({ call, storage, render, notify = () => {} }) {
     const state = { token: null, operator: null, trips: [], detail: null, selected: null, stop: null,
-      start: 0, has_more: false, include_closed: false, busy: false, stale: false, error: '', active: true };
+      start: 0, has_more: false, include_closed: false, busy: false, stale: false, error: '', active: true, can_view_all: false };
     let epoch = 0;
     const readToken = () => { try { return storage.getItem(SESSION); } catch (_) { return null; } };
     const emit = () => render(state);
-    function clear() { state.operator = null; state.trips = []; state.detail = null; state.stop = null; state.error = ''; state.stale = false; }
+    function clear() { state.operator = null; state.can_view_all = false; state.trips = []; state.detail = null; state.stop = null; state.error = ''; state.stale = false; }
     function sync() {
       const token = readToken();
       if (token === state.token) return;
@@ -58,7 +58,7 @@
           include_closed: Number(state.include_closed), start: state.start, page_length: 20, interactive: Number(manual) });
         if (!valid(ticket, token)) return;
         listRead = true;
-        state.operator = list.operator; state.trips = list.trips || []; state.has_more = Boolean(list.has_more);
+        state.operator = list.operator; state.can_view_all = Boolean(list.can_view_all); state.trips = list.trips || []; state.has_more = Boolean(list.has_more);
         if (!state.selected && state.operator?.employee) {
           try { state.selected = storage.getItem('cfg_driver_trip:' + state.operator.employee) || null; } catch (_) { /* optional preference */ }
         }
@@ -117,7 +117,7 @@
   function tripList(state) {
     return `<h3>${tr('My Delivery Trips')}</h3>${state.trips.map(row => `<button class="cfg-driver-trip btn btn-default${row.name === state.selected ? ' selected' : ''}" data-trip="${escape(row.name)}">
       <strong>${escape(row.trip_title || row.name)}</strong><span>${escape(row.name)} · ${escape(row.company)}</span>
-      <span>${escape(row.trip_date)}${row.expected_return_date ? ' → ' + escape(row.expected_return_date) : ''} · ${escape(row.planning_state)}</span>
+      <span>${escape(row.trip_date)}${row.expected_return_date ? ' → ' + escape(row.expected_return_date) : ''} · ${escape(row.planning_state)} · ${escape(row.driver_route_state || tr('Not Started'))}</span>
       <span>${escape(row.vehicle_warehouse || tr('Lorry not yet assigned'))}</span></button>`).join('') || `<p class="text-muted">${tr('No trips on this page. The office must assign your Employee as the trip driver.')}</p>`}
       <div class="cfg-driver-pages"><button class="btn btn-default" data-page="-1"${state.start <= 0 || state.busy ? ' disabled' : ''}>${tr('Previous')}</button>
       <button class="btn btn-default" data-page="1"${!state.has_more || state.busy ? ' disabled' : ''}>${tr('Next')}</button></div>`;
@@ -129,30 +129,34 @@
     const next = (data.stops || []).find(row => row.stop_key === data.next_stop_key);
     const badge = data.current_stop_key ? tr('Current stop') : data.sequence_source === 'Approved Route Sheet' ? tr('Next delivery stop') : tr('Next planned stop');
     return `<section class="frappe-card cfg-driver-summary p-4"><div class="cfg-driver-summary-head"><div><h2>${escape(data.trip.trip_title || data.trip.name)}</h2>
-      <p>${escape(data.trip.company)} · ${escape(data.vehicle_reference || data.vehicle_warehouse || tr('Lorry not yet assigned'))}</p></div>
+      <p>${escape(data.trip.company)} · ${escape(data.trip.driver_route_state || tr('Not Started'))} · ${escape(data.vehicle_reference || data.vehicle_warehouse || tr('Lorry not yet assigned'))}</p></div>
       <span>${escape(data.completed_stops)} / ${escape(data.total_stops)} ${tr('stops complete')}</span></div>
       <p><strong>${badge}:</strong> ${next ? escape(next.site_name || next.customer_name) + ' · ' + escape(next.state) : tr('No next stop recorded')}
       <br><small>${escape(data.sequence_source)} · ${tr('Updated')} ${escape(data.refreshed_on)}</small></p>
+      ${data.trip.planning_state === 'Planned' && (data.trip.driver_route_state || 'Not Started') === 'Not Started' ? `<button class="btn btn-primary cfg-driver-start-route">${tr('Start Route')}</button>` : ''}
+      ${data.trip.driver_route_state && data.trip.driver_route_state !== 'Not Started' ? `<button class="btn btn-default cfg-driver-resume-route">${tr('Continue / Check saved action')}</button>` : ''}
       ${(data.warnings || []).map(warning => `<p class="alert alert-warning">${escape(warning)}</p>`).join('')}
       <div class="cfg-driver-stops">${(data.stops || []).map(stop => `<button class="btn btn-default${selected?.stop_key === stop.stop_key ? ' selected' : ''}" data-stop="${escape(stop.stop_key)}"><strong>${escape(stop.sequence)}. ${escape(stop.site_name || stop.customer_name)}</strong><span>${escape(stop.state)}${stop.purpose === 'Visit Only' ? ' · ' + tr('Visit Only') : ''}</span></button>`).join('')}</div></section>
-      ${selected ? stopView(selected) : ''}`;
+      ${selected ? stopView(selected, data.trip) : ''}`;
   }
-  function stopView(stop) {
+  function stopView(stop, trip) {
     return `<section class="frappe-card p-4 mt-3"><h3>${escape(stop.sequence)}. ${escape(stop.site_name || stop.customer_name)}</h3>
       <p>${escape(stop.customer_name)} · ${escape(stop.purpose)} · <strong>${escape(stop.state)}</strong></p>
       <p class="cfg-driver-address">${escape(stop.address || tr('No address recorded'))}</p>
       ${stop.instructions ? `<p class="cfg-driver-instructions">${escape(stop.instructions)}</p>` : ''}
+      ${stop.driver_visit_notes ? `<p class="cfg-driver-instructions"><strong>${tr('Visit notes')}:</strong> ${escape(stop.driver_visit_notes)}</p>` : ''}
       ${(stop.route_sheets || []).map(row => `<p class="text-muted">${escape(row.name)} · ${escape(row.planning_state)} · ${escape(row.sequence_policy)} · ${escape(row.verification_policy)}</p>`).join('')}
       ${(stop.warnings || []).map(row => `<p class="alert alert-warning">${escape(row)}</p>`).join('')}
-      ${stop.purpose === 'Visit Only' ? `<p class="alert alert-info">${tr('Visit instructions only. No delivery or visit completion is recorded from this view.')}</p>` : ''}
+      ${stop.purpose === 'Visit Only' ? `<p class="alert alert-info">${tr('Visit instructions only. Use Complete Stop to record the visit and its information without a Delivery Note.')}</p>` : ''}
       <div class="table-responsive"><table class="table table-bordered"><thead><tr><th>${tr('Product / Order / Customer PO')}</th><th>${tr('Planned')}</th><th>${tr('Loaded')}</th><th>${tr('Delivered')}</th><th>${tr('Not prepared')}</th><th>${tr('Remaining from load')}</th></tr></thead><tbody>
       ${(stop.items || []).map(row => `<tr><td><strong>${escape(row.item_code)}</strong> ${escape(row.item_name)}<br>${row.orders.map(order => escape(order.sales_order) + ' · ' + escape(order.customer_po || '—')).join('<br>')}</td>
       <td>${escape(row.planned_qty)} ${escape(row.stock_uom)}</td><td>${row.is_stock_item ? escape(row.loaded_qty) : '—'}</td><td>${row.is_stock_item ? escape(row.delivered_qty) : '—'}</td><td>${row.is_stock_item ? escape(row.unprepared_qty) : '—'}</td><td>${row.is_stock_item ? escape(row.remaining_qty) + ' ' + escape(row.stock_uom) : tr('Service item')}</td></tr>`).join('')}</tbody></table></div>
       <h4>${tr('Tags and untagged stock for this stop')}</h4>
       ${(stop.sources || []).map(row => `<div class="cfg-driver-source"><strong>${escape(row.tag_code || (row.allocation_kind === 'Untagged ERP Stock' ? tr('Untagged ERP stock') : tr('Tag not recorded')))}</strong>
       <span>${escape(row.item_code)} · ${tr('Batch')} ${escape(row.batch_no || '—')}</span><span>${tr('Remaining to deliver')}: <strong>${escape(row.remaining_qty)} ${escape(row.stock_uom)}</strong> · ${escape(row.source_state)}</span></div>`).join('') || `<p class="text-muted">${tr('No prepared stock tags or untagged allocations are recorded for this stop.')}</p>`}
+      ${trip.driver_route_state === 'In Progress' && !stop.driver_completed_on ? `<button class="btn btn-primary cfg-driver-complete-stop" data-complete-stop="${escape(stop.stop_key)}">${tr('Complete Stop')}</button>` : ''}
       ${(stop.plans || []).filter(row => row.session_accessible && row.delivery_session && !['Closed', 'Cancelled'].includes(row.session_state)).map(row => `<button class="btn btn-primary cfg-driver-open-delivery" data-delivery="${escape(row.delivery_session)}">${tr('Open existing delivery')} · ${escape(row.name)}</button>`).join('')}
-      <p class="text-muted mt-3"><small>${tr('Remaining quantities are assigned deliveries, not free lorry stock. Use the existing delivery workflow for confirmation and proof.')}</small></p></section>`;
+      <p class="text-muted mt-3"><small>${tr('Remaining quantities are assigned deliveries, not free lorry stock. Complete Stop guides the existing Delivery Note and required proof workflow.')}</small></p></section>`;
   }
   function mount(wrapper) {
     const page = frappe.ui.make_app_page({ parent: wrapper, title: tr('Driver Route'), single_column: true });
@@ -162,12 +166,13 @@
       <button class="btn btn-primary cfg-driver-confirm">${tr('Open / Sign in')}</button><button class="btn btn-default cfg-driver-camera">${tr('Scan with Camera')}</button>
       <button class="btn btn-default cfg-driver-change">${tr('Change Operator')}</button><button class="btn btn-default cfg-driver-refresh">${tr('Refresh')}</button></div>
       <label class="mt-2"><input type="checkbox" class="cfg-driver-closed"> ${tr('Show closed trips')}</label><div class="cfg-driver-notice" role="status" aria-live="polite"></div></section>
-      <div class="cfg-driver-layout"><aside class="cfg-driver-list"></aside><main class="cfg-driver-detail"></main></div>`);
-    const input = $root.find('.cfg-driver-scan'); let camera = null, cameraEpoch = 0, timer = null;
+      <div class="cfg-driver-layout"><aside class="cfg-driver-list"></aside><main><div class="cfg-driver-detail"></div><div class="cfg-driver-action-host"></div></main></div>`);
+    const input = $root.find('.cfg-driver-scan'); let camera = null, cameraEpoch = 0, timer = null, action = null;
     const notice = text => $root.find('.cfg-driver-notice').text(text || '');
     const app = controller({ storage: localStorage,
       call: async (method, args) => (await frappe.call({ method, args })).message,
       notify: notice, render(state) {
+        if (action && (!state.active || !state.token || !state.operator || !state.detail || state.stale)) action.close();
         $root.find('.cfg-driver-identity').text(state.operator ? `${state.operator.employee_name || state.operator.employee} · ${state.operator.employee}` : tr('Sign in with your operator credential'));
         $root.find('.cfg-driver-pin').toggle(!state.token); $root.find('.cfg-driver-confirm').prop('disabled', state.busy);
         $root.find('.cfg-driver-list').html(tripList(state)); $root.find('.cfg-driver-detail').html(detailView(state));
@@ -175,22 +180,38 @@
       },
     });
     app.hide(); // A late asset load must not activate an already hidden Desk page.
-    const focus = () => input.trigger('focus');
-    async function submit(value) { try { let station = ''; try { station = localStorage.getItem('cfg_kanban_station') || ''; } catch (_) {} await app.scan(value ?? input.val(), $root.find('.cfg-driver-pin').val(), station); input.val(''); $root.find('.cfg-driver-pin').val(''); } finally { focus(); } }
+    const focus = () => action ? action.focus() : input.trigger('focus');
+    async function submit(value) { if (action) { const scan = value ?? input.val(); input.val(''); return action.scan(scan); } try { let station = ''; try { station = localStorage.getItem('cfg_kanban_station') || ''; } catch (_) {} await app.scan(value ?? input.val(), $root.find('.cfg-driver-pin').val(), station); input.val(''); $root.find('.cfg-driver-pin').val(''); } finally { focus(); } }
     function stopCamera() { cameraEpoch++; try { camera?.stop_scan?.(); camera?.dialog?.hide?.(); } catch (_) {} camera = null; }
     $root.on('keydown.cfg_driver', '.cfg-driver-scan', event => {
       if (!['Enter', 'Tab'].includes(event.key) || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.isComposing || !String(input.val() || '').trim()) return;
       event.preventDefault(); event.stopPropagation(); submit();
     });
     $root.on('click.cfg_driver', '.cfg-driver-confirm', () => submit());
-    $root.on('click.cfg_driver', '.cfg-driver-trip', event => app.select($(event.currentTarget).attr('data-trip')));
-    $root.on('click.cfg_driver', '[data-stop]', event => app.viewStop($(event.currentTarget).attr('data-stop')));
+    $root.on('click.cfg_driver', '.cfg-driver-trip', event => { action?.close(); return app.select($(event.currentTarget).attr('data-trip')); });
+    $root.on('click.cfg_driver', '[data-stop]', event => { action?.close(); return app.viewStop($(event.currentTarget).attr('data-stop')); });
     $root.on('click.cfg_driver', '[data-page]', event => app.page(Number($(event.currentTarget).attr('data-page'))));
     $root.on('change.cfg_driver', '.cfg-driver-closed', event => app.showClosed(event.currentTarget.checked));
-    $root.on('click.cfg_driver', '.cfg-driver-change', () => { stopCamera(); app.changeOperator(); focus(); });
-    $root.on('click.cfg_driver', '.cfg-driver-refresh', () => app.refresh());
+    $root.on('click.cfg_driver', '.cfg-driver-change', () => { action?.close(); stopCamera(); app.changeOperator(); focus(); });
+    $root.on('click.cfg_driver', '.cfg-driver-refresh', () => action ? action.refresh() : app.refresh());
+    function execute(stop) {
+      if (action || !app.session() || !app.state.detail || app.state.stale || app.state.busy) return;
+      stopCamera();
+      try {
+        action = window.cfg_driver_route_actions.open({frappe, host:$root.find('.cfg-driver-action-host'),
+          trip:app.state.selected, stop:stop || null, owner:()=>app.state.operator?.employee, token:()=>app.session(),
+          active:()=>app.state.active && route(), detail:()=>app.state.detail,
+          refresh:()=>app.refresh(app.state.selected, true), storage:localStorage, locks:navigator.locks,
+          nonce:()=>crypto.randomUUID(), error:message, supervisor:()=>app.state.can_view_all && app.state.operator?.can_override && ['Supervisor','Development Proxy'].includes(app.state.operator?.kanban_role),
+          onClose:()=>{action=null;focus();}});
+      } catch(error) { $root.find('.cfg-driver-action-host').empty(); notice(message(error)); focus(); }
+    }
+    $root.on('click.cfg_driver', '.cfg-driver-start-route', () => execute());
+    $root.on('click.cfg_driver', '.cfg-driver-resume-route', () => execute(app.state.stop || app.state.detail?.next_stop_key));
+    $root.on('click.cfg_driver', '.cfg-driver-complete-stop', event => execute($(event.currentTarget).attr('data-complete-stop')));
     $root.on('click.cfg_driver', '.cfg-driver-open-delivery', event => {
       const name = $(event.currentTarget).attr('data-delivery');
+      action?.close();
       if (!app.session() || app.state.stale || !app.state.detail?.stops?.some(stop => stop.plans.some(plan => plan.session_accessible && plan.delivery_session === name))) return;
       frappe.route_options = { cfg_driver_delivery_session: name }; frappe.set_route('kanban-logistics');
     });
@@ -204,12 +225,12 @@
       catch (_) { notice(tr('Could not start the camera. Use the scanner field.')); focus(); }
     });
     const route = () => frappe.get_route()?.[0] === 'kanban-driver-route';
-    function tick() { if (route() && !document.hidden && !app.state.busy) app.refresh(app.state.selected, false); }
-    function storageChanged(event) { if (event.key === SESSION && app.state.active) { stopCamera(); app.refresh(); } }
+    function tick() { if (route() && !document.hidden && !app.state.busy && !action) app.refresh(app.state.selected, false); }
+    function storageChanged(event) { if (event.key === SESSION && app.state.active) { action?.close(); stopCamera(); app.refresh(); } }
     window.addEventListener('storage', storageChanged);
     const lifecycle = {
       async show(name) { if (!timer) timer = setInterval(tick, 15000); await app.show(name); focus(); },
-      hide() { stopCamera(); app.hide(); if (timer) clearInterval(timer); timer = null; }, app,
+      hide() { action?.close(); stopCamera(); app.hide(); if (timer) clearInterval(timer); timer = null; }, app,
     };
     frappe.router?.on?.('change', () => { if (!route()) lifecycle.hide(); });
     return lifecycle;

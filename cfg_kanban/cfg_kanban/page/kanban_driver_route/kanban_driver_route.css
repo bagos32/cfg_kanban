@@ -16,3 +16,11 @@
 .cfg-driver-open-delivery { margin: 12px 8px 0 0; }
 .cfg-driver-pages { display: flex; gap: 10px; }
 @media (max-width: 767px) { .cfg-driver-layout { grid-template-columns: minmax(0, 1fr); } .cfg-driver-toolbar { position: static; } .cfg-driver-scan-row .btn { flex: 1 1 40%; } }
+
+.driver-action-controls, .driver-action-scanner { display: flex; flex-wrap: wrap; gap: 10px; }
+.driver-action-scan { flex: 1 1 240px; min-width: 160px; }
+.driver-action-void-reason { flex-basis: 100%; }
+.driver-action-panel { scroll-margin-top: 120px; }
+.driver-action-input-help { margin-top: 12px; overflow-wrap: anywhere; }
+.driver-action-panel .cfg-proof-media .cfg-logistics-line { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 10px 0; }
+.cfg-driver-start-route, .cfg-driver-resume-route, .cfg-driver-complete-stop { margin: 8px 8px 8px 0; }

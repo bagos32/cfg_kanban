@@ -37,7 +37,16 @@
   "notes",
   "closure_reason",
   "closed_by",
-  "closed_on"
+  "closed_on",
+  "driver_execution_section",
+  "driver_route_state",
+  "driver_route_revision",
+  "driver_route_started_on",
+  "driver_route_started_by",
+  "driver_route_completed_on",
+  "driver_active_stop_key",
+  "driver_active_vehicle_key",
+  "driver_route_snapshot_json"
  ],
  "fields": [
   {
@@ -123,7 +132,7 @@
    "options": "Flexible Order\nPlanned Order",
    "default": "Flexible Order",
    "reqd": 1,
-   "description": "Office planning instruction in Phase 1. Existing Dispatch Profile and approved Route Sheet still enforce live stop order."
+   "description": "Driver execution retains this sequence and the approved operational Route Sheet. Planned Order on either enforces the next stop."
   },
   {
    "fieldname": "planning_revision",
@@ -240,6 +249,70 @@
    "label": "Closed / Cancelled On",
    "fieldtype": "Datetime",
    "read_only": 1
+  },
+  {
+   "fieldname": "driver_execution_section",
+   "label": "Driver Route Execution",
+   "fieldtype": "Section Break",
+   "read_only": 1
+  },
+  {
+   "fieldname": "driver_route_state",
+   "label": "Driver Route Status",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "options": "Not Started\nIn Progress\nCompleted\nClosed Incomplete",
+   "default": "Not Started",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "driver_route_revision",
+   "label": "Driver Action Revision",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "driver_route_started_on",
+   "label": "Route Started On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "driver_route_started_by",
+   "label": "Route Started By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "driver_route_completed_on",
+   "label": "Route Completed On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "driver_active_stop_key",
+   "label": "Current Driver Stop",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "driver_active_vehicle_key",
+   "label": "Active Driver Lorry Key",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "unique": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "driver_route_snapshot_json",
+   "label": "Started Route Snapshot",
+   "fieldtype": "Code",
+   "read_only": 1,
+   "options": "JSON",
+   "hidden": 1
   }
  ],
  "autoname": "KTRIP-.YYYY.-.#####",

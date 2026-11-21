@@ -14,7 +14,10 @@
   "site_name",
   "customer_address",
   "address_display",
-  "instructions"
+  "instructions",
+  "driver_completed_on",
+  "driver_completed_by",
+  "driver_visit_notes"
  ],
  "fields": [
   {
@@ -91,6 +94,25 @@
    "fieldname": "instructions",
    "label": "Stop / Visit Instructions",
    "fieldtype": "Small Text"
+  },
+  {
+   "fieldname": "driver_completed_on",
+   "label": "Driver Completed On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "driver_completed_by",
+   "label": "Driver Completed By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "driver_visit_notes",
+   "label": "Driver Visit Notes",
+   "fieldtype": "Small Text",
+   "read_only": 1
   }
  ],
  "istable": 1

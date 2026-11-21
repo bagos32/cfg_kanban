@@ -397,10 +397,30 @@ def _preserve_derived(doc, before):
         doc.set(field, [row.as_dict() for row in before.get(field) or []])
 
 
+def _protect_driver_execution(doc, before):
+    fields = ('driver_route_state', 'driver_route_revision', 'driver_route_started_on',
+              'driver_route_started_by', 'driver_route_completed_on', 'driver_active_stop_key',
+              'driver_active_vehicle_key', 'driver_route_snapshot_json')
+    for field in fields:
+        doc.set(field, before.get(field) if before else
+                'Not Started' if field == 'driver_route_state' else 0 if field == 'driver_route_revision' else None)
+    original = {row.stop_key: row for row in before.stops} if before else {}
+    for row in doc.stops:
+        source = original.get(row.stop_key)
+        for field in ('driver_completed_on', 'driver_completed_by', 'driver_visit_notes'):
+            row.set(field, source.get(field) if source else None)
+    if before and before.get('driver_route_state') in ('In Progress', 'Completed'):
+        if _business(doc) != _business(before):
+            frappe.throw('Started driver routes retain their itinerary, assignments and driver; use controlled recovery')
+        if before.get('driver_route_state') == 'In Progress' and doc.state != before.state and doc.state not in TERMINAL:
+            frappe.throw('Complete the started driver route before closing its planning record')
+
+
 def validate_trip(doc):
     frappe.only_for(EDITORS)
     doc.check_permission('create' if doc.is_new() else 'write')
     before = None if doc.is_new() else doc.get_doc_before_save()
+    _protect_driver_execution(doc, before)
     if doc.state not in ACTIVE + TERMINAL:
         frappe.throw('Unsupported office trip planning status')
     # All assignments on a standard route serialize before source/order current reads.
@@ -429,6 +449,12 @@ def validate_trip(doc):
             if _read('CFG Kanban Dispatch Plan', row.dispatch_plan, current=True).state not in ('Reconciled', 'Cancelled'):
                 frappe.throw('Settle or cancel linked Dispatch Plans through the existing workflow before closing this planning record')
         _preserve_derived(doc, before)
+        if before.get('driver_route_state') == 'In Progress':
+            # Only the existing office close/cancel path, after all linked Plans are settled,
+            # may release a route with undelivered stops. Never invent stop/DN/proof completion.
+            doc.driver_route_state = 'Closed Incomplete'
+            doc.driver_route_completed_on = now_datetime()
+            doc.driver_active_vehicle_key = doc.driver_active_stop_key = None
         doc.closed_by, doc.closed_on = frappe.session.user, now_datetime()
         doc.planning_revision = cint(before.planning_revision) + 1
         return
@@ -436,9 +462,14 @@ def validate_trip(doc):
         for row in before.dispatch_plans:
             plan = _read('CFG Kanban Dispatch Plan', row.dispatch_plan, current=True)
             if plan.state in EXECUTING or plan.get('movement_manifest') or plan.get('delivery_session'):
-                if doc.state != before.state or _business(doc) != _business(before):
+                # Office may sign off an unchanged saved load before driver departure.
+                release_to_planned = (before.state == 'Draft' and doc.state == 'Planned'
+                    and before.get('driver_route_state') in (None, '', 'Not Started'))
+                if (doc.state != before.state and not release_to_planned) or _business(doc) != _business(before):
                     frappe.throw('Linked dispatch execution has started; retain this planning snapshot and use controlled operational changes')
                 _preserve_derived(doc, before)
+                if release_to_planned:
+                    doc.planning_revision = cint(before.planning_revision) + 1
                 doc.set('loading_sequence', _source_rows(doc, _plans(doc, current=True)))
                 return
             if row.dispatch_plan not in {r.dispatch_plan for r in doc.dispatch_plans} and plan.state != 'Cancelled':

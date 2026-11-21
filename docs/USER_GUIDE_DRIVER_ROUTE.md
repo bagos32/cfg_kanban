@@ -1,101 +1,136 @@
-# Driver Route — trip and stop view
+# Driver Route — Start Route and Complete Stop
 
-Development prepared: 21 November 2026, above `91ab7da`. Native-site acceptance is pending.
+Development prepared on 21 November 2026 above `754708d`. Offline verification is separate from
+native-site acceptance; deployment, real posting and device acceptance remain pending.
 
-Open **CFG Dispatch Control → Driver Route**, **Kanban Logistics → Driver Route**, or the
-**Driver Route** button on a saved **CFG Kanban Delivery Trip**. The separate full page is
-`/app/kanban-driver-route`; a specific trip can open at `/app/kanban-driver-route/KTRIP-…`.
-The trip list and stop details are on the page, without a route-planning popup.
+Open **CFG Dispatch Control → Driver Route**, **Kanban Logistics → Driver Route**, or **Driver
+Route** on a saved **CFG Kanban Delivery Trip**. The separate full page is
+`/app/kanban-driver-route`; `/app/kanban-driver-route/KTRIP-…` opens an exact trip. Office route
+configuration stays on the normal Delivery Trip DocType form.
 
 ## Office setup
 
-1. Prepare the trip using [Office Delivery Trip](USER_GUIDE_OFFICE_DELIVERY_TRIP.md).
-2. Set **Assigned Driver** to the actual driver's Employee and save. An empty driver does not
-   expose the trip to every operator. This page does not assign the driver or lorry automatically.
-3. Assign the submitted SO lines to exact delivery stops. Link the existing Vehicle Delivery
-   Customer Order Dispatch Plans to those stops and save. These links supply actual stock tags,
-   untagged allocations and delivery feedback. Unlinked orders remain visible as planned quantities.
-4. Perform existing E3 loading and, when required, existing Route Sheet approval. Trip planning
-   itself still creates no stock movement or delivery authority.
-5. For the terminal login, grant Page access and native read access to the Trip and its relevant
-   Company, Customer, Address, Customer Site, SO, Item, Warehouses, Dispatch Plans, allocations,
-   loading Manifest/Stock Entry, Delivery Session/Note and Route Sheet. **Stock User** plus suitable
-   native Company permissions is a usual starting point. **Kanban Terminal alone does not grant all
-   these document reads.** Restrict Companies through native User Permissions.
-6. Give the operator an active profile with **Customer Delivery** responsibility. The operator's
-   Employee must match the trip driver. Existing delivery execution permissions remain separate.
+1. Prepare the trip with [Office Delivery Trip](USER_GUIDE_OFFICE_DELIVERY_TRIP.md). Assign the
+   actual driver's Employee, Company, submitted SO quantities and exact customer stops. Save as
+   **Planned**. A loaded Draft may receive this status-only office sign-off without changing
+   its frozen assignments or itinerary. Active multi-day trips remain available after midnight.
+2. Link the existing **Customer Order / Vehicle Delivery** Dispatch Plans to the exact stops.
+   Complete existing E3 lorry loading for every planned physical quantity. A submitted loading
+   Stock Entry is required; an assigned reservation or Draft Stock Entry is insufficient. Every
+   Delivery stop needs preparation. Use **Visit Only** for an information-only visit.
+3. All linked sources must use one actual lorry. Obtain the existing **Route Sheet** approval
+   when the captured Dispatch Profile requires it. Trip planning does not publish or approve a
+   Route Sheet. Its Plan/Site mapping must match this trip without outside or ambiguous visits.
+4. Give the operator **Customer Delivery**, the existing Plan's dispatch responsibility, **Can
+   Start** and **Can Complete**. Assigned Driver must match that Employee. Supervisor/Development
+   Proxy access to other drivers additionally requires **View All Responsibilities**.
+5. The terminal user needs Page access and native read permissions for Trip, Company, Customer,
+   Address, Customer Site, SO, Item, Warehouses, Dispatch Plans/allocations, loading Manifest/Stock
+   Entry, Delivery Session/allocations/Note, Route Sheet and Delivery Proof as applicable. **Stock
+   User** with suitable native Company permissions is a usual starting point. **Kanban Terminal
+   alone does not grant all these reads.** No new operator Company selector is introduced.
+6. Keep the existing **Draft / auto-submit Delivery Note** and proof policy on the Customer Site/
+   Dispatch Profile. For photo/signature evidence configure the existing private S3 media service.
+   Driver execution needs HTTPS, browser storage and Web Locks. Camera/GPS need device permission.
+7. Deploy through the usual owner-managed migration/build procedure: this phase adds read-only
+   Trip departure/revision/snapshot fields and stop completion audit fields. Never edit those
+   fields manually to repair delivery.
 
-A Supervisor/Development Proxy sees other drivers' trips only with **View All Responsibilities**
-and the necessary native read permissions. Native manager roles alone do not bypass the operator
-session or assigned-driver check. No new Operator Company selection is introduced.
+## Driver steps
 
-## Driver use
+1. Sign in with the existing operator QR/PIN or reuse the current session. **Scan with Camera**
+   supports a tablet; the Scanner field accepts Enter/Tab wedge suffixes. Choose **My Delivery
+   Trips** or scan the Trip ID. Use **Change Operator** for a different credential.
+2. Review the trip, lorry and next stop. Press **Start Route**, review the departure panel and
+   confirm. This records departure and freezes its execution itinerary. **It does not deliver to
+   the first customer, create a customer Session or post a Delivery Note at the warehouse.** A
+   lorry cannot have two active driver routes.
+3. At the customer, select **Complete Stop**. The inline panel shows that stop's prepared products
+   and quantities. The stop card retains SO/customer PO, Stock Tags, Batch and untagged source
+   details. Confirm the full prepared delivery. Scan the Customer Site only if its captured
+   verification policy requires it; an assigned-stop selection is allowed only by that policy.
+4. The panel starts the exact existing prepared Delivery Session, confirms its saved allocations
+   and requests the native ERPNext Delivery Note. Routine stages advance after this confirmation.
+   They do not ask the driver to allocate or scan every loaded tag again. Required native ERP
+   inputs pause for entry, including mandatory table rows. Quantities and sources cannot be
+   changed in this panel.
+5. With **auto-submit**, native submitted feedback advances to proof. With **Draft**, the panel
+   shows **Awaiting authorized ERP submission** and the DN reference. An authorized ERP user must
+   review/submit it through the existing workflow. Use **Check saved outcome / Refresh** afterward;
+   the driver page does not bypass that approval or create a second draft.
+6. When proof is required, choose its permitted disposition, enter recipient/reason/notes and use
+   **Camera photo**, **Upload evidence** or the signature pad. Press **Save signature** and wait
+   for upload completion. Camera photos retain the image and include server time/reference/GPS.
+   Required GPS is captured at submission. **Submit delivery proof** uses the existing native
+   proof service. Missing name/signature/photo/location keeps the stop open. No Proof Required
+   retains native automatic closure after the submitted DN.
+7. A stop completes only after **every** linked delivery has a submitted non-return DN, a closed
+   native Session, completed Plan feedback and required submitted proof. Several SO Plans retain
+   their separate native DNs/proof records; the panel moves through them before completing the
+   stop. Existing delivery completed elsewhere can be acknowledged without posting it again.
+8. For **Visit Only**, Complete Stop records visit notes and an audited completion without stock,
+   allocation, DN or proof. After the last stop the driver's route becomes **Completed**. Native
+   E5 stock/returns/trip reconciliation remains a separate required workflow.
 
-1. Open Driver Route. An existing operator session is reused. Otherwise scan the operator QR,
-   or enter the credential/PIN and press **Open / Sign in**. **Scan with Camera** supports tablets;
-   a keyboard-wedge scanner may terminate with Enter or Tab.
-2. Select a trip from **My Delivery Trips**. Its date and optional return date remain visible for
-   a two/three-day trip; active trips do not disappear at midnight. Paging and **Show closed trips**
-   are available. A Trip ID scanned before login is held for after login, not sent as a credential.
-3. Read **Current stop**, **Next delivery stop** or **Next planned stop**, and the source of that
-   sequence. Tap any stop to inspect it; looking at a later stop does not start, approve or deliver it.
-4. The stop shows Customer/Site, captured address, instructions, SO/customer PO references,
-   product quantities, physical tag codes, Batch and untagged stock. Each quantity retains stock UOM.
-5. Where an existing active Delivery Session belongs to this operator (or an authorized viewing
-   Supervisor), **Open existing delivery** opens that exact session in the established Logistics
-   workflow. Its allocation, Delivery Note, proof and permission checks continue there. The button
-   does not start another Session or post a document.
+**Open existing delivery** remains available for the established Logistics workflow. The driver
+page in this phase handles full prepared known-customer deliveries. Partial acceptance, refusal,
+old returns, cancellation and recovery use existing controlled Logistics/Supervisor workflows;
+it does not infer that refused goods were delivered.
 
-Use **Change Operator** before scanning another raw credential. A normal trip view needs no
-Customer QR scan. Actual delivery still follows the existing configured Customer Site verification
-policy. This phase does not add Start Route, Complete Stop, visit-only check-in, cancellation,
-refusal, collection or resequencing actions to the driver page.
+## Sequence and quantities
 
-## Quantity and progress meaning
+The office order is shown unless one approved active Route Sheet maps completely and exactly to
+all delivery stops. Adjacent Plans for one office stop can form one displayed stop. Visit-only
+rows absent from an operational Sheet keep their office positions; conflicting enforced delivery
+order must be reconciled before departure. **Planned Order** on either the Trip or a mapped Sheet
+enforces the next stop. Flexible routes permit selecting another eligible stop, but an unfinished
+customer DN/proof must be completed first. Looking at a stop alone performs no action.
 
-- **Planned** is the office trip assignment; it is not evidence of a load.
-- **Loaded** is the assigned allocation supported by a submitted loading Stock Entry. A Draft,
-  cancelled or missing posting does not count as loaded.
-- **Delivered** uses Delivered allocations backed by a submitted, non-return Delivery Note.
-  Draft/cancelled/return notes do not count as delivered by this trip.
-- **Not prepared** is the office quantity still without an active prepared allocation.
-- **Remaining from load** is loaded assignment minus its posted delivery; it is not free lorry
-  stock and does not include an unprepared order balance. Use the existing lorry overview for
-  current ERP/tag inventory and reconciliation.
-- A partially loaded stop is labelled **Partially loaded**. A posted delivery awaiting proof stays
-  **Awaiting proof** and remains the current stop. Full delivery advances only after the existing
-  Session closes with completed feedback. A closed short delivery is **Closed Incomplete**.
-- Visit Only stops show their instructions and **Visit planned**. This read view never invents a
-  completion event or silently advances past an unrecorded visit.
-- Closed/Cancelled planning records retain source details but propose no next stop. Closing
-  planning is not proof that every delivery was completed.
+**Planned** means office assignment. **Loaded** requires submitted loading feedback. **Delivered**
+requires submitted non-return DN feedback. **Not prepared** is the assignment without prepared
+sources. **Remaining from load** is loaded assignment less posted delivery, in stock UOM; it is
+not free lorry stock. A pending DN/proof stays current. If native delivery finished outside the
+page, **Awaiting stop completion** retains the driver acknowledgement rather than skipping it.
+A driver Visit Only completion shows **Visit completed**. Closed planning does not prove delivery.
 
-## Which sequence is shown
+Starting freezes the itinerary, driver, lorry, source identities and approved route revision for
+this execution. Resolve a changed source/operational route through existing supervised controls;
+this phase adds no live resequencing/skip approval. For an incomplete/abandoned route, first settle
+or cancel linked Plans using the existing E5/recovery workflow. An authorized office manager may
+then close/cancel the saved Trip with a reason. It records **Closed Incomplete**, releases the
+active lorry and preserves unfinished stops; it does not mark them delivered. Completed driver
+routes also retain the normal office/E5 closure rules.
 
-One approved active Route Sheet takes precedence when all its Plan/Site rows map exactly and
-unambiguously to all trip delivery stops. Adjacent Plans for the same office stop may form one
-stop. The view retains each original office number separately; it does not rewrite either record.
+## Scanner, retries and refresh
 
-With missing approval, multiple/conflicting Sheets, unlinked operational stops, repeated ambiguous
-visits or Visit Only rows absent from the operational Sheet, the view labels its sequence
-**Office plan** and explains that the operational route needs review. It does not guess another
-Customer or expose unrelated operational stops. Existing enforced-order and QR checks remain the
-execution authority. The office itinerary is not automatically published or approved as a Sheet.
+The action panel accepts `CFG:CMD:CONFIRM`, `CFG:CMD:CANCEL`, `CFG:CMD:REFRESH` and `CFG:CMD:HELP`.
+Numbered `CFG:SELECT:1`–`10` chooses displayed inputs; scan their values. Existing
+`DELIVERY_RECIPIENT`, `DELIVERY_INPUTS`, `DELIVERY_ADD_ROW`, `DELIVERY_NEXT_ROW`,
+`DELIVERY_PREVIOUS_ROW`, `NEXT_MATERIALS`/`PREVIOUS_MATERIALS` and `DELIVERY_CAMERA` commands
+remain usable with the `CFG:CMD:` prefix. Camera and touch entry use the same controls. Success,
+error, cancel and camera closure restore scanner focus. A required photo/signature uses its tablet
+evidence controls rather than pretending a command scan is a physical signature or photograph.
 
-An active delivery/proof task takes precedence over a proposed next stop. Multiple active customer
-Sessions or conflicting lorries produce a review warning and no guessed next stop.
+An uncertain submission retains its **original actor, payload and token** across Close, reload
+and tabs. Reopen **Continue / Check saved action** even if native completion has already advanced
+the trip. **Retry original request** uses those exact details; **Check saved outcome** reads its
+server receipt. **Not Recorded alone does not allow correction**: the first request may still be
+running. Only an explicit first rejection permits correction. An unknown result followed by a
+retry rejection remains locked. An authorized Supervisor with View All, Can Override and a reason
+may **Void if unrecorded**; the server lock fences a late original request. Do not clear browser
+storage to bypass an unknown result. Another operator cannot edit/retry the original request.
 
-## Refresh and access changes
+Pending action input (including entered proof recipient/GPS when applicable) is temporarily kept
+in local browser storage for recovery. Credentials, file bytes and presigned URLs are excluded
+from that action record. Acknowledgement replaces it with an identity-only marker. Evidence
+remains in the existing private media workflow. Closing/hiding/changing operator prevents late
+responses from changing another operator's screen.
 
-The visible page refreshes every 15 seconds and shows the last successful timestamp. Network
-failure marks the view **Not refreshed**. Expiry or permission/ownership rejection clears the
-protected details; it is not treated as a new login for an unrelated scanned tag. Operator changes
-and late responses cannot replace the new operator/trip view.
+The view refreshes every 15 seconds outside an action panel. During an action, use its explicit
+Refresh to preserve entered fields. Background reads do not renew inactivity expiry. Expiry or
+native permission/ownership rejection clears protected details; network failure marks **Not
+refreshed**. Returning to the page rereads authorized sources.
 
-Automatic background reads do not renew inactivity expiry. Explicit navigation/Refresh counts as
-manual use. Hiding the page stops its timer/camera; returning rereads authorized data. The browser
-stores only the existing operator token and last trip ID per Employee, not customer/stock snapshots.
-
-Maps/GPS, new route publication/approval actions, simplified delivery/returns, QC monitoring and
-Bluetooth printing remain later phases. Run [the native acceptance checklist](TEST_DRIVER_ROUTE_VIEW.md)
-after manual deployment. Local offline tests do not verify live behavior.
+Map directions/live tracking, driver route-edit approval, integrated refusal/return collection/QC
+queues and Bluetooth printing remain later phases. Use [execution acceptance](TEST_DRIVER_ROUTE_EXECUTION.md)
+after manual deployment; [the original view checklist](TEST_DRIVER_ROUTE_VIEW.md) remains historical.

@@ -433,3 +433,38 @@ packages; existing E3/E4/E5 engines and native read permissions are retained.
 See [Driver Route setup](USER_GUIDE_DRIVER_ROUTE.md) and
 [native acceptance checklist](TEST_DRIVER_ROUTE_VIEW.md). Native migration, Desk/tablet/scanner,
 MariaDB/permissions and live posting acceptance remain **Not run**.
+
+
+## 17. Driver Route execution — Start Route / Complete Stop
+
+On 21 November 2026 the owner approved direct driver-page departure and customer-stop completion
+using the existing Delivery Note/proof workflow. Local development above `754708d` adds readonly
+Trip departure/revision/active-lorry/snapshot fields and stop audit facts, a guided inline action
+panel and persistent action receipts/reconciliation. It retains normal office DocType planning.
+
+Departure requires Planned/assigned/authorized work, every planned physical quantity loaded into
+one lorry through submitted native loading feedback, and exact required operational approval.
+Starting records departure only. Complete Stop delegates to existing prepared delivery, Route
+Sheet, allocation confirmation, ERP command/native DN and proof services. Mandatory ERP inputs,
+Draft submission and proof remain gates. Multiple linked SO Plans retain their separate native
+DN/proof records. Visit Only records an audited information visit without fake ERP documents.
+Strict sequence applies if either captured Trip or Sheet requires it; active customer/proof work
+must finish before another visit. Source/itinerary/approved revision snapshots cannot change
+silently after departure.
+
+Durable original-actor/payload/token handling covers unknown outcomes, reopen, browser tabs,
+receipt readback and Supervisor reasoned void under the Trip lock. The first explicit rejection
+permits correction; Not Recorded or an unknown retry rejection does not. Acknowledged browser
+records retain identity only; binaries/presigned URLs stay outside recovery storage. Shared
+private proof controls keep existing media/GPS services authoritative.
+
+The last stop releases the driver lorry but does not settle E5. Existing Plan reconciliation/
+cancellation followed by reasoned office Trip closure can finalize an unfinished driver route
+as Closed Incomplete and release its lorry without marking stops delivered. New route-edit/skip
+approval, maps/live tracking, simplified refusal/old-return collection/QC queues and Bluetooth
+printing remain future packages. No second delivery/stock/accounting engine is introduced.
+
+See [driver setup/use](USER_GUIDE_DRIVER_ROUTE.md) and
+[execution acceptance](TEST_DRIVER_ROUTE_EXECUTION.md). Offline checks are not native migration,
+transaction/concurrency, ERP posting, private-storage or tablet/scanner acceptance. Native tests
+are **Not run**. Existing L1 gate and outstanding E5 scope remain separate.

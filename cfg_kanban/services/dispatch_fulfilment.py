@@ -73,6 +73,21 @@ def prepared_delivery_context(scan_value, operator_session_token):
     return {'plans': prepared_plans(site.name, operator) + warehouse_plans(site.name, operator), 'customer_scan': value}
 
 
+def validate_prepared_loading(plan):
+    """Shared read-only loading gate for departure and native prepared-delivery entry."""
+    manifest = frappe.get_doc('CFG Kanban Movement Manifest', plan.movement_manifest)
+    if (manifest.dispatch_plan != plan.name or manifest.state != 'Received' or
+            manifest.source_company != plan.company or manifest.source_warehouse != plan.source_warehouse or
+            manifest.destination_company != plan.company or
+            manifest.destination_warehouse != plan.vehicle_warehouse or not manifest.dispatch_stock_entry):
+        frappe.throw('Prepared Plan does not have a completed loading Manifest for this lorry')
+    entry = frappe.db.get_value('Stock Entry', manifest.dispatch_stock_entry,
+                               ['docstatus', 'company'], as_dict=True)
+    if not entry or entry.docstatus != 1 or entry.company != plan.company:
+        frappe.throw('The lorry loading Stock Entry must be submitted for the Plan Company')
+    return manifest
+
+
 @frappe.whitelist()
 def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_session_token):
     if not str(event_token or '').strip():
@@ -115,16 +130,7 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
     if plan.get('route_approval_required') or plan.get('route_sequence_scope')=='Combined Lorry Trip' or plan.get('active_route_sheet'):
         from cfg_kanban.services.route_sheets import assert_visit_allowed
         assert_visit_allowed(plan,site.name)
-    manifest = frappe.get_doc('CFG Kanban Movement Manifest', plan.movement_manifest)
-    if (manifest.dispatch_plan != plan.name or manifest.state != 'Received' or
-            manifest.source_company != plan.company or manifest.source_warehouse != plan.source_warehouse or
-            manifest.destination_company != plan.company or
-            manifest.destination_warehouse != plan.vehicle_warehouse or not manifest.dispatch_stock_entry):
-        frappe.throw('Prepared Plan does not have a completed loading Manifest for this lorry')
-    entry = frappe.db.get_value('Stock Entry', manifest.dispatch_stock_entry,
-                               ['docstatus', 'company'], as_dict=True)
-    if not entry or entry.docstatus != 1 or entry.company != plan.company:
-        frappe.throw('The lorry loading Stock Entry must be submitted for the Plan Company')
+    validate_prepared_loading(plan)
     allocations = _loaded_allocations(plan)
     # Native ERP stock and physical identities are locked in consistent sorted order.
     for item in sorted({row.item_code for row in allocations}):

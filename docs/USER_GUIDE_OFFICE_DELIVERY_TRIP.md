@@ -134,13 +134,31 @@ Use the existing E5 recovery and reconciliation for physical stock and delivery 
 
 ## Phase boundary and acceptance
 
-This phase records an office itinerary and LIFO instructions. Its Customer Stop Sequence is a
-planning instruction. Existing Dispatch Profile and approved Route Sheet policies still control
-live stop order and QR requirements; the office trip does not automatically replace or approve
-that operational Sheet. Use the current approved Route Sheet workflow for live delivery.
+The original office phase records an itinerary and LIFO instructions without publishing an
+operational Sheet. Driver execution now retains the Trip sequence and any mapped approved
+Sheet; Planned Order on either enforces the next stop. Existing Dispatch Profile/Sheet QR and
+approval policies remain mandatory. The office trip does not automatically approve that Sheet.
 
-The separate [Driver Route view](USER_GUIDE_DRIVER_ROUTE.md) now reads assigned saved trips and
-existing operational feedback. Automatic office-trip publication to operational routes, live
+The separate [Driver Route page](USER_GUIDE_DRIVER_ROUTE.md) reads assigned saved trips and
+existing operational feedback and guides departure, native delivery and proof completion. Automatic office-trip publication to operational routes, live
 resequence approval, maps/GPS, refusal resale, return/QC monitoring and Bluetooth printing remain
 later development. Local tests do not verify live-site behavior. Run
 [the Phase 1 site checklist](TEST_OFFICE_DELIVERY_TRIP_PHASE1.md) after manual deployment.
+
+
+## Driver departure and customer completion
+
+The separate [Driver Route](USER_GUIDE_DRIVER_ROUTE.md) now supports **Start Route** and
+**Complete Stop** using the existing known-customer prepared delivery, native DN and proof
+workflow. Mark the Trip **Planned**, assign its driver and exact Plans, complete all physical
+loading and obtain any required operational Route Sheet approval before departure. An existing loaded Draft can be marked Planned as an office
+status-only sign-off while its saved assignments/itinerary remain unchanged; returning it to
+Draft or changing those sources remains blocked. Planned Order
+on either the Trip or mapped approved Sheet is enforced. Once started, the Trip's itinerary,
+source assignments and driver are retained; direct form edits cannot forge its execution facts.
+
+Driver completion does not settle E5. If a route ends incomplete, first reconcile/cancel its
+linked Plans using existing controls, then close/cancel the office Trip with a reason. Its driver
+state becomes Closed Incomplete and releases the active lorry; undelivered stops stay unfinished.
+Open Route Stock, driver route-edit approval, integrated refusal/old-return collection and maps/
+printing remain outside this execution package. Native-site acceptance is pending.

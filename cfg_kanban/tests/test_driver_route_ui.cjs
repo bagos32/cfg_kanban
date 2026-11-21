@@ -89,7 +89,8 @@ test('rendering escapes source text and keeps quantities, stock UOM, PO and tag 
 test('session handoff is shown only for accessible active sessions; visit-only never fakes completion', () => {
   const data=structuredClone(detail);data.stops[0].plans[0].session_accessible=false;
   assert(!ui.detailView({detail:data}).includes('data-delivery='));data.stops[0].purpose='Visit Only';
-  assert(ui.detailView({detail:data}).includes('No delivery or visit completion'));
+  assert(ui.detailView({detail:data}).includes('record the visit'));
+  assert(!ui.detailView({detail:data}).includes('data-complete-stop='));
 });
 test('hiding page ignores late RPC responses and does not leave a polling busy state', async () => {
   const h=harness(), wait=deferred();h.respond(() => wait.promise);const pending=h.app.show(trip);
@@ -182,4 +183,21 @@ test('background loss of list permission removes cached trip headers as well as 
 test('local stop selection after token replacement clears the old operator view immediately', async () => {
   const h=harness();await h.app.show(trip);h.data.set(SESSION,'OTHER');h.app.viewStop('STOP1');
   assert.equal(h.app.state.detail,null);assert.equal(h.views.at(-1).operator,null);
+});
+
+
+test('route lifecycle renders departure, stop completion and saved-outcome access separately', () => {
+  const data=structuredClone(detail);data.trip.planning_state='Planned';data.trip.driver_route_state='Not Started';
+  let html=ui.detailView({detail:data});assert(html.includes('cfg-driver-start-route'));assert(!html.includes('data-complete-stop='));
+  data.trip.driver_route_state='In Progress';html=ui.detailView({detail:data});assert(!html.includes('cfg-driver-start-route'));assert(html.includes('data-complete-stop='));
+  data.trip.driver_route_state='Completed';html=ui.detailView({detail:data});assert(html.includes('cfg-driver-resume-route'));assert(!html.includes('data-complete-stop='));
+});
+
+test('inline action has its own host and pauses polling until page hide safely closes it', async () => {
+  const h=domHarness();await h.view.show(trip);let opened,closed=0;
+  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{locks:{}}});
+  window.cfg_driver_route_actions={open(options){opened=options;return{focus(){},close(){closed++;options.onClose();}};}};
+  h.events.get('click.cfg_driver .cfg-driver-start-route')();assert.equal(opened.trip,trip);assert.equal(opened.owner(),'EMP');
+  const count=h.view.app.state.detail;h.events.get('tick')();await flush();assert.equal(h.view.app.state.detail,count);
+  h.view.hide();assert.equal(closed,1);assert.equal(h.view.app.state.active,false);
 });

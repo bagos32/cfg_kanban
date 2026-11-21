@@ -13,7 +13,7 @@ PLAN = 'CFG Kanban Dispatch Plan'
 SHEET = 'CFG Kanban Route Sheet'
 ALLOCATION = 'CFG Kanban Dispatch Allocation'
 DELIVERY_ALLOCATION = 'CFG Kanban Delivery Allocation'
-TERMINAL = {'Completed', 'Cancelled', 'Closed Incomplete'}
+TERMINAL = {'Completed', 'Cancelled', 'Closed Incomplete', 'Visit completed'}
 LOADED = {'Loaded', 'In Fulfilment', 'Fulfilled'}
 EPSILON = 0.000001
 
@@ -53,7 +53,7 @@ def _header(doc):
     return dict(name=doc.name, trip_title=doc.trip_title or doc.name, company=doc.company,
                 route_template=doc.route_template, trip_date=doc.trip_date,
                 expected_return_date=doc.expected_return_date, driver=doc.driver,
-                planning_state=doc.state, vehicle_warehouse=doc.vehicle_warehouse,
+                planning_state=doc.state, driver_route_state=doc.get('driver_route_state') or 'Not Started', vehicle_warehouse=doc.vehicle_warehouse,
                 region=doc.region, direction=doc.direction,
                 office_sequence_policy=doc.sequence_policy, planning_revision=doc.planning_revision)
 
@@ -76,7 +76,8 @@ def get_driver_trips(operator_session_token, include_closed=0, start=0, page_len
         rows.append(_header(doc))
     identity = public_operator(operator, session)
     return dict(trips=rows, start=start, page_length=size, has_more=len(names) > size,
-        operator={key: identity.get(key) for key in ('employee', 'employee_name', 'kanban_role')},
+        operator=dict({key: identity.get(key) for key in ('employee', 'employee_name', 'kanban_role')},
+                      can_override=bool(cint(operator.get('can_override')))),
         can_view_all=_all(operator), refreshed_on=now_datetime())
 
 
@@ -122,7 +123,8 @@ def _stop(doc, source, cache):
         customer_site=source.customer_scan_point, customer_address=source.customer_address,
         address=source.address_display or '', instructions=source.instructions or '',
         state='Visit planned' if source.stop_purpose == 'Visit Only' else 'Awaiting preparation',
-        items=[], sources=[], plans=[], route_sheets=[], warnings=[])
+        driver_completed_on=source.get('driver_completed_on'), driver_completed_by=source.get('driver_completed_by'),
+        driver_visit_notes=source.get('driver_visit_notes'), items=[], sources=[], plans=[], route_sheets=[], warnings=[])
 
 
 def _items(doc, stops, cache):
@@ -260,7 +262,7 @@ def _allocations(plan, session, posted, stop, groups, cache):
 
 def _stop_state(stop):
     if stop['purpose'] == 'Visit Only':
-        return 'Visit planned'
+        return 'Visit completed' if stop.get('driver_completed_on') else 'Visit planned'
     states = [plan['visit_state'] for plan in stop['plans']]
     if not states:
         return 'Awaiting preparation'
@@ -361,20 +363,27 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
                 frappe.throw('Prepared quantities exceed office trip assignments; Supervisor review required')
             item['unprepared_qty'] = max(0, item['planned_qty'] - item['prepared_qty']) if item['is_stock_item'] else 0
         stop['state'] = _stop_state(stop)
+    if doc.get('driver_route_state') == 'In Progress':
+        for stop in stops.values():
+            if stop['state'] == 'Completed' and not stop.get('driver_completed_on'):
+                stop['state'] = 'Awaiting stop completion'
+            elif (stop['stop_key'] == doc.get('driver_active_stop_key') and not stop.get('driver_completed_on')
+                  and stop['state'] not in ('Review required', 'Awaiting proof', 'Delivery Note pending')):
+                stop['state'] = 'In Progress'
     ordered, source = _route_order(doc, stops, plans, cache, warnings)
-    active = [stop for stop in ordered if stop['state'] in ('In Progress', 'Awaiting proof', 'Delivery Note pending')]
+    active = [stop for stop in ordered if stop['state'] in ('In Progress', 'Awaiting proof', 'Delivery Note pending', 'Awaiting stop completion')]
     pending = [stop for stop in ordered if stop['state'] not in TERMINAL]
     current = active[0] if len(active) == 1 else None
     if len(active) > 1:
         warnings.append('More than one customer delivery is active; Supervisor review required')
     next_stop = current or (pending[0] if pending and len(active) <= 1 else None)
-    if doc.state in ('Closed', 'Cancelled') or len(vehicles) > 1:
+    if doc.state in ('Closed', 'Cancelled') or doc.get('driver_route_state') == 'Completed' or len(vehicles) > 1:
         next_stop = current = None
     vehicle = _warehouse(cache, next(iter(vehicles)), doc.company) if len(vehicles) == 1 else None
     return dict(trip=_header(doc), stops=ordered, warnings=list(dict.fromkeys(warnings)),
         sequence_source=source, current_stop_key=current['stop_key'] if current else None,
         next_stop_key=next_stop['stop_key'] if next_stop else None,
-        completed_stops=sum(stop['state'] == 'Completed' for stop in ordered), total_stops=len(ordered),
+        completed_stops=sum(stop['state'] in ('Completed', 'Visit completed') for stop in ordered), total_stops=len(ordered),
         vehicle_warehouse=vehicle.name if vehicle else None,
         vehicle_reference=vehicle.cfg_vehicle_reference if vehicle else None,
         refreshed_on=now_datetime(), read_only=True)

@@ -255,6 +255,20 @@ class TestOfficeDeliveryTrip(unittest.TestCase):
         self.validate();self.assertEqual(self.doc.loading_sequence[0].loaded_qty,4)
         self.doc.stops.reverse()
         with self.assertRaisesRegex(ValueError,'execution'):self.validate()
+    def test_loaded_draft_can_receive_status_only_office_signoff_before_departure(self):
+        self.assign();plan=self.plan();self.persist();plan.state='Loaded';self.allocation('TAG',4,state='Loaded')
+        original=self.ns['_business'](self.doc);revision=self.doc.planning_revision
+        self.doc.state='Planned';self.validate()
+        self.assertEqual(self.doc.state,'Planned');self.assertEqual(self.doc.planning_revision,revision+1)
+        self.assertEqual(self.ns['_business'](self.doc),original)
+        self.doc._before=document(self.doc.as_dict());self.doc.state='Draft'
+        with self.assertRaisesRegex(ValueError,'execution'):self.validate()
+
+    def test_loaded_draft_signoff_never_allows_source_or_itinerary_changes(self):
+        self.assign();plan=self.plan();self.persist();plan.state='Loaded';self.doc.state='Planned'
+        self.doc.orders[0].planned_qty=3
+        with self.assertRaisesRegex(ValueError,'execution'):self.validate()
+
     def test_reservations_must_be_released_before_unlinking_plan(self):
         self.assign();self.plan();self.allocation('TAG',1);self.persist();self.doc.dispatch_plans=[]
         with self.assertRaisesRegex(ValueError,'reservations'):self.validate()
