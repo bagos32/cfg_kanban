@@ -56,7 +56,11 @@ def _supervisor(operator):
 def _plan(name, operator, current=False):
     plan = frappe.get_doc('CFG Kanban Dispatch Plan', name, for_update=current)
     _planning()._assert_plan_authorized(plan, operator)
-    if plan.fulfilment_mode != 'Vehicle Delivery' or plan.state not in ('Loaded', 'Reconciled'):
+    ready=plan.state in ('Loaded','Reconciled')
+    if plan.get('existing_lorry_stock_only'):
+        from cfg_kanban.services.trip_dispatch import route_ready
+        ready=ready or route_ready(plan)
+    if plan.fulfilment_mode != 'Vehicle Delivery' or not ready:
         frappe.throw('Dispatch review requires a loaded Vehicle Delivery Plan')
     return plan
 

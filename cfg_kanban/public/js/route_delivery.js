@@ -88,7 +88,7 @@
    if(s.plan.active_route_stop&&(s.stop?.name!==s.plan.active_route_stop||s.plan.can_resume_stop===false))return false;
    const next=(s.plan.stops||[]).filter(row=>row.state==='Planned'&&Number(row.planned_sequence)>0).sort((a,b)=>Number(a.planned_sequence)-Number(b.planned_sequence))[0];
    if(s.plan.stop_sequence_policy==='Planned Order'&&next&&s.stop?.name!==next.name&&!s.stop?.override_approved_by)return false;
-   return s.plan.state==='Loaded'&&(s.plan.stop_sequence_policy!=='Planned Order'||!!s.stop);
+   return (s.plan.state==='Loaded'||s.plan.existing_lorry_stock_only&&s.plan.state==='Ready for Fulfilment')&&(s.plan.stop_sequence_policy!=='Planned Order'||!!s.stop);
   }
   function request(){
    if(!ready())fail('Complete the route, Customer Site, numbered choice, quantity or reason shown above.');
@@ -241,7 +241,7 @@
    if(options.planScan)await queue(()=>controller.context(options.planScan));
    if(options.siteScan)await queue(()=>controller.context(options.siteScan));
   }
-  return controller.state.closed?null:{scan:value=>queue(()=>controller.scan(value)),focus,controller};
+  return controller.state.closed?null:{scan:value=>queue(()=>controller.scan(value)),focus,controller,close:()=>dialog.hide()};
  }
  const api={createController,open,pendingKey,lockKey};if(typeof module!=='undefined'&&module.exports)module.exports=api;
  root.cfg_route_delivery=api;

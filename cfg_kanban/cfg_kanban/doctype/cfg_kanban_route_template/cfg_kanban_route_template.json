@@ -12,6 +12,9 @@
   "region",
   "direction",
   "sequence_policy",
+  "auto_generate_dispatch",
+  "dispatch_profile",
+  "open_route_profile",
   "stops",
   "notes",
   "inbox_section",
@@ -87,6 +90,25 @@
    "fieldname": "order_inbox",
    "label": "Sales Order Route Inbox",
    "fieldtype": "HTML"
+  },
+  {
+   "fieldname": "auto_generate_dispatch",
+   "label": "Generate Dispatch on Mark Planned",
+   "fieldtype": "Check",
+   "default": "0",
+   "description": "Creates linked preparation requests for assigned SO quantities and one shared Open Route pool. No stock is reserved or posted."
+  },
+  {
+   "fieldname": "dispatch_profile",
+   "label": "Customer Order Dispatch Profile",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Dispatch Profile"
+  },
+  {
+   "fieldname": "open_route_profile",
+   "label": "Shared Open Route Dispatch Profile",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Dispatch Profile"
   }
  ],
  "autoname": "field:template_name",

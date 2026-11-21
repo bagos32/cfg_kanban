@@ -1,7 +1,9 @@
 frappe.ui.form.on('CFG Kanban Route Template', {
   setup(frm) {
+    for (const [name,kind] of [['dispatch_profile','Customer Order'],['open_route_profile','Open Route Stock']]) frm.set_query(name,()=>({filters:{active:1,company:frm.doc.company||'',plan_type:kind,fulfilment_mode:'Vehicle Delivery'}}));
     frm.set_query('customer_scan_point', 'stops', () => ({filters: {selling_company: frm.doc.company, active: 1}}));
     frm.set_query('customer', 'stops', () => ({filters: {disabled: 0}}));
+    for (const [name,kind] of [['dispatch_profile','Customer Order'],['open_route_profile','Open Route Stock']]) frm.set_query(name,()=>({filters:{active:1,company:frm.doc.company||'',plan_type:kind,fulfilment_mode:'Vehicle Delivery'}}));
     frm.set_query('customer_address', 'stops', (_doc, cdt, cdn) => ({filters: [
       ['Dynamic Link', 'link_doctype', '=', 'Customer'], ['Dynamic Link', 'link_name', '=', locals[cdt][cdn].customer || '']]}));
     return frappe.require('/assets/cfg_kanban/js/office_delivery_trip.js');

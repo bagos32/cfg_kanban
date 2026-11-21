@@ -6033,3 +6033,53 @@ Read [setup, scanner and custody guidance](USER_GUIDE_DRIVER_ROUTE.md) and run
 migration/build. Offline tests do not verify live ERP, MariaDB locks or tablet/scanner behavior.
 The original action token/payload remains mandatory for uncertain retries. A recorded decision
 cannot be edited; existing Sessions and accepted-DN cancellation require supervised recovery.
+
+
+## Delivery Trip — generated dispatch requests and shared no-order sales
+
+On the normal **Route Template / Delivery Trip** form, enable **Generate Dispatch on Mark Planned**
+and choose Company-matching **Customer Order Dispatch Profile** / **Shared Open Route Dispatch
+Profile**, both Vehicle Delivery. Template loading copies these defaults. Add submitted SO rows
+to their exact stops and optional **Extra Goods for Shared Open Route**, save Draft, then Mark
+Planned. This creates one native Customer Order request per SO/stop and one shared Open Route
+request for every no-order Visit Only stop with a Customer Site. The office no longer needs to
+create those Plans separately. Repeated saves reuse them; unused revisions preserve cancelled
+history. Manual links remain supported with automatic mode off.
+
+The Profile's normal approval/picking/loading controls remain mandatory. LIFO lists ordered stock
+last-stop-first and shared extra stock as an accessible common pool. With no extra goods, the pool
+uses eligible stock already on the actual lorry: **Ready for Fulfilment**, with no fabricated
+Manifest/Stock Entry. Generation posts/reserves no stock and approves no operational Route Sheet.
+
+On **Driver Route**, a no-order customer may **Sell from Lorry → Add Product / Scan Stock → Finish
+Selection / Create DN**. Native prepared/unassigned tagged and untagged source checks, DN, pricing,
+proof, strict sequence and required Site QR apply. Each sale has its own customer Session/DN. The
+main stop shows selected/delivered products and tags. No-purchase visits complete with notes;
+unfinished allocations/proof block completion. Customer-order stock, QC holds and old returns are
+not free route stock. Settle the shared Plan through existing D3/E5 before office closure.
+
+See [office setup](USER_GUIDE_OFFICE_DELIVERY_TRIP.md), [driver steps](USER_GUIDE_DRIVER_ROUTE.md)
+and [native acceptance](TEST_TRIP_DISPATCH_GENERATION.md). This supersedes the earlier manual-link
+and information-only Visit Only boundaries. Native migration/posting/concurrency/device acceptance
+remains pending; offline checks are not live-site verification.
+
+
+## Delivery Trip assistants
+
+A Trip retains one lead **Assigned Driver** and supports several **Assistant Drivers**. Office
+presets assistants on the normal Delivery Trip form before departure. The lead may also use
+**Driver Route → Add Assistant Driver** before departure or during the active route, select an
+Employee (or scan an Employee ID) and confirm. Assistants sign in with their own credentials and
+find the same Trip in My Delivery Trips.
+
+Members can continue its same stops, Delivery Sessions/DNs, proof, optional sales and return
+collections under their own existing operator permissions and Company/source access. Membership
+does not grant posting, Supervisor or QC authority. Each action records the actual Employee while
+retaining the original Session creator, common stock balances, stop sequence and proof gates.
+Only the lead can add assistants on Driver Route. Started office team rows and completed history
+are protected; additions record actor/time/source and a separate team revision. Concurrent stale
+requests refresh, and uncertain actions retain their original actor/payload/token.
+
+See [office setup](USER_GUIDE_OFFICE_DELIVERY_TRIP.md), [driver steps](USER_GUIDE_DRIVER_ROUTE.md)
+and [native acceptance](TEST_TRIP_TEAM.md). No live migration, stock posting, concurrency or tablet
+acceptance is established by the offline tests.

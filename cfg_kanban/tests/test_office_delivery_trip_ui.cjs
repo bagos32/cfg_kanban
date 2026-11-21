@@ -81,8 +81,9 @@ test('late inbox response cannot overwrite changed Company or route', async () =
 });
 test('template loading populates full form, template revision and independent stop identities', async () => {
   const { frm } = harness(); frm.newRecord = true;
-  frappe.call = async args => ({ message: args.method.endsWith('get_route_template') ? { company: 'A', region: 'North', direction: 'Coast', sequence_policy: 'Planned Order', template_revision: 2, template_snapshot_json: '{"revision":2}', stops: [{ stop_key: 'NEW_KEY_1', customer: 'C1', stop_purpose: 'Visit Only' }] } : { rows: [] } });
+  frappe.call = async args => ({ message: args.method.endsWith('get_route_template') ? { company: 'A', region: 'North', direction: 'Coast', sequence_policy: 'Planned Order', auto_generate_dispatch: 1, dispatch_profile: 'KNOWN', open_route_profile: 'OPEN', template_revision: 2, template_snapshot_json: '{"revision":2}', stops: [{ stop_key: 'NEW_KEY_1', customer: 'C1', stop_purpose: 'Visit Only' }] } : { rows: [] } });
   await ui.loadTemplate(frm);
+  assert.equal(frm.doc.auto_generate_dispatch, 1); assert.equal(frm.doc.dispatch_profile, 'KNOWN'); assert.equal(frm.doc.open_route_profile, 'OPEN');
   assert.equal(frm.doc.template_revision, 2); assert.equal(frm.doc.stops.length, 1);
   assert.equal(frm.doc.stops[0].stop_key, 'NEW_KEY_1'); assert.equal(frm.doc.direction, 'Coast'); assert.equal(frm.changed, true);
 });
@@ -120,6 +121,7 @@ test('loading preview requires saved clean trip and shows mixed physical sources
 test('normal form keeps Company filters and restores state after failed status save', async () => {
   const { frm, handlers, queries, buttons } = harness(); vm.runInThisContext(fs.readFileSync(formPath, 'utf8'));
   const controller = handlers['CFG Kanban Delivery Trip']; await controller.setup(frm); await controller.refresh(frm);
+  assert.equal(queries.employee().filters.status, 'Active');
   assert.equal(queries.route_template().filters.company, 'A'); assert.equal(queries.vehicle_warehouse().filters.cfg_is_vehicle_warehouse, 1);
   await buttons['Close Planning'](); assert.equal(frm.doc.state, 'Draft');
   frm.doc.closure_reason = 'Wrong trip'; frm.save = async () => { throw new Error('Unsettled Plan'); };
@@ -143,4 +145,23 @@ test('inactive routes and terminal trips retain history without an active-inbox 
   await ui.inbox(frm, 'order_inbox'); assert.equal(calls.length, 0);
   frm.doc.state = 'Closed'; await ui.inbox(frm, 'order_inbox', true);
   assert.equal(calls.length, 0); assert.match(frm.fields_dict.order_inbox.$wrapper.text, /historical/);
+});
+
+test('generated dispatch is a saved-form action with exact stale-write timestamp and duplicate guard', async () => {
+  const {frm,handlers,buttons,calls,queries}=harness(); frm.doc.modified='2026-11-21 12:00'; let reloaded=0,finish;
+  frm.reload_doc=async()=>{reloaded++;};
+  vm.runInThisContext(fs.readFileSync(formPath,'utf8'));const form=handlers['CFG Kanban Delivery Trip'];await form.setup(frm);await form.refresh(frm);
+  assert.equal(queries.dispatch_profile().filters.plan_type,'Customer Order');assert.equal(queries.open_route_profile().filters.plan_type,'Open Route Stock');
+  calls.length=0;frm.changed=true;await buttons['Generate / Refresh Dispatch']();assert.equal(calls.length,0);
+  frm.changed=false;frappe.call=args=>{calls.push(args);return new Promise(resolve=>{finish=resolve;});};
+  const first=buttons['Generate / Refresh Dispatch']();await buttons['Generate / Refresh Dispatch']();assert.equal(calls.length,1);
+  assert.deepEqual(calls[0].args,{trip_name:'TRIP',expected_modified:'2026-11-21 12:00'});finish({message:{}});await first;
+  assert.equal(reloaded,1);assert.equal(frm.__cfg_dispatch_busy,false);
+});
+
+test('office assistant presets become read only after driver departure',async()=>{
+ const {frm,handlers}=harness();const properties={};frm.set_df_property=(name,key,value)=>{properties[name+':'+key]=value;};
+ vm.runInThisContext(fs.readFileSync(formPath,'utf8'));const form=handlers['CFG Kanban Delivery Trip'];await form.setup(frm);await form.refresh(frm);
+ assert.equal(properties['assistant_drivers:read_only'],false);frm.doc.driver_route_state='In Progress';await form.refresh(frm);
+ assert.equal(properties['assistant_drivers:read_only'],true);
 });

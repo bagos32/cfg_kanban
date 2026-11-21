@@ -9,8 +9,10 @@ from cfg_kanban.services.operator_auth import require_operator
 
 TRIP = 'CFG Kanban Delivery Trip'
 ACTIONS = ('Start Route', 'Begin Delivery', 'Confirm Allocations', 'Create Delivery Note',
-           'Open Proof', 'Submit Proof', 'Complete Stop', 'Collect Old Return', 'Release Refused Stock')
+           'Open Proof', 'Submit Proof', 'Complete Stop', 'Collect Old Return', 'Release Refused Stock', 'Begin Open Sale', 'Add Assistant')
 PAYLOAD_FIELDS = {
+    'Add Assistant': {'employee'},
+    'Begin Open Sale': {'customer_scan'},
     'Start Route': set(), 'Begin Delivery': {'customer_scan', 'quantities'}, 'Confirm Allocations': set(),
     'Create Delivery Note': {'required_erp_inputs'}, 'Open Proof': set(),
     'Submit Proof': {'proof_name', 'disposition', 'recipient_name', 'unattended_reason',
@@ -73,7 +75,7 @@ def _root(name):
 
 
 def _owned(doc, operator):
-    if not (_views()._all(operator) or (doc.driver and doc.driver == operator.employee)):
+    if not (_views()._all(operator) or doc.driver==operator.employee or any(r.employee==operator.employee for r in doc.get('assistant_drivers') or [])):
         frappe.throw('This Delivery Trip is not assigned to this driver', frappe.PermissionError)
     _delivery()._require_customer_delivery(operator)
 
@@ -130,6 +132,9 @@ def _build_snapshot(doc, context, operator):
         frappe.throw('Duplicate Dispatch Plan links require office review')
     linked = {row.dispatch_plan: row.stop_key for row in doc.dispatch_plans}
     vehicles = {plan.vehicle_warehouse for plan in plans.values() if plan.vehicle_warehouse}
+    if doc.get('open_route_plan'):
+        shared=_read('CFG Kanban Dispatch Plan',doc.open_route_plan)
+        if shared.vehicle_warehouse:vehicles.add(shared.vehicle_warehouse)
     if doc.vehicle_warehouse:
         vehicles.add(doc.vehicle_warehouse)
     for vehicle in sorted(vehicles):
@@ -166,9 +171,13 @@ def _build_snapshot(doc, context, operator):
                 seen = set(); keys = []; rows = []
                 for source in sheet.stops:
                     target = linked.get(source.dispatch_plan)
-                    if not target or source.dispatch_plan in seen or source.customer_scan_point != by_stop[target].customer_scan_point:
+                    identity=source.dispatch_plan
+                    if source.dispatch_plan==doc.get('open_route_plan'):
+                        from cfg_kanban.services.trip_sales import sheet_target
+                        target=sheet_target(doc,source);identity=source.source_route_stop
+                    if not target or identity in seen or source.customer_scan_point != by_stop[target].customer_scan_point:
                         frappe.throw('The approved route must map exactly to this trip; reconcile ambiguous or outside stops')
-                    seen.add(source.dispatch_plan); keys.append(target)
+                    seen.add(identity); keys.append(target)
                     rows.append((source.row_key, source.dispatch_plan, source.customer_scan_point))
                 distinct = []
                 for value in keys:
@@ -191,7 +200,11 @@ def _build_snapshot(doc, context, operator):
         for signature in signatures.values():
             subset = []
             for _row, name, _site in signature['rows']:
-                target = linked[name]
+                target = linked.get(name)
+                if name==doc.get('open_route_plan'):
+                    from cfg_kanban.services.trip_sales import sheet_target
+                    sheet=_read('CFG Kanban Route Sheet',next(k for k,v in signatures.items() if v is signature))
+                    target=sheet_target(doc,next(r for r in sheet.stops if r.row_key==_row))
                 if not subset or subset[-1] != target:
                     subset.append(target)
             if signature['sequence_policy'] == 'Planned Order' and [key for key in order if key in subset] != subset:
@@ -199,8 +212,14 @@ def _build_snapshot(doc, context, operator):
     allocations = sorted([(row['dispatch_plan'], row['dispatch_allocation'], row['item_code'], row['stock_uom'],
                            row['batch_no'], row['tag_code'], row['assigned_qty'])
                           for stop in context['stops'] for row in stop['sources']])
-    return dict(scope_hash=_core(doc), stop_order=order, policies=policies, sheets=signatures, allocations=allocations,
-        strict=bool(doc.sequence_policy == 'Planned Order' or any(s['sequence_policy'] == 'Planned Order' for s in signatures.values())),
+    extra={}
+    if doc.get('open_route_plan'):
+        from cfg_kanban.services.trip_sales import snapshot
+        shared=snapshot(doc,operator,next(iter(vehicles)) if vehicles else None)
+        extra['open_pool']=shared
+    return dict(scope_hash=_core(doc), stop_order=order, policies=policies, sheets=signatures, allocations=allocations,**extra,
+        strict=bool(doc.sequence_policy == 'Planned Order' or any(s['sequence_policy'] == 'Planned Order' for s in signatures.values())
+                    or bool(extra.get('open_pool',{}).get('sheet') and extra['open_pool']['sheet']['sequence_policy']=='Planned Order')),
         vehicle=next(iter(vehicles)) if vehicles else None)
 
 
@@ -209,7 +228,13 @@ def _execution(doc, operator, context):
     return _build_snapshot(doc, context, operator)
 
 
-def _session(plan, operator):
+def _session(plan, operator, stop=None):
+    if plan.get('office_delivery_trip') and plan.plan_type=='Open Route Stock':
+        from cfg_kanban.services.trip_sales import session
+        trip=_read(TRIP,plan.office_delivery_trip)
+        result=session(trip,stop,operator,current=True) if stop else None
+        if not result or not _delivery()._can_view_delivery(operator,result):frappe.throw('Open this exact Trip customer sale first')
+        return result
     if not plan.delivery_session:
         frappe.throw('Start the exact prepared delivery for this stop first')
     session = _read('CFG Kanban Delivery Session', plan.delivery_session, current=True)
@@ -220,6 +245,9 @@ def _session(plan, operator):
 
 def _is_ready(doc, stop, operator, token):
     if stop.stop_purpose == 'Visit Only':
+        if doc.get('open_route_plan'):
+            from cfg_kanban.services.trip_sales import finish_visit
+            return finish_visit(doc,stop,operator)
         return True
     links = [row for row in doc.dispatch_plans if row.stop_key == stop.stop_key]
     if not links:
@@ -252,8 +280,11 @@ def _is_ready(doc, stop, operator, token):
 def _finish(doc, stop, operator, token, notes=None):
     if stop.get('driver_completed_on'):
         return True
-    if stop.stop_purpose != 'Visit Only' and not _is_ready(doc, stop, operator, token):
+    if not _is_ready(doc, stop, operator, token):
         return False
+    if stop.stop_purpose=='Visit Only' and doc.get('open_route_plan'):
+        from cfg_kanban.services.trip_sales import finish_visit
+        finish_visit(doc,stop,operator,record_no_sale=True)
     stop.db_set(dict(driver_completed_on=now_datetime(), driver_completed_by=operator.employee,
                      driver_visit_notes=(notes or '').strip() or None), update_modified=False)
     values = dict(driver_active_stop_key=None)
@@ -290,6 +321,10 @@ def driver_action_context(trip_name, operator_session_token, stop_key=None, oper
         revision=cint(doc.driver_route_revision), scope_hash=_core(doc),
         can_start=bool(operator.can_start), can_complete=bool(operator.can_complete),
         planning_state=doc.state, next_step='Start Route', stop_key=stop_key, dispatch_plan=None)
+    if operation == 'Add Assistant':
+        from cfg_kanban.services.trip_team import assert_lead
+        assert_lead(doc, operator)
+        return dict(result,next_step='Add Assistant',stop_key=None,setup=dict(team=[r.employee for r in doc.get('assistant_drivers') or []]))
     if operation == 'Collect Old Return':
         stop=next((r for r in doc.stops if r.stop_key==stop_key),None)
         if not stop:frappe.throw('Select the exact saved customer stop')
@@ -317,6 +352,10 @@ def driver_action_context(trip_name, operator_session_token, stop_key=None, oper
     _target(doc, request, snapshot)
     result.update(stop_key=key, site_name=stop.site_name or stop.customer, purpose=stop.stop_purpose)
     if stop.stop_purpose == 'Visit Only':
+        if doc.get('open_route_plan'):
+            from cfg_kanban.services.trip_sales import action_context
+            sale=action_context(doc,stop,operator,result,operator_session_token,force=operation=='Sell from Lorry')
+            if sale:return sale
         return dict(result, next_step='Complete Stop')
     rows = [row for row in doc.dispatch_plans if row.stop_key == key]
     for row in rows:
@@ -361,9 +400,18 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
     _owned(doc, operator)
     if action in ('Collect Old Return','Release Refused Stock'):
         return _special_action(doc,request,operator,session,operator_session_token,key)
-    require_operator(operator_session_token, 'start' if action in ('Start Route', 'Begin Delivery') else 'complete')
+    require_operator(operator_session_token, 'start' if action in ('Start Route', 'Begin Delivery', 'Begin Open Sale', 'Add Assistant') else 'complete')
     if doc.state != 'Planned' or request['scope_hash'] != _core(doc) or request['expected_revision'] != cint(doc.driver_route_revision):
         frappe.throw('Trip planning or execution changed; refresh before submitting new details')
+    if action=='Add Assistant':
+        if stop_key or dispatch_plan:frappe.throw('Assistant assignment applies to this Trip, not a customer or Plan')
+        from cfg_kanban.services.trip_team import add_assistant
+        result=add_assistant(doc,request['payload'].get('employee'),operator,session)
+        doc.db_set('driver_route_revision',cint(doc.driver_route_revision)+1,update_modified=True)
+        return _record(doc,operator,session,key,request,result)
+    if action=='Start Route' and doc.get('open_route_plan'):
+        from cfg_kanban.services.trip_sales import prepare_pool
+        prepare_pool(doc,operator)
     context = _views().get_driver_trip(doc.name, operator_session_token)
     snapshot = _execution(doc, operator, context)
     values = request['payload']; result = {}
@@ -388,10 +436,16 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
             frappe.throw('The saved execution route changed; Supervisor must reconcile it before continuing')
         stop = _target(doc, request, snapshot)
         links = {row.dispatch_plan for row in doc.dispatch_plans if row.stop_key == stop.stop_key}
+        if stop.stop_purpose=='Visit Only' and doc.get('open_route_plan'):links.add(doc.open_route_plan)
         plan = _read('CFG Kanban Dispatch Plan', dispatch_plan) if dispatch_plan else None
         if action != 'Complete Stop' and (not plan or plan.name not in links):
             frappe.throw('Select an exact prepared Plan belonging to this trip stop')
-        if action == 'Begin Delivery':
+        if action == 'Begin Open Sale':
+            if plan.name!=doc.get('open_route_plan') or stop.stop_purpose!='Visit Only':frappe.throw('Select this Trip optional-sale customer stop')
+            from cfg_kanban.services.trip_sales import begin
+            delivery=begin(doc,stop,values.get('customer_scan'),key,operator,operator_session_token)
+            result['delivery_session']=delivery['name']
+        elif action == 'Begin Delivery':
             for link in doc.dispatch_plans:
                 if link.dispatch_plan == plan.name:
                     continue
@@ -419,7 +473,7 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
                 frappe.throw('Complete every Delivery Note and required proof before closing this stop')
             result['stop_completed'] = True
         else:
-            delivery = _session(plan, operator)
+            delivery = _session(plan, operator, stop)
             if action == 'Confirm Allocations':
                 _delivery().confirm_delivery_allocations(delivery.name, key, operator_session_token)
             elif action == 'Create Delivery Note':

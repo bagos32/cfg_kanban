@@ -57,9 +57,32 @@ def create_dispatch_plan(dispatch_profile, lines, customer_site=None, sales_orde
     if existing:
         return get_dispatch_plan(existing, operator_session_token)
 
+    plan = _build_dispatch_plan(policy, context, rows, key, priority, route_template,
+        dict(employee=operator.employee, operator_session=session.name, user=session.terminal_user))
+    try:
+        plan.insert(ignore_permissions=True)
+    except frappe.DuplicateEntryError:
+        existing = frappe.db.get_value(
+            "CFG Kanban Dispatch Plan", {"idempotency_key": key}, "name"
+        )
+        if existing:
+            return get_dispatch_plan(existing, operator_session_token)
+        raise
+    record(
+        "Dispatch Plan Created", reference_doctype=plan.doctype, reference_name=plan.name,
+        previous_state=None, new_state="Draft", device_id=event_token,
+        operator=operator.employee, operator_session=session.name,
+        terminal_user=session.terminal_user,
+        notes=f"{plan.plan_type}; {plan.business_label}; no stock reserved",
+    )
+    return get_dispatch_plan(plan.name, operator_session_token)
+
+
+def _build_dispatch_plan(policy, context, rows, key, priority="Normal", route_template=None, actor=None, template_data=None):
+    """Construct the same native request for an authorized operator or office planner."""
+    actor = actor or {}
     selected_template = route_template or policy.get('route_template')
-    template_data = None
-    if selected_template:
+    if selected_template and template_data is None:
         from cfg_kanban.services.route_sheets import template_snapshot
         template_data = template_snapshot(selected_template,policy.company)
     snapshot = {fieldname: policy.get(fieldname) for fieldname in PROFILE_SNAPSHOT_FIELDS}
@@ -101,29 +124,13 @@ def create_dispatch_plan(dispatch_profile, lines, customer_site=None, sales_orde
         **context,
         "priority": priority or "Normal",
         "lines": rows,
-        "created_by_operator": operator.employee,
-        "created_operator_session": session.name,
-        "created_by_user": session.terminal_user,
+        "created_by_operator": actor.get("employee"),
+        "created_operator_session": actor.get("operator_session"),
+        "created_by_user": actor.get("user"),
         "created_on": now_datetime(),
         "idempotency_key": key,
     })
-    try:
-        plan.insert(ignore_permissions=True)
-    except frappe.DuplicateEntryError:
-        existing = frappe.db.get_value(
-            "CFG Kanban Dispatch Plan", {"idempotency_key": key}, "name"
-        )
-        if existing:
-            return get_dispatch_plan(existing, operator_session_token)
-        raise
-    record(
-        "Dispatch Plan Created", reference_doctype=plan.doctype, reference_name=plan.name,
-        previous_state=None, new_state="Draft", device_id=event_token,
-        operator=operator.employee, operator_session=session.name,
-        terminal_user=session.terminal_user,
-        notes=f"{plan.plan_type}; {plan.business_label}; no stock reserved",
-    )
-    return get_dispatch_plan(plan.name, operator_session_token)
+    return plan
 
 
 @frappe.whitelist()
@@ -183,7 +190,7 @@ def approve_dispatch_plan(dispatch_plan, event_token=None, operator_session_toke
     _require_event_token(event_token)
     operator, session = require_operator(operator_session_token)
     plan = _locked_authorized_plan(dispatch_plan, operator)
-    if plan.state == "Approved":
+    if plan.state == "Approved" or (plan.get("existing_lorry_stock_only") and plan.state == "Ready for Fulfilment"):
         return get_dispatch_plan(plan.name, operator_session_token)
     if plan.state != "Awaiting Approval":
         frappe.throw(f"Dispatch Plan {plan.name} is not awaiting approval")
@@ -610,7 +617,7 @@ def get_dispatch_plan(dispatch_plan, operator_session_token):
     result["can_approve"] = bool(
         plan.state == "Awaiting Approval" and cint(operator.get("can_override"))
     )
-    result["can_reserve"] = bool(plan.state in RESERVABLE_STATES and operator.can_start)
+    result["can_reserve"] = bool(not plan.get("existing_lorry_stock_only") and plan.state in RESERVABLE_STATES and operator.can_start)
     result["can_claim_vehicle"] = bool(
         plan.state == "Ready for Vehicle" and plan.fulfilment_mode == "Vehicle Delivery"
         and operator.can_start
@@ -1349,6 +1356,11 @@ def _authorized_profile(name, operator):
     if not (_view_all(operator) or policy.dispatch_responsibility in _responsibilities(operator)):
         frappe.throw("Operator is not assigned to this Dispatch Profile responsibility",
                      frappe.PermissionError)
+    _validate_profile_card(policy)
+    return policy
+
+
+def _validate_profile_card(policy):
     card = frappe.db.get_value(
         "CFG Kanban Card", policy.dispatch_point,
         ["active", "blocked", "card_type", "location_purpose", "company",
@@ -1359,7 +1371,6 @@ def _authorized_profile(name, operator):
         frappe.throw("Dispatch Operations Card is inactive, blocked or no longer valid")
     if card.company != policy.company or card.current_warehouse != policy.source_warehouse:
         frappe.throw("Dispatch Profile no longer matches its Dispatch Operations Card")
-    return policy
 
 
 def _locked_authorized_plan(name, operator):
@@ -1389,6 +1400,9 @@ def _view_all(operator):
 
 
 def _assert_plan_lines(plan):
+    if plan.get('existing_lorry_stock_only'):
+        from cfg_kanban.services.trip_dispatch import existing_pool
+        if existing_pool(plan):return
     if not plan.lines or any(flt(row.requested_qty) <= 0 for row in plan.lines):
         frappe.throw("Dispatch Plan requires positive Item quantities")
 
@@ -1476,6 +1490,7 @@ def _active_line_reserved(line_name):
 
 def _refresh_plan_totals(plan_name):
     plan = frappe.get_doc("CFG Kanban Dispatch Plan", plan_name)
+    if plan.get("existing_lorry_stock_only"):return
     total = 0
     complete = True
     for line in plan.lines:

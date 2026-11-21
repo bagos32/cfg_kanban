@@ -604,6 +604,13 @@ def cancel_delivery_session(delivery_session, reason, event_token,
 
 
 def _delivery_for_operator(delivery_session, profile):
+    source = frappe.db.get_value("CFG Kanban Delivery Session", delivery_session,
+        ["dispatch_plan", "route_stop"], as_dict=True)
+    if source and source.route_stop and source.dispatch_plan:
+        plan = frappe.get_doc("CFG Kanban Dispatch Plan", source.dispatch_plan)
+        if plan.get("office_delivery_trip"):
+            from cfg_kanban.services.trip_sales import lock_scope
+            lock_scope(plan)
     delivery = frappe.get_doc("CFG Kanban Delivery Session", delivery_session, for_update=True)
     if not _can_view_delivery(profile, delivery):
         frappe.throw(_("Operator cannot access this Delivery Session"), frappe.PermissionError)
@@ -1075,7 +1082,17 @@ def _require_customer_delivery(profile):
 
 
 def _can_view_delivery(profile, delivery):
-    return bool(_can_view_all(profile) or delivery.started_by_operator == profile.employee)
+    if _can_view_all(profile) or delivery.started_by_operator == profile.employee:
+        return True
+    plan = delivery.get('dispatch_plan')
+    if not plan or not (frappe.db.get_value('CFG Kanban Dispatch Plan',plan,'office_delivery_trip') or
+            frappe.db.exists('CFG Kanban Delivery Trip Plan',{'dispatch_plan':plan})):
+        return False
+    from cfg_kanban.services.trip_team import can_access_delivery
+    try:
+        return can_access_delivery(profile, delivery)
+    except frappe.PermissionError:
+        return False
 
 
 def assert_delivery_access(delivery_session, profile):

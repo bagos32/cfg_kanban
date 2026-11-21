@@ -20,7 +20,8 @@ class CFGKanbanRouteTemplate(Document):
 
         def signature(doc):
             return (doc.company, doc.active, doc.notes, doc.get('region'), doc.get('direction'),
-                    doc.get('sequence_policy') or 'Flexible Order',
+                    doc.get('sequence_policy') or 'Flexible Order',cint(doc.get('auto_generate_dispatch')),
+                    doc.get('dispatch_profile'),doc.get('open_route_profile'),
                     [(row.get('stop_purpose') or 'Delivery', row.customer_scan_point,
                       row.customer, row.customer_address, row.instructions) for row in doc.stops])
 

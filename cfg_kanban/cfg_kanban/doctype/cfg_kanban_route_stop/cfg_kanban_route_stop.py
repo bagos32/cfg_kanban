@@ -8,6 +8,9 @@ class CFGKanbanRouteStop(Document):
                               "Completed", "Cancelled", "Skipped", "Exception"}:
             frappe.throw("Invalid Route Stop state")
         before = None if self.is_new() else self.get_doc_before_save()
+        for field in ('office_delivery_trip','office_stop_key'):
+            if self.get(field)!=(before.get(field) if before else None) and not (getattr(self,'flags',None) or {}).get('cfg_office_dispatch'):
+                frappe.throw('Office visit provenance is immutable')
         if before:
             for field in ("dispatch_plan", "company", "customer_scan_point", "customer",
                           "customer_address", "planned_sequence", "idempotency_key", "retry_of_stop"):

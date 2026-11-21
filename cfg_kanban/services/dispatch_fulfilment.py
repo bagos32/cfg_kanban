@@ -194,6 +194,10 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
 
 
 def _loaded_allocations(plan, for_update=False):
+    if plan.get('existing_lorry_stock_only'):
+        from cfg_kanban.services.trip_dispatch import existing_pool
+        if existing_pool(plan):return []
+        frappe.throw('Existing-stock context cannot have a loading Manifest or planned quantities')
     filters = {'dispatch_plan': plan.name, 'movement_manifest': plan.movement_manifest, 'state': 'Loaded'}
     fields = ['name', 'dispatch_plan_line', 'allocation_kind', 'handling_unit', 'item_code',
               'batch_no', 'stock_uom', 'allocated_qty', 'load_confirmed']
@@ -232,7 +236,12 @@ def _order_assignments(plan, allocations):
     remaining = {row.name: max(flt(row.qty)-flt(row.delivered_qty),0)*flt(row.conversion_factor) for row in order.items}
     assigned = {}
     for allocation in allocations:
-        match = next((row for row in order.items if row.item_code == allocation.item_code and
+        exact=None
+        if plan.get('office_delivery_trip'):
+            line=next((r for r in plan.lines if r.name==allocation.dispatch_plan_line),None)
+            if not line or not line.sales_order_item:frappe.throw('Generated stock source lost its exact Sales Order row')
+            exact=line.sales_order_item
+        match = next((row for row in order.items if (not exact or row.name==exact) and row.item_code == allocation.item_code and
                       row.stock_uom == allocation.stock_uom and flt(row.conversion_factor)>0 and
                       remaining[row.name]+0.000001 >= flt(allocation.allocated_qty)), None)
         if not match:

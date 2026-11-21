@@ -135,6 +135,8 @@
       <br><small>${escape(data.sequence_source)} · ${tr('Updated')} ${escape(data.refreshed_on)}</small></p>
       ${data.trip.planning_state === 'Planned' && (data.trip.driver_route_state || 'Not Started') === 'Not Started' ? `<button class="btn btn-primary cfg-driver-start-route">${tr('Start Route')}</button>` : ''}
       ${data.trip.driver_route_state && data.trip.driver_route_state !== 'Not Started' ? `<button class="btn btn-default cfg-driver-resume-route">${tr('Continue / Check saved action')}</button>` : ''}
+      <p><strong>${tr('Assigned Driver')}:</strong> ${escape(data.trip.driver||'—')} · <strong>${tr('Assistant Drivers')}:</strong> ${(data.trip.assistant_drivers||[]).map(row=>escape(row.employee_name||row.employee)).join(', ')||'—'}</p>
+      ${data.can_add_assistant?`<button class="btn btn-default cfg-driver-add-assistant">${tr('Add Assistant Driver')}</button>`:''}
       ${(data.warnings || []).map(warning => `<p class="alert alert-warning">${escape(warning)}</p>`).join('')}
       <div class="cfg-driver-stops">${(data.stops || []).map(stop => `<button class="btn btn-default${selected?.stop_key === stop.stop_key ? ' selected' : ''}" data-stop="${escape(stop.stop_key)}"><strong>${escape(stop.sequence)}. ${escape(stop.site_name || stop.customer_name)}</strong><span>${escape(stop.state)}${stop.purpose === 'Visit Only' ? ' · ' + tr('Visit Only') : ''}</span></button>`).join('')}</div></section>
       ${selected ? stopView(selected, data.trip) + returnView(data,selected,state) : ''}`;
@@ -147,7 +149,9 @@
       ${stop.driver_visit_notes ? `<p class="cfg-driver-instructions"><strong>${tr('Visit notes')}:</strong> ${escape(stop.driver_visit_notes)}</p>` : ''}
       ${(stop.route_sheets || []).map(row => `<p class="text-muted">${escape(row.name)} · ${escape(row.planning_state)} · ${escape(row.sequence_policy)} · ${escape(row.verification_policy)}</p>`).join('')}
       ${(stop.warnings || []).map(row => `<p class="alert alert-warning">${escape(row)}</p>`).join('')}
-      ${stop.purpose === 'Visit Only' ? `<p class="alert alert-info">${tr('Visit instructions only. Use Complete Stop to record the visit and its information without a Delivery Note.')}</p>` : ''}
+      ${stop.can_open_sale ? `<button class="btn btn-primary cfg-driver-open-sale" data-sale-stop="${escape(stop.stop_key)}">${tr('Sell from Lorry')}</button>` : ''}
+      ${stop.open_sale ? `<p>${tr('Open Route sale')}: ${escape(stop.open_sale.state)} · ${escape(stop.open_sale.delivery_note||'')}</p>`+(stop.open_sale.allocations||[]).map(row=>`<div class="cfg-driver-source"><strong>${escape(row.visible_code||row.item_code)}</strong><span>${escape(row.item_code)} · ${escape(row.batch_no||'—')} · ${escape(row.state)}</span><span>${tr('Selected')}: ${escape(row.allocated_qty)} ${escape(row.stock_uom)} · ${tr('Delivered')}: ${escape(row.delivered_qty||0)} ${escape(row.stock_uom)}</span></div>`).join('') : ''}
+      ${stop.purpose === 'Visit Only' ? `<p class="alert alert-info">${tr('Use Sell from Lorry when this customer buys, or Complete Stop to record the visit without a sale.')}</p>` : ''}
       <div class="table-responsive"><table class="table table-bordered"><thead><tr><th>${tr('Product / Order / Customer PO')}</th><th>${tr('Planned')}</th><th>${tr('Loaded')}</th><th>${tr('Delivered')}</th><th>${tr('Not prepared')}</th><th>${tr('Remaining to deliver')}</th></tr></thead><tbody>
       ${(stop.items || []).map(row => `<tr><td><strong>${escape(row.item_code)}</strong> ${escape(row.item_name)}<br>${row.orders.map(order => escape(order.sales_order) + ' · ' + escape(order.customer_po || '—')).join('<br>')}</td>
       <td>${escape(row.planned_qty)} ${escape(row.stock_uom)}</td><td>${row.is_stock_item ? escape(row.loaded_qty) : '—'}</td><td>${row.is_stock_item ? escape(row.delivered_qty) : '—'}</td><td>${row.is_stock_item ? escape(row.unprepared_qty) : '—'}</td><td>${row.is_stock_item ? escape(row.remaining_qty) + ' ' + escape(row.stock_uom) : tr('Service item')}</td></tr>`).join('')}</tbody></table></div>
@@ -217,6 +221,8 @@
           onClose:()=>{action=null;focus();}});
       } catch(error) { $root.find('.cfg-driver-action-host').empty(); notice(message(error)); focus(); }
     }
+    $root.on('click.cfg_driver','.cfg-driver-add-assistant',()=>execute(null,'Add Assistant'));
+    $root.on('click.cfg_driver','.cfg-driver-open-sale',event=>execute($(event.currentTarget).attr('data-sale-stop'),'Sell from Lorry'));
     $root.on('click.cfg_driver', '.cfg-driver-collect-return', event => execute($(event.currentTarget).attr('data-collect-stop'),'Collect Old Return'));
     $root.on('click.cfg_driver', '.cfg-driver-release-refused', event => execute($(event.currentTarget).attr('data-release-stop'),'Release Refused Stock',$(event.currentTarget).attr('data-outcome')));
     $root.on('click.cfg_driver', '.cfg-driver-start-route', () => execute());
@@ -225,7 +231,7 @@
     $root.on('click.cfg_driver', '.cfg-driver-open-delivery', event => {
       const name = $(event.currentTarget).attr('data-delivery');
       action?.close();
-      if (!app.session() || app.state.stale || !app.state.detail?.stops?.some(stop => stop.plans.some(plan => plan.session_accessible && plan.delivery_session === name))) return;
+      if (!app.session() || app.state.stale || !app.state.detail?.stops?.some(stop => stop.plans.some(plan => plan.session_accessible && plan.delivery_session === name)||stop.open_sale?.delivery_session===name)) return;
       frappe.route_options = { cfg_driver_delivery_session: name }; frappe.set_route('kanban-logistics');
     });
     $root.on('click.cfg_driver', '.cfg-driver-camera', () => {

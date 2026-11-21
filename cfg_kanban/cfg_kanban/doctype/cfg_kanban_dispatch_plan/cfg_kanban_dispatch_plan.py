@@ -18,6 +18,14 @@ class CFGKanbanDispatchPlan(Document):
 
     def validate(self):
         before = None if self.is_new() else self.get_doc_before_save()
+        for field in ('office_delivery_trip','office_stop_key','office_source_hash','existing_lorry_stock_only'):
+            if (self.get(field) or None)!=((before.get(field) or None) if before else None) and not (getattr(self,'flags',None) or {}).get('cfg_office_dispatch'):
+                frappe.throw('Office dispatch provenance is immutable; generate it from the Trip')
+        if before and self.get('office_delivery_trip'):
+            fields=('company','dispatch_profile','source_warehouse','plan_type','fulfilment_mode','customer_site','sales_order','required_date','trip_date')
+            request=lambda doc:[(r.item_code,r.batch_no or '',r.stock_uom,flt(r.requested_qty),r.sales_order_item or '') for r in doc.lines]
+            if any(self.get(f)!=before.get(f) for f in fields) or request(self)!=request(before):
+                frappe.throw('Change generated dispatch quantities and sources on its office Delivery Trip before execution')
         if self.get('driver_delivery_outcome') != (before.get('driver_delivery_outcome') if before else None):
             frappe.throw('Driver delivery outcome is a controlled immutable execution reference')
         if self.state not in ACTIVE_STATES | {"Cancelled", "Exception", "Reconciled"}:
@@ -35,14 +43,14 @@ class CFGKanbanDispatchPlan(Document):
         if self.fulfilment_mode in ("Direct Warehouse Delivery", "Customer Pickup"):
             if self.plan_type != "Customer Order" or self.vehicle_warehouse or self.movement_manifest:
                 frappe.throw("Warehouse fulfilment requires a Customer Order without a vehicle or loading Manifest")
-        if not self.lines:
+        if not self.lines and not (self.get('existing_lorry_stock_only') and self.get('office_delivery_trip') and self.plan_type=='Open Route Stock'):
             frappe.throw("Dispatch Plan requires at least one Item line")
         seen = set()
         requested = 0
         for row in self.lines:
             if flt(row.requested_qty) <= 0:
                 frappe.throw(f"Row {row.idx}: Requested Qty must be positive")
-            key = (row.item_code, row.batch_no or "")
+            key = (row.item_code, row.batch_no or "", row.sales_order_item if self.get("office_delivery_trip") else "")
             if key in seen:
                 frappe.throw(
                     f"Row {row.idx}: combine duplicate Item/Batch {row.item_code} / "

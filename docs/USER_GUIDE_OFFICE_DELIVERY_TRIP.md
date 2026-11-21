@@ -1,4 +1,4 @@
-# Office Delivery Trip — Phase 1 setup and use
+# Office Delivery Trip — setup, dispatch generation and loading
 
 Development prepared: 21 November 2026. Native-site acceptance is pending.
 
@@ -33,10 +33,17 @@ lorry. Several trips can use the same standard route.
 4. Add stops in normal delivery order. For **Delivery**, select a Customer Site; its Customer and
    address fill from the Site. For **Visit Only**, select a Customer and optionally its address or
    an existing Site. Enter visit/delivery instructions.
-5. Drag the table rows into sequence and save.
+5. For Trip-driven preparation enable **Generate Dispatch on Mark Planned**. Select the active
+   **Customer Order Dispatch Profile** and **Shared Open Route Dispatch Profile** needed by the
+   route. Both must use **Vehicle Delivery**, the same Company and loading source Warehouse.
+   Their Dispatch Operations Cards must be active, unblocked and in that Company/source. The Open
+   Route Profile must cover the visits' Logistics Route or Territory. Keep the existing approval,
+   stock rotation, QR, proof and route-sheet policies on those Profiles.
+6. Drag the table rows into sequence and save.
 
-Visit Only means an office instruction such as collect information; it creates no order, stock
-allocation or delivery. Customers may occur more than once at distinct stops. A Customer Address
+Visit Only records an office visit without a Sales Order. With automatic generation and a
+Customer Site, it can optionally sell from the Trip shared pool. Without a Site it remains an
+informational visit. Merely planning a visit creates no stock allocation or delivery. Customers may occur more than once at distinct stops. A Customer Address
 must actually belong to that Customer. Disabled Customers/Addresses and wrong-Company Sites fail
 validation.
 
@@ -45,7 +52,8 @@ snapshot and their own customized stop order. Editing a template does not rewrit
 A route's Company cannot change after Sales Orders or trips reference it.
 
 The existing dispatch/Route Sheet template selector continues using Delivery stops. Visit Only
-rows are omitted there; an all-visit template cannot create a stock-delivery execution sequence.
+rows are omitted there. Trip-generated requests supply their exact office visits to the existing
+Route Sheet service, including all-visit routes; do not replace those visits with the legacy selector.
 
 ## 3. Sales selects the route; office chooses the dated trip
 
@@ -68,9 +76,11 @@ continues when those identity fields have not changed, even if the old template 
 1. From the template inbox choose **New Delivery Trip**, or open **Office Delivery Trips → New**.
 2. Set Company, Standard Route / Template, Trip Date and optional Expected Return Date. Multi-day
    trips are permitted. Set driver, source Warehouse and lorry if known; these can be left empty
-   during early planning.
+   during early planning. In **Assistant Drivers**, add one or more active Employees with an
+   active Customer Delivery Operator Profile. A lead Assigned Driver is required when assistants
+   are selected; the same Employee cannot appear twice or be both lead and assistant.
 3. Click **Load Route Template**. The form captures its revision, stops, region/direction and
-   default policy. Loading a template replaces the stop table; first save without assigned orders
+   default policy and dispatch-generation defaults. Loading a template replaces the stop table; first save without assigned orders
    and linked Plans if replacing the route on an existing trip.
 4. In **Customer Stops**, customize instructions, add/remove visits and drag rows into delivery
    order. Customer stops keep stable identities, so moving a row does not change an order's customer.
@@ -90,12 +100,33 @@ Inbox **Planned Elsewhere / Here** shows outstanding assignments. Submitted Deli
 linked Dispatch Plans reduce those planning holds using their exact SO Item references; duplicate
 source joins are not counted twice. Native SO delivery balances remain authoritative.
 
-## 5. Connect the existing dispatch workflow and read LIFO
+## 5. Generate linked dispatch work and read LIFO
 
-Prepare Customer Order Dispatch Plans through the existing Dispatch Operations workflow. In the
-trip's **Linked Dispatch Plans** table, select each existing Plan and its delivery Stop No, then
-save. Phase 1 links Vehicle Delivery Customer Order Plans; Open Route Stock fulfilment remains in
-the existing operational workflow and will join the new driver terminal in a later phase.
+Enable **Generate Dispatch on Mark Planned** on the Trip or inherit it from the Route Template.
+Under **Linked Dispatch Plans**, select the two Profiles as applicable and enter any **Extra Goods
+for Shared Open Route** in stock UOM (optional Batch). Save the Trip as Draft, then **Mark Planned**.
+The office no longer needs to prepare separate Plans before assigning the Trip:
+
+- Each exact **Sales Order + customer stop** creates one linked Customer Order Plan, limited to
+  this Trip's assigned SO rows and quantities. Repeated Items on different SO rows remain distinct.
+- All **Visit Only** stops with a Customer Site share **one Open Route Plan**. Extra goods become
+  its warehouse preparation lines. Warehouse staff reserve, select the actual lorry and load them
+  through existing E3 controls, alongside the customer orders.
+- If there are no extra goods, the shared request uses **existing lorry stock only**. Approval is
+  still required when configured. Assign the actual lorry on the Trip, or inherit it at departure
+  from the loaded customer Plans. It becomes **Ready for Fulfilment** without a Manifest or invented
+  loading Stock Entry. Eligible unassigned lorry stock is checked when a customer buys.
+- Generation submits the requests for existing Profile approval, or makes them Approved when that
+  policy permits. It reserves/posts no stock and approves no Route Sheet.
+
+Repeated saved planning reuses the same requests/visits. **Generate / Refresh Dispatch** also works
+on a saved, clean Draft or Planned Trip, before execution. Unused changes replace requests while
+retaining cancelled history. Reservations/loading/route approval freeze the sources; use existing
+controlled release/cancellation/reconciliation after execution begins. Keep loaded stock unchanged.
+
+**Manual mode remains available:** leave automatic generation off and link existing compatible
+Customer Order Plans. Do not enable generation over manual Plan links; keep manual mode or remove
+unused links first. Existing trips are not silently converted.
 
 A linked Plan must match Company, Customer Site, SO, assigned Item/UOM quantities and any specified
 source/lorry Warehouse. All linked Plans with assigned vehicles must use one lorry. A Plan cannot
@@ -103,7 +134,9 @@ belong to another trip while its historical link remains. Settled/cancelled Plan
 assigned. Release reservations through the existing dispatch workflow before unlinking a Plan.
 
 In **LIFO Loading Sequence**, the last delivery stop is listed first. For stops **A → B → C**, load
-**C, then B, then A**. Visit-only stops and non-stock SO Items do not create physical load rows.
+**C, then B, then A**. Informational visits and non-stock SO Items do not create physical load rows. Shared extra goods
+appear after the customer load rows, marked **Shared Open Route Stock**; keep them accessible
+across visits. They are not assigned to one customer or treated as a second load at each stop.
 
 - Real tagged allocations show their Stock Tag and Batch.
 - Untagged ERP allocations show their stock kind and quantity.
@@ -124,7 +157,7 @@ selection from the operational workflow.
 ## 6. Close or cancel planning safely
 
 Enter **Closure / Cancellation Reason** in **Notes and History**, save any planning changes first,
-then choose **Close Planning** or **Cancel Planning**. Each linked Plan must first be Reconciled or
+then choose **Close Planning** or **Cancel Planning**. Each linked customer Plan **and the shared Open Route Plan** must first be Reconciled or
 Cancelled through the existing controlled workflow. Office closure does not settle stock, issue
 credit or bypass E5.
 
@@ -140,8 +173,9 @@ Sheet; Planned Order on either enforces the next stop. Existing Dispatch Profile
 approval policies remain mandatory. The office trip does not automatically approve that Sheet.
 
 The separate [Driver Route page](USER_GUIDE_DRIVER_ROUTE.md) reads assigned saved trips and
-existing operational feedback and guides departure, native delivery and proof completion. Automatic office-trip publication to operational routes, live
-resequence approval, maps/GPS and Bluetooth printing remain
+existing operational feedback and guides departure, native delivery and proof completion. Trip-driven
+dispatch generation and optional shared-pool sales are now implemented. Live resequence approval,
+maps/GPS and Bluetooth printing remain
 later development. Local tests do not verify live-site behavior. Run
 [the Phase 1 site checklist](TEST_OFFICE_DELIVERY_TRIP_PHASE1.md) after manual deployment.
 
@@ -160,8 +194,8 @@ source assignments and driver are retained; direct form edits cannot forge its e
 Driver completion does not settle E5. If a route ends incomplete, first reconcile/cancel its
 linked Plans using existing controls, then close/cancel the office Trip with a reason. Its driver
 state becomes Closed Incomplete and releases the active lorry; undelivered stops stay unfinished.
-Open Route Stock, driver route-edit approval, maps/tracking and Bluetooth printing remain outside
-this execution package. Native-site acceptance is pending.
+Shared Open Route sales are described below and in the Driver Route guide. Driver route-edit
+approval, maps/tracking and Bluetooth printing remain later scope. Native-site acceptance is pending.
 
 
 ### Refusal and old-return extension
@@ -174,3 +208,34 @@ handling. The trip shows refusal holds and existing QC case progress. These cont
 native delivery, Return Case and E5 recovery workflows and do not post another stock receipt for
 company-owned refusals. Native acceptance remains pending in
 [the extension checklist](TEST_DRIVER_ROUTE_REFUSALS_RETURNS.md).
+
+## Trip-driven generation acceptance
+
+Run [the Trip generation/shared-pool checklist](TEST_TRIP_DISPATCH_GENERATION.md) after migration
+and asset build. This extension is developed above `bc1a493`; offline checks do not establish
+native database, ERP posting, multi-company or tablet acceptance.
+
+## One Trip with a lead and assistants
+
+Use **Trip Details → Assigned Driver** for the lead and **Assistant Drivers** for the office
+presets. Every member signs in with their own operator credential. Assistants see this Trip in
+**My Delivery Trips** and may start/continue its existing customer stops, Delivery Notes, proof,
+optional sales and old-return collection, subject to their own permissions. One Trip, lorry,
+sequence, stock pool and completion status remain shared.
+
+Every assistant needs active Employee/Operator records, **Customer Delivery**, the appropriate
+Dispatch responsibility and start/complete flags for the actions performed. Collection additionally
+requires the existing Customer Return permissions. Native Company, Trip and source reads still
+apply. The lead needs native Employee read access when selecting an assistant on Driver Route.
+Membership grants no Supervisor, QC, posting or override authority.
+
+Office may edit presets before departure. Once execution starts the table becomes read only; the
+lead may use **Driver Route → Add Assistant Driver** before departure or while In Progress. Select
+an Employee or scan their Employee ID and confirm. Other assistants cannot extend the team.
+Completed/closed Trips retain their team history. Existing single-driver Trips continue to work.
+
+Assignment records who added each assistant, when, and whether it came from office or the lead.
+Each operational action keeps its real actor; the original Session creator is retained. Team
+additions have a separate revision and do not rewrite the frozen itinerary/loading snapshot.
+Unknown requests still require the original actor or authorized Supervisor reconciliation.
+See [assistant acceptance](TEST_TRIP_TEAM.md); native-site acceptance remains pending.

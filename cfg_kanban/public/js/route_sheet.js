@@ -98,7 +98,7 @@
     const row=rows[c.state.selected];if(!ctx.sheet||!row)throw new Error('Select the exact customer stop on an approved route.');
     return c.mutate('start_route_sheet_stop',{route_sheet:ctx.sheet.name,row_key:row.row_key,customer_scan:c.state.arrival||null});
    }
-   return c.mutate('save_route_sheet',{scope_key:ctx.scope_key,stops:rows.map(row=>({row_key:row.row_key,dispatch_plan:row.dispatch_plan,customer_scan_point:row.customer_scan_point,instructions:row.instructions||''})),
+   return c.mutate('save_route_sheet',{scope_key:ctx.scope_key,stops:rows.map(row=>({row_key:row.row_key,dispatch_plan:row.dispatch_plan,customer_scan_point:row.customer_scan_point,instructions:row.instructions||'',...(row.source_route_stop?{source_route_stop:row.source_route_stop}:{})})),
     expected_revision:ctx.sheet?.revision||0,action:c.state.action,template:ctx.template?.name||ctx.sheet?.route_template||null,template_hash:ctx.template_hash||null,reason:c.state.reason||''});
   }
   async function scan(value){

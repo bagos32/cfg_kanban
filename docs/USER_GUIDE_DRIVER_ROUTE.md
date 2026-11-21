@@ -1,4 +1,4 @@
-# Driver Route — delivery, refusals and old returns
+# Driver Route — orders, optional sales, refusals and old returns
 
 Refusal/collection development prepared on 21 November 2026 above `bb22248`. Offline verification is separate from
 native-site acceptance; deployment, real posting and device acceptance remain pending.
@@ -14,15 +14,17 @@ configuration stays on the normal Delivery Trip DocType form.
    actual driver's Employee, Company, submitted SO quantities and exact customer stops. Save as
    **Planned**. A loaded Draft may receive this status-only office sign-off without changing
    its frozen assignments or itinerary. Active multi-day trips remain available after midnight.
-2. Link the existing **Customer Order / Vehicle Delivery** Dispatch Plans to the exact stops.
+2. Enable Trip-driven dispatch generation with the configured Customer Order/Open Route Profiles,
+   or retain manual links to existing **Customer Order / Vehicle Delivery** Plans.
    Complete existing E3 lorry loading for every planned physical quantity. A submitted loading
    Stock Entry is required; an assigned reservation or Draft Stock Entry is insufficient. Every
-   Delivery stop needs preparation. Use **Visit Only** for an information-only visit.
+   Delivery stop needs preparation. Use **Visit Only** for a no-order visit. With a Customer Site it can sell from the generated
+   shared pool; without a Site it stays informational.
 3. All linked sources must use one actual lorry. Obtain the existing **Route Sheet** approval
    when the captured Dispatch Profile requires it. Trip planning does not publish or approve a
    Route Sheet. Its Plan/Site mapping must match this trip without outside or ambiguous visits.
 4. Give the operator **Customer Delivery**, the existing Plan's dispatch responsibility, **Can
-   Start** and **Can Complete**. Assigned Driver must match that Employee. Supervisor/Development
+   Start** and **Can Complete**. Assigned Driver or an Assistant Drivers row must match that Employee. Supervisor/Development
    Proxy access to other drivers additionally requires **View All Responsibilities**.
 5. The terminal user needs Page access and native read permissions for Trip, Company, Customer,
    Address, Customer Site, SO, Item, Warehouses, Dispatch Plans/allocations, loading Manifest/Stock
@@ -85,9 +87,44 @@ configuration stays on the normal Delivery Trip DocType form.
    no DN, stock consumption or proof; its visit can complete without pretending it was delivered. Several SO Plans retain
    their separate native DNs/proof records; the panel moves through them before completing the
    stop. Existing delivery completed elsewhere can be acknowledged without posting it again.
-8. For **Visit Only**, Complete Stop records visit notes and an audited completion without stock,
-   allocation, DN or proof. After the last stop the driver's route becomes **Completed**. Native
+8. For **Visit Only**, use **Sell from Lorry** if the customer buys (see below). Otherwise
+   **Complete Stop** records notes and a no-sale completion without stock, allocation, DN or proof. After the last stop the driver's route becomes **Completed**. Native
    E5 stock/returns/trip reconciliation remains a separate required workflow.
+
+## Optional customer sales from the shared Trip pool
+
+The office creates one shared Open Route Plan for all no-order customer visits. It can request
+extra warehouse goods, which require ordinary E3 loading, or use only existing eligible stock
+already on the lorry. The latter is **Ready for Fulfilment**, with no new loading transfer. Both
+use the same driver sale flow and require one actual Company-specific lorry and configured approval.
+
+1. Start the Trip, then at the saved **Visit Only** customer stop choose **Sell from Lorry**.
+   Scan its Customer Site if the captured policy requires it; otherwise assigned-stop selection
+   supplies the saved customer/address. Enforced Trip/Route Sheet sequence still applies.
+2. Choose **Add Product / Scan Stock**. The existing native stock selector accepts a Stock Tag,
+   container, or Item/Batch and quantity for eligible untagged ERP stock. Choose the displayed
+   prepared-pool or unassigned-lorry origin when both are available. Confirm each selection.
+3. Review the selected stock list. **Finish Selection / Create DN** confirms allocations and
+   continues through the existing Delivery Note/proof steps. Mandatory native document inputs,
+   Draft submission and photo/signature/GPS policies remain in force. Sale quantities and posted
+   tags are also visible on the stop's main page.
+4. Complete the native delivery/proof before leaving the stop. Each customer gets its own Session
+   and DN; the pool is shared stock, not a single customer's order. A visit with no purchase can
+   finish directly with notes. Once allocations exist, use controlled release/recovery before
+   abandoning them; Complete Stop cannot discard an unfinished sale.
+
+Customer-order commitments, another Plan's stock, QC holds, old returns, expired stock and native
+Company/custody/UOM/certificate checks retain their controls. No customer stock is invented by
+opening a sale. Informational rows without a Customer Site offer no sale action.
+
+Scanner `CFG:CMD:ROUTE_ALLOCATE_STOCK` opens the native selector from the selected-stock step.
+That selector supports its existing camera, quantity, numbered-origin, Confirm, Cancel and retry
+commands. A pending stock submission must be reconciled there before confirming the DN. Closing
+or reopening the parent preserves native pending requests. **Start Route** and driver completion
+remain separate from D3/E5 count and settlement for both customer Plans and the shared pool.
+
+See [Trip generation/shared-pool acceptance](TEST_TRIP_DISPATCH_GENERATION.md). Native-site results
+for this extension remain **Not run**.
 
 ## Refused goods from today's load
 
@@ -221,3 +258,29 @@ after manual deployment; [the original view checklist](TEST_DRIVER_ROUTE_VIEW.md
 
 Use [refusal/old-return acceptance](TEST_DRIVER_ROUTE_REFUSALS_RETURNS.md) for this extension;
 its native posting, concurrency and device results remain **Not run**.
+
+## Share the route with assistant drivers
+
+The office can preset several **Assistant Drivers** on the normal Delivery Trip form. The lead
+Assigned Driver can also open **Add Assistant Driver** on the driver route page before departure
+or during an In Progress route. Select the active Employee, or scan their **Employee ID**, and
+confirm. The assistant signs in separately with their own operator credential and chooses the
+same Trip in **My Delivery Trips**.
+
+Either member can start the route and continue the same active stop's DN/proof, optional sale or
+old-return collection while the lead concentrates on the vehicle. Existing permissions still
+apply: Customer Delivery, the Plan Dispatch responsibility, required start/complete flags and
+native Company/source access; Customer Return is additionally required for collections. The team
+list does not grant Supervisor release, QC authority or ERP submission permissions.
+
+The lead and assistant list appear above the itinerary. Each action is recorded against the
+person who performs it; continuing a Session does not replace its original creator. The route's
+current stop, sequence, stock commitments and proof gates stay shared. A stale second confirmation
+must refresh; it cannot create a parallel route outcome.
+
+Only the lead adds assistants from this page. Office presets are editable before departure;
+started/completed Trips retain their assignment history. If an earlier action is uncertain,
+reidentify its original operator or use authorized Supervisor reconciliation. Another teammate
+cannot replace its token or payload. Add Assistant uses the existing scanner, camera,
+Confirm/Cancel and durable retry controls. Verify [the assistant checklist](TEST_TRIP_TEAM.md)
+after migration/build; offline tests do not establish device or native ERP behavior.

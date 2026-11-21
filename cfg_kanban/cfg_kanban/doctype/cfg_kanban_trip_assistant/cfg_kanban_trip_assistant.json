@@ -1,0 +1,64 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Trip Assistant",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "istable": 1,
+ "field_order": [
+  "employee",
+  "employee_name",
+  "assigned_on",
+  "assigned_by",
+  "assigned_by_user",
+  "assignment_source"
+ ],
+ "fields": [
+  {
+   "fieldname": "employee",
+   "label": "Assistant Driver",
+   "fieldtype": "Link",
+   "options": "Employee",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 4
+  },
+  {
+   "fieldname": "employee_name",
+   "label": "Employee Name",
+   "fieldtype": "Data",
+   "fetch_from": "employee.employee_name",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "assigned_on",
+   "label": "Assigned On",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "assigned_by",
+   "label": "Assigned By Driver",
+   "fieldtype": "Link",
+   "options": "Employee",
+   "read_only": 1
+  },
+  {
+   "fieldname": "assigned_by_user",
+   "label": "Assigned By User",
+   "fieldtype": "Link",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "assignment_source",
+   "label": "Assignment Source",
+   "fieldtype": "Select",
+   "options": "Office\nAssigned Driver",
+   "read_only": 1
+  }
+ ]
+}

@@ -51,6 +51,10 @@ function adapter(options={}){
 }
 (async()=>{
  await test('flexible visit scans Plan/Site and starts one customer Session',async()=>{const f=fixture();await visit(f);assert(f.c.ready());await f.c.scan('CFG:CMD:CONFIRM');assert.equal(f.calls.at(-1).method,'start_route_stop');assert.equal(f.calls.at(-1).args.customer_scan,'SITE');assert.equal(f.success(),1);});
+ await test('validated existing-lorry pool can start its native optional visit without a loading Manifest',async()=>{
+  const f=fixture();f.plan.state='Ready for Fulfilment';f.plan.existing_lorry_stock_only=1;await visit(f);assert(f.c.ready());await f.c.confirm();assert.equal(f.calls.at(-1).method,'start_route_stop');
+  const invalid=fixture();invalid.plan.state='Ready for Fulfilment';await visit(invalid);assert(!invalid.c.ready());
+ });
  await test('several Plans require numbered choice and page beyond ten',async()=>{
   const f=fixture();f.env.rpc=async()=>({plans:Array.from({length:12},(_,i)=>({...f.plan,name:`DPL-${i}`})),customer_scan:'SITE',customer_site:'SITE-ID'});
   await f.c.scan('SITE');assert(!f.c.ready());await f.c.scan('CFG:CMD:NEXT_MATERIALS');await f.c.scan('CFG:SELECT:2');assert.equal(f.c.state.plan.name,'DPL-11');assert(f.c.ready());

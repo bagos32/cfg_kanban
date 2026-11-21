@@ -2,7 +2,7 @@
 (function(root){
  'use strict';
  const prefix='cfg_kanban.services.driver_route_actions.';
- const actions=['Start Route','Begin Delivery','Confirm Allocations','Create Delivery Note','Open Proof','Submit Proof','Complete Stop','Collect Old Return','Release Refused Stock'];
+ const actions=['Start Route','Begin Delivery','Confirm Allocations','Create Delivery Note','Open Proof','Submit Proof','Complete Stop','Collect Old Return','Release Refused Stock','Begin Open Sale','Add Assistant'];
  function controller(env){
   const s={trip:null,pending:null,busy:false,closed:false,baseline:null,message:''};
   const fail=text=>{throw new Error(text);};
@@ -59,9 +59,10 @@
   const f=options.frappe,e=f.utils.escape_html,host=options.host,tr=value=>typeof __==='function'?__(value):value;
   const owner=options.owner(),token=options.token();
   let context=null,inputs={},inputScanner=null,camera=null,cameraVersion=0,closed=false,loading=false,tools=null,epoch=0,arrival='',automatic=false,returnReview=null,quantityReview=null;
+  let stockChild=null;
   let tail=Promise.resolve();
   const valid=()=>!closed&&options.owner()===owner&&options.token()===token&&options.active();
-  const focus=()=>{if(valid())host.find('.driver-action-scan').trigger('focus');};
+  const focus=()=>{if(stockChild)return stockChild.focus();if(valid())host.find('.driver-action-scan').trigger('focus');};
   const rpc=async(method,args)=>(await f.call({method,args})).message;
   function queue(work){tail=tail.then(work).catch(async error=>{if(valid()){host.find('.driver-action-message').text(options.error(error));automatic=false;}}).finally(focus);return tail;}
   function stopCamera(){cameraVersion++;camera?.stop_scan?.();camera?.hide_dialog?.();camera?.dialog?.hide?.();camera=null;}
@@ -75,7 +76,7 @@
   async function recorded(result){
    if(result.action==='Begin Delivery'){quantityReview=null;}
    if(!valid())return;await options.refresh();if(!valid())return;
-   if(['Start Route','Collect Old Return','Release Refused Stock'].includes(result.action)){close();return;}
+   if(['Start Route','Collect Old Return','Release Refused Stock','Add Assistant'].includes(result.action)){close();return;}
    await load();if(!valid())return;
    if(context?.next_step==='Done'){close();return;}
    const auto=context&&(['Confirm Allocations','Open Proof'].includes(context.next_step)||
@@ -86,8 +87,8 @@
   const c=controller({storage:options.storage,locks:options.locks,owner:options.owner,token:options.token,nonce:options.nonce,rpc,render:update,success:recorded});
   function update(){
    if(!valid())return;const pending=c.state.pending,own=!pending||pending.actor===owner;
-   host.find('.driver-action-confirm').text(tr(pending?'Retry original request':context?.next_step==='Start Route'?'Start Route':context?.next_step==='Collect Old Return'?(returnReview?'Issue Temporary Return Note':'Review Collected Return'):context?.next_step==='Release Refused Stock'?'Release Selected Refused Stock':context?.next_step==='Submit Proof'?'Submit delivery proof':context?.next_step==='Create Delivery Note'?'Confirm document details':context?.next_step==='Begin Delivery'?(quantityReview?'Confirm Accepted / Refused':'Deliver Accepted Quantities'):'Complete Stop'))
-    .prop('disabled',c.state.busy||loading||!own||(!pending&&(!context||['Blocked','Await ERP','Done'].includes(context.next_step))));
+   host.find('.driver-action-confirm').text(tr(pending?'Retry original request':context?.next_step==='Start Route'?'Start Route':context?.next_step==='Add Assistant'?'Add Assistant Driver':context?.next_step==='Collect Old Return'?(returnReview?'Issue Temporary Return Note':'Review Collected Return'):context?.next_step==='Release Refused Stock'?'Release Selected Refused Stock':context?.next_step==='Submit Proof'?'Submit delivery proof':context?.next_step==='Begin Open Sale'?'Open Customer Sale':context?.next_step==='Select Route Stock'?'Finish Selection / Create DN':context?.next_step==='Create Delivery Note'?'Confirm document details':context?.next_step==='Begin Delivery'?(quantityReview?'Confirm Accepted / Refused':'Deliver Accepted Quantities'):'Complete Stop'))
+    .prop('disabled',c.state.busy||loading||!own||(!pending&&(!context||['Blocked','Await ERP','Done'].includes(context.next_step)||(context.next_step==='Select Route Stock'&&!(context.selected_stock||[]).some(r=>['Reserved','Delivery Pending'].includes(r.state))))));
    host.find('.driver-action-fields :input').prop('disabled',c.state.busy||Boolean(pending)||Boolean(returnReview)||Boolean(quantityReview));
    host.find('.driver-action-readback').toggle(true).prop('disabled',c.state.busy);
    host.find('.driver-action-void,.driver-action-void-reason').toggle(Boolean(pending)&&options.supervisor());
@@ -115,7 +116,11 @@
    const step=context?.next_step;
    host.find('.driver-action-edit-return').toggle((step==='Collect Old Return'&&Boolean(returnReview))||(step==='Begin Delivery'&&Boolean(quantityReview))||Boolean(quantityReview));
    host.find('.driver-action-message').text(context?.message||(!context?tr('Loading current action…'):step==='Begin Delivery'?tr('Review accepted quantities; reduce Accepted and enter a reason/condition for refused stock. The Delivery Note follows the configured Draft or auto-submit policy; required proof remains mandatory.'):step));
-   if(step==='Begin Delivery'&&context.require_scan)field({fieldname:'customer_scan',label:tr('Required Customer Site QR'),fieldtype:'Data',reqd:1,default:arrival});
+   if(step==='Add Assistant'){
+    host.find('.driver-action-message').text(tr('Select an Employee or scan their Employee ID. Each assistant signs in separately.')+((context.setup.team||[]).length?' '+tr('Current assistants')+': '+context.setup.team.join(', '):''));
+    field({fieldname:'employee',label:tr('Assistant Driver Employee / ID'),fieldtype:'Link',options:'Employee',reqd:1,get_query:()=>({filters:{status:'Active'}})});
+   }
+   if(['Begin Delivery','Begin Open Sale'].includes(step)&&context.require_scan)field({fieldname:'customer_scan',label:tr('Required Customer Site QR'),fieldtype:'Data',reqd:1,default:arrival});
    if(step==='Begin Delivery'&&context.quantities?.length)field({fieldname:'quantities',label:tr('Accepted / Refused — stock UOM'),fieldtype:'Table',cannot_add_rows:true,cannot_delete_rows:true,in_place_edit:true,data:context.quantities,fields:[
     {fieldname:'dispatch_allocation',fieldtype:'Data',read_only:1,hidden:1},
     {fieldname:'source_label',label:'Item / Tag / Batch',fieldtype:'Data',read_only:1,in_list_view:1,columns:3},
@@ -141,6 +146,9 @@
      {fieldname:'original_visible_code',label:'Old Tag / Reference',fieldtype:'Data',in_list_view:1,columns:3},
      {fieldname:'details',label:'Details',fieldtype:'Small Text'},
     ]});
+   }
+   if(step==='Select Route Stock'){
+    host.find('.driver-action-fields').html(`<p>${tr('Select prepared route stock or eligible unassigned lorry stock. Customer-order stock and QC-held goods remain protected.')}</p><button class="btn btn-primary driver-action-add-stock">${tr('Add Product / Scan Stock')}</button>`+(context.selected_stock||[]).map(r=>`<p>${e(r.visible_code||r.item_code)} · ${e(r.batch_no||'')} · ${e(r.allocated_qty)} ${e(r.stock_uom)} · ${e(r.state)}</p>`).join(''));
    }
    if(step==='Release Refused Stock'){
     field({fieldname:'release_rows',label:'Select held refused stock',fieldtype:'Table',cannot_add_rows:true,cannot_delete_rows:true,in_place_edit:true,data:context.setup.rows,fields:[
@@ -178,9 +186,9 @@
    if(!context||['Blocked','Await ERP','Done'].includes(context.next_step))return;
    if(tools?.busy?.())throw new Error('Wait until proof evidence has finished uploading.');
    let payload={},v=values(),step=context.next_step;
-   if(!auto)automatic=step!=='Start Route';
+   if(!auto)automatic=!['Start Route','Add Assistant'].includes(step);
    if(step==='Begin Delivery'&&context.quantities?.length)payload.quantities=(v.quantities||inputs.quantities.df.data||[]).map(row=>({dispatch_allocation:row.dispatch_allocation,accepted_qty:row.accepted_qty,refusal_reason:row.refusal_reason||'',condition:row.condition||'Good / Unwanted'}));
-   if(step==='Begin Delivery'){arrival=String(v.customer_scan||arrival||'').trim();if(context.require_scan&&!arrival)throw new Error('Scan the required Customer Site before confirmation.');payload.customer_scan=arrival||null;}
+   if(['Begin Delivery','Begin Open Sale'].includes(step)){arrival=String(v.customer_scan||arrival||'').trim();if(context.require_scan&&!arrival)throw new Error('Scan the required Customer Site before confirmation.');payload.customer_scan=arrival||null;}
    if(step==='Begin Delivery'&&context.quantities?.length){
     if(!quantityReview&&payload.quantities.some((r,index)=>Number(r.accepted_qty)!==Number(context.quantities[index].prepared_qty))){
      const preview=await rpc(prefix+'preview_driver_quantities',{trip_name:options.trip,stop_key:context.stop_key,dispatch_plan:context.dispatch_plan,quantities:payload.quantities,operator_session_token:options.token()});
@@ -191,6 +199,10 @@
     if(quantityReview)payload=quantityReview;
    }
    if(step==='Begin Delivery'&&quantityReview)payload=JSON.parse(JSON.stringify(quantityReview));
+   if(step==='Add Assistant'){
+    payload.employee=String(v.employee||'').trim();
+    if(!payload.employee)throw new Error('Select an Assistant Driver Employee first.');
+   }
    if(step==='Create Delivery Note')payload.required_erp_inputs=window.cfg_dispatch_recovery.erpValues(context.requirements?.fields||[],v);
    if(step==='Submit Proof'){
     const location=context.proof.require_gps&&v.disposition!=='No Proof Recorded'?await window.cfg_delivery_proof_tools.geotag():null;
@@ -210,9 +222,16 @@
    }
    if(step==='Release Refused Stock')payload={outcome:context.setup.outcome,line_names:(v.release_rows||[]).filter(r=>r.selected).map(r=>r.line_name),reason:v.reason||''};
 
+   if(step==='Select Route Stock'){
+    await f.require('/assets/cfg_kanban/js/route_delivery.js');if(!valid())return;
+    const pending=options.storage.getItem(window.cfg_route_delivery.pendingKey);
+    if(pending)throw new Error('Resolve the pending stock selection through Add Product before confirming delivery.');
+    step='Confirm Allocations';
+   }
    await c.mutate(context,step,payload);
   }
   async function scan(value){
+   if(stockChild)return stockChild.scan(value);
    const text=String(value||'').trim(),upper=text.toUpperCase();if(!text||!valid())return;
    if(upper==='CFG:CMD:CANCEL')return close();if(upper==='CFG:CMD:CONFIRM')return submit();
    if(['CFG:CMD:REFRESH','CFG:CMD:ROUTE_SHEET_REFRESH'].includes(upper))return c.state.pending?c.reconcile():load();
@@ -221,6 +240,7 @@
    if(upper==='CFG:CMD:RETURN_EDIT'){returnReview=null;quantityReview=null;host.find('.driver-action-edit-return').toggle(false);update();return;}
    if(returnReview||quantityReview)throw new Error('Use Return to Edit before changing reviewed quantities.');
    if(context?.next_step==='Begin Delivery'&&context.require_scan&&!inputScanner?.state.table&&inputScanner?.state.field==='customer_scan'&&!upper.startsWith('CFG:')){await inputs.customer_scan.set_value(text);return;}
+   if(upper==='CFG:CMD:ROUTE_ALLOCATE_STOCK'&&context?.next_step==='Select Route Stock')return addStock();
    if(upper==='CFG:CMD:RETURN_CAMERA')return startCamera();
    if(upper==='CFG:CMD:RETURN_REASON')return inputScanner.field('customer_return_reason');
    if(upper==='CFG:CMD:RETURN_ITEMS')return inputScanner.field('lines');
@@ -232,8 +252,16 @@
   }
   function startCamera(){if(camera||closed)return;if(!f.ui.Scanner)throw new Error('Camera unavailable; use the Scanner field.');const version=cameraVersion;let accepted=false;
    camera=new f.ui.Scanner({dialog:true,multiple:false,on_scan:data=>{if(accepted||version!==cameraVersion||!valid())return;accepted=true;stopCamera();queue(()=>scan(data.decodedText));}});camera.dialog?.$wrapper?.one?.('hidden.bs.modal.cfg_driver_action',()=>{cameraVersion++;camera=null;focus();});}
-  function close(){if(closed)return;closed=true;epoch++;c.close();tools?.close?.();stopCamera();host.empty();options.onClose();}
-  host.off('.cfg_driver_action').on('click.cfg_driver_action','.driver-action-edit-return',()=>{if(c.state.pending||c.state.busy)return;returnReview=null;quantityReview=null;host.find('.driver-action-edit-return').toggle(false);update();focus();}).on('click.cfg_driver_action','.driver-action-confirm',()=>queue(submit))
+  async function addStock(){
+   if(!valid()||stockChild||c.state.pending||context?.next_step!=='Select Route Stock')return;
+   await f.require('/assets/cfg_kanban/js/route_delivery.js');if(!valid())return;
+   stockChild=await window.cfg_route_delivery.open({frappe:f,mode:'stock',deliverySession:context.delivery_session,
+    owner:options.owner,token:options.token,nonce:options.nonce,errorMessage:(_err,fallback)=>fallback,
+    success:async()=>{stockChild=null;if(valid())await load();},onClose:()=>{stockChild=null;focus();}});
+   if(!valid()){stockChild?.close?.();stockChild=null;}
+  }
+  function close(){if(closed)return;stockChild?.close?.();stockChild=null;closed=true;epoch++;c.close();tools?.close?.();stopCamera();host.empty();options.onClose();}
+  host.off('.cfg_driver_action').on('click.cfg_driver_action','.driver-action-add-stock',()=>queue(addStock)).on('click.cfg_driver_action','.driver-action-edit-return',()=>{if(c.state.pending||c.state.busy)return;returnReview=null;quantityReview=null;host.find('.driver-action-edit-return').toggle(false);update();focus();}).on('click.cfg_driver_action','.driver-action-confirm',()=>queue(submit))
    .on('click.cfg_driver_action','.driver-action-readback',()=>queue(()=>c.state.pending?c.reconcile():load()))
    .on('click.cfg_driver_action','.driver-action-camera',()=>queue(startCamera)).on('click.cfg_driver_action','.driver-action-cancel',close)
    .on('click.cfg_driver_action','.driver-action-void',()=>queue(async()=>{const reason=String(host.find('.driver-action-void-reason').val()||'').trim();if(!reason)throw new Error('Enter the Supervisor reason first.');await c.reconcile(reason);} ))

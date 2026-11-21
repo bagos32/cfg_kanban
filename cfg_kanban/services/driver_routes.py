@@ -41,9 +41,13 @@ def _all(operator):
                 and operator.get('view_all_responsibilities'))
 
 
+def assigned(doc, operator):
+    return bool(doc.driver == operator.employee or any(row.employee == operator.employee for row in doc.get('assistant_drivers') or []))
+
+
 def _trip(name, operator):
     doc = _read(TRIP, name)
-    if not (_all(operator) or (doc.driver and doc.driver == operator.employee)):
+    if not (_all(operator) or assigned(doc, operator)):
         frappe.throw('This Delivery Trip is not assigned to this driver', frappe.PermissionError)
     _read('Company', doc.company)
     return doc
@@ -53,6 +57,8 @@ def _header(doc):
     return dict(name=doc.name, trip_title=doc.trip_title or doc.name, company=doc.company,
                 route_template=doc.route_template, trip_date=doc.trip_date,
                 expected_return_date=doc.expected_return_date, driver=doc.driver,
+                assistant_drivers=[dict(employee=r.employee,employee_name=r.employee_name) for r in doc.get('assistant_drivers') or []],
+                team_revision=cint(doc.get('team_revision')),
                 planning_state=doc.state, driver_route_state=doc.get('driver_route_state') or 'Not Started', vehicle_warehouse=doc.vehicle_warehouse,
                 region=doc.region, direction=doc.direction,
                 office_sequence_policy=doc.sequence_policy, planning_revision=doc.planning_revision)
@@ -62,13 +68,19 @@ def _header(doc):
 def get_driver_trips(operator_session_token, include_closed=0, start=0, page_length=30, interactive=0):
     operator, session = _access(operator_session_token, interactive)
     filters = {}
+    choices = {}
     if not _all(operator):
-        filters['driver'] = operator.employee
+        assistant_trips = frappe.get_all('CFG Kanban Trip Assistant', filters={'employee':operator.employee,
+            'parenttype':TRIP,'parentfield':'assistant_drivers'}, pluck='parent',limit_page_length=0)
+        if assistant_trips:
+            choices['or_filters'] = {'driver':operator.employee,'name':['in',assistant_trips]}
+        else:
+            filters['driver'] = operator.employee
     if not cint(include_closed):
         filters['state'] = ['in', ['Draft', 'Planned']]
     start = max(0, cint(start)); size = max(1, min(cint(page_length) or 30, 100))
     names = frappe.get_list(TRIP, filters=filters, pluck='name',
-        order_by='trip_date asc, name asc', limit_start=start, limit_page_length=size + 1)
+        order_by='trip_date asc, name asc', limit_start=start, limit_page_length=size + 1, **choices)
     rows = []
     for name in names[:size]:
         # get_list and each source permission remain authoritative under native User Permissions.
@@ -304,6 +316,9 @@ def _route_order(doc, stops, plans, cache, warnings):
         rows = []
         for row in sheet.stops:
             key = by_plan.get(row.dispatch_plan)
+            if row.dispatch_plan==doc.get('open_route_plan'):
+                from cfg_kanban.services.trip_sales import sheet_target
+                key=sheet_target(doc,row)
             if not key or stops[key]['customer_site'] != row.customer_scan_point:
                 rows.append(None)
                 continue
@@ -317,11 +332,11 @@ def _route_order(doc, stops, plans, cache, warnings):
             for key in rows:
                 if not distinct or distinct[-1] != key:
                     distinct.append(key)
-            delivery_keys = {key for key, stop in stops.items() if stop['purpose'] == 'Delivery'}
+            delivery_keys = {key for key, stop in stops.items() if stop['purpose'] == 'Delivery' or (doc.get('open_route_plan') and stop['customer_site'])}
             if (None not in rows and set(rows) == delivery_keys and len(distinct) == len(set(distinct))
-                    and len(delivery_keys) == len(stops)
+                    and (len(delivery_keys) == len(stops) or bool(doc.get('open_route_plan')))
                     and {row.dispatch_plan for row in sheet.stops} == set(plans)
-                    and len(sheet.stops) == len(plans)
+                    and len(sheet.stops) == (len(doc.dispatch_plans)+sum(1 for r in doc.stops if r.stop_purpose=='Visit Only' and r.customer_scan_point) if doc.get('open_route_plan') else len(plans))
                     and all(plan.active_route_sheet == sheet.name for plan in plans.values())):
                 projected = distinct
     source = 'Office plan'
@@ -360,6 +375,9 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
         if plan.vehicle_warehouse:
             vehicles.add(plan.vehicle_warehouse)
         _allocations(plan, session, posted, stop, groups, cache)
+    if doc.get('open_route_plan'):
+        shared=_cached(cache,'CFG Kanban Dispatch Plan',doc.open_route_plan)
+        if shared.vehicle_warehouse:vehicles.add(shared.vehicle_warehouse)
     if doc.vehicle_warehouse:
         vehicles.add(doc.vehicle_warehouse)
     if len(vehicles) > 1:
@@ -370,6 +388,11 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
                 frappe.throw('Prepared quantities exceed office trip assignments; Supervisor review required')
             item['unprepared_qty'] = max(0, item['planned_qty'] - item['prepared_qty']) if item['is_stock_item'] else 0
         stop['state'] = _stop_state(stop)
+    open_pool=None
+    if doc.get('open_route_plan'):
+        from cfg_kanban.services.trip_sales import projection
+        open_pool=projection(doc,stops,operator)
+        plans[shared.name]=shared
     if doc.get('driver_route_state') == 'In Progress':
         for stop in stops.values():
             if stop['state'] in ('Completed','Completed with refusal') and not stop.get('driver_completed_on'):
@@ -393,7 +416,7 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
         completed_stops=sum(stop['state'] in ('Completed', 'Completed with refusal', 'Visit completed') for stop in ordered), total_stops=len(ordered),
         vehicle_warehouse=vehicle.name if vehicle else None,
         vehicle_reference=vehicle.cfg_vehicle_reference if vehicle else None,
-        refreshed_on=now_datetime(), return_cases=_trip_returns(doc.name), read_only=True)
+        open_pool=open_pool, can_add_assistant=bool(doc.driver==operator.employee and operator.get('can_start') and doc.state=='Planned' and doc.get('driver_route_state') in (None,'','Not Started','In Progress')), refreshed_on=now_datetime(), return_cases=_trip_returns(doc.name), read_only=True)
 
 
 def _refusals(plan):

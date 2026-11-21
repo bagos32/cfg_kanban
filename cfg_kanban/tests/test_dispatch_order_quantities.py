@@ -31,7 +31,7 @@ class TestDispatchOrderQuantities(unittest.TestCase):
                        require_operator=Mock(return_value=(self.operator, Row(name='SESSION'))),
                        _validate_batch=Mock())
         names={'get_dispatch_sales_order_lines', '_normalize_lines', '_sales_order_item_map',
-               '_business_context', '_authorized_profile', '_responsibilities', '_view_all'}
+               '_business_context', '_authorized_profile', '_validate_profile_card', '_responsibilities', '_view_all'}
         nodes=[]
         for node in ast.parse((ROOT/'services/dispatch_planning.py').read_text()).body:
             if isinstance(node,ast.FunctionDef) and node.name in names:

@@ -498,3 +498,51 @@ See [driver guide](USER_GUIDE_DRIVER_ROUTE.md) and
 full-quantity-only boundary in section 17. No separate delivery, stock, credit or QC engine was
 introduced. Native migration, ERP posting, MariaDB rollback/concurrency, print and device results
 are **Not run**. Existing L1 and remaining E5 scope are unchanged.
+
+
+## 19. Delivery Trip-driven dispatch and one shared optional-sale pool
+
+Approved on 21 November 2026 above `bc1a493`: office Trip assignments generate known-customer
+requests and **one shared Open Route pool per Trip**. Extra goods are office-specified; eligible
+unassigned stock already on the lorry can also be sold at saved no-order customer visits.
+
+The normal Template/Trip form controls generation, captured Profiles and extra Item/Batch stock-UOM
+quantities. Mark Planned generates one Customer Order Plan per exact SO/stop, with exact SO Item
+rows, plus the shared request and native visits. Requests retain existing approval; generation
+reserves/posts no stock. Unused updates preserve cancelled history and active work remains guarded.
+Legacy manual linking is retained without silently converting existing Trips.
+
+Real extra goods keep E3 Manifest/submitted-transfer controls. With no extra loading quantity, an
+explicit existing-stock-only Open Route request uses Ready for Fulfilment after approval/actual
+lorry binding. It fabricates no load or ERP movement. Native route, allocation, DN, proof and E5
+services understand this controlled context. Approved Route Sheets seed exact office visits,
+including repeated Sites; Trip sequence and mandatory physical QR are not bypassed.
+
+The driver opens an optional sale at a saved Visit Only Site, selects native prepared/unassigned
+tagged/untagged lorry stock and completes native DN/proof. No-sale visits retain audited completion
+without fake delivery. Main stop visibility includes actual optional-sale sources. Known-customer
+commitments/QC holds remain protected and native D3/E5 settlement remains required for the pool.
+
+This supersedes prior manual-plan-only and Visit Only informational-only boundaries. Live route
+edits, maps/GPS and Bluetooth printing remain later scope. See
+[setup](USER_GUIDE_OFFICE_DELIVERY_TRIP.md) and [acceptance](TEST_TRIP_DISPATCH_GENERATION.md).
+Native migration, MariaDB rollback/concurrency, ERP posting and tablet results are **Not run**.
+
+
+## 20. Lead and assistant drivers on one Trip
+
+Owner-approved addition on 21 November 2026 above the pending Trip-generation development: one
+lead Assigned Driver and several assistants may handle the same Trip. Office presets the list
+on its normal DocType form; the lead can add an active qualified Employee from Driver Route
+before departure or while In Progress. Each member signs in independently with existing delivery,
+Dispatch, action-flag and native Company/source permissions. Membership grants no new authority.
+
+The same saved itinerary/current stop, customer Session/DN/proof, shared stock pool and E5 rules
+apply. Exact Trip/Company/Site/Plan checks permit a teammate to continue an existing Session;
+unrelated native Sessions keep their original access rule. Each action retains its actual actor
+and original retry identity; Session creators are not rewritten. Team additions serialize on the
+Trip, increment team/action revisions, retain audit facts and preserve the frozen source snapshot.
+Office presets cannot rewrite started team history; only the lead adds through the runtime action.
+
+See [assistant acceptance](TEST_TRIP_TEAM.md). Native migration, database concurrency/rollback,
+ERP feedback, permissions and device acceptance remain Not run.

@@ -21,7 +21,7 @@ ACTIVE_STOCK = ('Reserved', 'Delivery Pending', 'Exception', 'Delivered')
 STOP_FIELDS = ['name', 'state', 'dispatch_plan', 'planned_sequence', 'actual_sequence',
                'customer_scan_point', 'site_name', 'customer', 'customer_address',
                'delivery_session', 'delivery_note', 'delivery_proof', 'started_on',
-               'completed_on', 'started_by_operator', 'override_reason', 'override_approved_by', 'skip_reason']
+               'completed_on', 'started_by_operator', 'office_delivery_trip', 'office_stop_key', 'override_reason', 'override_approved_by', 'skip_reason']
 
 
 def _engine():
@@ -60,10 +60,17 @@ def _assert_route_plan(plan, loaded=True, allow_review=False):
         frappe.throw('Resolve the frozen Dispatch Review before changing this route')
     if plan.plan_type != 'Open Route Stock' or plan.fulfilment_mode != 'Vehicle Delivery':
         frappe.throw('Select an Open Route Stock / Vehicle Delivery Dispatch Plan')
-    if plan.state in ('Cancelled', 'Exception') or (loaded and plan.state != 'Loaded'):
+    if plan.state in ('Cancelled', 'Exception') or (loaded and not _route_ready(plan)):
         frappe.throw('Open Route delivery requires a Loaded Plan; resolve preparation or its Exception first')
     if plan.get('sales_order'):
         frappe.throw('An Open Route Plan cannot bind one Customer Sales Order')
+
+
+def _route_ready(plan):
+    if plan.get('existing_lorry_stock_only'):
+        from cfg_kanban.services.trip_dispatch import route_ready
+        return route_ready(plan)
+    return plan.state=='Loaded'
 
 
 def _sequence_policy(plan):
@@ -141,12 +148,12 @@ def eligible_route_plans(site, operator):
         return []
     names = frappe.get_all('CFG Kanban Dispatch Plan', filters={
         'plan_type': 'Open Route Stock', 'fulfilment_mode': 'Vehicle Delivery',
-        'state': 'Loaded', 'company': site.selling_company}, pluck='name',
+        'state': ['in',['Loaded','Ready for Fulfilment']], 'company': site.selling_company}, pluck='name',
         order_by='loaded_on asc, name asc', limit_page_length=200)
     plans = []
     for name in names:
         plan = frappe.get_doc('CFG Kanban Dispatch Plan', name)
-        if plan.get('dispatch_review_state'):
+        if not _route_ready(plan) or plan.get('dispatch_review_state'):
             continue
         if not (_planning()._view_all(operator) or plan.dispatch_responsibility in _planning()._responsibilities(operator)):
             continue
@@ -274,6 +281,11 @@ def _remaining(source):
 
 
 def _validate_loaded_route(plan):
+    if plan.get('existing_lorry_stock_only'):
+        from cfg_kanban.services.trip_dispatch import existing_pool
+        if not existing_pool(plan) or not _route_ready(plan):frappe.throw('Existing lorry stock pool is not ready')
+        _engine()._vehicle_warehouse(plan.vehicle_warehouse,plan.company)
+        return
     manifest = frappe.get_doc('CFG Kanban Movement Manifest', plan.movement_manifest)
     if (manifest.dispatch_plan != plan.name or manifest.state != 'Received' or
             manifest.source_company != plan.company or manifest.source_warehouse != plan.source_warehouse or
@@ -317,6 +329,9 @@ def start_route_stop(dispatch_plan, customer_scan, event_token, operator_session
     engine = _engine()
     engine._require_customer_delivery(operator)
     candidate=frappe.get_doc('CFG Kanban Dispatch Plan',dispatch_plan)
+    if candidate.get('office_delivery_trip'):
+        from cfg_kanban.services.trip_sales import lock_scope
+        lock_scope(candidate)
     route_scope_lock=None
     if candidate.get('route_approval_required') or candidate.get('route_sequence_scope')=='Combined Lorry Trip' or candidate.get('active_route_sheet'):
         from cfg_kanban.services.route_sheets import lock_plan_route_scope, check_plan_route_scope
@@ -337,6 +352,9 @@ def start_route_stop(dispatch_plan, customer_scan, event_token, operator_session
             frappe.throw('Recorded Route Stop has no Delivery Session; Supervisor recovery is required')
         return engine.get_delivery_session(stop.delivery_session, operator_session_token)
     _assert_not_voided('visit', key)
+    if plan.get('office_delivery_trip'):
+        from cfg_kanban.services.trip_sales import authorize
+        authorize(plan,operator,identity['name'],route_stop)
     _assert_route_plan(plan)
     if plan.get('active_route_stop'):
         stop = frappe.get_doc(STOP, plan.active_route_stop)
@@ -387,12 +405,20 @@ def start_route_stop(dispatch_plan, customer_scan, event_token, operator_session
            delivery_session=delivery.name, operator=operator.employee, operator_session=session.name,
            terminal_user=session.terminal_user, device_id=key,
            notes=f'{plan.name}; planned {stop.planned_sequence or 0}; actual {actual}; {site.site_code}')
+    if plan.get('office_delivery_trip'):
+        frappe.db.set_value('CFG Kanban Delivery Trip',plan.office_delivery_trip,'driver_active_stop_key',stop.office_stop_key,update_modified=True)
     return engine.get_delivery_session(delivery.name, operator_session_token)
 
 
 def _delivery_context(name, operator):
     engine = _engine()
     engine._require_customer_delivery(operator)
+    candidate=frappe.get_doc('CFG Kanban Delivery Session',name)
+    if candidate.get('dispatch_plan'):
+        source=frappe.get_doc('CFG Kanban Dispatch Plan',candidate.dispatch_plan)
+        if source.get('office_delivery_trip'):
+            from cfg_kanban.services.trip_sales import lock_scope
+            lock_scope(source)
     delivery = frappe.get_doc('CFG Kanban Delivery Session', name, for_update=True)
     if not engine._can_view_delivery(operator, delivery):
         frappe.throw('Operator cannot access this Delivery Session')
@@ -488,6 +514,9 @@ def _stock_context(delivery, plan, scan_value=None, item_code=None, batch_no=Non
 def route_stock_context(delivery_session, operator_session_token, scan_value=None, item_code=None, batch_no=None):
     operator, _session = require_operator(operator_session_token, 'start')
     delivery, plan = _delivery_context(delivery_session, operator)
+    if plan.get('office_delivery_trip'):
+        from cfg_kanban.services.trip_sales import authorize
+        authorize(plan,operator,delivery.customer_scan_point,delivery.route_stop)
     _engine()._assert_allocation_session(delivery)
     return _stock_context(delivery, plan, scan_value, item_code, batch_no)
 
@@ -530,6 +559,9 @@ def allocate_route_stock(delivery_session, source_key, qty, event_token, operato
             frappe.throw('This route stock token belongs to another source or quantity', RouteReplayConflictError)
         return _engine().get_delivery_session(delivery.name,operator_session_token)
     _assert_not_voided('stock', request_key)
+    if plan.get('office_delivery_trip'):
+        from cfg_kanban.services.trip_sales import authorize
+        authorize(plan,operator,delivery.customer_scan_point,delivery.route_stop)
     _engine()._assert_allocation_session(delivery)
     context=_stock_context(delivery,plan,scan_value,item_code,batch_no)
     selected=next((row for row in context['choices'] if row['source_key']==source_key),None)
@@ -554,6 +586,9 @@ def allocate_route_stock(delivery_session, source_key, qty, event_token, operato
 
 
 def validate_route_allocations(delivery, allocations=None):
+    if delivery.get('dispatch_plan') and frappe.db.get_value('CFG Kanban Dispatch Plan',delivery.dispatch_plan,'office_delivery_trip'):
+        from cfg_kanban.services.trip_sales import assert_delivery_scope
+        assert_delivery_scope(delivery)
     if not delivery.get('route_stop'):
         return
     plan=frappe.get_doc('CFG Kanban Dispatch Plan',delivery.dispatch_plan,for_update=True)

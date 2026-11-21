@@ -201,3 +201,15 @@ test('inline action has its own host and pauses polling until page hide safely c
   const count=h.view.app.state.detail;h.events.get('tick')();await flush();assert.equal(h.view.app.state.detail,count);
   h.view.hide();assert.equal(closed,1);assert.equal(h.view.app.state.active,false);
 });
+
+test('optional visit exposes one shared-pool sale and actual selected/delivered products',()=>{
+ const data=structuredClone(detail);data.trip.driver_route_state='In Progress';Object.assign(data.stops[0],{purpose:'Visit Only',can_open_sale:true,items:[],sources:[],open_sale:{state:'Completed',delivery_note:'DN-OPEN',allocations:[{item_code:'BAG',visible_code:'<TAG>',allocated_qty:2,delivered_qty:2,stock_uom:'Nos',state:'Delivered'}]}});
+ const html=ui.detailView({detail:data});assert.match(html,/Sell from Lorry/);assert.match(html,/DN-OPEN/);assert.match(html,/&lt;TAG&gt;/);assert.match(html,/Selected: 2/);assert.match(html,/Delivered: 2/);
+ data.stops[0].can_open_sale=false;assert(!ui.detailView({detail:data}).includes('data-sale-stop='));
+});
+
+test('route displays its team and only exposes Add Assistant when server permits the lead',()=>{
+ const data=structuredClone(detail);data.trip.driver='LEAD';data.trip.assistant_drivers=[{employee:'HELP1',employee_name:'<Assistant>'},{employee:'HELP2'}];data.can_add_assistant=true;
+ const state={detail:data};let html=ui.detailView(state);assert.match(html,/Assigned Driver/);assert.match(html,/LEAD/);assert.match(html,/&lt;Assistant&gt;/);assert.match(html,/HELP2/);assert.match(html,/cfg-driver-add-assistant/);
+ data.can_add_assistant=false;html=ui.detailView(state);assert(!html.includes('cfg-driver-add-assistant'));
+});

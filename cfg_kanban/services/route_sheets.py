@@ -124,7 +124,7 @@ def _members(key,operator,allow_unloaded=True):
     frappe.get_doc('Warehouse',name).check_permission('read')
     candidates=frappe.get_all('CFG Kanban Dispatch Plan',filters={'company':vehicle.company,
         'vehicle_warehouse':name,'fulfilment_mode':'Vehicle Delivery',
-        'state':['in',['Vehicle Claimed','Loading','Ready to Dispatch','Dispatch Pending','Loaded']]},
+        'state':['in',['Vehicle Claimed','Loading','Ready to Dispatch','Dispatch Pending','Loaded','Ready for Fulfilment']]},
         fields=['name','route_sequence_scope'],order_by='name asc',limit_page_length=0)
     plans=[_plan(row.name,operator) for row in candidates if row.route_sequence_scope==COMBINED]
     if not plans:frappe.throw('No active combined-trip Dispatch Plans are assigned to this lorry')
@@ -234,6 +234,8 @@ def get_route_context(operator_session_token,dispatch_plan=None,warehouse=None,r
         fields=['name','site_code','site_name','customer','customer_address'],order_by='site_name asc, name asc',limit_page_length=0)
     for site in sites:site['address_display']=_address(site.customer_address)
     if sheet and not template:seeds=[row.as_dict() for row in sheet.stops]
+    office_seeds=_office_trip_seeds(plans)
+    if office_seeds is not None and not sheet:seeds=office_seeds
     return dict(sheet=sheet_context(sheet,operator) if sheet else None,scope_key=key,company=company,scope=COMBINED if warehouse else PER_PLAN,
         warehouse=warehouse or plans[0].vehicle_warehouse,template=selected,template_hash=canonical_key('route-template',selected) if selected else None,templates=templates,stops=seeds,sites=sites,
         plans=[dict(name=row.name,customer=row.customer,customer_site=row.customer_site,plan_type=row.plan_type,state=row.state) for row in plans],
@@ -271,13 +273,22 @@ def _normal_rows(rows,plans):
         result.append(dict(row_key=identity,dispatch_plan=plan.name,customer_scan_point=site.name,
             site_name=site.site_name,customer=site.customer,customer_address=site.customer_address,
             address_display=_address(site.customer_address),instructions=str(raw.get('instructions') or '').strip(),state='Planned'))
+        if raw.get('source_route_stop'):
+            source=frappe.get_doc('CFG Kanban Route Stop',raw['source_route_stop'])
+            if source.dispatch_plan!=plan.name or source.customer_scan_point!=site.name or source.state!='Planned':frappe.throw('Select an exact Planned native visit for this route row')
+            result[-1]['source_route_stop']=source.name
     if covered!=set(by_name):frappe.throw('The route must include every active Plan in this route scope')
+    office=_office_trip_seeds(plans)
+    if office is not None:
+        identity=lambda row:(row['dispatch_plan'],row['customer_scan_point'],row.get('source_route_stop') or '')
+        if len(result)!=len(office) or {identity(r) for r in result}!={identity(r) for r in office}:
+            frappe.throw('Retain every exact office Trip visit; edit its stop list before generating dispatch work')
     return result
 
 
 def _approve(sheet,plans,operator):
     _supervisor(operator)
-    if sheet.scope==COMBINED and any(row.state!='Loaded' for row in plans):
+    if sheet.scope==COMBINED and any(not _route_ready(row) for row in plans):
         frappe.throw('Complete physical loading for every combined-trip Plan before approving the route')
     # Existing E4B visits are reused; approval projects the order within each Plan.
     by_plan={row.name:row for row in plans}
@@ -286,7 +297,8 @@ def _approve(sheet,plans,operator):
         plan=by_plan[row.dispatch_plan]
         if plan.plan_type!='Open Route Stock':continue
         existing=[stop for stop in _routes()._stops(plan,current=True) if stop.state=='Planned'
-                  and stop.customer_scan_point==row.customer_scan_point and stop.name not in used]
+                  and stop.customer_scan_point==row.customer_scan_point and stop.name not in used
+                  and (not row.source_route_stop or row.source_route_stop==stop.name)]
         if len(existing)>1:frappe.throw('Several existing visits match this Site; skip unwanted old visits before route approval')
         if existing:
             stop=frappe.get_doc('CFG Kanban Route Stop',existing[0].name,for_update=True)
@@ -344,7 +356,7 @@ def save_route_sheet(scope_key,stops,expected_revision,event_token,operator_sess
     else:
         if sheet and sheet.state!='Draft':frappe.throw('Approved route order is frozen; finish its visits or cancel an unstarted route with a reason')
         _supervisor(operator)
-        if any(plan.state!='Loaded' for plan in plans):frappe.throw('Load every assigned Plan before saving its trip route')
+        if any(not _route_ready(plan) for plan in plans):frappe.throw('Load every assigned Plan before saving its trip route')
         if any(plan.get('active_route_sheet') and (not sheet or plan.active_route_sheet!=sheet.name) for plan in plans):frappe.throw('Close or cancel the previous Route Sheet before planning another trip')
         rows=_normal_rows(request['stops'],plans)
         snapshot=None
@@ -367,7 +379,7 @@ def save_route_sheet(scope_key,stops,expected_revision,event_token,operator_sess
         sheet.set('stops',rows)
         if sheet.is_new():sheet.insert(ignore_permissions=True)
         if action=='Approve':
-            if any(plan.state!='Loaded' for plan in plans):frappe.throw('Load every assigned Plan before route approval')
+            if any(not _route_ready(plan) for plan in plans):frappe.throw('Load every assigned Plan before route approval')
             _approve(sheet,plans,operator)
     sheet.revision=cint(sheet.revision)+1
     sheet.save(ignore_permissions=True)
@@ -451,6 +463,12 @@ def start_route_sheet_stop(route_sheet,row_key,event_token,operator_session_toke
     operator,_session=require_operator(operator_session_token,'start')
     _delivery()._require_customer_delivery(operator)
     reference=frappe.get_doc(SHEET,route_sheet)
+    selected=next((row for row in reference.stops if row.row_key==row_key),None)
+    if selected:
+        source_plan=frappe.get_doc('CFG Kanban Dispatch Plan',selected.dispatch_plan)
+        if source_plan.get('office_delivery_trip'):
+            from cfg_kanban.services.trip_sales import lock_scope
+            lock_scope(source_plan)
     _lock(_scope_key(plan=reference.dispatch_plan) if reference.scope==PER_PLAN else _scope_key(warehouse=reference.vehicle_warehouse))
     sheet=frappe.get_doc(SHEET,route_sheet,for_update=True)
     row=next((row for row in sheet.stops if row.row_key==row_key),None)
@@ -476,7 +494,7 @@ def start_route_sheet_stop(route_sheet,row_key,event_token,operator_session_toke
         frappe.throw('Customer Site details changed; Supervisor must reconcile this route snapshot')
     source=_live_source_stop(row)
     assert_visit_allowed(plan,site.name,source.name if source else None)
-    if plan.state!='Loaded':frappe.throw('The assigned Plan must be Loaded before a customer visit starts')
+    if not _route_ready(plan):frappe.throw('The assigned Plan must be Loaded before a customer visit starts')
     if plan.plan_type=='Customer Order':
         delivery=_fulfilment().start_prepared_delivery(plan.name,site.site_code,key,operator_session_token)
     else:
@@ -553,3 +571,31 @@ def reconcile_route_sheet_visit(route_sheet,row_key,event_token,operator_session
         operator=operator.employee,operator_session=session.name,idempotency_key=key,
         notes=str(void_reason).strip(),payload=dict(voided=True))
     return dict(status='Voided')
+
+
+def _route_ready(plan):
+    if plan.get('existing_lorry_stock_only'):
+        from cfg_kanban.services.trip_dispatch import route_ready
+        return route_ready(plan)
+    return plan.state=='Loaded'
+
+
+def _office_trip_seeds(plans):
+    keys={r.get('office_delivery_trip') for r in plans}
+    if len(keys)!=1 or not next(iter(keys)):return None
+    trip=frappe.get_doc('CFG Kanban Delivery Trip',next(iter(keys)));trip.check_permission('read')
+    names={r.name for r in plans};seeds=[]
+    by_stop={}
+    for link in trip.dispatch_plans:
+        if link.dispatch_plan in names:by_stop.setdefault(link.stop_key,[]).append(link.dispatch_plan)
+    native={}
+    if trip.get('open_route_plan') in names:
+        pool=next(r for r in plans if r.name==trip.open_route_plan)
+        native={r.office_stop_key:r for r in _routes()._stops(pool) if r.state=='Planned'}
+    for stop in trip.stops:
+        for name in by_stop.get(stop.stop_key,[]):
+            seeds.append(dict(dispatch_plan=name,customer_scan_point=stop.customer_scan_point,instructions=stop.instructions or ''))
+        row=native.get(stop.stop_key)
+        if row:seeds.append(dict(dispatch_plan=row.dispatch_plan,customer_scan_point=row.customer_scan_point,
+            source_route_stop=row.name,instructions=stop.instructions or ''))
+    return seeds

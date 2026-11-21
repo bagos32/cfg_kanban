@@ -17,7 +17,7 @@ PLAN_FIELDS = ['name','business_label','company','source_warehouse','plan_type',
     'required_date','trip_date','priority','loaded_on','movement_manifest','modified',
     'route_sequence_scope','route_template','customer_verification']
 PREPARING = ('Draft','Awaiting Approval','Approved','Picking','Ready for Vehicle')
-ASSIGNED = ('Vehicle Claimed','Loading','Ready to Dispatch','Dispatch Pending','Loaded','Exception')
+ASSIGNED = ('Vehicle Claimed','Loading','Ready to Dispatch','Dispatch Pending','Loaded','Ready for Fulfilment','Exception')
 
 
 def _planning():

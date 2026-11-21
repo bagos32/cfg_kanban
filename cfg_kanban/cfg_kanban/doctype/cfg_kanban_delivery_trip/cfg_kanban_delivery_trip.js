@@ -1,6 +1,8 @@
 frappe.ui.form.on('CFG Kanban Delivery Trip', {
   async setup(frm) {
+    for (const [name,kind] of [['dispatch_profile','Customer Order'],['open_route_profile','Open Route Stock']]) frm.set_query(name,()=>({filters:{active:1,company:frm.doc.company||'',plan_type:kind,fulfilment_mode:'Vehicle Delivery'}}));
     frm.set_query('driver', () => ({ filters: { status: 'Active' } }));
+    frm.set_query('employee','assistant_drivers',()=>({filters:{status:'Active'}}));
     frm.set_query('route_template', () => ({ filters: { active: 1, company: frm.doc.company || '' } }));
     for (const name of ['source_warehouse', 'vehicle_warehouse']) frm.set_query(name, () => ({ filters: {
       company: frm.doc.company || '', is_group: 0, disabled: 0, ...(name === 'vehicle_warehouse' ? { cfg_is_vehicle_warehouse: 1 } : {}) } }));
@@ -14,11 +16,18 @@ frappe.ui.form.on('CFG Kanban Delivery Trip', {
   async refresh(frm) {
     await frappe.require('/assets/cfg_kanban/js/office_delivery_trip.js');
     const ui = window.cfg_office_delivery_trip;
+    frm.set_df_property?.('assistant_drivers','read_only',!ui.editable(frm)||['In Progress','Completed','Closed Incomplete'].includes(frm.doc.driver_route_state));
     if (!frm.is_new()) frm.add_custom_button(__('Driver Route'), () => frappe.set_route('kanban-driver-route', frm.doc.name));
-    frm.fields_dict.planning_help.$wrapper.html(`<p class="text-muted">${__('Plan the trip here. Assigned order quantities are planning commitments; actual stock picking and loading use the linked Dispatch Plans. Load the last delivery stop first.')}</p>`);
+    frm.fields_dict.planning_help.$wrapper.html(`<p class="text-muted">${__('Assign orders and extra route stock here. Enable Generate Dispatch on Mark Planned to create linked warehouse work automatically. One shared Open Route pool serves optional-sale visits. Load the last delivery stop first.')}</p>`);
     if (ui.editable(frm)) frm.add_custom_button(__('Load Route Template'), () => ui.loadTemplate(frm));
     frm.add_custom_button(__('Refresh SO Inbox'), () => ui.inbox(frm, 'order_inbox', true));
     if (!frm.is_new()) frm.add_custom_button(__('Refresh Loading Details'), () => ui.loading(frm));
+    if (ui.editable(frm) && !frm.is_new() && !['In Progress','Completed'].includes(frm.doc.driver_route_state)) frm.add_custom_button(__('Generate / Refresh Dispatch'), async()=>{
+      if(frm.is_dirty()){ui.alert(frm,__('Save the Trip and its quantities before generating dispatch work.'));return;}
+      if(frm.__cfg_dispatch_busy)return;frm.__cfg_dispatch_busy=true;
+      try {await frappe.call({method:'cfg_kanban.services.trip_dispatch.generate_dispatch_for_trip',args:{trip_name:frm.doc.name,expected_modified:frm.doc.modified},freeze:true,freeze_message:__('Generating linked dispatch work...')});await frm.reload_doc();}
+      finally {frm.__cfg_dispatch_busy=false;}
+    });
     if (ui.editable(frm) && !frm.is_new()) {
       for (const state of ['Draft', 'Planned', 'Closed', 'Cancelled']) {
         if (state === frm.doc.state) continue;
@@ -50,5 +59,13 @@ frappe.ui.form.on('CFG Kanban Delivery Trip Plan', {
   stop_sequence(frm, cdt, cdn) {
     const row = locals[cdt][cdn]; const stop = (frm.doc.stops || [])[Number(row.stop_sequence) - 1];
     frappe.model.set_value(cdt, cdn, 'stop_key', stop?.stop_key || '');
+  },
+});
+
+frappe.ui.form.on('CFG Kanban Trip Stock', {
+  async item_code(frm,cdt,cdn) {
+    const row=locals[cdt][cdn],code=row.item_code;
+    const result=await frappe.db.get_value('Item',code,'stock_uom');
+    if(row.item_code===code)await frappe.model.set_value(cdt,cdn,'stock_uom',result.message?.stock_uom||'');
   },
 });

@@ -13,6 +13,8 @@
   "trip_date",
   "expected_return_date",
   "driver",
+  "assistant_drivers",
+  "team_revision",
   "vehicle_warehouse",
   "source_warehouse",
   "region",
@@ -30,6 +32,12 @@
   "orders",
   "plans_tab",
   "dispatch_plans",
+  "auto_generate_dispatch",
+  "dispatch_profile",
+  "open_route_profile",
+  "route_stock",
+  "open_route_plan",
+  "dispatch_generated_on",
   "loading_tab",
   "loading_sequence",
   "loading_live",
@@ -313,6 +321,58 @@
    "read_only": 1,
    "options": "JSON",
    "hidden": 1
+  },
+  {
+   "fieldname": "auto_generate_dispatch",
+   "label": "Generate Dispatch on Mark Planned",
+   "fieldtype": "Check",
+   "default": "0",
+   "description": "Creates linked preparation requests for assigned SO quantities and one shared Open Route pool. No stock is reserved or posted."
+  },
+  {
+   "fieldname": "dispatch_profile",
+   "label": "Customer Order Dispatch Profile",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Dispatch Profile"
+  },
+  {
+   "fieldname": "open_route_profile",
+   "label": "Shared Open Route Dispatch Profile",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Dispatch Profile"
+  },
+  {
+   "fieldname": "route_stock",
+   "label": "Extra Goods for Shared Open Route",
+   "fieldtype": "Table",
+   "options": "CFG Kanban Trip Stock"
+  },
+  {
+   "fieldname": "open_route_plan",
+   "label": "Shared Open Route Plan",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Dispatch Plan",
+   "read_only": 1
+  },
+  {
+   "fieldname": "dispatch_generated_on",
+   "label": "Dispatch Generated On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "assistant_drivers",
+   "label": "Assistant Drivers",
+   "fieldtype": "Table",
+   "options": "CFG Kanban Trip Assistant",
+   "description": "Office presets before departure. Each assistant uses their own Kanban login and delivery permissions. During an active route the lead Assigned Driver can add assistants from Driver Route."
+  },
+  {
+   "fieldname": "team_revision",
+   "label": "Team Revision",
+   "fieldtype": "Int",
+   "default": "0",
+   "read_only": 1
   }
  ],
  "autoname": "KTRIP-.YYYY.-.#####",

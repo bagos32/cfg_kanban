@@ -40,7 +40,9 @@
   "start_key",
   "start_payload_hash",
   "active_stop_key",
-  "actual_sequence_key"
+  "actual_sequence_key",
+  "office_delivery_trip",
+  "office_stop_key"
  ],
  "fields": [
   {
@@ -283,6 +285,20 @@
    "label": "Actual Sequence Key",
    "fieldtype": "Data",
    "unique": 1,
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "office_delivery_trip",
+   "label": "Office Delivery Trip",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Delivery Trip",
+   "read_only": 1
+  },
+  {
+   "fieldname": "office_stop_key",
+   "label": "Office Stop Identity",
+   "fieldtype": "Data",
    "read_only": 1,
    "hidden": 1
   }

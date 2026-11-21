@@ -41,6 +41,8 @@ def _snapshot(template):
     return dict(name=template.name, company=template.company, revision=cint(template.revision),
                 region=template.get('region'), direction=template.get('direction'),
                 sequence_policy=template.get('sequence_policy') or 'Flexible Order',
+                auto_generate_dispatch=cint(template.get('auto_generate_dispatch')),
+                dispatch_profile=template.get('dispatch_profile'),open_route_profile=template.get('open_route_profile'),
                 stops=[dict(template_row=row.name, stop_purpose=row.get('stop_purpose') or 'Delivery',
                             customer_scan_point=row.get('customer_scan_point'), customer=row.customer,
                             customer_address=row.get('customer_address'), instructions=row.instructions or '')
@@ -58,7 +60,8 @@ def get_route_template(route_template, company=None):
     return dict(company=template.company, route_template=template.name,
                 template_revision=snapshot['revision'], template_snapshot_json=frappe.as_json(snapshot),
                 region=snapshot['region'], direction=snapshot['direction'],
-                sequence_policy=snapshot['sequence_policy'],
+                sequence_policy=snapshot['sequence_policy'],auto_generate_dispatch=snapshot['auto_generate_dispatch'],
+                dispatch_profile=snapshot['dispatch_profile'],open_route_profile=snapshot['open_route_profile'],
                 stops=[dict(row, stop_key=_key()) for row in snapshot['stops']])
 
 
@@ -283,6 +286,8 @@ def _plans(doc, current=False):
         seen.add(row.dispatch_plan)
         plan = _read('CFG Kanban Dispatch Plan', row.dispatch_plan, current=current)
         stop = stops[row.stop_key]
+        if plan.get('office_delivery_trip') and (plan.office_delivery_trip!=doc.name or plan.office_stop_key!=row.stop_key):
+            frappe.throw('Generated customer dispatch must remain linked to its exact office Trip and stop')
         if current and row.dispatch_plan not in prior and plan.state in ('Reconciled', 'Cancelled'):
             frappe.throw('A settled or cancelled Dispatch Plan cannot be newly assigned to a Delivery Trip')
         if doc.vehicle_warehouse and plan.vehicle_warehouse and doc.vehicle_warehouse != plan.vehicle_warehouse:
@@ -311,7 +316,7 @@ def _plans(doc, current=False):
 
 
 def _business(doc):
-    return dict(company=doc.company, route_template=doc.route_template,
+    result = dict(company=doc.company, route_template=doc.route_template,
         trip_date=str(doc.trip_date or ''), expected_return_date=str(doc.expected_return_date or ''),
         driver=doc.driver, vehicle_warehouse=doc.vehicle_warehouse, source_warehouse=doc.source_warehouse,
         region=doc.region, direction=doc.direction, sequence_policy=doc.sequence_policy,
@@ -320,6 +325,12 @@ def _business(doc):
                for r in doc.stops],
         orders=[(r.sales_order, r.sales_order_item, r.stop_key, flt(r.planned_qty)) for r in doc.orders],
         plans=[(r.dispatch_plan, r.stop_key) for r in doc.dispatch_plans])
+
+    if doc.get('auto_generate_dispatch') or doc.get('dispatch_profile') or doc.get('open_route_profile') or doc.get('open_route_plan') or doc.get('route_stock'):
+        result.update(auto_generate_dispatch=cint(doc.get('auto_generate_dispatch')),dispatch_profile=doc.get('dispatch_profile'),
+            open_route_profile=doc.get('open_route_profile'),open_route_plan=doc.get('open_route_plan'),
+            route_stock=[(r.item_code,r.batch_no,flt(r.qty),r.stock_uom) for r in doc.get('route_stock') or []])
+    return result
 
 
 def _copy_snapshot(doc, template, before):
@@ -386,6 +397,10 @@ def _source_rows(doc, plans):
         row.update(loading_sequence=number, delivery_sequence=stop.delivery_sequence,
                    customer=stop.customer, customer_site=stop.customer_scan_point,
                    customer_po=next((order.customer_po for order in doc.orders if order.sales_order == row['sales_order']), None))
+    if doc.get('open_route_plan'):
+        from cfg_kanban.services.trip_dispatch import open_loading_rows
+        extra=open_loading_rows(doc)
+        for row in extra:row['loading_sequence']=len(rows)+1;rows.append(row)
     return rows
 
 
@@ -421,6 +436,13 @@ def validate_trip(doc):
     doc.check_permission('create' if doc.is_new() else 'write')
     before = None if doc.is_new() else doc.get_doc_before_save()
     _protect_driver_execution(doc, before)
+    doc.team_revision = cint(before.get('team_revision')) if before else 0
+    if doc.get('assistant_drivers') or (before and before.get('assistant_drivers')):
+        from cfg_kanban.services.trip_team import validate_office_team
+        validate_office_team(doc, before)
+    if doc.get('auto_generate_dispatch') or doc.get('open_route_plan') or (before and before.get('open_route_plan')):
+        from cfg_kanban.services.trip_dispatch import validate_setup
+        validate_setup(doc,before)
     if doc.state not in ACTIVE + TERMINAL:
         frappe.throw('Unsupported office trip planning status')
     # All assignments on a standard route serialize before source/order current reads.
@@ -445,8 +467,9 @@ def validate_trip(doc):
     if doc.state in TERMINAL:
         if not before or not _identity(doc.closure_reason) or _business(doc) != _business(before):
             frappe.throw('Save planning changes first, then enter a closure/cancellation reason')
-        for row in doc.dispatch_plans:
-            if _read('CFG Kanban Dispatch Plan', row.dispatch_plan, current=True).state not in ('Reconciled', 'Cancelled'):
+        closing=[r.dispatch_plan for r in doc.dispatch_plans]+([doc.open_route_plan] if doc.get('open_route_plan') else [])
+        for name in closing:
+            if _read('CFG Kanban Dispatch Plan', name, current=True).state not in ('Reconciled', 'Cancelled'):
                 frappe.throw('Settle or cancel linked Dispatch Plans through the existing workflow before closing this planning record')
         _preserve_derived(doc, before)
         if before.get('driver_route_state') == 'In Progress':
@@ -458,6 +481,12 @@ def validate_trip(doc):
         doc.closed_by, doc.closed_on = frappe.session.user, now_datetime()
         doc.planning_revision = cint(before.planning_revision) + 1
         return
+    if before and before.get('open_route_plan'):
+        pool=_read('CFG Kanban Dispatch Plan',before.open_route_plan,current=True)
+        unused_existing=(pool.get('existing_lorry_stock_only') and pool.state=='Ready for Fulfilment' and not pool.get('active_route_sheet')
+            and not frappe.db.exists('CFG Kanban Delivery Session',{'dispatch_plan':pool.name}))
+        if ((pool.state not in ('Draft','Awaiting Approval','Approved') and not unused_existing) or pool.get('movement_manifest') or pool.get('active_route_stop')) and _business(doc)!=_business(before):
+            frappe.throw('Shared route stock execution has started; retain this Trip snapshot')
     if before:
         for row in before.dispatch_plans:
             plan = _read('CFG Kanban Dispatch Plan', row.dispatch_plan, current=True)
@@ -527,6 +556,10 @@ def validate_trip(doc):
         row.is_stock_item = cint(item.is_stock_item)
         row.planned_qty = qty
         row.delivery_date = source.get('delivery_date') or order.get('delivery_date')
+    if cint(doc.get('auto_generate_dispatch')) and doc.state=='Planned' and not (getattr(doc,'flags',None) or {}).get('cfg_generating_trip_dispatch'):
+        if doc.is_new():frappe.throw('Save this Delivery Trip as Draft before Mark Planned generates its dispatch work')
+        from cfg_kanban.services.trip_dispatch import generate
+        generate(doc,save=False)
     plans = _plans(doc, current=True)
     doc.set('loading_sequence', _source_rows(doc, plans))
     doc.planning_revision = (cint(before.planning_revision) + int(_business(doc) != _business(before)

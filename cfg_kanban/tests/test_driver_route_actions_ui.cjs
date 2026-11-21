@@ -72,8 +72,8 @@ test('a render/refresh failure after success does not turn a recorded action int
 });
 
 const tick=async()=>{for(let i=0;i<8;i++)await new Promise(resolve=>setTimeout(resolve,0));};
-function panel({step='Begin Delivery',requireScan=false,requirements=[],proof=null,fail=null,existingStorage=null,quantities=[],setup={conditions:['Unknown','Damaged']},previewFailure=null}={}){
- const nodes=new Map(),events=new Map(),controls={},calls=[],cameras=[],storage=existingStorage||memory();let owner='EMP',token='TOKEN',active=true,closed=0,refreshes=0,revision=0,current=step,lastAction='';
+function panel({step='Begin Delivery',requireScan=false,requirements=[],proof=null,fail=null,existingStorage=null,quantities=[],selectedStock=[],stockPending=false,setup={conditions:['Unknown','Damaged']},previewFailure=null}={}){
+ const nodes=new Map(),events=new Map(),controls={},calls=[],cameras=[],storage=existingStorage||memory();let owner='EMP',token='TOKEN',active=true,closed=0,refreshes=0,revision=0,current=step,lastAction='',stockOptions=null,stockClosed=0,stockFocus=0;const stockScans=[];
  class Node{
   constructor(){this.value='';this.disabled=false;this.caption='';this.visible=true;}
   html(v){this.markup=v;return this;}text(v){this.caption=v;return this;}empty(){this.markup='';return this;}appendTo(){return this;}
@@ -85,24 +85,26 @@ function panel({step='Begin Delivery',requireScan=false,requirements=[],proof=nu
  const host=new Node(),f={utils:{escape_html:v=>String(v??'').replaceAll('<','&lt;')},ui:{form:{make_control:({df})=>{
   const control={df,$wrapper:new Node(),value:df.default,get_value(){return this.value;},set_value(v){this.value=v;}};controls[df.fieldname]=control;return control;}
  },Scanner:class{constructor(opts){this.opts=opts;this.dialog={$wrapper:new Node(),hide(){}};cameras.push(this);}stop_scan(){this.stopped=true;}}},
- call:async({method,args})=>{
+ require:async()=>{window.cfg_route_delivery=stockApi;},call:async({method,args})=>{
   calls.push({method,args});
-  if(method.endsWith('driver_action_context'))return{message:{...context,revision,next_step:current,quantities,setup,require_scan:requireScan,requirements:{fields:requirements},proof,delivery_note:'DN',purpose:current==='Complete Stop'?'Visit Only':'Delivery'}};
+  if(method.endsWith('driver_action_context'))return{message:{...context,revision,next_step:current,dispatch_plan:current==='Add Assistant'?null:context.dispatch_plan,stop_key:current==='Add Assistant'?null:context.stop_key,delivery_session:'DELIVERY',selected_stock:selectedStock,quantities,setup,require_scan:requireScan,requirements:{fields:requirements},proof,delivery_note:'DN',purpose:current==='Complete Stop'?'Visit Only':'Delivery'}};
   if(method.endsWith('preview_driver_quantities')){if(previewFailure)throw previewFailure;return {message:args.quantities.map(row=>({...row,item_code:'ITEM',stock_uom:'Nos',refused_qty:5-Number(row.accepted_qty)}))};}
   if(method.endsWith('preview_driver_collection')){if(previewFailure)throw previewFailure;return {message:{...args.payload,company:'A',customer:'CUST',inspection_location:'QC BAY',lines:args.payload.lines.map(row=>({...row,stock_uom:'Nos'}))}};}
   if(method.endsWith('reconcile_driver_action'))return{message:{status:'Recorded',action:lastAction}};
   if(fail)throw fail;
   lastAction=args.action;revision++;
-  current=({ 'Start Route':'Begin Delivery','Begin Delivery':'Confirm Allocations','Confirm Allocations':'Create Delivery Note','Create Delivery Note':proof?'Open Proof':'Done','Open Proof':'Submit Proof','Submit Proof':'Done','Complete Stop':'Done'})[args.action];
+  current=({ 'Start Route':'Begin Delivery','Begin Delivery':'Confirm Allocations','Begin Open Sale':'Select Route Stock','Confirm Allocations':'Create Delivery Note','Create Delivery Note':proof?'Open Proof':'Done','Open Proof':'Submit Proof','Submit Proof':'Done','Complete Stop':'Done'})[args.action];
   return{message:{status:'Recorded',action:args.action}};
  }};
+ const stockApi={pendingKey:'cfg_kanban_route_action_pending_v1',open:async opts=>{stockOptions=opts;return{close(){stockClosed++;opts.onClose();},focus(){stockFocus++;},scan(value){stockScans.push(value);}};}};
+ if(stockPending)storage.setItem(stockApi.pendingKey,'pending');
  let evidenceBusy=false;
  global.window={cfg_delivery_action_scanner:fieldScanner,cfg_dispatch_recovery:erp,cfg_delivery_proof_tools:{evidenceHTML:()=>'<input type="file">',signatureHTML:()=>'<canvas></canvas>',
   bind:()=>({busy:()=>evidenceBusy,close(){}}),geotag:async()=>({latitude:1,longitude:2,accuracy:3})}};
  const view=api.open({frappe:f,host,trip:'TRIP',stop:'STOP',owner:()=>owner,token:()=>token,active:()=>active,
   detail:()=>({trip:{trip_title:'Trip'},stops:[{stop_key:'STOP',site_name:'Shop',address:'Street',items:[{item_code:'ITEM',planned_qty:5,stock_uom:'Nos',orders:[{sales_order:'SO'}]}]}]}),
   refresh:async()=>{refreshes++;},storage,locks:locks(),nonce:()=>`REQUEST${calls.length}`,error:e=>e.message,supervisor:()=>false,onClose:()=>{closed++;}});
- return{view,nodes,events,controls,calls,cameras,storage,closed:()=>closed,refreshes:()=>refreshes,owner:v=>owner=v,token:v=>token=v,active:v=>active=v,evidenceBusy:v=>evidenceBusy=v,current:v=>current=v,Node};
+ return{view,nodes,events,controls,calls,cameras,storage,closed:()=>closed,refreshes:()=>refreshes,owner:v=>owner=v,token:v=>token=v,active:v=>active=v,evidenceBusy:v=>evidenceBusy=v,current:v=>current=v,stock:()=>stockOptions,stockClosed:()=>stockClosed,stockFocus:()=>stockFocus,stockScans,Node};
 }
 test('Start Route requires review and records departure without advancing into a delivery',async()=>{
  const h=panel({step:'Start Route'});await tick();assert.equal(h.calls.filter(c=>c.method.endsWith('perform_driver_action')).length,0);
@@ -207,4 +209,49 @@ test('recording a refusal clears the quantity review so required proof inputs re
  assert.equal(h.nodes.get('.driver-action-fields :input').disabled,false);
  await h.view.scan('CFG:CMD:DELIVERY_RECIPIENT');await h.view.scan('Recipient');await h.view.scan('CFG:CMD:CONFIRM');await tick();
  assert.equal(h.calls.find(c=>c.args.action==='Submit Proof').args.payload.recipient_name,'Recipient');assert.equal(h.closed(),1);
+});
+
+test('optional sale opens only a native Session after required QR and pauses for product selection',async()=>{
+ const h=panel({step:'Begin Open Sale',requireScan:true});await tick();await h.view.scan('CFG:CMD:CONFIRM');await tick();
+ assert.equal(h.calls.filter(c=>c.method.endsWith('perform_driver_action')).length,0);
+ await h.view.scan('SITE-QR');await h.view.scan('CFG:CMD:CONFIRM');await tick();
+ assert.deepEqual(h.calls.filter(c=>c.method.endsWith('perform_driver_action')).map(c=>c.args.action),['Begin Open Sale']);
+ assert.equal(h.calls.find(c=>c.args.action==='Begin Open Sale').args.payload.customer_scan,'SITE-QR');
+ assert.match(h.nodes.get('.driver-action-fields').markup,/Add Product/);assert.equal(h.nodes.get('.driver-action-confirm').disabled,true);
+});
+test('reopened selected stock lazily loads native API and confirms one DN using existing proof controls',async()=>{
+ const h=panel({step:'Select Route Stock',selectedStock:[{item_code:'BAG',visible_code:'<TAG>',allocated_qty:2,stock_uom:'Nos',state:'Reserved'}]});await tick();
+ assert.match(h.nodes.get('.driver-action-fields').markup,/&lt;TAG>/);await h.view.scan('CFG:CMD:CONFIRM');await tick();
+ assert.deepEqual(h.calls.filter(c=>c.method.endsWith('perform_driver_action')).map(c=>c.args.action),['Confirm Allocations','Create Delivery Note']);assert.equal(h.closed(),1);
+});
+test('shared stock child receives exact Session, forwards scans and closes with its parent',async()=>{
+ const h=panel({step:'Select Route Stock'});await tick();await h.view.scan('CFG:CMD:ROUTE_ALLOCATE_STOCK');await tick();
+ assert.equal(h.stock().deliverySession,'DELIVERY');assert.equal(h.stock().mode,'stock');await h.view.scan('TAG-QR');assert.deepEqual(h.stockScans,['TAG-QR']);
+ h.view.focus();assert(h.stockFocus()>0);h.view.close();assert.equal(h.stockClosed(),1);assert.equal(h.closed(),1);
+});
+test('an unresolved native stock mutation blocks finishing the sale and remains recoverable',async()=>{
+ const h=panel({step:'Select Route Stock',stockPending:true,selectedStock:[{item_code:'BAG',allocated_qty:2,state:'Reserved'}]});await tick();await h.view.scan('CFG:CMD:CONFIRM');await tick();
+ assert.match(h.nodes.get('.driver-action-message').caption,/pending stock selection/);assert.equal(h.calls.filter(c=>c.method.endsWith('perform_driver_action')).length,0);
+ assert(h.storage.getItem('cfg_kanban_route_action_pending_v1'));await h.view.scan('CFG:CMD:ROUTE_ALLOCATE_STOCK');assert.equal(h.stock().deliverySession,'DELIVERY');
+});
+
+test('lead adds an assistant by Employee ID with one reviewed action and no delivery mutation',async()=>{
+ const h=panel({step:'Add Assistant',setup:{team:['EXISTING']}});await tick();
+ assert.equal(h.controls.employee.df.options,'Employee');assert.match(h.nodes.get('.driver-action-message').caption,/EXISTING/);
+ await h.view.scan('CFG:CMD:CONFIRM');await tick();assert.equal(h.calls.filter(c=>c.method.endsWith('perform_driver_action')).length,0);
+ await h.view.scan('EMP-ASSISTANT');await h.view.scan('CFG:CMD:CONFIRM');await tick();
+ const writes=h.calls.filter(c=>c.method.endsWith('perform_driver_action'));assert.equal(writes.length,1);
+ assert.equal(writes[0].args.action,'Add Assistant');assert.deepEqual(writes[0].args.payload,{employee:'EMP-ASSISTANT'});
+ assert.equal(writes[0].args.dispatch_plan,null);assert.equal(writes[0].args.stop_key,null);assert.equal(h.closed(),1);
+});
+test('uncertain assistant assignment retains original employee across Close and retry',async()=>{
+ const h=panel({step:'Add Assistant',setup:{team:[]},fail:new Error('lost response')});await tick();await h.view.scan('HELP1');await h.view.scan('CFG:CMD:CONFIRM');await tick();
+ assert(h.view.controller.state.pending);await h.view.scan('CFG:CMD:CANCEL');
+ const next=panel({existingStorage:h.storage});await tick();await next.view.scan('HELP2');await next.view.scan('CFG:CMD:CONFIRM');await tick();
+ const write=next.calls.find(c=>c.method.endsWith('perform_driver_action'));assert.equal(write.args.action,'Add Assistant');assert.equal(write.args.payload.employee,'HELP1');assert.equal(next.closed(),1);
+});
+test('assistant selection supports camera, safe Cancel and focus restoration',async()=>{
+ const h=panel({step:'Add Assistant',setup:{team:[]}});await tick();h.events.get('click.cfg_driver_action .driver-action-camera')();await tick();
+ h.cameras[0].opts.on_scan({decodedText:'HELP1'});await tick();assert.equal(h.controls.employee.get_value(),'HELP1');
+ await h.view.scan('CFG:CMD:CANCEL');assert.equal(h.closed(),1);assert.equal(h.calls.filter(c=>c.method.endsWith('perform_driver_action')).length,0);
 });
