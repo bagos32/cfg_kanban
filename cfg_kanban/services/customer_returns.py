@@ -18,7 +18,7 @@ CUSTOMER_RETURN_RESPONSIBILITY = "Customer Return"
 CUSTOMER_RETURN_QC_RESPONSIBILITY = "Customer Return QC"
 OPEN_RETURN_STATES = (
     "Awaiting QC Receipt", "QC In Progress", "QC Completed - Accounting Pending",
-    "QC Rejected", "Delivery Correction Pending", "Delivery Correction Draft", "Exception",
+    "QC Completed - Stock Pending", "QC Rejected", "Delivery Correction Pending", "Delivery Correction Draft", "Exception",
 )
 CONDITIONS = (
     "Unknown", "Good / Unwanted", "Damaged", "Expired", "Pest or Contamination",
@@ -26,7 +26,7 @@ CONDITIONS = (
 )
 QC_DISPOSITIONS = (
     "Accept for Credit", "Reject Customer Claim", "Accept for Rework",
-    "Accept for Disposal", "Hold for Investigation",
+    "Accept for Disposal", "Hold for Investigation", "Release Own Stock",
 )
 ACCOUNTING_ROLES = ("Accounts User", "Accounts Manager", "Sales Manager", "System Manager")
 
@@ -253,7 +253,7 @@ def create_delivery_correction_case(delivery_session, customer_return_reason, li
 def start_qc_inspection(return_case, event_token, operator_session_token):
     profile, session = require_operator(operator_session_token, "start")
     _require_qc(profile)
-    case = frappe.get_doc("CFG Kanban Return Case", return_case)
+    case = frappe.get_doc("CFG Kanban Return Case", return_case, for_update=True)
     if case.return_flow != "Customer Return for QC":
         frappe.throw(_("Only Customer Return for QC can enter inspection"))
     if case.state == "QC In Progress":
@@ -281,7 +281,7 @@ def complete_qc_inspection(return_case, lines, qc_notes, event_token,
                            operator_session_token):
     profile, session = require_operator(operator_session_token, "complete")
     _require_qc(profile)
-    case = frappe.get_doc("CFG Kanban Return Case", return_case)
+    case = frappe.get_doc("CFG Kanban Return Case", return_case, for_update=True)
     if case.return_flow != "Customer Return for QC" or case.state != "QC In Progress":
         frappe.throw(_("Start QC inspection before recording its result"))
     submitted = frappe.parse_json(lines) if isinstance(lines, str) else (lines or [])
@@ -304,6 +304,8 @@ def complete_qc_inspection(return_case, lines, qc_notes, event_token,
             frappe.throw(_("QC quantities for {0} are invalid").format(row.item_code))
         if abs((accepted + rejected) - received) > 0.000001:
             frappe.throw(_("Accepted plus rejected must equal received for {0}").format(row.item_code))
+        if (case.get('stock_already_owned') and disposition=='Accept for Credit') or (not case.get('stock_already_owned') and disposition=='Release Own Stock'):
+            frappe.throw('Use the correct QC disposition for company-owned refused stock or old customer returns')
         if disposition not in QC_DISPOSITIONS:
             frappe.throw(_("Select a QC disposition for {0}").format(row.item_code))
         row.db_set({
@@ -315,12 +317,12 @@ def complete_qc_inspection(return_case, lines, qc_notes, event_token,
         rejected_total += rejected
     if seen != set(by_name):
         frappe.throw(_("Record QC results for every returned item"))
-    state = "QC Completed - Accounting Pending" if accepted_total > 0 else "QC Rejected"
+    state = "QC Completed - Stock Pending" if case.get("stock_already_owned") else "QC Completed - Accounting Pending" if accepted_total > 0 else "QC Rejected"
     case.db_set({
         "state": state, "qc_completed_on": now_datetime(), "qc_operator": profile.employee,
         "qc_notes": (qc_notes or "").strip(), "accepted_total_qty": accepted_total,
         "rejected_total_qty": rejected_total,
-        "accounting_status": "Pending Source Selection" if accepted_total > 0 else "No Credit Approved",
+        "accounting_status": "Not Required" if case.get("stock_already_owned") else "Pending Source Selection" if accepted_total > 0 else "No Credit Approved",
     }, update_modified=True)
     case.reload()
     record(
@@ -523,8 +525,9 @@ def get_return_case(return_case, operator_session_token):
         frappe.throw(_("Operator is not assigned to Customer Return or Customer Return QC"),
                      frappe.PermissionError)
     case = frappe.get_doc("CFG Kanban Return Case", return_case)
+    case.check_permission("read")
     if not _can_view_all(profile) and not (
-        case.created_by_operator == profile.employee or _qc_allowed(profile)
+        case.created_by_operator == profile.employee or case.get('collected_by') == profile.employee or _qc_allowed(profile)
     ):
         frappe.throw(_("Operator cannot access this Return Case"), frappe.PermissionError)
     return _return_case_result(case, profile)
@@ -685,6 +688,8 @@ def _require_sales_invoice_create():
 
 
 def _assert_accounting_ready(case, allow_selected=False):
+    if case.get("stock_already_owned"):
+        frappe.throw("Undelivered company stock has no customer credit; use its linked refusal and stock recovery")
     if case.return_flow != "Customer Return for QC":
         frappe.throw(_("Only QC-governed Customer Returns use accounting source selection"))
     allowed_statuses = {"Pending Source Selection"}

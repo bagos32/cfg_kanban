@@ -391,10 +391,10 @@ class TestCurrentRecoveryAvailability(unittest.TestCase):
         self.deliveries=[Row(allocated_qty=3)];self.waiting=[Row(name='A',allocated_qty=6),Row(name='B',allocated_qty=4)]
         self.picked=[Row(dispatch_allocation='A',allocated_qty=3),Row(dispatch_allocation='B',allocated_qty=6)]
         self.balance=30
-        frappe=Row(db=Row(sql=self.sql,get_values=self.values))
+        frappe=Row(db=Row(sql=self.sql,get_values=self.values,exists=lambda *args:False))
         common=dict(frappe=frappe,flt=lambda value:float(value or 0),now_datetime=lambda:datetime.datetime(2026,11,20,12))
         self.bridge=types.ModuleType('cfg_kanban.services.dispatch_fulfilment');self.bridge.__dict__.update(common)
-        e4a.extract('services/dispatch_fulfilment.py',self.bridge.__dict__,{'active_untagged_delivery_qty','waiting_prepared_untagged_qty'})
+        e4a.extract('services/dispatch_fulfilment.py',self.bridge.__dict__,{'active_untagged_delivery_qty','waiting_prepared_untagged_qty','held_refused_untagged_qty'})
         self.counts=types.ModuleType('cfg_kanban.services.route_reconciliation')
         self.counts._erp_balances=Mock(side_effect=lambda *args,**kw:{('ITEM','LOT'):self.balance})
         self.ns=dict(common,validate_warehouse_company=Mock(),_lock_erp_bin=Mock())

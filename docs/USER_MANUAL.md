@@ -5960,8 +5960,8 @@ execution freezes the office planning snapshot. Close/cancel needs a reason and 
 linked Plans, preserves history and releases planning commitments without altering ERP stock.
 
 See [office setup and use](USER_GUIDE_OFFICE_DELIVERY_TRIP.md) and
-[Phase 1 acceptance](TEST_OFFICE_DELIVERY_TRIP_PHASE1.md). Driver terminal, maps/GPS, live sequence
-approvals and simplified refused/old-return handling remain later phases. Offline checks do not
+[Phase 1 acceptance](TEST_OFFICE_DELIVERY_TRIP_PHASE1.md). The Driver Route extensions below add departure, completion and refusal/old-return handling.
+Maps/GPS tracking and live sequence approvals remain later phases. Offline checks do not
 verify native migration, source posting, concurrency or device behaviour.
 
 
@@ -5997,7 +5997,39 @@ camera/signature controls are available. Proof photos use the existing private S
 Driver completion remains separate from E5 reconciliation. For an unfinished trip, settle/cancel
 its linked Plans through existing controls, then an authorized office manager can close/cancel
 with a reason, record Closed Incomplete and release the lorry without fabricating stop delivery.
-Live route-edit approvals, maps/tracking, integrated refusal/return collection/QC and Bluetooth
-printing remain later phases. See [setup and operator steps](USER_GUIDE_DRIVER_ROUTE.md) and
+Live route-edit approvals, maps/tracking and Bluetooth printing remain later phases. Refusal/old-return collection extends this flow as described below. See [setup and operator steps](USER_GUIDE_DRIVER_ROUTE.md) and
 [native execution acceptance](TEST_DRIVER_ROUTE_EXECUTION.md). Offline tests do not verify live
 migration, ERP posting, concurrency or devices.
+
+
+## Driver Route — accepted/refused delivery and old returns
+
+In **Complete Stop**, review the exact prepared tag/untagged rows. Accepted defaults to Loaded;
+reduce Accepted and enter condition/reason to declare Refused. Changed quantities require a
+review and second confirmation before Begin Delivery. Only Accepted reaches the existing native
+DN and required proof. An entirely refused Plan records the handled visit without a fictitious
+DN or stock consumption. Refused stock stays company-owned and held on the lorry.
+
+**Dispatch Profile → Sound Refused Goods** controls good order reductions: **Require Supervisor
+Release** by default, or **Allow Resale After Delivery** once native delivery/proof is closed.
+Existing Plans retain their captured policy. Damage/quality refusals create linked owned-stock
+QC Return Cases. Enable Customer Returns, configure the Site's return-QC Inspection Location
+and give drivers Customer Return responsibility. QC **Release Own Stock** plus Supervisor
+release is required for resale; no customer credit or duplicate Material Receipt is permitted.
+Existing E5 recovery transfers the held goods without losing their hold. QC-approved disposal
+can be confirmed against an exact already submitted native Material Issue on the Return Case;
+no second ERP movement is created.
+
+**Collect Old Customer Return** at a saved stop either collects an existing unreceived Temporary
+Return Note or creates one through the existing direct-customer intake. It records the saved
+Company/customer, actual Items/stock-UOM quantities, reason and optional original reference,
+collector, trip and lorry. It posts no receipt/credit. Warehouse QC receipt, QC result, accounting
+source and physical disposition continue through existing Kanban Logistics controls. Old return
+stock cannot be resold before that workflow. The stop displays all linked QC case progress and
+print/open links; QC's existing open queue includes owned cases still awaiting stock disposition.
+
+Read [setup, scanner and custody guidance](USER_GUIDE_DRIVER_ROUTE.md) and run
+[refusal/old-return acceptance](TEST_DRIVER_ROUTE_REFUSALS_RETURNS.md) after owner-managed
+migration/build. Offline tests do not verify live ERP, MariaDB locks or tablet/scanner behavior.
+The original action token/payload remains mandatory for uncertain retries. A recorded decision
+cannot be edited; existing Sessions and accepted-DN cancellation require supervised recovery.

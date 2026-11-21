@@ -2331,7 +2331,8 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				<div><small>${__("Customer Acknowledged By")}</small><strong>${e(return_case.customer_acknowledgement_name || __("Not recorded"))}</strong></div>
 				<div><small>${__("Return Delivery Note")}</small><strong>${e(return_case.correction_return_delivery_note || __("Not applicable"))}</strong></div>
 			</div>
-			${return_case.return_flow === "Customer Return for QC" ? `<div class="alert alert-warning mt-3"><strong>${__("NOT A TAX CREDIT NOTE OR ERP STOCK RECEIPT")}</strong> · ${__("QC must finish before a supervisor/accountant selects any accounting source.")}</div>` : `<div class="alert alert-info mt-3"><strong>${__("Physical Delivery Note correction")}</strong> · ${__("Accounting remains a separate ERPNext responsibility.")}</div>`}
+			${return_case.stock_already_owned ? `<div class="alert alert-warning mt-3">${__("Undelivered company stock: QC inspection only. No customer credit or duplicate stock receipt. Held stock uses controlled transfer/recovery or Supervisor release after QC.")}</div>` : ""}
+			${return_case.return_flow === "Customer Return for QC" && !return_case.stock_already_owned ? `<div class="alert alert-warning mt-3"><strong>${__("NOT A TAX CREDIT NOTE OR ERP STOCK RECEIPT")}</strong> · ${__("QC must finish before a supervisor/accountant selects any accounting source.")}</div>` : return_case.stock_already_owned ? "" : `<div class="alert alert-info mt-3"><strong>${__("Physical Delivery Note correction")}</strong> · ${__("Accounting remains a separate ERPNext responsibility.")}</div>`}
 			<div class="cfg-logistics-lines">${rows}</div>
 			${return_case.return_flow === "Customer Return for QC" ? `<div class="cfg-return-evidence mt-3">
 				<h5>${__("Private Return Evidence")}</h5>
@@ -2426,7 +2427,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		const dialog = new frappe.ui.Dialog({
 			title: __("QC Result: {0}", [return_case.name]), size: "extra-large",
 			fields: [
-				{ fieldname: "notice", fieldtype: "HTML", options: `<div class="alert alert-info">${__("Accepted + Rejected must equal the physically received quantity. Accepted quantity becomes accounting-pending, not available stock.")}</div>` },
+				{ fieldname: "notice", fieldtype: "HTML", options: `<div class="alert alert-info">${return_case.stock_already_owned ? __("Verify received quantities. QC approval alone keeps refused company stock held; Supervisor release or controlled stock disposition is required. No credit or duplicate receipt.") : __("Accepted + Rejected must equal the physically received quantity. Accepted quantity becomes accounting-pending, not available stock.")}</div>` },
 				{ fieldname: "lines", label: __("Inspection Results"), fieldtype: "Table", cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true, data,
 					fields: [
 						{ fieldname: "name", fieldtype: "Data", hidden: 1 },
@@ -2435,12 +2436,12 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 						{ fieldname: "received_qty", label: __("Received"), fieldtype: "Float", in_list_view: 1, columns: 1 },
 						{ fieldname: "accepted_qty", label: __("Accepted"), fieldtype: "Float", in_list_view: 1, columns: 1 },
 						{ fieldname: "rejected_qty", label: __("Rejected"), fieldtype: "Float", in_list_view: 1, columns: 1 },
-						{ fieldname: "qc_disposition", label: __("Disposition"), fieldtype: "Select", options: "Accept for Credit\nReject Customer Claim\nAccept for Rework\nAccept for Disposal\nHold for Investigation", reqd: 1, in_list_view: 1, columns: 3 },
+						{ fieldname: "qc_disposition", label: __("Disposition"), fieldtype: "Select", options: return_case.stock_already_owned ? "Release Own Stock\nAccept for Rework\nAccept for Disposal\nHold for Investigation" : "Accept for Credit\nReject Customer Claim\nAccept for Rework\nAccept for Disposal\nHold for Investigation", reqd: 1, in_list_view: 1, columns: 3 },
 						{ fieldname: "qc_reason", label: __("Reason"), fieldtype: "Small Text", in_list_view: 1, columns: 3 },
 					] },
 				{ fieldname: "qc_notes", label: __("Overall QC Notes"), fieldtype: "Small Text" },
 			],
-			primary_action_label: __("Complete QC and Hand Off to Accounting"),
+			primary_action_label: return_case.stock_already_owned ? __("Complete QC; Keep Company Stock Controlled") : __("Complete QC and Hand Off to Accounting"),
 			primary_action: async (values) => {
 				const response = await frappe.call({ method: "cfg_kanban.services.customer_returns.complete_qc_inspection",
 					args: { return_case: return_case.name, lines: JSON.stringify(values.lines || dialog.fields_dict.lines.df.data || []),

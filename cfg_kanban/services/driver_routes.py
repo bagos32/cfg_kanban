@@ -13,7 +13,7 @@ PLAN = 'CFG Kanban Dispatch Plan'
 SHEET = 'CFG Kanban Route Sheet'
 ALLOCATION = 'CFG Kanban Dispatch Allocation'
 DELIVERY_ALLOCATION = 'CFG Kanban Delivery Allocation'
-TERMINAL = {'Completed', 'Cancelled', 'Closed Incomplete', 'Visit completed'}
+TERMINAL = {'Completed with refusal', 'Completed', 'Cancelled', 'Closed Incomplete', 'Visit completed'}
 LOADED = {'Loaded', 'In Fulfilment', 'Fulfilled'}
 EPSILON = 0.000001
 
@@ -162,7 +162,8 @@ def _session(plan, operator, cache):
     if note and (note.company != plan.company or note.customer != plan.customer):
         frappe.throw('Delivery Note does not match this trip Company or Customer')
     posted = bool(note and note.docstatus == 1 and not note.is_return)
-    needs_review = bool((delivery.state in ('Delivered', 'Invoiced', 'Closed') and not posted)
+    all_refused = _full_refusal(delivery) if delivery.get('driver_delivery_outcome') else False
+    needs_review = bool((delivery.state in ('Delivered', 'Invoiced', 'Closed') and not posted and not all_refused)
                         or (note and note.docstatus == 2 and delivery.state != 'Cancelled'))
     return dict(state=delivery.state, accessible=accessible, name=delivery.name if accessible else None,
                 posted_note=note.name if posted else None, needs_review=needs_review)
@@ -231,6 +232,7 @@ def _allocations(plan, session, posted, stop, groups, cache):
         'state': ['not in', ['Released', 'Cancelled']]}, pluck='name', order_by='name asc', limit_page_length=0)
     allocations = [_cached(cache, ALLOCATION, name) for name in names]
     delivered = {}
+    refusals = _refusals(plan) if plan.get('driver_delivery_outcome') else {}
     if allocations:
         usage = frappe.get_all(DELIVERY_ALLOCATION, filters={'dispatch_allocation': ['in', names],
             'state': 'Delivered'}, pluck='name', order_by='name asc', limit_page_length=0)
@@ -250,14 +252,19 @@ def _allocations(plan, session, posted, stop, groups, cache):
         if used > qty + EPSILON:
             frappe.throw('Delivery quantities exceed the prepared allocation; Supervisor review required')
         loaded = qty if posted and row.state in LOADED else 0
-        remaining = max(0, loaded - used)
+        refused = refusals.get(row.name,{})
+        refused_qty = refused.get('refused_qty',0)
+        remaining = max(0, loaded - used - refused_qty)
         group['prepared_qty'] += qty; group['loaded_qty'] += loaded
         group['delivered_qty'] += used; group['remaining_qty'] += remaining
+        group['refused_qty'] = group.get('refused_qty',0) + refused_qty
         stop['sources'].append(dict(dispatch_plan=plan.name, dispatch_allocation=row.name,
             item_code=row.item_code, stock_uom=row.stock_uom, allocation_kind=row.allocation_kind,
             tag_code=row.visible_code if row.allocation_kind == 'Tagged Stock' else None,
             batch_no=row.batch_no, assigned_qty=qty, loaded_qty=loaded, delivered_qty=used,
-            remaining_qty=remaining, source_state=row.state))
+            remaining_qty=remaining, source_state=row.state,refused_qty=refused_qty,
+            refused_stock_state=refused.get('stock_state'),refused_warehouse=refused.get('current_warehouse'),qc_return_case=refused.get('qc_return_case'),
+            refusal_outcome=refused.get('outcome')))
 
 
 def _stop_state(stop):
@@ -271,8 +278,8 @@ def _stop_state(stop):
             return state
     if all(state in TERMINAL for state in states):
         if all(state == 'Completed' for state in states) and all(
-                not item['is_stock_item'] or item['delivered_qty'] + EPSILON >= item['planned_qty'] for item in stop['items']):
-            return 'Completed'
+                not item['is_stock_item'] or item['delivered_qty'] + item.get('refused_qty',0) + EPSILON >= item['planned_qty'] for item in stop['items']):
+            return 'Completed with refusal' if any(r.get('refused_qty',0)>EPSILON for r in stop['items']) else 'Completed'
         return 'Closed Incomplete'
     complete_load = all(not item['is_stock_item'] or item['loaded_qty'] + EPSILON >= item['planned_qty']
                         for item in stop['items'])
@@ -365,7 +372,7 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
         stop['state'] = _stop_state(stop)
     if doc.get('driver_route_state') == 'In Progress':
         for stop in stops.values():
-            if stop['state'] == 'Completed' and not stop.get('driver_completed_on'):
+            if stop['state'] in ('Completed','Completed with refusal') and not stop.get('driver_completed_on'):
                 stop['state'] = 'Awaiting stop completion'
             elif (stop['stop_key'] == doc.get('driver_active_stop_key') and not stop.get('driver_completed_on')
                   and stop['state'] not in ('Review required', 'Awaiting proof', 'Delivery Note pending')):
@@ -383,7 +390,24 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
     return dict(trip=_header(doc), stops=ordered, warnings=list(dict.fromkeys(warnings)),
         sequence_source=source, current_stop_key=current['stop_key'] if current else None,
         next_stop_key=next_stop['stop_key'] if next_stop else None,
-        completed_stops=sum(stop['state'] in ('Completed', 'Visit completed') for stop in ordered), total_stops=len(ordered),
+        completed_stops=sum(stop['state'] in ('Completed', 'Completed with refusal', 'Visit completed') for stop in ordered), total_stops=len(ordered),
         vehicle_warehouse=vehicle.name if vehicle else None,
         vehicle_reference=vehicle.cfg_vehicle_reference if vehicle else None,
-        refreshed_on=now_datetime(), read_only=True)
+        refreshed_on=now_datetime(), return_cases=_trip_returns(doc.name), read_only=True)
+
+
+def _refusals(plan):
+    from cfg_kanban.services.driver_delivery_outcomes import refused_by_source
+    return refused_by_source(frappe.get_doc('CFG Kanban Delivery Session',plan.delivery_session)) if plan.delivery_session else {}
+
+
+def _full_refusal(delivery):
+    from cfg_kanban.services.driver_delivery_outcomes import full_refusal
+    return full_refusal(delivery)
+
+
+def _trip_returns(name):
+    if not frappe.db.exists('DocType','CFG Kanban Delivery Outcome'):
+        return []
+    from cfg_kanban.services.driver_collections import summaries
+    return summaries(name)

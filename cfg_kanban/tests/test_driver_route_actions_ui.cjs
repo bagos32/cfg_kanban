@@ -72,7 +72,7 @@ test('a render/refresh failure after success does not turn a recorded action int
 });
 
 const tick=async()=>{for(let i=0;i<8;i++)await new Promise(resolve=>setTimeout(resolve,0));};
-function panel({step='Begin Delivery',requireScan=false,requirements=[],proof=null,fail=null,existingStorage=null}={}){
+function panel({step='Begin Delivery',requireScan=false,requirements=[],proof=null,fail=null,existingStorage=null,quantities=[],setup={conditions:['Unknown','Damaged']},previewFailure=null}={}){
  const nodes=new Map(),events=new Map(),controls={},calls=[],cameras=[],storage=existingStorage||memory();let owner='EMP',token='TOKEN',active=true,closed=0,refreshes=0,revision=0,current=step,lastAction='';
  class Node{
   constructor(){this.value='';this.disabled=false;this.caption='';this.visible=true;}
@@ -87,7 +87,9 @@ function panel({step='Begin Delivery',requireScan=false,requirements=[],proof=nu
  },Scanner:class{constructor(opts){this.opts=opts;this.dialog={$wrapper:new Node(),hide(){}};cameras.push(this);}stop_scan(){this.stopped=true;}}},
  call:async({method,args})=>{
   calls.push({method,args});
-  if(method.endsWith('driver_action_context'))return{message:{...context,revision,next_step:current,require_scan:requireScan,requirements:{fields:requirements},proof,delivery_note:'DN',purpose:current==='Complete Stop'?'Visit Only':'Delivery'}};
+  if(method.endsWith('driver_action_context'))return{message:{...context,revision,next_step:current,quantities,setup,require_scan:requireScan,requirements:{fields:requirements},proof,delivery_note:'DN',purpose:current==='Complete Stop'?'Visit Only':'Delivery'}};
+  if(method.endsWith('preview_driver_quantities')){if(previewFailure)throw previewFailure;return {message:args.quantities.map(row=>({...row,item_code:'ITEM',stock_uom:'Nos',refused_qty:5-Number(row.accepted_qty)}))};}
+  if(method.endsWith('preview_driver_collection')){if(previewFailure)throw previewFailure;return {message:{...args.payload,company:'A',customer:'CUST',inspection_location:'QC BAY',lines:args.payload.lines.map(row=>({...row,stock_uom:'Nos'}))}};}
   if(method.endsWith('reconcile_driver_action'))return{message:{status:'Recorded',action:lastAction}};
   if(fail)throw fail;
   lastAction=args.action;revision++;
@@ -155,4 +157,54 @@ test('visit-only completion sends notes and no fabricated delivery allocation',a
 test('acknowledged proof outcome removes recipient, notes and GPS from browser recovery storage',async()=>{
  const h=harness();await h.c.mutate(context,'Submit Proof',{proof_name:'POD',recipient_name:'Private Recipient',notes:'Private note',latitude:1});
  const saved=h.storage.getItem('cfg_driver_action:TRIP');assert(!saved.includes('Private'));assert(!saved.includes('latitude'));assert.equal(JSON.parse(saved).status,'Recorded');
+});
+
+const preparedQty=()=>[{dispatch_allocation:'ALLOC',source_label:'ITEM / RM1 / LOT',item_code:'ITEM',stock_uom:'Nos',prepared_qty:5,accepted_qty:5,refusal_reason:'',condition:'Good / Unwanted'}];
+test('refusal review is required before mutation and submits the same reviewed stock sources',async()=>{
+ const h=panel({quantities:preparedQty()});await tick();
+ h.controls.quantities.df.data[0].accepted_qty=3;h.controls.quantities.df.data[0].refusal_reason='Reduced order';
+ await h.view.scan('CFG:CMD:CONFIRM');assert.equal(h.calls.filter(c=>c.method.endsWith('perform_driver_action')).length,0);
+ assert.match(h.nodes.get('.driver-action-message').caption,/accepted 3, refused 2/);assert(h.nodes.get('.driver-action-fields :input').disabled);
+ h.controls.quantities.df.data[0].accepted_qty=1;
+ await h.view.scan('CFG:CMD:CONFIRM');await tick();
+ const write=h.calls.find(c=>c.args.action==='Begin Delivery');assert.equal(write.args.payload.quantities[0].accepted_qty,3);assert.equal(write.args.payload.quantities[0].dispatch_allocation,'ALLOC');
+});
+test('scanner edits quantities without corrupting Customer Site QR and Return to Edit reopens corrections',async()=>{
+ const h=panel({quantities:preparedQty(),requireScan:true});await tick();await h.view.scan('SITE');
+ await h.view.scan('CFG:SELECT:2');await h.view.scan('CFG:CMD:DELIVERY_NEXT_ROW');await h.view.scan('CFG:QTY:MATERIAL:3');await h.view.scan('CFG:SELECT:3');await h.view.scan('Reduced order');
+ assert.equal(h.controls.customer_scan.get_value(),'SITE');assert.equal(h.controls.quantities.get_value()[0].accepted_qty,'3');
+ await h.view.scan('CFG:CMD:CONFIRM');assert(h.nodes.get('.driver-action-fields :input').disabled);
+ await h.view.scan('CFG:CMD:RETURN_EDIT');assert(!h.nodes.get('.driver-action-fields :input').disabled);assert(h.nodes.get('.driver-action-scan').focused);
+});
+test('old return is reviewed before one controlled note with scanner and camera inputs',async()=>{
+ const h=panel({step:'Collect Old Return'});await tick();
+ await h.view.scan('CFG:CMD:RETURN_REASON');await h.view.scan('Old damaged goods');
+ await h.view.scan('CFG:CMD:RETURN_ITEMS');await h.view.scan('CFG:CMD:RETURN_ADD_ITEM');await h.view.scan('ITEM');await h.view.scan('CFG:QTY:MATERIAL:3');
+ await h.view.scan('CFG:CMD:CONFIRM');assert.equal(h.calls.filter(c=>c.method.endsWith('perform_driver_action')).length,0);assert.match(h.nodes.get('.driver-action-message').caption,/3 Nos/);
+ await h.view.scan('CFG:CMD:CONFIRM');await tick();const req=h.calls.find(c=>c.args.action==='Collect Old Return');assert.equal(req.args.payload.lines[0].claimed_qty,'3');assert.equal(h.closed(),1);
+});
+test('invalid quantity preview is editable with scanner focus and creates no action request',async()=>{
+ const h=panel({quantities:preparedQty(),previewFailure:new Error('Refusal reason required')});await tick();h.controls.quantities.df.data[0].accepted_qty=2;
+ await h.view.scan('CFG:CMD:CONFIRM');assert.match(h.nodes.get('.driver-action-message').caption,/reason required/);assert(!h.nodes.get('.driver-action-fields :input').disabled);assert(h.nodes.get('.driver-action-scan').focused);
+ assert.equal(h.calls.filter(c=>c.method.endsWith('perform_driver_action')).length,0);
+});
+test('old return unknown result retains original reviewed quantities across close and reopen',async()=>{
+ const h=panel({step:'Collect Old Return',fail:new Error('lost response')});await tick();h.controls.lines.df.data=[{item_code:'ITEM',claimed_qty:3}];
+ await h.view.scan('CFG:CMD:CONFIRM');await h.view.scan('CFG:CMD:CONFIRM');assert(h.view.controller.state.pending);await h.view.scan('CFG:CMD:CANCEL');
+ const next=panel({existingStorage:h.storage});await tick();await next.view.scan('CFG:CMD:RETURN_EDIT');assert(next.view.controller.state.pending);await next.view.scan('CFG:CMD:CONFIRM');await tick();
+ assert.equal(next.calls.find(c=>c.args.action==='Collect Old Return').args.payload.lines[0].claimed_qty,3);
+});
+test('existing note control is shown once and Supervisor release selects exact held line IDs',async()=>{
+ const old=panel({step:'Collect Old Return'});await tick();assert(old.controls.existing_return_case);
+ const h=panel({step:'Release Refused Stock',setup:{outcome:'OUT',rows:[{line_name:'LINE',item_code:'ITEM',refused_qty:2,stock_uom:'Nos',selected:1}]}});await tick();h.controls.reason.set_value('Approved');
+ await h.view.scan('CFG:CMD:CONFIRM');await tick();const r=h.calls.find(c=>c.args.action==='Release Refused Stock');assert.deepEqual(r.args.payload,{outcome:'OUT',line_names:['LINE'],reason:'Approved'});
+});
+
+test('recording a refusal clears the quantity review so required proof inputs remain editable',async()=>{
+ const proof={name:'POD',proof_policy:'Required',require_signature:0,require_photo:0,require_gps:0,allowed_dispositions:['Attended']};
+ const h=panel({quantities:preparedQty(),proof});await tick();h.controls.quantities.df.data[0].accepted_qty=3;h.controls.quantities.df.data[0].refusal_reason='Downsize';
+ await h.view.scan('CFG:CMD:CONFIRM');await h.view.scan('CFG:CMD:CONFIRM');await tick();
+ assert.equal(h.nodes.get('.driver-action-fields :input').disabled,false);
+ await h.view.scan('CFG:CMD:DELIVERY_RECIPIENT');await h.view.scan('Recipient');await h.view.scan('CFG:CMD:CONFIRM');await tick();
+ assert.equal(h.calls.find(c=>c.args.action==='Submit Proof').args.payload.recipient_name,'Recipient');assert.equal(h.closed(),1);
 });

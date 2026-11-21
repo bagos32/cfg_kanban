@@ -2,7 +2,7 @@
 (function(root){
  'use strict';
  const prefix='cfg_kanban.services.driver_route_actions.';
- const actions=['Start Route','Begin Delivery','Confirm Allocations','Create Delivery Note','Open Proof','Submit Proof','Complete Stop'];
+ const actions=['Start Route','Begin Delivery','Confirm Allocations','Create Delivery Note','Open Proof','Submit Proof','Complete Stop','Collect Old Return','Release Refused Stock'];
  function controller(env){
   const s={trip:null,pending:null,busy:false,closed:false,baseline:null,message:''};
   const fail=text=>{throw new Error(text);};
@@ -58,7 +58,7 @@
  function open(options){
   const f=options.frappe,e=f.utils.escape_html,host=options.host,tr=value=>typeof __==='function'?__(value):value;
   const owner=options.owner(),token=options.token();
-  let context=null,inputs={},inputScanner=null,camera=null,cameraVersion=0,closed=false,loading=false,tools=null,epoch=0,arrival='',automatic=false;
+  let context=null,inputs={},inputScanner=null,camera=null,cameraVersion=0,closed=false,loading=false,tools=null,epoch=0,arrival='',automatic=false,returnReview=null,quantityReview=null;
   let tail=Promise.resolve();
   const valid=()=>!closed&&options.owner()===owner&&options.token()===token&&options.active();
   const focus=()=>{if(valid())host.find('.driver-action-scan').trigger('focus');};
@@ -66,13 +66,16 @@
   function queue(work){tail=tail.then(work).catch(async error=>{if(valid()){host.find('.driver-action-message').text(options.error(error));automatic=false;}}).finally(focus);return tail;}
   function stopCamera(){cameraVersion++;camera?.stop_scan?.();camera?.hide_dialog?.();camera?.dialog?.hide?.();camera=null;}
   async function load(){
-   if(!valid()||loading||c.state.pending)return;loading=true;const version=++epoch;
-   try{const next=await rpc(prefix+'driver_action_context',{trip_name:options.trip,stop_key:options.stop||null,operator_session_token:options.token()});if(!valid()||version!==epoch)return;context=next;render();}
+   if(!valid()||loading||c.state.pending)return;
+   if(quantityReview||returnReview)throw new Error('Return to Edit before refreshing an unsubmitted review.');
+   loading=true;const version=++epoch;
+   try{const next=await rpc(prefix+'driver_action_context',{trip_name:options.trip,stop_key:options.stop||null,operation:options.operation||null,outcome_name:options.outcome||null,operator_session_token:options.token()});if(!valid()||version!==epoch)return;context=next;render();}
    finally{loading=false;update();focus();}
   }
   async function recorded(result){
+   if(result.action==='Begin Delivery'){quantityReview=null;}
    if(!valid())return;await options.refresh();if(!valid())return;
-   if(result.action==='Start Route'){close();return;}
+   if(['Start Route','Collect Old Return','Release Refused Stock'].includes(result.action)){close();return;}
    await load();if(!valid())return;
    if(context?.next_step==='Done'){close();return;}
    const auto=context&&(['Confirm Allocations','Open Proof'].includes(context.next_step)||
@@ -83,9 +86,9 @@
   const c=controller({storage:options.storage,locks:options.locks,owner:options.owner,token:options.token,nonce:options.nonce,rpc,render:update,success:recorded});
   function update(){
    if(!valid())return;const pending=c.state.pending,own=!pending||pending.actor===owner;
-   host.find('.driver-action-confirm').text(tr(pending?'Retry original request':context?.next_step==='Start Route'?'Start Route':context?.next_step==='Submit Proof'?'Submit delivery proof':context?.next_step==='Create Delivery Note'?'Confirm document details':'Complete Stop'))
+   host.find('.driver-action-confirm').text(tr(pending?'Retry original request':context?.next_step==='Start Route'?'Start Route':context?.next_step==='Collect Old Return'?(returnReview?'Issue Temporary Return Note':'Review Collected Return'):context?.next_step==='Release Refused Stock'?'Release Selected Refused Stock':context?.next_step==='Submit Proof'?'Submit delivery proof':context?.next_step==='Create Delivery Note'?'Confirm document details':context?.next_step==='Begin Delivery'?(quantityReview?'Confirm Accepted / Refused':'Deliver Accepted Quantities'):'Complete Stop'))
     .prop('disabled',c.state.busy||loading||!own||(!pending&&(!context||['Blocked','Await ERP','Done'].includes(context.next_step))));
-   host.find('.driver-action-fields :input').prop('disabled',c.state.busy||Boolean(pending));
+   host.find('.driver-action-fields :input').prop('disabled',c.state.busy||Boolean(pending)||Boolean(returnReview)||Boolean(quantityReview));
    host.find('.driver-action-readback').toggle(true).prop('disabled',c.state.busy);
    host.find('.driver-action-void,.driver-action-void-reason').toggle(Boolean(pending)&&options.supervisor());
    if(pending){stopCamera();host.find('.driver-action-message').text(own?`Original ${pending.request.action} retained. Retry uses the same details. ${c.state.message}`:'Another operator has an unresolved request. Reidentify that operator or use authorized Supervisor reconciliation.');}
@@ -93,23 +96,62 @@
   }
   function field(df){const parent=$('<div class="mt-3"></div>').appendTo(host.find('.driver-action-fields'));
    const control=f.ui.form.make_control({parent,df,render_input:true});if(df.default!==undefined)control.set_value(df.default);inputs[df.fieldname]=control;return control;}
-  function values(){return Object.fromEntries(Object.entries(inputs).filter(([_key,control])=>control.get_value).map(([key,control])=>[key,control.get_value()]));}
+  function valueOf(control){return control.df.fieldtype==='Table'?(control.grid?.get_data?.()||control.get_value?.()||control.df.data||[]):control.get_value?.();}
+  function values(){return Object.fromEntries(Object.entries(inputs).filter(([_key,control])=>control.get_value||control.df.fieldtype==='Table').map(([key,control])=>[key,valueOf(control)]));}
+
   function render(){
    if(!valid())return;tools?.close?.();tools=null;inputs={};inputScanner=null;
    const detail=options.detail(),stop=(detail?.stops||[]).find(row=>row.stop_key===(c.state.pending?c.state.pending.request.stop_key:context?.stop_key||options.stop));
    const pending=c.state.pending,owned=!pending||pending.actor===owner;
-   host.html(`<section class="frappe-card p-4 mt-3 driver-action-panel"><h3>${tr('Driver route action')}</h3><div class="driver-action-summary"></div>
+   host.html(`<section class="frappe-card p-4 mt-3 driver-action-panel"><h3>${tr(options.operation||'Driver route action')}</h3><div class="driver-action-summary"></div>
     <div class="driver-action-message alert alert-info" role="status"></div><div class="driver-action-fields"></div><div class="driver-action-input-help text-muted"></div>
     <div class="driver-action-scanner mt-3"><input class="form-control driver-action-scan" autocomplete="off" placeholder="${tr('Scanner: Customer Site, field value or Confirm')}"><button class="btn btn-default driver-action-camera">${tr('Scan with Camera')}</button></div>
     <div class="driver-action-controls mt-3"><button class="btn btn-primary driver-action-confirm"></button><button class="btn btn-default driver-action-readback">${tr('Check saved outcome / Refresh')}</button>
-    <input class="form-control driver-action-void-reason" placeholder="${tr('Supervisor reason to void an unrecorded request')}"><button class="btn btn-warning driver-action-void">${tr('Void if unrecorded')}</button><button class="btn btn-default driver-action-cancel">${tr('Close')}</button></div></section>`);
+    <input class="form-control driver-action-void-reason" placeholder="${tr('Supervisor reason to void an unrecorded request')}"><button class="btn btn-warning driver-action-void">${tr('Void if unrecorded')}</button><button class="btn btn-default driver-action-edit-return">${tr('Return to Edit')}</button><button class="btn btn-default driver-action-cancel">${tr('Close')}</button></div></section>`);
    if(owned)host.find('.driver-action-summary').html(stop?`<h4>${e(stop.site_name||stop.customer_name)}</h4><p>${e(stop.address||'')}</p>`+
     stop.items.map(row=>`<div><strong>${e(row.item_code)}</strong> · ${e(row.planned_qty)} ${e(row.stock_uom)} ${e(row.orders.map(order=>order.sales_order).join(', '))}</div>`).join(''):
     `<h4>${e(detail?.trip?.trip_title||options.trip)}</h4><p>${tr('Start this loaded route. This records departure; it creates no customer Delivery Note.')}</p>`);
    if(pending){update();return;}
    const step=context?.next_step;
-   host.find('.driver-action-message').text(context?.message||(!context?tr('Loading current action…'):step==='Begin Delivery'?tr('Confirm the full prepared quantities for this customer. The Delivery Note follows the configured Draft or auto-submit policy; required proof remains mandatory.'):step));
+   host.find('.driver-action-edit-return').toggle((step==='Collect Old Return'&&Boolean(returnReview))||(step==='Begin Delivery'&&Boolean(quantityReview))||Boolean(quantityReview));
+   host.find('.driver-action-message').text(context?.message||(!context?tr('Loading current action…'):step==='Begin Delivery'?tr('Review accepted quantities; reduce Accepted and enter a reason/condition for refused stock. The Delivery Note follows the configured Draft or auto-submit policy; required proof remains mandatory.'):step));
    if(step==='Begin Delivery'&&context.require_scan)field({fieldname:'customer_scan',label:tr('Required Customer Site QR'),fieldtype:'Data',reqd:1,default:arrival});
+   if(step==='Begin Delivery'&&context.quantities?.length)field({fieldname:'quantities',label:tr('Accepted / Refused — stock UOM'),fieldtype:'Table',cannot_add_rows:true,cannot_delete_rows:true,in_place_edit:true,data:context.quantities,fields:[
+    {fieldname:'dispatch_allocation',fieldtype:'Data',read_only:1,hidden:1},
+    {fieldname:'source_label',label:'Item / Tag / Batch',fieldtype:'Data',read_only:1,in_list_view:1,columns:3},
+    {fieldname:'stock_uom',label:'UOM',fieldtype:'Data',read_only:1,in_list_view:1,columns:1},
+    {fieldname:'prepared_qty',label:'Loaded',fieldtype:'Float',read_only:1,in_list_view:1,columns:1},
+    {fieldname:'accepted_qty',label:'Accepted',fieldtype:'Float',in_list_view:1,columns:1},
+    {fieldname:'condition',label:'Refused Condition',fieldtype:'Select',options:['Good / Unwanted','Damaged','Expired','Pest or Contamination','Customer Handling Damage','Wrong Item or Quantity','Other','Unknown'],in_list_view:1,columns:2},
+    {fieldname:'refusal_reason',label:'Refusal Reason',fieldtype:'Small Text',in_list_view:1,columns:2},
+   ]});
+   if(step==='Collect Old Return'){
+    host.find('.driver-action-message').text(tr('Old customer goods: temporary custody for QC. No stock receipt or credit is posted. Review the stock UOM quantities before issuing the note.'));
+    field({fieldname:'existing_return_case',label:'Existing Temporary Return Note QR / Number (optional; collect full case)',fieldtype:'Data'});
+    field({fieldname:'inspection_location',label:'Inspection Custody Location',fieldtype:'Link',options:'Location',reqd:1,default:context.setup.inspection_location});
+    field({fieldname:'customer_return_reason',label:'Customer Return Reason',fieldtype:'Small Text',reqd:1});
+    field({fieldname:'customer_acknowledgement_name',label:'Customer Representative',fieldtype:'Data'});
+    field({fieldname:'reported_source_reference',label:'Original DN / Customer Reference (if known)',fieldtype:'Data'});
+    field({fieldname:'lines',label:'Old goods physically collected — Item stock UOM',fieldtype:'Table',in_place_edit:true,data:[],fields:[
+     {fieldname:'item_code',label:'Item',fieldtype:'Link',options:'Item',in_list_view:1,columns:2,reqd:1},
+     {fieldname:'claimed_qty',label:'Qty',fieldtype:'Float',in_list_view:1,columns:1,reqd:1},
+     {fieldname:'batch_no',label:'Batch',fieldtype:'Link',options:'Batch',in_list_view:1,columns:2},
+     {fieldname:'expiry_date',label:'Expiry',fieldtype:'Date'},
+     {fieldname:'condition',label:'Condition',fieldtype:'Select',options:context.setup.conditions,default:'Unknown',in_list_view:1,columns:2},
+     {fieldname:'original_visible_code',label:'Old Tag / Reference',fieldtype:'Data',in_list_view:1,columns:3},
+     {fieldname:'details',label:'Details',fieldtype:'Small Text'},
+    ]});
+   }
+   if(step==='Release Refused Stock'){
+    field({fieldname:'release_rows',label:'Select held refused stock',fieldtype:'Table',cannot_add_rows:true,cannot_delete_rows:true,in_place_edit:true,data:context.setup.rows,fields:[
+     {fieldname:'line_name',fieldtype:'Data',read_only:1,hidden:1},{fieldname:'selected',label:'Release',fieldtype:'Check',in_list_view:1,columns:1},
+     {fieldname:'item_code',label:'Item',fieldtype:'Data',read_only:1,in_list_view:1,columns:3},
+     {fieldname:'refused_qty',label:'Qty',fieldtype:'Float',read_only:1,in_list_view:1,columns:2},
+     {fieldname:'stock_uom',label:'UOM',fieldtype:'Data',read_only:1,in_list_view:1,columns:1},
+     {fieldname:'stock_state',label:'Held Status',fieldtype:'Data',read_only:1,in_list_view:1,columns:3},
+    ]});field({fieldname:'reason',label:'Supervisor Release Reason',fieldtype:'Small Text',reqd:1});
+   }
+
    if(step==='Create Delivery Note')for(const df of window.cfg_dispatch_recovery.erpFields(context.requirements?.fields||[]))field(df);
    if(step==='Submit Proof'){
     const proof=context.proof;
@@ -127,7 +169,7 @@
      host.find('.driver-action-input-help').text((s.table?`${s.table.label} · Row ${s.table.index+1}. `:'')+
       choices.slice(s.page*10,s.page*10+10).map((row,index)=>`${index+1}. ${row.label||row.name}${(s.table?s.table.column:s.field)===row.name?' ✓':''}`).join(' · '));
     },nonce:options.nonce,values,
-    set:(name,value)=>inputs[name].set_value(value),read:name=>inputs[name].get_value(),submit:async()=>submit(),close:()=>{},success:async()=>{},camera:startCamera});
+    set:(name,value)=>inputs[name].set_value(value),read:name=>valueOf(inputs[name]),submit:async()=>submit(),close:()=>{},success:async()=>{},camera:startCamera});
    host.find('.driver-action-input-help').text(defs.map((row,index)=>`${index+1}. ${row.label||row.name}`).join(' · '));
    update();focus();
   }
@@ -137,7 +179,18 @@
    if(tools?.busy?.())throw new Error('Wait until proof evidence has finished uploading.');
    let payload={},v=values(),step=context.next_step;
    if(!auto)automatic=step!=='Start Route';
+   if(step==='Begin Delivery'&&context.quantities?.length)payload.quantities=(v.quantities||inputs.quantities.df.data||[]).map(row=>({dispatch_allocation:row.dispatch_allocation,accepted_qty:row.accepted_qty,refusal_reason:row.refusal_reason||'',condition:row.condition||'Good / Unwanted'}));
    if(step==='Begin Delivery'){arrival=String(v.customer_scan||arrival||'').trim();if(context.require_scan&&!arrival)throw new Error('Scan the required Customer Site before confirmation.');payload.customer_scan=arrival||null;}
+   if(step==='Begin Delivery'&&context.quantities?.length){
+    if(!quantityReview&&payload.quantities.some((r,index)=>Number(r.accepted_qty)!==Number(context.quantities[index].prepared_qty))){
+     const preview=await rpc(prefix+'preview_driver_quantities',{trip_name:options.trip,stop_key:context.stop_key,dispatch_plan:context.dispatch_plan,quantities:payload.quantities,operator_session_token:options.token()});
+     if(!valid())return;quantityReview=JSON.parse(JSON.stringify(payload));
+     host.find('.driver-action-message').text(preview.map(r=>`${r.item_code}${r.visible_code?' / '+r.visible_code:''}${r.batch_no?' / '+r.batch_no:''}: accepted ${r.accepted_qty}, refused ${r.refused_qty} ${r.stock_uom} · ${r.refusal_reason||''}`).join(' | ')+'. Confirm records these quantities. Quality refusals create company-owned QC custody; no credit or stock receipt.');
+     host.find('.driver-action-edit-return').toggle(true);update();return;
+    }
+    if(quantityReview)payload=quantityReview;
+   }
+   if(step==='Begin Delivery'&&quantityReview)payload=JSON.parse(JSON.stringify(quantityReview));
    if(step==='Create Delivery Note')payload.required_erp_inputs=window.cfg_dispatch_recovery.erpValues(context.requirements?.fields||[],v);
    if(step==='Submit Proof'){
     const location=context.proof.require_gps&&v.disposition!=='No Proof Recorded'?await window.cfg_delivery_proof_tools.geotag():null;
@@ -145,6 +198,18 @@
     payload={proof_name:context.proof.name,disposition:v.disposition,recipient_name:v.recipient_name||'',unattended_reason:v.unattended_reason||'',notes:v.notes||'',latitude:location?.latitude??null,longitude:location?.longitude??null,location_accuracy:location?.accuracy??null};
    }
    if(step==='Complete Stop'&&context.purpose==='Visit Only')payload.notes=v.notes||'';
+   if(step==='Collect Old Return'){
+    if(!returnReview){
+     const data={existing_return_case:v.existing_return_case||null,inspection_location:v.inspection_location,customer_return_reason:v.customer_return_reason,customer_acknowledgement_name:v.customer_acknowledgement_name||'',reported_source_reference:v.reported_source_reference||'',lines:(v.lines||[]).map(row=>Object.fromEntries(['item_code','claimed_qty','batch_no','expiry_date','condition','original_visible_code','details'].map(key=>[key,row[key]])))};
+     const preview=await rpc(prefix+'preview_driver_collection',{trip_name:options.trip,stop_key:options.stop,payload:data,operator_session_token:options.token()});
+     if(!valid())return;returnReview={...data,lines:preview.lines,existing_return_case:preview.existing_return_case||null};
+     host.find('.driver-action-message').text(`${preview.company} · ${preview.customer_name||preview.customer} · ${preview.inspection_location}. `+preview.lines.map(r=>`${r.item_code}: ${r.claimed_qty} ${r.stock_uom}`).join(' · ')+(preview.existing_return_case?'. Confirm collects this existing note; no duplicate claim.':'. Confirm issues one Temporary Return Note.')+' Return to Edit permits corrections.');
+     host.find('.driver-action-edit-return').toggle(true);update();return;
+    }
+    payload=returnReview;
+   }
+   if(step==='Release Refused Stock')payload={outcome:context.setup.outcome,line_names:(v.release_rows||[]).filter(r=>r.selected).map(r=>r.line_name),reason:v.reason||''};
+
    await c.mutate(context,step,payload);
   }
   async function scan(value){
@@ -153,13 +218,22 @@
    if(['CFG:CMD:REFRESH','CFG:CMD:ROUTE_SHEET_REFRESH'].includes(upper))return c.state.pending?c.reconcile():load();
    if(upper==='CFG:CMD:HELP'){host.find('.driver-action-message').text('Confirm submits reviewed details. Scan Customer Site when required. CFG:SELECT:1–10 arms a field; scan its value. DELIVERY_RECIPIENT and ERP table-row commands are supported. Cancel closes while retaining unknown results. Refresh reads back the saved outcome.');return;}
    if(c.state.pending)throw new Error('Retry or reconcile the original request before editing.');
-   if(context?.next_step==='Begin Delivery'&&context.require_scan&&!upper.startsWith('CFG:')){await inputs.customer_scan.set_value(text);return;}
-   return inputScanner?.scan(text);
+   if(upper==='CFG:CMD:RETURN_EDIT'){returnReview=null;quantityReview=null;host.find('.driver-action-edit-return').toggle(false);update();return;}
+   if(returnReview||quantityReview)throw new Error('Use Return to Edit before changing reviewed quantities.');
+   if(context?.next_step==='Begin Delivery'&&context.require_scan&&!inputScanner?.state.table&&inputScanner?.state.field==='customer_scan'&&!upper.startsWith('CFG:')){await inputs.customer_scan.set_value(text);return;}
+   if(upper==='CFG:CMD:RETURN_CAMERA')return startCamera();
+   if(upper==='CFG:CMD:RETURN_REASON')return inputScanner.field('customer_return_reason');
+   if(upper==='CFG:CMD:RETURN_ITEMS')return inputScanner.field('lines');
+   const aliases={'CFG:CMD:RETURN_ADD_ITEM':'CFG:CMD:DELIVERY_ADD_ROW','CFG:CMD:RETURN_NEXT_ITEM':'CFG:CMD:DELIVERY_NEXT_ROW','CFG:CMD:RETURN_PREVIOUS_ITEM':'CFG:CMD:DELIVERY_PREVIOUS_ROW','CFG:CMD:RETURN_INPUTS':'CFG:CMD:DELIVERY_INPUTS'};
+   if(['CFG:CMD:RETURN_ADD_ITEM','CFG:CMD:DELIVERY_ADD_ROW'].includes(upper)&&['quantities','release_rows'].includes(inputScanner?.state.field))throw new Error('Prepared quantity/release rows cannot be added. Choose their existing row.');
+   const qty=text.match(/^CFG:QTY:MATERIAL:(.+)$/i);
+   if(qty){if(!inputScanner.state.table)throw new Error('Choose the quantity table row first.');inputScanner.state.table.column=inputScanner.state.table.name==='quantities'?'accepted_qty':'claimed_qty';return inputScanner.value(qty[1]);}
+   return inputScanner?.scan(aliases[upper]||text);
   }
   function startCamera(){if(camera||closed)return;if(!f.ui.Scanner)throw new Error('Camera unavailable; use the Scanner field.');const version=cameraVersion;let accepted=false;
    camera=new f.ui.Scanner({dialog:true,multiple:false,on_scan:data=>{if(accepted||version!==cameraVersion||!valid())return;accepted=true;stopCamera();queue(()=>scan(data.decodedText));}});camera.dialog?.$wrapper?.one?.('hidden.bs.modal.cfg_driver_action',()=>{cameraVersion++;camera=null;focus();});}
   function close(){if(closed)return;closed=true;epoch++;c.close();tools?.close?.();stopCamera();host.empty();options.onClose();}
-  host.off('.cfg_driver_action').on('click.cfg_driver_action','.driver-action-confirm',()=>queue(submit))
+  host.off('.cfg_driver_action').on('click.cfg_driver_action','.driver-action-edit-return',()=>{if(c.state.pending||c.state.busy)return;returnReview=null;quantityReview=null;host.find('.driver-action-edit-return').toggle(false);update();focus();}).on('click.cfg_driver_action','.driver-action-confirm',()=>queue(submit))
    .on('click.cfg_driver_action','.driver-action-readback',()=>queue(()=>c.state.pending?c.reconcile():load()))
    .on('click.cfg_driver_action','.driver-action-camera',()=>queue(startCamera)).on('click.cfg_driver_action','.driver-action-cancel',close)
    .on('click.cfg_driver_action','.driver-action-void',()=>queue(async()=>{const reason=String(host.find('.driver-action-void-reason').val()||'').trim();if(!reason)throw new Error('Enter the Supervisor reason first.');await c.reconcile(reason);} ))

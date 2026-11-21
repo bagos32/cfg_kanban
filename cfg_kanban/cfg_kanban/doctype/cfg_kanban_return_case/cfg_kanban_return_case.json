@@ -1,9 +1,20 @@
 {
  "doctype":"DocType","name":"CFG Kanban Return Case","module":"CFG Kanban","autoname":"KRTN-.YYYY.-.#####","title_field":"site_name","track_changes":1,
  "search_fields":"scan_token,original_delivery_note,site_code,site_name,customer,correction_return_delivery_note",
- "field_order":["state","return_flow","identity_section","scan_token","site_section","intake_method","customer_scan_point","selling_company","customer","customer_address","site_code","site_name","intake_section","inspection_location","claimed_on","received_on","customer_return_reason","customer_acknowledgement_name","customer_acknowledged_on","lines","claimed_total_qty","qc_section","qc_started_on","qc_completed_on","qc_operator","qc_notes","accepted_total_qty","rejected_total_qty","delivery_correction_section","original_delivery_session","original_delivery_note","delivery_proof","correction_return_warehouse","correction_return_delivery_note","correction_document_status","accounting_section","accounting_status","accounting_source_basis","accounting_reference_doctype","accounting_reference","accounting_decided_by","accounting_decided_on","accounting_decision_notes","credit_document_doctype","credit_document","credit_document_status","accounting_sales_invoice","accounting_sales_invoice_status","accounting_revision","disposition_section","disposition_status","disposition_lines","stock_disposition_entry","stock_disposition_entry_status","disposition_decided_by","disposition_decided_on","disposition_notes","disposition_revision","audit_section","created_by_operator","created_operator_session","cancelled_on","cancellation_reason","idempotency_key","intake_payload_hash"],
+ "field_order":["state","return_flow","identity_section","scan_token","site_section","intake_method","customer_scan_point","selling_company","customer","customer_address","site_code","site_name","intake_section","inspection_location","claimed_on","received_on","customer_return_reason","customer_acknowledgement_name","customer_acknowledged_on","lines","claimed_total_qty","qc_section","qc_started_on","qc_completed_on","qc_operator","qc_notes","accepted_total_qty","rejected_total_qty","delivery_correction_section","original_delivery_session","original_delivery_note","delivery_proof","correction_return_warehouse","correction_return_delivery_note","correction_document_status","accounting_section","accounting_status","accounting_source_basis","accounting_reference_doctype","accounting_reference","accounting_decided_by","accounting_decided_on","accounting_decision_notes","credit_document_doctype","credit_document","credit_document_status","accounting_sales_invoice","accounting_sales_invoice_status","accounting_revision","disposition_section","disposition_status","disposition_lines","stock_disposition_entry","stock_disposition_entry_status","disposition_decided_by","disposition_decided_on","disposition_notes","disposition_revision","audit_section","created_by_operator","created_operator_session","cancelled_on","cancellation_reason","idempotency_key","intake_payload_hash",
+"driver_trip",
+"driver_stop_key",
+"collection_vehicle_warehouse",
+"reported_source_reference",
+"stock_already_owned",
+"driver_delivery_outcome",
+"collected_by",
+"collected_on",
+"collection_key",
+"owned_stock_issue"
+ ],
  "fields":[
-  {"fieldname":"state","label":"Return State","fieldtype":"Select","options":"Awaiting QC Receipt\nQC In Progress\nQC Completed - Accounting Pending\nQC Rejected\nDelivery Correction Pending\nDelivery Correction Draft\nDelivery Correction Posted\nAccounting Completed\nClosed\nCancelled\nException","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"state","label":"Return State","fieldtype":"Select","options":"Awaiting QC Receipt\nQC In Progress\nQC Completed - Accounting Pending\nQC Rejected\nDelivery Correction Pending\nDelivery Correction Draft\nDelivery Correction Posted\nAccounting Completed\nClosed\nCancelled\nException\nQC Completed - Stock Pending","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"return_flow","label":"Floor Workflow","fieldtype":"Select","options":"Customer Return for QC\nDelivery Note Correction","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"identity_section","label":"Temporary Return Note Identity","fieldtype":"Section Break","description":"This is a physical custody and QC reference. It is not a tax Credit Note, Sales Return, e-Invoice, or stock posting."},
   {"fieldname":"scan_token","label":"Return Note Scan Code","fieldtype":"Data","unique":1,"read_only":1,"in_standard_filter":1},
@@ -67,7 +78,17 @@
   {"fieldname":"created_operator_session","label":"Operator Session","fieldtype":"Link","options":"CFG Kanban Operator Session","read_only":1},
   {"fieldname":"cancelled_on","label":"Cancelled On","fieldtype":"Datetime","read_only":1},
   {"fieldname":"cancellation_reason","label":"Cancellation Reason","fieldtype":"Small Text","read_only":1},
-  {"fieldname":"idempotency_key","label":"Intake Idempotency Key","fieldtype":"Data","unique":1,"read_only":1,"hidden":1}
+  {"fieldname":"idempotency_key","label":"Intake Idempotency Key","fieldtype":"Data","unique":1,"read_only":1,"hidden":1},
+{"fieldname": "driver_trip", "label": "Collected on Delivery Trip", "fieldtype": "Link", "read_only": 1, "options": "CFG Kanban Delivery Trip"},
+{"fieldname": "driver_stop_key", "label": "Trip Stop Key", "fieldtype": "Data", "read_only": 1, "hidden": 1},
+{"fieldname": "collection_vehicle_warehouse", "label": "Collection Lorry Warehouse", "fieldtype": "Link", "read_only": 1, "options": "Warehouse"},
+{"fieldname": "reported_source_reference", "label": "Customer Reported Original Reference", "fieldtype": "Data", "read_only": 1},
+{"fieldname": "stock_already_owned", "label": "Undelivered Company Stock", "fieldtype": "Check", "read_only": 1, "default": "0"},
+{"fieldname": "driver_delivery_outcome", "label": "Refusal Outcome", "fieldtype": "Link", "read_only": 1, "options": "CFG Kanban Delivery Outcome"},
+{"fieldname": "collected_by", "label": "Collected By", "fieldtype": "Link", "read_only": 1, "options": "Employee"},
+{"fieldname": "collected_on", "label": "Collected On", "fieldtype": "Datetime", "read_only": 1},
+{"fieldname": "collection_key", "label": "Collection Request", "fieldtype": "Data", "read_only": 1, "hidden": 1},
+{"fieldname": "owned_stock_issue", "label": "Confirmed Owned Stock Disposal", "fieldtype": "Link", "read_only": 1, "options": "Stock Entry", "unique": 1}
  ],
  "permissions":[
   {"role":"Stock User","read":1,"print":1},{"role":"Stock Manager","read":1,"print":1},{"role":"Sales User","read":1,"print":1},{"role":"Sales Manager","read":1,"print":1},{"role":"Quality User","read":1,"print":1},{"role":"Quality Manager","read":1,"print":1},{"role":"Accounts User","read":1,"print":1},{"role":"Accounts Manager","read":1,"print":1},{"role":"System Manager","read":1,"print":1}

@@ -468,3 +468,33 @@ See [driver setup/use](USER_GUIDE_DRIVER_ROUTE.md) and
 [execution acceptance](TEST_DRIVER_ROUTE_EXECUTION.md). Offline checks are not native migration,
 transaction/concurrency, ERP posting, private-storage or tablet/scanner acceptance. Native tests
 are **Not run**. Existing L1 gate and outstanding E5 scope remain separate.
+
+
+## 18. Driver Route — refused quantities and old-return collection
+
+On 21 November 2026 the owner approved direct driver-page refusal/old-return handling above
+`bb22248`, including QC cases for damage/quality refusals that are still company-owned stock.
+Good order reductions can be sold on the same trip under the captured Profile policy or held
+for Supervisor release. Older delivered goods continue through QC before accounting/stock use.
+
+The extension records immutable accepted/refused exact prepared-source outcomes before Session
+start, reserves accepted sources in the native delivery workflow and holds refused balances.
+Only accepted quantities reach native DN/proof; zero acceptance closes the audited Session with
+no DN. Tagged/untagged stock, exact SO mappings and native expiry/certificate/stock controls remain.
+Owned refusal QC prohibits customer credit and duplicate receipt. QC-approved Supervisor resale,
+existing E5 custody transfers and exact already-submitted Material Issue disposal confirmation
+provide controlled resolution. Reconciliation distinguishes delivered, held and resolved stock.
+Old return intake/reuse records collection facts on existing Return Cases, retaining native QC,
+accounting, disposition and private evidence services. Driver/warehouse see linked QC progress.
+
+Normal full deliveries retain the guided confirmation flow. Quantity changes are reviewed before
+recording. Durable original request/receipt/readback/void semantics also cover collections and
+Supervisor release. Office DocType planning, LIFO, approved sequence and required Site QR policy
+are preserved. Existing started Sessions and linked-outcome DN cancellations require supervised
+reconciliation; no automatic custody-outcome reversal is claimed.
+
+See [driver guide](USER_GUIDE_DRIVER_ROUTE.md) and
+[extension acceptance](TEST_DRIVER_ROUTE_REFUSALS_RETURNS.md). This supersedes the historical
+full-quantity-only boundary in section 17. No separate delivery, stock, credit or QC engine was
+introduced. Native migration, ERP posting, MariaDB rollback/concurrency, print and device results
+are **Not run**. Existing L1 and remaining E5 scope are unchanged.

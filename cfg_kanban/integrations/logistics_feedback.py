@@ -305,6 +305,11 @@ def _post_internal_direct(manifest, doc):
         }, update_modified=False)
     from cfg_kanban.services.internal_transfer import complete_transfer_cycle
     complete_transfer_cycle(manifest, "Stock Entry", doc.name)
+    if manifest.get('dispatch_recovery_review'):
+        source_plan=frappe.db.get_value('CFG Kanban Dispatch Review',manifest.dispatch_recovery_review,'dispatch_plan')
+        if source_plan and frappe.db.get_value('CFG Kanban Dispatch Plan',source_plan,'driver_delivery_outcome'):
+            from cfg_kanban.services.driver_delivery_outcomes import recovery_restore
+            recovery_restore(manifest, received=True)
     record("Internal Transfer Posted", movement_manifest=manifest.name,
            previous_state="Dispatch Document Pending", new_state="Received",
            qty=manifest.total_quantity, reference_doctype="Stock Entry", reference_name=doc.name)
@@ -639,6 +644,8 @@ def _on_customer_delivery_submit(doc, delivery_session):
 
 def _on_customer_delivery_cancel(doc, delivery_session):
     delivery = frappe.get_doc("CFG Kanban Delivery Session", delivery_session)
+    if delivery.get('driver_delivery_outcome'):
+        frappe.throw('This Delivery Note has an immutable accepted/refused custody decision. Use controlled delivery correction/return and Supervisor reconciliation.')
     if delivery.get("dispatch_plan"):
         plan=frappe.get_doc("CFG Kanban Dispatch Plan",delivery.dispatch_plan,for_update=True)
         if plan.get("dispatch_review_state") or plan.state=="Reconciled":

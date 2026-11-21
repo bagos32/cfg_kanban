@@ -9,13 +9,15 @@ from cfg_kanban.services.operator_auth import require_operator
 
 TRIP = 'CFG Kanban Delivery Trip'
 ACTIONS = ('Start Route', 'Begin Delivery', 'Confirm Allocations', 'Create Delivery Note',
-           'Open Proof', 'Submit Proof', 'Complete Stop')
+           'Open Proof', 'Submit Proof', 'Complete Stop', 'Collect Old Return', 'Release Refused Stock')
 PAYLOAD_FIELDS = {
-    'Start Route': set(), 'Begin Delivery': {'customer_scan'}, 'Confirm Allocations': set(),
+    'Start Route': set(), 'Begin Delivery': {'customer_scan', 'quantities'}, 'Confirm Allocations': set(),
     'Create Delivery Note': {'required_erp_inputs'}, 'Open Proof': set(),
     'Submit Proof': {'proof_name', 'disposition', 'recipient_name', 'unattended_reason',
                      'latitude', 'longitude', 'location_accuracy', 'notes'},
     'Complete Stop': {'notes'},
+    'Collect Old Return': {'inspection_location','customer_return_reason','lines','customer_acknowledgement_name','reported_source_reference','existing_return_case'},
+    'Release Refused Stock': {'outcome','line_names','reason'},
 }
 
 class DriverActionConflict(frappe.ValidationError):
@@ -229,6 +231,10 @@ def _is_ready(doc, stop, operator, token):
         delivery = _session(plan, operator)
         if delivery.state != 'Closed' or plan.fulfilment_status != 'Completed':
             return False
+        if delivery.get('driver_delivery_outcome'):
+            from cfg_kanban.services.driver_delivery_outcomes import full_refusal
+            if full_refusal(delivery):
+                continue
         note = _read('Delivery Note', delivery.delivery_note)
         if note.docstatus != 1 or note.is_return or note.company != doc.company or note.customer != stop.customer:
             return False
@@ -240,7 +246,7 @@ def _is_ready(doc, stop, operator, token):
                 return False
     context = _views().get_driver_trip(doc.name, token)
     target = next(row for row in context['stops'] if row['stop_key'] == stop.stop_key)
-    return all(not row['is_stock_item'] or row['delivered_qty'] + 0.000001 >= row['planned_qty'] for row in target['items'])
+    return all(not row['is_stock_item'] or row['delivered_qty'] + row.get('refused_qty',0) + 0.000001 >= row['planned_qty'] for row in target['items'])
 
 
 def _finish(doc, stop, operator, token, notes=None):
@@ -276,7 +282,7 @@ def _target(doc, request, snapshot):
 
 
 @frappe.whitelist()
-def driver_action_context(trip_name, operator_session_token, stop_key=None):
+def driver_action_context(trip_name, operator_session_token, stop_key=None, operation=None, outcome_name=None):
     operator, _session = require_operator(operator_session_token)
     doc = _views()._trip(trip_name, operator)
     context = _views().get_driver_trip(trip_name, operator_session_token)
@@ -284,6 +290,17 @@ def driver_action_context(trip_name, operator_session_token, stop_key=None):
         revision=cint(doc.driver_route_revision), scope_hash=_core(doc),
         can_start=bool(operator.can_start), can_complete=bool(operator.can_complete),
         planning_state=doc.state, next_step='Start Route', stop_key=stop_key, dispatch_plan=None)
+    if operation == 'Collect Old Return':
+        stop=next((r for r in doc.stops if r.stop_key==stop_key),None)
+        if not stop:frappe.throw('Select the exact saved customer stop')
+        from cfg_kanban.services import driver_collections
+        return dict(result,next_step='Collect Old Return',setup=driver_collections.context(doc,stop,operator),purpose='Old Return')
+    if operation == 'Release Refused Stock':
+        if not (_views()._all(operator) and operator.can_override):frappe.throw('Supervisor with Override is required',frappe.PermissionError)
+        from cfg_kanban.services.driver_delivery_outcomes import OUTCOME
+        outcome=_read(OUTCOME,outcome_name)
+        if outcome.delivery_trip!=doc.name or outcome.stop_key!=stop_key:frappe.throw('Select refused stock at this exact customer stop')
+        return dict(result,next_step='Release Refused Stock',setup=dict(outcome=outcome.name,rows=[dict(line_name=r.name,item_code=r.item_code,stock_uom=r.stock_uom,refused_qty=r.refused_qty,stock_state=r.stock_state,selected=0) for r in outcome.lines if r.stock_state in ('Held','Transferred Hold')]))
     if doc.state != 'Planned':
         return dict(result, next_step='Blocked', message='Office must mark this trip Planned before driver execution')
     if result['route_state'] == 'Completed':
@@ -307,7 +324,8 @@ def driver_action_context(trip_name, operator_session_token, stop_key=None):
         _planning()._assert_plan_authorized(plan, operator)
         if not plan.delivery_session:
             return dict(result, next_step='Begin Delivery', dispatch_plan=plan.name,
-                require_scan=snapshot['policies'][plan.name]['require_scan'])
+                require_scan=snapshot['policies'][plan.name]['require_scan'],
+                quantities=[dict(dispatch_allocation=r.name,item_code=r.item_code,source_label=' · '.join(filter(None,[r.item_code,frappe.db.get_value('CFG Kanban Handling Unit',r.handling_unit,'handling_unit_id') if r.handling_unit else 'Untagged ERP stock',r.batch_no])),batch_no=r.batch_no,stock_uom=r.stock_uom,prepared_qty=r.allocated_qty,accepted_qty=r.allocated_qty,refusal_reason='',condition='Good / Unwanted') for r in _prepared()._loaded_allocations(plan)])
         delivery = _delivery().get_delivery_session(plan.delivery_session, operator_session_token)
         state = delivery['state']
         if state == 'Closed':
@@ -341,6 +359,8 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
             frappe.throw('This driver request was explicitly voided', DriverActionConflict)
         return receipt
     _owned(doc, operator)
+    if action in ('Collect Old Return','Release Refused Stock'):
+        return _special_action(doc,request,operator,session,operator_session_token,key)
     require_operator(operator_session_token, 'start' if action in ('Start Route', 'Begin Delivery') else 'complete')
     if doc.state != 'Planned' or request['scope_hash'] != _core(doc) or request['expected_revision'] != cint(doc.driver_route_revision):
         frappe.throw('Trip planning or execution changed; refresh before submitting new details')
@@ -384,6 +404,9 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
             scan = str(values.get('customer_scan') or '').strip()
             if policy['require_scan'] and not scan:
                 frappe.throw('Scan the assigned Customer Site QR before confirming this stop')
+            if values.get('quantities') is not None:
+                from cfg_kanban.services.driver_delivery_outcomes import declare
+                declare(doc,stop,plan,values['quantities'],operator,session,key)
             if policy['sheet']:
                 delivery = _sheets().start_route_sheet_stop(policy['sheet'], policy['row_key'], key, operator_session_token, scan or None)
             else:
@@ -434,3 +457,49 @@ def reconcile_driver_action(trip_name, action, event_token, operator_session_tok
     if not str(void_reason).strip() or not (_views()._all(operator) and operator.can_override):
         frappe.throw('Supervisor authority and a reason are required to void an unrecorded driver request')
     return _record(doc, operator, session, key, request, void_reason=str(void_reason).strip(), actor=actor)
+
+
+def _special_action(doc,request,operator,session,token,key):
+    require_operator(token,'start' if request['action']=='Collect Old Return' else 'override')
+    if request['scope_hash']!=_core(doc) or request['expected_revision']!=cint(doc.driver_route_revision):
+        frappe.throw('Trip changed; refresh before confirming new details')
+    if request['dispatch_plan']:
+        frappe.throw('Select the trip stop instead of substituting a Dispatch Plan')
+    stop=next((r for r in doc.stops if r.stop_key==request['stop_key']),None)
+    if not stop:frappe.throw('Select the exact saved customer stop')
+    if request['action']=='Collect Old Return':
+        from cfg_kanban.services.driver_collections import collect
+        result=collect(doc,stop,request['payload'],operator,session,token,key)
+    else:
+        if not (_views()._all(operator) and operator.can_override):frappe.throw('Supervisor with Override is required',frappe.PermissionError)
+        from cfg_kanban.services.driver_delivery_outcomes import OUTCOME, release
+        outcome=_read(OUTCOME,request['payload'].get('outcome'))
+        if outcome.delivery_trip!=doc.name or outcome.stop_key!=stop.stop_key:frappe.throw('Refused stock belongs to another trip or customer')
+        release(outcome,request['payload'].get('line_names'),request['payload'].get('reason'),operator,session)
+        result=dict(outcome=outcome.name)
+    doc.db_set('driver_route_revision',cint(doc.driver_route_revision)+1,update_modified=True)
+    return _record(doc,operator,session,key,request,result)
+
+
+@frappe.whitelist()
+def preview_driver_collection(trip_name,stop_key,payload,operator_session_token):
+    operator,_session=require_operator(operator_session_token,'start')
+    doc=_views()._trip(trip_name,operator)
+    stop=next((r for r in doc.stops if r.stop_key==stop_key),None)
+    if not stop:frappe.throw('Select the exact saved customer stop')
+    from cfg_kanban.services.driver_collections import preview
+    return preview(doc,stop,frappe.parse_json(payload) if isinstance(payload,str) else payload,operator,operator_session_token)
+
+
+@frappe.whitelist()
+def preview_driver_quantities(trip_name,stop_key,dispatch_plan,quantities,operator_session_token):
+    operator,_session=require_operator(operator_session_token,'start')
+    doc=_views()._trip(trip_name,operator)
+    saved=json.loads(doc.driver_route_snapshot_json or '{}')
+    _target(doc,dict(stop_key=stop_key),saved)
+    if dispatch_plan not in {r.dispatch_plan for r in doc.dispatch_plans if r.stop_key==stop_key}:
+        frappe.throw('Select the exact prepared Plan for this stop')
+    plan=_read('CFG Kanban Dispatch Plan',dispatch_plan)
+    _planning()._assert_plan_authorized(plan,operator)
+    from cfg_kanban.services.driver_delivery_outcomes import quantities as validate_quantities
+    return validate_quantities(plan,quantities)

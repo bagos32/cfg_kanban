@@ -44,7 +44,8 @@ class TestDriverRouteActions(unittest.TestCase):
         vehicle_ns=load('services/dispatch_planning.py',dict(frappe=self.b.frappe))
         self.vehicle_check=vehicle_ns['_vehicle_warehouse']
         self.prepared = Row(start_prepared_delivery=Mock(side_effect=self.begin),
-            validate_prepared_loading=self.native_prepared['validate_prepared_loading'])
+            validate_prepared_loading=self.native_prepared['validate_prepared_loading'],
+            _loaded_allocations=lambda plan:[r for r in self.data.get('CFG Kanban Dispatch Allocation',{}).values() if r.dispatch_plan==plan.name])
         for n,plan in enumerate((self.v.p1,self.v.p2),1):
             self.data['CFG Kanban Movement Manifest']['MAN'+str(n)].update(
                 dispatch_plan=plan.name,state='Received',source_warehouse=plan.source_warehouse,destination_company='A')

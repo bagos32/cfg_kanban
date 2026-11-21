@@ -235,7 +235,8 @@ def _validate_loose(plan, recipe):
     for (item, batch), qty in groups.items():
         planning._lock_erp_bin(item, plan.vehicle_warehouse)
         available = planning._untagged_available(plan.company, plan.vehicle_warehouse, item, batch,
-            exclude_prepared_plan=plan.name, current=True)
+            exclude_prepared_plan=plan.name, current=True,
+            **({'exclude_refusal_outcome':plan.driver_delivery_outcome} if plan.get('driver_delivery_outcome') else {}))
         if qty > available + EPSILON:
             frappe.throw('Loose recovery stock is missing or committed elsewhere; resolve it before moving leftovers')
 
@@ -272,7 +273,8 @@ def validate_recovery_manifest(manifest, operator=None, reserved=False, confirme
             frappe.throw('Scan each physical recovery source and confirm every loose quantity first')
         if row.handling_unit:
             unit = frappe.get_doc(HU, row.handling_unit, for_update=True)
-            wanted_reserve = flt(row.dispatch_qty) if reserved else 0
+            refusal_reserve = _refused_reserve(plan, row.handling_unit)
+            wanted_reserve = flt(row.dispatch_qty) if reserved else refusal_reserve
             if (unit.identity_state != 'Active' or unit.quality_state != 'Released'
                     or unit.inventory_company != plan.company or unit.current_warehouse != plan.vehicle_warehouse
                     or unit.item_code != row.item_code or (unit.batch_no or '') != (row.batch_no or '')
@@ -281,7 +283,7 @@ def validate_recovery_manifest(manifest, operator=None, reserved=False, confirme
                 frappe.throw('Recovery Stock Tag quantity/location/reservation changed; reconcile it before posting')
             _logistics()._assert_not_in_other_open_manifest(unit.name, manifest.name)
             _logistics()._assert_erp_stock(unit, manifest.source_warehouse, row.dispatch_qty)
-            if not reserved:
+            if not reserved and not refusal_reserve:
                 _logistics()._validate_dispatch_unit(unit, manifest, expected_container=row.container_handling_unit or None)
             else:
                 membership = _contents().active_container_membership(unit.name)
@@ -358,7 +360,16 @@ def confirm_dispatch_recovery_loose(manifest_name, line_name, qty, event_token, 
 def prepare_recovery_manifest(manifest, operator, session, event_token):
     _review_service()._supervisor(operator)
     _review_service()._planning()._require_event_token(event_token)
+    # Refusal rows precede HU locks, matching Supervisor release order.
+    if manifest.get('dispatch_recovery_review'):
+        source_plan=frappe.db.get_value('CFG Kanban Dispatch Review',manifest.dispatch_recovery_review,'dispatch_plan')
+        if source_plan and frappe.db.get_value('CFG Kanban Dispatch Plan',source_plan,'driver_delivery_outcome'):
+            from cfg_kanban.services.driver_delivery_outcomes import lock_recovery_rows
+            lock_recovery_rows(manifest)
     plan, review, manifest = validate_recovery_manifest(manifest, operator)
+    if plan.get('driver_delivery_outcome'):
+        from cfg_kanban.services.driver_delivery_outcomes import recovery_adopt
+        recovery_adopt(manifest)
     for row in manifest.lines:
         if not row.handling_unit:
             continue
@@ -415,6 +426,9 @@ def cancel_dispatch_recovery(manifest_name, reason, event_token, operator_sessio
                     source_company=plan.company, source_warehouse=plan.vehicle_warehouse,
                     reference_doctype=manifest.doctype, reference_name=manifest.name,
                     operator=operator.employee, operator_session=session.name, reason=reason)
+    if plan.get('driver_delivery_outcome'):
+        from cfg_kanban.services.driver_delivery_outcomes import recovery_restore
+        recovery_restore(manifest)
     manifest.db_set(dict(state='Cancelled', cancelled_by=operator.employee,
         cancelled_on=now_datetime(), cancellation_reason=reason), update_modified=True)
     frappe.db.set_value('CFG Kanban Manifest Line', {'parent': manifest.name}, 'state', 'Cancelled', update_modified=False)
@@ -469,3 +483,10 @@ def protect_recovery_document_identity(doc, method=None):
     if (original and original != doc.get('cfg_movement_manifest')
             and frappe.db.get_value(MANIFEST, original, 'dispatch_recovery_review')):
         frappe.throw('A saved recovery Stock Entry cannot be detached from its controlled Manifest')
+
+
+def _refused_reserve(plan,unit):
+    if not plan.get('driver_delivery_outcome'):
+        return 0
+    from cfg_kanban.services.driver_delivery_outcomes import held_tag_qty
+    return held_tag_qty(unit)

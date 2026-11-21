@@ -303,7 +303,7 @@ def confirm_delivery_allocations(delivery_session, event_token,
     names = [row.name for row in allocation_rows]
     if not names:
         frappe.throw(_("Allocate at least one Stock Tag before confirmation"))
-    _validate_confirmed_container_groups(allocation_rows)
+    _validate_confirmed_container_groups(allocation_rows, delivery) if delivery.get('driver_delivery_outcome') else _validate_confirmed_container_groups(allocation_rows)
     from cfg_kanban.services.dispatch_fulfilment import validate_prepared_allocations
     validate_prepared_allocations(delivery)
     for name in names:
@@ -457,6 +457,8 @@ def release_delivery_allocation(allocation, reason, event_token,
     delivery = _delivery_for_operator(row.delivery_session, profile)
     if row.state == "Released":
         return get_delivery_session(delivery.name, operator_session_token)
+    if delivery.get("driver_delivery_outcome"):
+        frappe.throw("Accepted/refused sources are frozen. Complete this controlled delivery or request supervised reconciliation.")
     if row.state not in ("Reserved", "Delivery Pending") or row.delivery_note:
         frappe.throw(_("Only an undelivered active allocation can be released"))
     rows = [row]
@@ -568,6 +570,8 @@ def cancel_delivery_session(delivery_session, reason, event_token,
         },
     ):
         return get_delivery_session(delivery.name, operator_session_token)
+    if delivery.get("driver_delivery_outcome"):
+        frappe.throw("A recorded refusal outcome cannot be abandoned by cancelling its Delivery Session; request supervised reconciliation.")
     if delivery.state != "Customer Identified":
         frappe.throw(_("Only an empty Customer Identified session can be cancelled"))
     if frappe.db.exists(
@@ -636,7 +640,7 @@ def _customer_delivery_payload(delivery, required_erp_inputs=None):
     )
     if not allocations:
         frappe.throw(_("Delivery Session has no confirmed stock allocations"))
-    _validate_confirmed_container_groups(allocations)
+    _validate_confirmed_container_groups(allocations, delivery) if delivery.get('driver_delivery_outcome') else _validate_confirmed_container_groups(allocations)
     from cfg_kanban.services.dispatch_fulfilment import (
         validate_prepared_allocations, validate_untagged_delivery_stock, apply_sales_order_payload, assert_delivery_tag_expiry,
     )
@@ -703,7 +707,7 @@ def _customer_delivery_payload(delivery, required_erp_inputs=None):
     return payload
 
 
-def _validate_confirmed_container_groups(allocations):
+def _validate_confirmed_container_groups(allocations, delivery=None):
     grouped = {}
     for row in allocations:
         if row.container_handling_unit:
@@ -712,6 +716,9 @@ def _validate_confirmed_container_groups(allocations):
         current_units = {
             row.content_handling_unit for row in active_container_contents(container_name)
         }
+        if delivery and delivery.get('driver_delivery_outcome'):
+            from cfg_kanban.services.driver_delivery_outcomes import container_units
+            allocated_units = container_units(delivery, container_name)
         if current_units != allocated_units:
             container_code = frappe.db.get_value(
                 "CFG Kanban Handling Unit", container_name, "handling_unit_id"

@@ -1,0 +1,173 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Delivery Outcome",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "istable": 0,
+ "field_order": [
+  "state",
+  "delivery_trip",
+  "stop_key",
+  "dispatch_plan",
+  "delivery_session",
+  "company",
+  "customer",
+  "customer_site",
+  "vehicle_warehouse",
+  "sound_refusal_policy",
+  "declared_on",
+  "declared_by",
+  "operator_session",
+  "active_plan_key",
+  "request_key",
+  "lines"
+ ],
+ "fields": [
+  {
+   "fieldname": "state",
+   "label": "Status",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "options": "Declared\nRecorded",
+   "default": "Declared"
+  },
+  {
+   "fieldname": "delivery_trip",
+   "label": "Delivery Trip",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Delivery Trip"
+  },
+  {
+   "fieldname": "stop_key",
+   "label": "Trip Stop Key",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "dispatch_plan",
+   "label": "Dispatch Plan",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Dispatch Plan"
+  },
+  {
+   "fieldname": "delivery_session",
+   "label": "Delivery Session",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Delivery Session"
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Company"
+  },
+  {
+   "fieldname": "customer",
+   "label": "Customer",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Customer"
+  },
+  {
+   "fieldname": "customer_site",
+   "label": "Customer Site",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Customer Scan Point"
+  },
+  {
+   "fieldname": "vehicle_warehouse",
+   "label": "Original Lorry Warehouse",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "sound_refusal_policy",
+   "label": "Captured Sound Refusal Policy",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "declared_on",
+   "label": "Declared On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "declared_by",
+   "label": "Declared By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "operator_session",
+   "label": "Operator Session",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Operator Session"
+  },
+  {
+   "fieldname": "active_plan_key",
+   "label": "Active Plan Key",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "request_key",
+   "label": "Original Driver Request",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "lines",
+   "label": "Accepted and Refused Sources",
+   "fieldtype": "Table",
+   "read_only": 1,
+   "options": "CFG Kanban Delivery Outcome Line"
+  }
+ ],
+ "allow_rename": 0,
+ "autoname": "KDO-.YYYY.-.#####",
+ "track_changes": 1,
+ "permissions": [
+  {
+   "role": "Stock User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Quality Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1
+  }
+ ]
+}

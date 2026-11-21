@@ -141,7 +141,7 @@ approval policies remain mandatory. The office trip does not automatically appro
 
 The separate [Driver Route page](USER_GUIDE_DRIVER_ROUTE.md) reads assigned saved trips and
 existing operational feedback and guides departure, native delivery and proof completion. Automatic office-trip publication to operational routes, live
-resequence approval, maps/GPS, refusal resale, return/QC monitoring and Bluetooth printing remain
+resequence approval, maps/GPS and Bluetooth printing remain
 later development. Local tests do not verify live-site behavior. Run
 [the Phase 1 site checklist](TEST_OFFICE_DELIVERY_TRIP_PHASE1.md) after manual deployment.
 
@@ -160,5 +160,17 @@ source assignments and driver are retained; direct form edits cannot forge its e
 Driver completion does not settle E5. If a route ends incomplete, first reconcile/cancel its
 linked Plans using existing controls, then close/cancel the office Trip with a reason. Its driver
 state becomes Closed Incomplete and releases the active lorry; undelivered stops stay unfinished.
-Open Route Stock, driver route-edit approval, integrated refusal/old-return collection and maps/
-printing remain outside this execution package. Native-site acceptance is pending.
+Open Route Stock, driver route-edit approval, maps/tracking and Bluetooth printing remain outside
+this execution package. Native-site acceptance is pending.
+
+
+### Refusal and old-return extension
+
+The linked [Driver Route](USER_GUIDE_DRIVER_ROUTE.md) now supports Accepted/Refused quantities
+before Begin Delivery and old-return intake/reuse at a saved stop. Configure **Sound Refused
+Goods** on the Dispatch Profile before creating the Plan. Enable Customer Returns, Site return
+QC/Inspection Location and operator Customer Return/QC responsibilities for quality/old-return
+handling. The trip shows refusal holds and existing QC case progress. These controls reuse the
+native delivery, Return Case and E5 recovery workflows and do not post another stock receipt for
+company-owned refusals. Native acceptance remains pending in
+[the extension checklist](TEST_DRIVER_ROUTE_REFUSALS_RETURNS.md).

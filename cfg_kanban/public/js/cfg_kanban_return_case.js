@@ -1,6 +1,18 @@
 frappe.ui.form.on("CFG Kanban Return Case", {
 	refresh(frm) {
 		if (frm.is_new() || frm.doc.return_flow !== "Customer Return for QC") return;
+        if (frm.doc.stock_already_owned) {
+            frm.set_intro?.(__('These refused goods remain company stock. Use the linked refusal outcome and controlled transfer/recovery. No customer credit or Material Receipt is allowed.'), 'yellow');
+            frm.add_custom_button(__('Open Driver Trip'),()=>frappe.set_route('kanban-driver-route',frm.doc.driver_trip));
+            if (frm.doc.qc_completed_on && frm.doc.state==='QC Completed - Stock Pending' && !frm.doc.owned_stock_issue && ['Stock Manager','Quality Manager','System Manager'].some(role=>frappe.user_roles.includes(role))) {
+                frm.add_custom_button(__('Confirm Refused Stock Disposal'),()=>frappe.prompt([
+                    {fieldname:'stock_entry',fieldtype:'Link',options:'Stock Entry',label:__('Submitted Material Issue'),reqd:1,get_query:()=>({filters:{docstatus:1,purpose:'Material Issue',company:frm.doc.selling_company}})},
+                    {fieldname:'reason',fieldtype:'Small Text',label:__('Physical disposal confirmation reason'),reqd:1}
+                ],async values=>{await frappe.call({method:'cfg_kanban.services.return_disposition.confirm_owned_stock_disposal',args:{return_case:frm.doc.name,...values}});await frm.reload_doc();}));
+            }
+
+            return;
+        }
 		if (frm.doc.credit_document) {
 			frm.add_custom_button(__("Open Credit Return"), () => {
 				frappe.set_route("Form", frm.doc.credit_document_doctype || "Sales Invoice", frm.doc.credit_document);
@@ -31,7 +43,7 @@ frappe.ui.form.on("CFG Kanban Return Case", {
 
 function can_prepare_accounting(frm) {
 	const allowed = ["Accounts User", "Accounts Manager", "Sales Manager", "System Manager"];
-	return frm.doc.state === "QC Completed - Accounting Pending"
+	return !frm.doc.stock_already_owned && frm.doc.state === "QC Completed - Accounting Pending"
 		&& Number(frm.doc.accepted_total_qty || 0) > 0
 		&& !(frm.doc.credit_document && frm.doc.credit_document_status !== "Cancelled")
 		&& allowed.some((role) => frappe.user_roles.includes(role));
@@ -53,7 +65,7 @@ function discard_stock_draft(frm) {
 
 function can_prepare_stock_disposition(frm) {
 	const allowed = ["Stock Manager", "Quality Manager", "System Manager"];
-	return Number(frm.doc.accepted_total_qty || 0) > 0
+	return !frm.doc.stock_already_owned && Number(frm.doc.accepted_total_qty || 0) > 0
 		&& Boolean(frm.doc.qc_completed_on)
 		&& frm.doc.disposition_status !== "Completed"
 		&& !(frm.doc.stock_disposition_entry && frm.doc.stock_disposition_entry_status !== "Cancelled")

@@ -1,0 +1,178 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Delivery Outcome Line",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "istable": 1,
+ "field_order": [
+  "dispatch_allocation",
+  "handling_unit",
+  "visible_code",
+  "container_handling_unit",
+  "item_code",
+  "batch_no",
+  "stock_uom",
+  "prepared_qty",
+  "accepted_qty",
+  "refused_qty",
+  "refusal_reason",
+  "condition",
+  "stock_state",
+  "current_warehouse",
+  "hold_ledger",
+  "qc_return_case",
+  "recovery_manifest",
+  "released_on",
+  "released_by",
+  "release_reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "dispatch_allocation",
+   "label": "Prepared Allocation",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Dispatch Allocation"
+  },
+  {
+   "fieldname": "handling_unit",
+   "label": "Stock Tag",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Handling Unit"
+  },
+  {
+   "fieldname": "visible_code",
+   "label": "Stock Tag Code",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "container_handling_unit",
+   "label": "Container",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Handling Unit"
+  },
+  {
+   "fieldname": "item_code",
+   "label": "Item",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Item",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "batch_no",
+   "label": "Batch",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Batch"
+  },
+  {
+   "fieldname": "stock_uom",
+   "label": "Stock UOM",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "UOM",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "prepared_qty",
+   "label": "Prepared Qty",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "accepted_qty",
+   "label": "Accepted Qty",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "refused_qty",
+   "label": "Refused Qty",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "refusal_reason",
+   "label": "Refusal Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "condition",
+   "label": "Reported Condition",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stock_state",
+   "label": "Refused Stock Status",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "options": "Not Refused\nHeld\nAvailable for Resale\nRecovery Reserved\nTransferred Hold\nDisposed",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "current_warehouse",
+   "label": "Current Custody Warehouse",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "hold_ledger",
+   "label": "Hold Reservation Ledger",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Handling Unit Quantity Ledger"
+  },
+  {
+   "fieldname": "qc_return_case",
+   "label": "QC Return Case",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Return Case",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "recovery_manifest",
+   "label": "Recovery Manifest",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Movement Manifest"
+  },
+  {
+   "fieldname": "released_on",
+   "label": "Released On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "released_by",
+   "label": "Released By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "release_reason",
+   "label": "Release Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  }
+ ],
+ "allow_rename": 0
+}

@@ -40,8 +40,11 @@ class CFGKanbanReturnCase(Document):
             frappe.throw("Customer Return for QC requires an Inspection Custody Location")
         before = None if self.is_new() else self.get_doc_before_save()
         if not before:
+            if self.get('stock_already_owned') and not self.flags.get('cfg_driver_return'):
+                frappe.throw('Company-owned refusal cases are created only through the controlled driver outcome')
             return
         immutable = (
+            "owned_stock_issue", "collected_by", "collected_on", "collection_key", "stock_already_owned", "driver_trip", "driver_stop_key", "collection_vehicle_warehouse", "reported_source_reference", "driver_delivery_outcome",
             "scan_token", "intake_method", "intake_payload_hash", "customer_scan_point", "original_delivery_session",
             "original_delivery_note", "delivery_proof", "selling_company", "customer",
             "customer_address", "site_code", "site_name", "return_flow",
@@ -60,7 +63,7 @@ class CFGKanbanReturnCase(Document):
         old_lines = [row.as_dict() for row in before.lines]
         new_lines = [row.as_dict() for row in self.lines]
         protected = (
-            "original_delivery_allocation", "original_delivery_note_item",
+            "driver_outcome_line", "original_delivery_allocation", "original_delivery_note_item",
             "original_handling_unit", "original_visible_code",
             "item_code", "batch_no", "expiry_date", "stock_uom", "delivered_qty",
             "claimed_qty", "condition", "details",

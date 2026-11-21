@@ -132,12 +132,15 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
         assert_visit_allowed(plan,site.name)
     validate_prepared_loading(plan)
     allocations = _loaded_allocations(plan)
+    outcome = _driver_outcomes().pending_for(plan, operator) if plan.get('driver_delivery_outcome') else None
+    accepted = {r.dispatch_allocation:flt(r.accepted_qty) for r in outcome.lines} if outcome else {}
     # Native ERP stock and physical identities are locked in consistent sorted order.
     for item in sorted({row.item_code for row in allocations}):
         planning._lock_erp_bin(item, plan.vehicle_warehouse)
     for name in sorted({row.handling_unit for row in allocations if row.handling_unit}):
         frappe.db.sql('select name from `tabCFG Kanban Handling Unit` where name=%s for update', name)
-    order, order_rows = _order_assignments(plan, allocations)
+    sale_sources = [frappe._dict(dict(row, allocated_qty=accepted[row.name])) for row in allocations if accepted[row.name]>0] if outcome else allocations
+    order, order_rows = _order_assignments(plan, sale_sources) if sale_sources else (None, {})
     policy = plan.proof_policy
     if not policy or policy == 'Inherit Customer Site':
         policy = site.proof_policy
@@ -155,13 +158,18 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
             ('currency', 'conversion_rate', 'price_list_currency', 'plc_conversion_rate', 'project')}, sort_keys=True)
     created = engine._start_delivery_session(site, plan.vehicle_warehouse, request_token,
                                                operator, session, snapshots=extra)
+    if outcome:
+        _driver_outcomes().bind(outcome, created)
     for source in allocations:
+        if outcome and accepted[source.name] <= 0:
+            continue
+        source = frappe._dict(dict(source, allocated_qty=accepted[source.name])) if outcome else source
         link = {'dispatch_allocation': source.name, 'sales_order_item': order_rows.get(source.name)}
         if source.allocation_kind == 'Tagged Stock':
             unit = frappe.get_doc('CFG Kanban Handling Unit', source.handling_unit)
             if (unit.item_code != source.item_code or (unit.batch_no or '') != (source.batch_no or '') or
                     unit.stock_uom != source.stock_uom or
-                    abs(flt(unit.current_qty) - flt(source.allocated_qty)) > 0.000001):
+                    abs(flt(unit.current_qty) - (next(flt(r.prepared_qty) for r in outcome.lines if r.dispatch_allocation==source.name) if outcome else flt(source.allocated_qty))) > 0.000001):
                 frappe.throw('Loaded Stock Tag identity or quantity changed; reconcile the prepared Plan')
             assert_delivery_tag_expiry(unit)
             membership = engine.active_container_membership(unit.name)
@@ -171,8 +179,12 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
         else:
             _reserve_untagged(created, source, request_token, operator, session, link)
     created.db_set('state', 'Allocating Stock', update_modified=True)
+    if outcome:
+        _driver_outcomes().activate(outcome, created, operator, session)
     validate_prepared_allocations(created)
     plan.db_set({'delivery_session': created.name, 'fulfilment_status': 'In Progress', 'prepared_stock_commitment': 1}, update_modified=True)
+    if outcome:
+        sync_plan_delivery(created)
     record('Prepared Customer Delivery Started', delivery_session=created.name,
            reference_doctype=plan.doctype, reference_name=plan.name,
            operator=operator.employee, operator_session=session.name,
@@ -304,6 +316,12 @@ def validate_prepared_allocations(delivery, allocations=None):
             plan.company != delivery.selling_company or plan.customer != delivery.customer or
             plan.customer_address != delivery.customer_address or plan.vehicle_warehouse != delivery.source_warehouse):
         frappe.throw('Delivery Session no longer matches its loaded Customer Order Plan')
+    if delivery.get('driver_delivery_outcome'):
+        if allocations is None:
+            allocations=frappe.get_all('CFG Kanban Delivery Allocation',filters={'delivery_session':delivery.name,'state':['in',['Reserved','Delivery Pending']]},
+                fields=['name','dispatch_allocation','handling_unit','item_code','batch_no','stock_uom','allocated_qty'],limit_page_length=0)
+        _driver_outcomes().validate_allocations(delivery, allocations)
+        return
     sources = {row.name:row for row in _loaded_allocations(plan)}
     if allocations is None:
         allocations = frappe.get_all('CFG Kanban Delivery Allocation', filters={
@@ -378,6 +396,8 @@ def sync_plan_delivery(delivery):
         'total_delivered_qty':flt(qty),'fulfilment_completed_on':delivery.completed_on if state=='Closed' else None},update_modified=True)
     if state=='Cancelled':
         delivery.db_set('active_dispatch_plan_key',None,update_modified=False)
+    if delivery.get('driver_delivery_outcome'):
+        _driver_outcomes().auto_release(delivery)
 
 
 def assert_delivery_tag_expiry(unit):
@@ -446,7 +466,7 @@ def assert_prepared_tag_scope(handling_unit, delivery):
         frappe.throw('Stock Tag belongs to a prepared Customer Order/Route load; start that Plan instead of ad-hoc allocation')
 
 
-def waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclude_plan=None, current=False):
+def waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclude_plan=None, current=False, exclude_refusal_outcome=None):
     """Keep each undelivered prepared quantity committed without double-counting reservations."""
     condition='and allocation.batch_no=%(batch)s' if batch_no else "and ifnull(allocation.batch_no,'')=''"
     if current:
@@ -471,9 +491,10 @@ def waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclu
                      'state':['in',['Reserved','Delivery Pending','Exception','Delivered']]},
                     ['dispatch_allocation','allocated_qty'], as_dict=True, for_update=True, order_by='name'):
                 picked[row.dispatch_allocation] = picked.get(row.dispatch_allocation, 0) + flt(row.allocated_qty)
-        return sum(max(flt(row.allocated_qty)-picked.get(row.name, 0), 0) for row in rows)
+        refusals = {r.name:_driver_outcomes().declared_source_qty(r.name, current=True) for r in rows} if frappe.db.exists('DocType','CFG Kanban Delivery Outcome') else {}
+        return sum(max(flt(row.allocated_qty)-picked.get(row.name, 0)-refusals.get(row.name,0), 0) for row in rows) + held_refused_untagged_qty(company,warehouse,item_code,batch_no,current=True,exclude_outcome=exclude_refusal_outcome)
     return flt(frappe.db.sql(f"""
-        select coalesce(sum(greatest(allocation.allocated_qty - coalesce((
+        select coalesce(sum(greatest(allocation.allocated_qty - coalesce((select sum(refused.refused_qty) from `tabCFG Kanban Delivery Outcome Line` refused where refused.dispatch_allocation=allocation.name),0) - coalesce((
             select sum(picked.allocated_qty) from `tabCFG Kanban Delivery Allocation` picked
             where picked.dispatch_allocation=allocation.name
               and picked.state in ('Reserved','Delivery Pending','Exception','Delivered')
@@ -488,10 +509,21 @@ def waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclu
                or (plan.plan_type='Open Route Stock' and plan.route_stock_commitment=1))
           and (%(excluded)s is null or plan.name!=%(excluded)s) {condition}
         """,{'company':company,'warehouse':warehouse,'item':item_code,'batch':batch_no,
-              'excluded':exclude_plan})[0][0])
+              'excluded':exclude_plan})[0][0]) + held_refused_untagged_qty(company,warehouse,item_code,batch_no,exclude_outcome=exclude_refusal_outcome)
 
 
 def _assert_untagged_batch_expiry(batch_no):
     expiry=frappe.db.get_value('Batch',batch_no,'expiry_date') if batch_no else None
     if expiry and getdate(expiry)<getdate(today()):
         frappe.throw(f'Batch {batch_no} is expired and cannot be delivered')
+
+
+def _driver_outcomes():
+    from cfg_kanban.services import driver_delivery_outcomes
+    return driver_delivery_outcomes
+
+
+def held_refused_untagged_qty(company, warehouse, item_code, batch_no, current=False, exclude_outcome=None):
+    if not frappe.db.exists('DocType','CFG Kanban Delivery Outcome'):
+        return 0
+    return _driver_outcomes().held_untagged(company,warehouse,item_code,batch_no,current=current,exclude_outcome=exclude_outcome)

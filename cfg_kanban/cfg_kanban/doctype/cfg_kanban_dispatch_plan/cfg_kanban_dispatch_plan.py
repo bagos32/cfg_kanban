@@ -17,6 +17,9 @@ class CFGKanbanDispatchPlan(Document):
     """E2 business authorization and reservation header; never an ERP stock document."""
 
     def validate(self):
+        before = None if self.is_new() else self.get_doc_before_save()
+        if self.get('driver_delivery_outcome') != (before.get('driver_delivery_outcome') if before else None):
+            frappe.throw('Driver delivery outcome is a controlled immutable execution reference')
         if self.state not in ACTIVE_STATES | {"Cancelled", "Exception", "Reconciled"}:
             frappe.throw(f"Unsupported Dispatch Plan state {self.state}")
         if self.priority not in {"Low", "Normal", "High", "Urgent"}:

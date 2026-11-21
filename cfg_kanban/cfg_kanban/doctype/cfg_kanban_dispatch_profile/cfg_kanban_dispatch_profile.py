@@ -7,6 +7,9 @@ class CFGKanbanDispatchProfile(Document):
     """Manager policy resolved at a permanent Dispatch Point and snapshotted into E2 Plans."""
 
     def validate(self):
+        self.sound_refusal_policy = self.get('sound_refusal_policy') or 'Require Supervisor Release'
+        if self.sound_refusal_policy not in ('Require Supervisor Release','Allow Resale After Delivery'):
+            frappe.throw('Select a valid Sound Refused Goods policy')
         self.route_sequence_scope = self.get('route_sequence_scope') or 'Per Dispatch Plan'
         self.customer_verification = self.get('customer_verification') or 'Require Customer Site QR'
         if self.route_sequence_scope not in ('Per Dispatch Plan','Combined Lorry Trip'):
@@ -53,7 +56,7 @@ class CFGKanbanDispatchProfile(Document):
                 "tag_policy", "stock_rotation_policy", "approval_required",
                 "allow_supervisor_override", "auto_submit_stock_transfer",
                 "auto_submit_delivery_note", "proof_policy", "dispatch_responsibility",
-                "stop_sequence_policy", "delivery_route_reference", "pickup_acknowledgement", "route_sequence_scope", "route_template", "route_approval_required", "customer_verification")):
+                "stop_sequence_policy", "delivery_route_reference", "pickup_acknowledgement", "route_sequence_scope", "route_template", "route_approval_required", "customer_verification", "sound_refusal_policy")):
             self.revision = cint(before.revision) + 1
 
     def _validate_dispatch_point(self):

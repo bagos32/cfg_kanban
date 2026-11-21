@@ -263,6 +263,8 @@ def _validate_disposition_lines(case, submitted):
 
 
 def _assert_disposition_ready(case, allow_decided=False):
+    if case.get("stock_already_owned"):
+        frappe.throw("Refused goods are already company stock. Use controlled stock transfer/recovery; do not create a second Material Receipt.")
     if case.return_flow != "Customer Return for QC" or not case.qc_completed_on:
         frappe.throw(_("Only a completed Customer Return QC case can be dispositioned"))
     if flt(case.accepted_total_qty) <= 0:
@@ -296,3 +298,72 @@ def _require_stock_entry_create():
     if not frappe.has_permission("Stock Entry", ptype="create"):
         frappe.throw(_("You need Create permission for Stock Entry to receive returned stock"),
                      frappe.PermissionError)
+
+
+@frappe.whitelist()
+def confirm_owned_stock_disposal(return_case,stock_entry,reason):
+    """Mirror an existing submitted ERP Material Issue; never create another ERP movement."""
+    _require_disposition_user()
+    reason=str(reason or '').strip()
+    if not reason:frappe.throw('Stock disposal confirmation reason is required')
+    entry=frappe.get_doc('Stock Entry',stock_entry,for_update=True);entry.check_permission('read')
+    if (entry.docstatus!=1 or entry.purpose!='Material Issue' or entry.get('cfg_movement_manifest')
+            or entry.get('cfg_kanban_cycle') or entry.get('cfg_return_case')):
+        frappe.throw('Select the submitted native Material Issue for this refused stock')
+    case=frappe.get_doc('CFG Kanban Return Case',return_case,for_update=True);case.check_permission('read')
+    if not case.get('stock_already_owned') or not case.qc_completed_on or entry.company!=case.selling_company:
+        frappe.throw('Completed company-owned refusal QC and matching Company are required')
+    if case.get('owned_stock_issue'):
+        if case.owned_stock_issue!=entry.name:frappe.throw('This refused stock already has its recorded disposal')
+        return dict(return_case=case.name,stock_entry=entry.name,already_recorded=True)
+    used=frappe.db.get_value('CFG Kanban Return Case',{'owned_stock_issue':entry.name},'name',for_update=True)
+    if used:frappe.throw('This Material Issue already supports another Return Case')
+    from cfg_kanban.services.driver_delivery_outcomes import LINE, OUTCOME, _ledger, held_tag_qty
+    rows=[];expected={}
+    for source in sorted(case.lines,key=lambda r:r.driver_outcome_line or ''):
+        if (source.qc_disposition!='Accept for Disposal'
+                or abs(flt(source.received_qty)-flt(source.claimed_qty))>0.000001):
+            frappe.throw('QC must verify the full physical quantity and approve disposal for every source')
+        row=frappe.get_doc(LINE,source.driver_outcome_line,for_update=True)
+        if (row.parent!=case.driver_delivery_outcome or row.qc_return_case!=case.name
+                or row.stock_state not in ('Held','Transferred Hold')
+                or abs(flt(source.claimed_qty)-flt(row.refused_qty))>0.000001):
+            frappe.throw('Refused stock is no longer held in this exact QC case')
+        key=(row.current_warehouse,row.item_code,row.batch_no or '',row.stock_uom)
+        expected[key]=expected.get(key,0)+flt(row.refused_qty);rows.append(row)
+    actual={}
+    for row in entry.items:
+        if row.t_warehouse:frappe.throw('Owned-stock disposal must be a Material Issue, without a destination')
+        key=(row.s_warehouse,row.item_code,row.batch_no or '',row.stock_uom or row.uom)
+        actual[key]=actual.get(key,0)+flt(row.transfer_qty or row.qty)
+    if not expected or set(actual)!=set(expected) or any(abs(actual[k]-expected[k])>0.000001 for k in expected):
+        frappe.throw("Material Issue must cover exactly this case's refused quantities, Batch, stock UOM and custody Warehouse")
+    for row in rows:
+        if row.handling_unit:
+            unit=frappe.get_doc('CFG Kanban Handling Unit',row.handling_unit,for_update=True)
+            if (unit.inventory_company!=case.selling_company or unit.current_warehouse!=row.current_warehouse
+                    or unit.item_code!=row.item_code or (unit.batch_no or '')!=(row.batch_no or '')
+                    or unit.stock_uom!=row.stock_uom or abs(flt(unit.current_qty)-flt(row.refused_qty))>0.000001
+                    or abs(flt(unit.reserved_qty)-held_tag_qty(unit.name))>0.000001):
+                frappe.throw('Refused Stock Tag changed; reconcile its custody before confirming disposal')
+            parent=frappe.get_doc(OUTCOME,row.parent)
+            _ledger(row,parent,'Unreserve','disposal:'+entry.name)
+            _ledger(row,parent,'Damage','disposal:'+entry.name)
+            unit.db_set(dict(identity_state='Empty',movement_state='Empty',current_warehouse=None),update_modified=False)
+            from cfg_kanban.services.container_contents import active_container_membership
+            membership=active_container_membership(unit.name)
+            if membership:
+                from cfg_kanban.integrations.logistics_feedback import _unload_customer_container
+                delivery=frappe.get_doc('CFG Kanban Delivery Session',parent.delivery_session)
+                _unload_customer_container(delivery,membership.container_handling_unit,entry.name,now_datetime())
+        row.db_set(dict(stock_state='Disposed',release_reason=reason,released_on=now_datetime()),update_modified=False)
+    case.db_set(dict(owned_stock_issue=entry.name,disposition_status='Completed',stock_disposition_entry_status='Not Required',
+        disposition_notes=reason,disposition_decided_by=frappe.session.user,disposition_decided_on=now_datetime(),state='Closed'),update_modified=True)
+    record('Owned Refused Stock Disposal Confirmed',return_case=case.name,reference_doctype='Stock Entry',reference_name=entry.name,
+        notes=reason,idempotency_key=canonical_key('owned-refusal-disposal',case.name,entry.name))
+    return dict(return_case=case.name,stock_entry=entry.name,already_recorded=False)
+
+
+def protect_owned_issue_cancel(doc,method=None):
+    rows=frappe.db.sql('select name from `tabCFG Kanban Return Case` where owned_stock_issue=%s for update',doc.name)
+    if rows:frappe.throw('This Material Issue finalised refused stock disposal. Use audited stock reversal/recovery instead of cancelling its evidence.')

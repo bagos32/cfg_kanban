@@ -29,7 +29,7 @@ PROFILE_SNAPSHOT_FIELDS = (
     "approval_required", "allow_supervisor_override", "auto_submit_stock_transfer",
     "auto_submit_delivery_note", "proof_policy", "dispatch_responsibility",
     "stop_sequence_policy", "delivery_route_reference", "pickup_acknowledgement",
-    "route_sequence_scope", "route_template", "route_approval_required", "customer_verification",
+    "route_sequence_scope", "route_template", "route_approval_required", "customer_verification", "sound_refusal_policy",
 )
 
 
@@ -1608,7 +1608,7 @@ def _lock_erp_bin(item_code, warehouse):
     )
 
 
-def _untagged_available(company, warehouse, item_code, batch_no, exclude_prepared_plan=None, current=False):
+def _untagged_available(company, warehouse, item_code, batch_no, exclude_prepared_plan=None, current=False, exclude_refusal_outcome=None):
     validate_warehouse_company(warehouse, company, "Dispatch source Warehouse")
     if current:
         # Native quantity and every competing commitment are current reads after the Bin lock.
@@ -1628,7 +1628,7 @@ def _untagged_available(company, warehouse, item_code, batch_no, exclude_prepare
               and source_company=%(company)s and source_warehouse=%(warehouse)s
               and item_code=%(item)s {condition} order by name for update""", params, as_dict=True)
         delivered = active_untagged_delivery_qty(company, warehouse, item_code, batch_no, current=True)
-        waiting = waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclude_prepared_plan, current=True)
+        waiting = waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclude_prepared_plan, current=True, exclude_refusal_outcome=exclude_refusal_outcome)
         return max(flt(erp_balance)-sum(flt(row.current_qty) for row in tagged)
                    -sum(flt(row.allocated_qty) for row in reserved)-delivered-waiting, 0)
     if batch_no:
@@ -1665,7 +1665,7 @@ def _untagged_available(company, warehouse, item_code, batch_no, exclude_prepare
     )[0][0]
     from cfg_kanban.services.dispatch_fulfilment import active_untagged_delivery_qty, waiting_prepared_untagged_qty
     delivery_reserved = active_untagged_delivery_qty(company, warehouse, item_code, batch_no)
-    waiting_prepared = waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclude_prepared_plan)
+    waiting_prepared = waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclude_prepared_plan, exclude_refusal_outcome=exclude_refusal_outcome)
     return max(erp_balance - flt(tagged) - flt(untagged_reserved) - delivery_reserved - waiting_prepared, 0)
 
 
