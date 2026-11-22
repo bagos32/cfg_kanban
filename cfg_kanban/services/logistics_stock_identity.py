@@ -184,6 +184,14 @@ def validate_logistics_document(doc, method=None):
                     frappe.throw("Controlled logistics serials differ from the selected physical stock")
         return
     manifest = frappe.get_doc("CFG Kanban Movement Manifest", doc.cfg_movement_manifest)
+    if (doc.doctype=='Stock Entry' and doc.get('cfg_transfer_stage')!='Receipt'
+            and any(line.line_kind=='ERP Stock without Physical Tag' for line in manifest.lines)
+            and frappe.db.table_exists('CFG Kanban Cancelled Stop Stock')):
+        from cfg_kanban.services.cancelled_stop_stock import assert_loose_movement
+        for line in manifest.lines:
+            if line.line_kind=='ERP Stock without Physical Tag':
+                assert_loose_movement(line.item_code,manifest.source_warehouse,line.dispatch_qty,manifest)
+
     expected_lines = {line.name: line for line in manifest.lines}
     seen = set()
     for row in doc.items:

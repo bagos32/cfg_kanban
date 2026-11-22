@@ -407,16 +407,24 @@ def cancel_dispatch_plan(dispatch_plan, reason, event_token=None,
     _require_event_token(event_token)
     operator, session = require_operator(operator_session_token)
     plan = _locked_authorized_plan(dispatch_plan, operator)
+    _cancel_unposted_plan(plan, operator, session, reason, event_token)
+    return get_dispatch_plan(plan.name, operator_session_token)
+
+
+def _cancel_unposted_plan(plan, operator, session, reason, event_token, supervisor_cancel=False):
+    """E2 cancellation shared by the public action and controlled Trip stop cancellation."""
     reason = (reason or "").strip()
     if not reason:
         frappe.throw("Cancellation reason is required")
     if plan.state == "Cancelled":
-        return get_dispatch_plan(plan.name, operator_session_token)
+        return
     if plan.state not in {"Draft", "Awaiting Approval", *RESERVABLE_STATES}:
         frappe.throw(f"Dispatch Plan cannot be cancelled from {plan.state}")
     if plan.state in RESERVABLE_STATES and not cint(operator.get("can_override")):
         frappe.throw("Supervisor Override permission is required to cancel an approved Plan")
-    if plan.state not in RESERVABLE_STATES and not cint(operator.get("can_start")):
+    if supervisor_cancel and not (_view_all(operator) and operator.can_override and operator.can_complete):
+        frappe.throw("Supervisor, View All, Override and Complete are required",frappe.PermissionError)
+    if plan.state not in RESERVABLE_STATES and not cint(operator.get("can_start")) and not supervisor_cancel:
         frappe.throw("Start permission is required to cancel a Draft or pending Dispatch Plan")
     allocations = frappe.get_all(
         "CFG Kanban Dispatch Allocation",
@@ -448,7 +456,7 @@ def cancel_dispatch_plan(dispatch_plan, reason, event_token=None,
         operator_session=session.name, terminal_user=session.terminal_user,
         notes=reason,
     )
-    return get_dispatch_plan(plan.name, operator_session_token)
+    return
 
 
 @frappe.whitelist()
@@ -635,7 +643,7 @@ def get_dispatch_plan(dispatch_plan, operator_session_token):
     } if plan.state in RESERVABLE_STATES and plan.tag_policy in ("Tagged", "Mixed") else {}
     from cfg_kanban.services.customer_delivery import _customer_delivery_allowed
     result["can_start_fulfilment"] = bool(
-        plan.state == "Loaded" and plan.plan_type == "Customer Order"
+        plan.state == "Loaded" and not plan.get("stop_cancellation") and plan.plan_type == "Customer Order"
         and plan.fulfilment_mode == "Vehicle Delivery" and operator.can_start
         and _customer_delivery_allowed(operator))
     if plan.fulfilment_mode in ("Direct Warehouse Delivery", "Customer Pickup"):

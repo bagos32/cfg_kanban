@@ -318,7 +318,12 @@ def scan_dispatch_recovery(manifest_name, scan_value, event_token, operator_sess
         frappe.throw('Every tag in the scanned source must belong to this prepared remainder; split/repack other stock first')
     for row in lines:
         source = frappe.get_doc(HU, row.handling_unit, for_update=True)
-        _logistics()._validate_dispatch_unit(source, manifest, expected_container=container.name if container else None)
+        held = _refused_reserve(plan, source.name)
+        if held and abs(held-flt(row.dispatch_qty)) > EPSILON:
+            frappe.throw('Recovery reservation must cover this exact approved remainder')
+        _logistics()._validate_dispatch_unit(source, manifest,
+            expected_container=container.name if container else None,
+            **({'allowed_reserved_qty':held} if held else {}))
         row.container_handling_unit = container.name if container else None
         row.container_visible_code = container.handling_unit_id if container else None
     for row in lines:
@@ -366,9 +371,15 @@ def prepare_recovery_manifest(manifest, operator, session, event_token):
         if source_plan and frappe.db.get_value('CFG Kanban Dispatch Plan',source_plan,'driver_delivery_outcome'):
             from cfg_kanban.services.driver_delivery_outcomes import lock_recovery_rows
             lock_recovery_rows(manifest)
+        if source_plan and frappe.db.get_value('CFG Kanban Dispatch Plan',source_plan,'stop_cancellation'):
+            from cfg_kanban.services.cancelled_stop_stock import lock_recovery_rows
+            lock_recovery_rows(manifest)
     plan, review, manifest = validate_recovery_manifest(manifest, operator)
     if plan.get('driver_delivery_outcome'):
         from cfg_kanban.services.driver_delivery_outcomes import recovery_adopt
+        recovery_adopt(manifest)
+    if plan.get('stop_cancellation'):
+        from cfg_kanban.services.cancelled_stop_stock import recovery_adopt
         recovery_adopt(manifest)
     for row in manifest.lines:
         if not row.handling_unit:
@@ -429,6 +440,9 @@ def cancel_dispatch_recovery(manifest_name, reason, event_token, operator_sessio
     if plan.get('driver_delivery_outcome'):
         from cfg_kanban.services.driver_delivery_outcomes import recovery_restore
         recovery_restore(manifest)
+    if plan.get('stop_cancellation'):
+        from cfg_kanban.services.cancelled_stop_stock import recovery_restore
+        recovery_restore(manifest)
     manifest.db_set(dict(state='Cancelled', cancelled_by=operator.employee,
         cancelled_on=now_datetime(), cancellation_reason=reason), update_modified=True)
     frappe.db.set_value('CFG Kanban Manifest Line', {'parent': manifest.name}, 'state', 'Cancelled', update_modified=False)
@@ -486,7 +500,11 @@ def protect_recovery_document_identity(doc, method=None):
 
 
 def _refused_reserve(plan,unit):
-    if not plan.get('driver_delivery_outcome'):
-        return 0
-    from cfg_kanban.services.driver_delivery_outcomes import held_tag_qty
-    return held_tag_qty(unit)
+    held=0
+    if plan.get('driver_delivery_outcome'):
+        from cfg_kanban.services.driver_delivery_outcomes import held_tag_qty
+        held+=held_tag_qty(unit)
+    if plan.get('stop_cancellation'):
+        from cfg_kanban.services.cancelled_stop_stock import held_tag_qty
+        held+=held_tag_qty(unit,dispatch_plan=plan.name,parent=plan.stop_cancellation)
+    return held

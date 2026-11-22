@@ -111,11 +111,17 @@ def unload_content_tag(container_scan, content_scan, reason, event_token,
     assert_container_not_in_open_delivery(container.name, "changing its physical contents")
     content.reload()
     if flt(content.reserved_qty):
-        frappe.throw(
-            _("Tag {0} is reserved for an open transaction and cannot be unloaded").format(
-                content.handling_unit_id
+        # Metadata-only separation of a cancelled customer's tag from a mixed
+        # logistics container. No quantity/identity/reservation is changed.
+        if frappe.db.table_exists("CFG Kanban Cancelled Stop Stock"):
+            from cfg_kanban.services.cancelled_stop_stock import assert_held_tag_unload
+            assert_held_tag_unload(content, operator_session_token)
+        else:
+            frappe.throw(
+                _("Tag {0} is reserved for an open transaction and cannot be unloaded").format(
+                    content.handling_unit_id
+                )
             )
-        )
     unload_key = canonical_key("container-unload", container.name, content.name, event_token)
     existing = frappe.db.get_value(
         "CFG Kanban Container Content", {"unload_event_key": unload_key}, "name"

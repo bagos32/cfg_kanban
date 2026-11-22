@@ -8,14 +8,16 @@ from cfg_kanban.services.idempotency import canonical_key
 from cfg_kanban.services.operator_auth import require_operator
 
 TRIP = 'CFG Kanban Delivery Trip'
-ACTIONS = ('Release GPS','Start GPS', 'Start Route', 'Begin Delivery', 'Confirm Allocations', 'Create Delivery Note',
+ACTIONS = ('Request Stop Cancellation','Cancel Customer Stop','Release GPS','Start GPS', 'Start Route', 'Begin Delivery', 'Confirm Allocations', 'Create Delivery Note',
            'Open Proof', 'Submit Proof', 'Complete Stop', 'Collect Old Return', 'Release Refused Stock', 'Begin Open Sale', 'Add Assistant', 'Change Route Order', 'Request Route Change', 'Cancel Route Change', 'Decide Route Change')
 PAYLOAD_FIELDS = {
+    'Request Stop Cancellation': {'reason'},
+    'Cancel Customer Stop': {'reason','goods_hash','stock_disposition'},
     'Release GPS': {'lease_id','reason'},
     'Start GPS': {'device_id','publish_token'},
     'Change Route Order': {'order','reason'}, 'Request Route Change': {'order','reason'},
     'Cancel Route Change': {'request_name','reason'},
-    'Decide Route Change': {'request_name','decision','approval_mode','reason'},
+    'Decide Route Change': {'request_name','decision','approval_mode','reason','goods_hash','stock_disposition'},
     'Add Assistant': {'employee'},
     'Begin Open Sale': {'customer_scan'},
     'Start Route': set(), 'Begin Delivery': {'customer_scan', 'quantities'}, 'Confirm Allocations': set(),
@@ -129,14 +131,16 @@ def _record(doc, operator, session, key, request, result=None, void_reason=None,
 
 def _build_snapshot(doc, context, operator):
     """Validate exact execution links; do not publish or approve an operational Route Sheet."""
-    if not doc.stops:
+    if not any(not r.get('cancellation_request') for r in doc.stops):
         frappe.throw('Add at least one saved customer stop before departure')
     by_stop = {row.stop_key: row for row in doc.stops}
+    cancelled={r.stop_key for r in doc.stops if r.get('cancellation_request')}
+    saved=json.loads(doc.driver_route_snapshot_json or '{}') if cancelled else {}
     plans = {row.dispatch_plan: _read('CFG Kanban Dispatch Plan', row.dispatch_plan) for row in doc.dispatch_plans}
     if len(plans) != len(doc.dispatch_plans):
         frappe.throw('Duplicate Dispatch Plan links require office review')
     linked = {row.dispatch_plan: row.stop_key for row in doc.dispatch_plans}
-    vehicles = {plan.vehicle_warehouse for plan in plans.values() if plan.vehicle_warehouse}
+    vehicles = {plan.vehicle_warehouse for name,plan in plans.items() if plan.vehicle_warehouse and linked[name] not in cancelled}
     if doc.get('open_route_plan'):
         shared=_read('CFG Kanban Dispatch Plan',doc.open_route_plan)
         if shared.vehicle_warehouse:vehicles.add(shared.vehicle_warehouse)
@@ -144,7 +148,7 @@ def _build_snapshot(doc, context, operator):
         vehicles.add(doc.vehicle_warehouse)
     for vehicle in sorted(vehicles):
         _planning()._vehicle_warehouse(vehicle, doc.company)
-    deliveries = [row for row in doc.stops if row.stop_purpose != 'Visit Only']
+    deliveries = [row for row in doc.stops if row.stop_purpose != 'Visit Only' and row.stop_key not in cancelled]
     if deliveries and (not plans or len(vehicles) != 1):
         frappe.throw('Assign one actual lorry and prepare every delivery before starting the route')
     if len(vehicles) > 1:
@@ -157,8 +161,14 @@ def _build_snapshot(doc, context, operator):
             physical = [row for row in stop['items'] if row['is_stock_item']]
             if not physical or any(row['loaded_qty'] + 0.000001 < row['planned_qty'] for row in physical):
                 frappe.throw('Every planned physical quantity must have completed lorry loading')
-    signatures = {}; policies = {}
+    signatures = {}; policies = {}; cancelled_sheets={}
     for name, plan in plans.items():
+        if linked[name] in cancelled:
+            policy=saved.get('policies',{}).get(name)
+            if policy:
+                policies[name]=policy
+                if policy.get('sheet'):cancelled_sheets[policy['sheet']]=saved['sheets'][policy['sheet']]
+            continue
         _planning()._assert_plan_authorized(plan, operator)
         if plan.state != 'Loaded' or plan.get('dispatch_review_state') not in (None, '', 'Settled'):
             frappe.throw('Resolve Dispatch Review and use Loaded Customer Order Plans')
@@ -199,6 +209,7 @@ def _build_snapshot(doc, context, operator):
                 require_scan=sheet.verification_policy == _sheets().QR)
         else:
             policies[name] = dict(sheet=None, row_key=None, require_scan=_sheets().verification(plan) != _sheets().SELECT)
+    for name,signature in cancelled_sheets.items():signatures.setdefault(name,signature)
     order = context.get('source_stop_order') or [row['stop_key'] for row in context['stops']]
     # Visits absent from an operational Sheet retain office position. Delivery order must agree.
     if context['sequence_source'] != 'Approved Route Sheet':
@@ -217,6 +228,9 @@ def _build_snapshot(doc, context, operator):
     allocations = sorted([(row['dispatch_plan'], row['dispatch_allocation'], row['item_code'], row['stock_uom'],
                            row['batch_no'], row['tag_code'], row['assigned_qty'])
                           for stop in context['stops'] for row in stop['sources']])
+    if cancelled and saved:
+        cancelled_plans={name for name,key in linked.items() if key in cancelled}
+        allocations=sorted([tuple(r) for r in allocations]+[tuple(r) for r in saved.get('allocations',[]) if r[0] in cancelled_plans])
     extra={}
     if doc.get('open_route_plan'):
         from cfg_kanban.services.trip_sales import snapshot
@@ -293,7 +307,7 @@ def _finish(doc, stop, operator, token, notes=None):
     stop.db_set(dict(driver_completed_on=now_datetime(), driver_completed_by=operator.employee,
                      driver_visit_notes=(notes or '').strip() or None), update_modified=False)
     values = dict(driver_active_stop_key=None)
-    if all(row.get('driver_completed_on') for row in doc.stops):
+    if all(row.get('driver_completed_on') or row.get('cancellation_request') for row in doc.stops):
         values.update(driver_route_state='Completed', driver_route_completed_on=now_datetime(),
                       driver_active_vehicle_key=None)
     doc.db_set(values, update_modified=True)
@@ -306,6 +320,11 @@ def _target(doc, request, snapshot):
     stop = next((row for row in doc.stops if row.stop_key == request['stop_key']), None)
     if not stop:
         frappe.throw('Select the exact saved trip stop')
+    if stop.get('cancellation_request'):
+        frappe.throw('This customer stop was cancelled; use another active stop')
+    if doc.get('route_change_request'):
+        from cfg_kanban.services.trip_sequence import assert_target_not_pending_cancellation
+        assert_target_not_pending_cancellation(doc,stop)
     if stop.get('driver_completed_on'):
         frappe.throw('This stop is already completed; refresh its recorded outcome')
     active = doc.get('driver_active_stop_key')
@@ -315,7 +334,7 @@ def _target(doc, request, snapshot):
     if doc.get('driver_stop_order_json'):
         from cfg_kanban.services.trip_sequence import order
         keys=order(doc,snapshot)
-    pending = [key for key in keys if not next(row for row in doc.stops if row.stop_key == key).get('driver_completed_on')]
+    pending = [key for key in keys if not (next(row for row in doc.stops if row.stop_key == key).get('driver_completed_on') or next(row for row in doc.stops if row.stop_key == key).get('cancellation_request'))]
     enforced=snapshot['strict']
     if doc.get('route_sequence_revision') is not None:
         from cfg_kanban.services.trip_sequence import strict
@@ -333,6 +352,10 @@ def driver_action_context(trip_name, operator_session_token, stop_key=None, oper
         revision=cint(doc.driver_route_revision), scope_hash=_core(doc),
         can_start=bool(operator.can_start), can_complete=bool(operator.can_complete),
         planning_state=doc.state, next_step='Start Route', stop_key=stop_key, dispatch_plan=None)
+    if operation=='Cancel Customer Stop':
+        from cfg_kanban.services.trip_stop_cancellation import context
+        setup=context(doc,stop_key,operator)
+        return dict(result,next_step='Cancel Customer Stop' if setup['supervisor'] else 'Request Stop Cancellation',setup=setup)
     if operation in ('Start GPS','Release GPS'):
         return dict(result,next_step=operation,stop_key=None)
     if operation=='Review Route Change':
@@ -343,7 +366,7 @@ def driver_action_context(trip_name, operator_session_token, stop_key=None, oper
         from cfg_kanban.services.trip_sequence import edit_context
         return dict(result,next_step='Edit Route Order',stop_key=None,setup=edit_context(doc,operator,operator_session_token))
     if operation=='Cancel Route Change':
-        return dict(result,next_step='Cancel Route Change',stop_key=None,setup=dict(request_name=doc.route_change_request))
+        return dict(result,next_step='Cancel Route Change',stop_key=None,setup=dict(request_name=doc.route_change_request,request_type=_read('CFG Kanban Route Change Request',doc.route_change_request).get('request_type')))
     if operation == 'Add Assistant':
         from cfg_kanban.services.trip_team import assert_lead
         assert_lead(doc, operator)
@@ -371,7 +394,7 @@ def driver_action_context(trip_name, operator_session_token, stop_key=None, oper
         from cfg_kanban.services.trip_sequence import order
         effective=order(doc,snapshot)
     key = stop_key or doc.driver_active_stop_key or next((key for key in effective
-        if not next(row for row in doc.stops if row.stop_key == key).get('driver_completed_on')), None)
+        if not (next(row for row in doc.stops if row.stop_key == key).get('driver_completed_on') or next(row for row in doc.stops if row.stop_key == key).get('cancellation_request'))), None)
     stop = next((row for row in doc.stops if row.stop_key == key), None)
     if not stop or stop.get('driver_completed_on'):
         return dict(result, next_step='Done')
@@ -425,6 +448,15 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
             frappe.throw('This driver request was explicitly voided', DriverActionConflict)
         return receipt
     _owned(doc, operator)
+    if action in ('Request Stop Cancellation','Cancel Customer Stop'):
+        require_operator(operator_session_token,'start' if action=='Request Stop Cancellation' else 'complete')
+        if not stop_key or dispatch_plan or request['scope_hash']!=_core(doc) or request['expected_revision']!=cint(doc.driver_route_revision):
+            frappe.throw('Trip changed; refresh before confirming this exact customer cancellation')
+        from cfg_kanban.services import trip_stop_cancellation
+        result=(trip_stop_cancellation.request_cancel(doc,stop_key,request['payload'],operator,session,key)
+            if action=='Request Stop Cancellation' else trip_stop_cancellation.direct(doc,stop_key,request['payload'],operator,session,operator_session_token,key))
+        doc.db_set('driver_route_revision',cint(doc.driver_route_revision)+1,update_modified=True)
+        return _record(doc,operator,session,key,request,result)
     if action=='Release GPS':
         require_operator(operator_session_token,'override')
         if stop_key or dispatch_plan or request['scope_hash']!=_core(doc) or request['expected_revision']!=cint(doc.driver_route_revision):
@@ -450,7 +482,9 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
     if action in ('Collect Old Return','Release Refused Stock'):
         return _special_action(doc,request,operator,session,operator_session_token,key)
     require_operator(operator_session_token, 'start' if action in ('Start Route', 'Begin Delivery', 'Begin Open Sale', 'Add Assistant', 'Change Route Order', 'Request Route Change', 'Cancel Route Change') else 'complete')
-    if doc.state != 'Planned' or request['scope_hash'] != _core(doc) or request['expected_revision'] != cint(doc.driver_route_revision):
+    draft_withdrawal=bool(action=='Cancel Route Change' and doc.state=='Draft' and
+        _read('CFG Kanban Route Change Request',request['payload'].get('request_name')).get('request_type')=='Cancel Customer Stop')
+    if (doc.state != 'Planned' and not draft_withdrawal) or request['scope_hash'] != _core(doc) or request['expected_revision'] != cint(doc.driver_route_revision):
         frappe.throw('Trip planning or execution changed; refresh before submitting new details')
     if action in ('Change Route Order','Request Route Change','Cancel Route Change'):
         if stop_key or dispatch_plan:frappe.throw('Route order changes apply to the Trip, not a Delivery Note')

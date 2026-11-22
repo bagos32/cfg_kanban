@@ -28,6 +28,7 @@ class TestDispatchRecovery(unittest.TestCase):
         self.b.frappe.db.get_value=self.get_value
         self.b.frappe.db.sql=self.sql
         self.b.frappe.db.exists=self.exists
+        self.b.frappe.db.table_exists=lambda dt:dt!='CFG Kanban Cancelled Stop Stock'
         self.b.frappe.get_meta=lambda dt:Row(has_field=lambda field:field in ('process_certificate_set','to_process_certificate_set'))
         self.plan.as_dict=lambda:dict(self.plan)
         self.route=self.b.add('CFG Kanban Logistics Route','RETURN',active=1,route_type='Internal Warehouse Transfer',

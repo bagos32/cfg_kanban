@@ -146,6 +146,7 @@ def _items(doc, stops, cache):
     groups = {}
     for row in doc.orders:
         stop = stops.get(row.stop_key)
+        if stop and stop.get('cancelled'):continue
         if not stop or stop['purpose'] != 'Delivery':
             frappe.throw('Trip order has no exact delivery stop; ask the office to review it')
         order = _cached(cache, 'Sales Order', row.sales_order)
@@ -366,13 +367,22 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
     for row in doc.stops:
         if not row.stop_key or row.stop_key in stops:
             frappe.throw('Trip stops require distinct identities; ask the office to review them')
-        stops[row.stop_key] = _stop(doc, row, cache)
+        if row.get('cancellation_request'):
+            from cfg_kanban.services.trip_stop_cancellation import history_stop
+            stops[row.stop_key]=history_stop(doc,row)
+        else:stops[row.stop_key] = _stop(doc, row, cache)
     groups = _items(doc, stops, cache)
     plans = {}; vehicles = set()
     for link in doc.dispatch_plans:
         stop = stops.get(link.stop_key)
         if not stop or link.dispatch_plan in plans:
             frappe.throw('Trip Dispatch Plan links need office review')
+        if stop.get('cancelled'):
+            plan=_cached(cache,PLAN,link.dispatch_plan)
+            if plan.company!=doc.company or plan.stop_cancellation!=stop['cancellation_request']:frappe.throw('Cancelled stop Plan no longer matches its decision')
+            plans[plan.name]=plan
+            stop['plans'].append(dict(name=plan.name,state=plan.state,sales_order=plan.sales_order))
+            continue
         plan, session, posted = _plan(doc, link, stop, operator, cache)
         plans[plan.name] = plan
         if plan.vehicle_warehouse:
@@ -386,6 +396,7 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
     if len(vehicles) > 1:
         warnings.append('Trip sources are assigned to different lorries; Supervisor review required')
     for stop in stops.values():
+        if stop.get('cancelled'):continue
         for item in stop['items']:
             if item['prepared_qty'] > item['planned_qty'] + EPSILON:
                 frappe.throw('Prepared quantities exceed office trip assignments; Supervisor review required')
@@ -405,11 +416,17 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
                 stop['state'] = 'In Progress'
     ordered, source = _route_order(doc, stops, plans, cache, warnings)
     source_stop_order=[r['stop_key'] for r in ordered]
+    if any(r.get('cancellation_request') for r in doc.stops) and doc.driver_route_snapshot_json:
+        import json
+        source_stop_order=json.loads(doc.driver_route_snapshot_json).get('stop_order') or source_stop_order
     sequence=None
     if doc.get('route_sequence_revision') is not None:
         from cfg_kanban.services.trip_sequence import project
         ordered,sequence=project(doc,ordered,operator)
         if sequence and sequence.get('source'):source=sequence['source']
+    cancelled_stops=[row for row in ordered if row.get('cancelled')]
+    ordered=[row for row in ordered if not row.get('cancelled')]
+    for n,row in enumerate(ordered,1):row['sequence']=n
     active = [stop for stop in ordered if stop['state'] in ('In Progress', 'Awaiting proof', 'Delivery Note pending', 'Awaiting stop completion')]
     pending = [stop for stop in ordered if stop['state'] not in TERMINAL]
     current = active[0] if len(active) == 1 else None
@@ -425,6 +442,9 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
         completed_stops=sum(stop['state'] in ('Completed', 'Completed with refusal', 'Visit completed') for stop in ordered), total_stops=len(ordered),
         vehicle_warehouse=vehicle.name if vehicle else None,
         vehicle_reference=vehicle.cfg_vehicle_reference if vehicle else None,
+        cancelled_stops=cancelled_stops,cancelled_stop_count=len(cancelled_stops),original_total_stops=len(ordered)+len(cancelled_stops),
+        can_request_stop_cancellation=bool(operator.get('can_start') and doc.state in ('Draft','Planned') and doc.get('driver_route_state') in (None,'','Not Started','In Progress')),
+        can_cancel_stop=bool(_all(operator) and operator.can_override and operator.can_complete and doc.state in ('Draft','Planned') and doc.get('driver_route_state') in (None,'','Not Started','In Progress')),
         open_pool=open_pool, can_add_assistant=bool(doc.driver==operator.employee and operator.get('can_start') and doc.state=='Planned' and doc.get('driver_route_state') in (None,'','Not Started','In Progress')), refreshed_on=now_datetime(), return_cases=_trip_returns(doc.name), read_only=True)
 
 

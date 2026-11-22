@@ -43,7 +43,7 @@ def order(doc,snapshot=None):
 
 
 def pending(doc,snapshot=None):
-    done={r.stop_key for r in doc.stops if r.driver_completed_on}
+    done={r.stop_key for r in doc.stops if r.driver_completed_on or r.get('cancellation_request')}
     return [key for key in order(doc,snapshot) if key not in done]
 
 
@@ -113,7 +113,7 @@ def _allow_override(doc,keys):
 
 
 def _install(doc,proposal,label):
-    iterator=iter(proposal);done={r.stop_key for r in doc.stops if r.driver_completed_on}
+    iterator=iter(proposal);done={r.stop_key for r in doc.stops if r.driver_completed_on or r.get('cancellation_request')}
     revised=[key if key in done else next(iterator) for key in order(doc)]
     doc.db_set(dict(driver_stop_order_json=frappe.as_json(revised),route_order_source=label,
         route_sequence_revision=cint(doc.get('route_sequence_revision'))+1),update_modified=True)
@@ -145,6 +145,10 @@ def edit_context(doc,operator,token):
 def review_context(doc,name,operator):
     _supervisor(operator)
     row=_read(REQUEST,name)
+    if row.get('request_type')=='Cancel Customer Stop':
+        from cfg_kanban.services.trip_stop_cancellation import review_context as cancellation_context
+        if row.delivery_trip!=doc.name or row.company!=doc.company:frappe.throw('Cancellation request belongs to another Trip/Company')
+        return cancellation_context(doc,row,operator)
     if row.delivery_trip!=doc.name or row.company!=doc.company:frappe.throw('Route request belongs to another Trip or Company')
     fresh=bool(row.state=='Pending' and doc.state=='Planned' and doc.driver_route_state=='In Progress'
         and not doc.driver_active_stop_key and row.source_fingerprint==_stamp(doc))
@@ -174,6 +178,7 @@ def request_change(doc,values,operator,session,token,key):
     _allow_override(doc,[proposal[0]])
     old=_request(doc,current=True)
     if old and old.state=='Pending':
+        if old.get('request_type')=='Cancel Customer Stop':frappe.throw('Resolve or withdraw the pending customer cancellation before requesting a different route order')
         if old.source_fingerprint==_stamp(doc):frappe.throw('A route request is already waiting; cancel or resolve it before replacing its details')
         _close_request(old,'Superseded',operator,session,'Trip progressed before a new request')
     stop=next(r for r in doc.stops if r.stop_key==proposal[0])
@@ -203,6 +208,9 @@ def decide(doc,values,operator,session,token):
     _supervisor(operator)
     row=_read(REQUEST,values.get('request_name'),current=True)
     if row.delivery_trip!=doc.name or row.company!=doc.company or row.state!='Pending':frappe.throw('Select this Trip pending request')
+    if row.get('request_type')=='Cancel Customer Stop':
+        from cfg_kanban.services.trip_stop_cancellation import decide as decide_cancellation
+        return decide_cancellation(doc,row,values,operator,session,token)
     reason=str(values.get('reason') or '').strip();decision=values.get('decision')
     if not reason or decision not in ('Approve','Reject'):frappe.throw('Select Approve or Reject and enter the Supervisor reason')
     if decision=='Reject':
@@ -221,21 +229,30 @@ def decide(doc,values,operator,session,token):
     return dict(route_change_request=row.name,state='Approved',approval_mode=mode)
 
 
+def _request_summary(doc,row,operator):
+    if not row:return None
+    return dict(name=row.name,state=row.state,request_type=row.get('request_type') or 'Sequence Change',
+        target_stop_key=row.target_stop_key,requested_by=row.requested_by,reason=row.reason,
+        approval_mode=row.approval_mode,decision_reason=row.decision_reason,
+        can_cancel=bool(row.state=='Pending' and doc.state in ('Draft','Planned') and operator.can_start
+            and operator.employee in (doc.driver,row.requested_by)))
+
+
 def project(doc,ordered,operator):
-    if doc.get('route_sequence_revision') is None or doc.driver_route_state not in ('In Progress','Completed','Closed Incomplete'):
-        return ordered,None
+    if doc.get('route_sequence_revision') is None:return ordered,None
+    row=_request(doc)
+    if doc.driver_route_state not in ('In Progress','Completed','Closed Incomplete'):
+        if not row or row.get('request_type')!='Cancel Customer Stop':return ordered,None
+        return ordered,dict(enforced=doc.sequence_policy=='Planned Order',can_change=False,
+            source=None,revision=cint(doc.get('route_sequence_revision')),request=_request_summary(doc,row,operator))
     saved=_saved(doc);keys=order(doc,saved);by_key={r['stop_key']:r for r in ordered}
     ordered=[by_key[k] for k in keys]
-    for n,row in enumerate(ordered,1):row['sequence']=n
-    row=_request(doc)
-    waiting=bool(row and row.state=='Pending' and row.source_fingerprint==_stamp(doc))
+    for n,stop in enumerate(ordered,1):stop['sequence']=n
+    waiting=bool(row and row.state=='Pending' and (row.get('request_type')=='Cancel Customer Stop' or row.source_fingerprint==_stamp(doc)))
     info=dict(enforced=strict(doc,saved),can_change=bool(not waiting and operator.can_start and doc.state=='Planned'
         and doc.driver_route_state=='In Progress' and not doc.driver_active_stop_key and len(pending(doc))>1),
         source=doc.get('route_order_source'),revision=cint(doc.get('route_sequence_revision')),
-        request=dict(name=row.name,state=row.state,requested_by=row.requested_by,reason=row.reason,
-            approval_mode=row.approval_mode,decision_reason=row.decision_reason,
-            can_cancel=bool(row.state=='Pending' and doc.state=='Planned' and operator.can_start
-                and operator.employee in (doc.driver,row.requested_by))) if row else None)
+        request=_request_summary(doc,row,operator))
     return ordered,info
 
 
@@ -289,7 +306,7 @@ def native_order_permitted(plan,site_name,route_stop=None):
 
 def supervisor_requests(limit=100):
     if not frappe.has_permission(REQUEST,'read'):return []
-    fields=['name','state','delivery_trip','company','target_customer','target_customer_site',
+    fields=['name','state','request_type','delivery_trip','company','target_customer','target_customer_site',
         'reason','requested_by','requested_on','approval_mode','decision_reason']
     rows=frappe.get_list(REQUEST,filters={'state':'Pending'},fields=fields,order_by='requested_on asc',limit_page_length=limit)
     rows+=frappe.get_list(REQUEST,filters={'state':['not in',['Pending']]},fields=fields,order_by='modified desc',limit_page_length=20)
@@ -299,3 +316,9 @@ def supervisor_requests(limit=100):
         except frappe.PermissionError:continue
         result.append(dict(row))
     return result
+
+
+def assert_target_not_pending_cancellation(doc,stop):
+    row=_request(doc)
+    if row and row.state=='Pending' and row.get('request_type')=='Cancel Customer Stop' and row.target_stop_key==stop.stop_key:
+        frappe.throw('This stop awaits Supervisor cancellation approval; resolve or withdraw its request before delivery')

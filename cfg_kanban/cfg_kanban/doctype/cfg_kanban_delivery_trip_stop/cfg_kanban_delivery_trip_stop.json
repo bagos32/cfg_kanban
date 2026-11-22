@@ -17,7 +17,11 @@
   "instructions",
   "driver_completed_on",
   "driver_completed_by",
-  "driver_visit_notes"
+  "driver_visit_notes",
+  "cancellation_request",
+  "stop_cancelled_on",
+  "stop_cancelled_by",
+  "stop_cancellation_reason"
  ],
  "fields": [
   {
@@ -111,6 +115,32 @@
   {
    "fieldname": "driver_visit_notes",
    "label": "Driver Visit Notes",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancellation_request",
+   "label": "Cancellation Decision",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Route Change Request"
+  },
+  {
+   "fieldname": "stop_cancelled_on",
+   "label": "Stop Cancelled On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stop_cancelled_by",
+   "label": "Stop Cancelled By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "stop_cancellation_reason",
+   "label": "Cancellation Reason",
    "fieldtype": "Small Text",
    "read_only": 1
   }

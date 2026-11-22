@@ -85,10 +85,14 @@ def _balances(plan, current=False):
         if plan.get('driver_delivery_outcome'):
             from cfg_kanban.services.driver_delivery_outcomes import released_source_qty
             released = released_source_qty(source.name, current=current)
-        remaining = flt(source.allocated_qty) - delivered - released
+        cancelled_released=0
+        if plan.get('stop_cancellation'):
+            from cfg_kanban.services.cancelled_stop_stock import released_source_qty as cancelled_release
+            cancelled_released=cancelled_release(source.name,current)
+        remaining = flt(source.allocated_qty) - delivered - released - cancelled_released
         if remaining < -EPSILON or delivered < -EPSILON:
             frappe.throw('Prepared delivery totals exceed their loading allocation; investigate before settlement')
-        row = dict(refused_released_qty=released, dispatch_allocation=source.name, item_code=source.item_code,
+        row = dict(cancelled_released_qty=cancelled_released,refused_released_qty=released, dispatch_allocation=source.name, item_code=source.item_code,
             batch_no=source.batch_no, stock_uom=source.stock_uom, handling_unit=source.handling_unit,
             loaded_qty=flt(source.allocated_qty), delivered_qty=delivered, remaining_qty=max(remaining, 0))
         if source.handling_unit:
@@ -209,7 +213,7 @@ def _count_evidence(plan, review, name):
     return doc
 
 
-def _at_source(plan, rows):
+def _at_source(plan, rows,current=False):
     for row in rows:
         if row['remaining_qty']<=EPSILON or not row['handling_unit']:
             continue
@@ -225,7 +229,7 @@ def _at_source(plan, rows):
             groups[key]=groups.get(key,0)+row['remaining_qty']
     for (item,batch),qty in groups.items():
         available = _planning()._untagged_available(plan.company, plan.vehicle_warehouse, item, batch or None,
-                                                    exclude_prepared_plan=plan.name,
+                                                    exclude_prepared_plan=plan.name,current=current,
                                                     **({'exclude_refusal_outcome':plan.driver_delivery_outcome} if plan.get('driver_delivery_outcome') else {}))
         if qty>available+EPSILON:
             frappe.throw('Prepared loose stock is missing or committed elsewhere; resolve the variance or movement')
@@ -319,6 +323,9 @@ def finish_dispatch_review(dispatch_review, action, reconciliation_name, reason,
     if action not in ACTIONS or not reason:
         frappe.throw('Choose a valid leftover-stock action and provide its reason')
     _no_open_delivery(plan)
+    if plan.get('stop_cancellation'):
+        from cfg_kanban.services.cancelled_stop_stock import assert_review_action
+        assert_review_action(plan,action)
     rows=_balances(plan,current=True)
     if not balance_hash or _hash(rows)!=balance_hash:
         frappe.throw('Dispatch balances changed; refresh and review the current quantities before closing')
@@ -441,7 +448,12 @@ def protect_review_movement_cancellation(doc, method=None):
 
 
 def _refusal_reserve(plan,row):
-    if not plan.get('driver_delivery_outcome') or not row.get('handling_unit'):
-        return 0
-    from cfg_kanban.services.driver_delivery_outcomes import held_tag_qty
-    return held_tag_qty(row['handling_unit'])
+    if not row.get('handling_unit'):return 0
+    held=0
+    if plan.get('driver_delivery_outcome'):
+        from cfg_kanban.services.driver_delivery_outcomes import held_tag_qty
+        held+=held_tag_qty(row['handling_unit'])
+    if plan.get('stop_cancellation'):
+        from cfg_kanban.services.cancelled_stop_stock import held_tag_qty
+        held+=held_tag_qty(row['handling_unit'],dispatch_plan=plan.name,parent=plan.stop_cancellation)
+    return held

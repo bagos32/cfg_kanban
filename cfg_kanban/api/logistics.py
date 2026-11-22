@@ -1171,7 +1171,7 @@ def prepare_manifest(manifest_name, event_token, operator_session_token):
     for row in manifest.lines:
         if row.line_kind == "ERP Stock without Physical Tag":
             _assert_untagged_erp_stock(row.item_code, manifest.source_warehouse,
-                                       row.dispatch_qty)
+                                       row.dispatch_qty,manifest=manifest)
             continue
         unit = frappe.get_doc("CFG Kanban Handling Unit", row.handling_unit)
         _validate_dispatch_unit(
@@ -1570,7 +1570,7 @@ def cancel_manifest(manifest_name, reason, operator_session_token, event_token=N
     return get_manifest(manifest.name, operator_session_token)
 
 
-def _validate_dispatch_unit(unit, manifest, expected_container=None):
+def _validate_dispatch_unit(unit, manifest, expected_container=None, allowed_reserved_qty=0):
     from cfg_kanban.services.container_contents import (
         active_container_membership,
         assert_not_loaded_in_container,
@@ -1600,9 +1600,14 @@ def _validate_dispatch_unit(unit, manifest, expected_container=None):
             )
     else:
         assert_not_loaded_in_container(unit.name, "adding it to a Movement Manifest")
-    if flt(unit.available_qty) <= 0:
+    # Only the private recovery caller supplies the exact reservation owned by its Plan.
+    from math import isfinite
+    allowed = flt(allowed_reserved_qty)
+    if allowed < 0 or not isfinite(allowed):
+        frappe.throw("Invalid controlled recovery reservation")
+    if flt(unit.available_qty) + allowed <= 0:
         frappe.throw(f"Tag {unit.handling_unit_id} has no available quantity")
-    if flt(unit.reserved_qty):
+    if abs(flt(unit.reserved_qty) - allowed) > 0.000001:
         frappe.throw(f"Tag {unit.handling_unit_id} already has reserved quantity")
 
 
@@ -1709,6 +1714,10 @@ def _dispatch_stage(manifest):
 
 
 def _internal_transfer_payload(manifest, stage, required_erp_inputs=None):
+    if stage!='Receipt' and frappe.db.table_exists('CFG Kanban Cancelled Stop Stock'):
+        from cfg_kanban.services.cancelled_stop_stock import assert_loose_movement
+        for row in manifest.lines:
+            if row.line_kind=='ERP Stock without Physical Tag':assert_loose_movement(row.item_code,manifest.source_warehouse,row.dispatch_qty,manifest)
     payload = {
         "manifest": manifest.name,
         "stage": stage,
@@ -1745,7 +1754,10 @@ def _validate_transfer_manifest_quantity(manifest, require_exact=False):
         )
 
 
-def _assert_untagged_erp_stock(item_code, warehouse, qty):
+def _assert_untagged_erp_stock(item_code, warehouse, qty,manifest=None):
+    if frappe.db.table_exists('CFG Kanban Cancelled Stop Stock'):
+        from cfg_kanban.services.cancelled_stop_stock import assert_loose_movement
+        assert_loose_movement(item_code,warehouse,qty,manifest)
     if not frappe.db.get_value("Item", item_code, "is_stock_item"):
         frappe.throw(
             f"{item_code} does not maintain ERPNext stock. Use physical Stock Tags so CFG "

@@ -27,7 +27,11 @@
   "decided_by",
   "deciding_session",
   "decided_on",
-  "applied_order_json"
+  "applied_order_json",
+  "request_type",
+  "stock_disposition",
+  "cancellation_preview_json",
+  "cancelled_stock"
  ],
  "fields": [
   {
@@ -189,6 +193,36 @@
    "fieldtype": "Code",
    "read_only": 1,
    "options": "JSON"
+  },
+  {
+   "fieldname": "request_type",
+   "label": "Request Type",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "options": "Sequence Change\nCancel Customer Stop",
+   "default": "Sequence Change",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "stock_disposition",
+   "label": "Cancelled Goods Decision",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "options": "Keep Reserved for Return\nRelease for Same-trip Sale"
+  },
+  {
+   "fieldname": "cancellation_preview_json",
+   "label": "Cancellation Source Review",
+   "fieldtype": "Code",
+   "read_only": 1,
+   "options": "JSON"
+  },
+  {
+   "fieldname": "cancelled_stock",
+   "label": "Cancelled Stop Stock",
+   "fieldtype": "Table",
+   "read_only": 1,
+   "options": "CFG Kanban Cancelled Stop Stock"
   }
  ],
  "sort_field": "modified",

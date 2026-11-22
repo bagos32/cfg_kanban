@@ -1,0 +1,139 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Cancelled Stop Stock",
+ "module": "CFG Kanban",
+ "istable": 1,
+ "engine": "InnoDB",
+ "fields": [
+  {
+   "fieldname": "dispatch_plan",
+   "label": "Dispatch Plan",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Dispatch Plan"
+  },
+  {
+   "fieldname": "dispatch_allocation",
+   "label": "Loading Allocation",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Dispatch Allocation"
+  },
+  {
+   "fieldname": "handling_unit",
+   "label": "Stock Tag",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Handling Unit"
+  },
+  {
+   "fieldname": "visible_code",
+   "label": "Stock Tag Code",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "item_code",
+   "label": "Item",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Item",
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "batch_no",
+   "label": "Batch",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Batch"
+  },
+  {
+   "fieldname": "stock_uom",
+   "label": "Stock UOM",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "UOM"
+  },
+  {
+   "fieldname": "qty",
+   "label": "Cancelled Loaded Quantity",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Company"
+  },
+  {
+   "fieldname": "original_warehouse",
+   "label": "Original Lorry",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "current_warehouse",
+   "label": "Last Recorded Custody",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Warehouse",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "stock_state",
+   "label": "Stock State",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "options": "Held for Return\nReleased for Sale\nRecovery Reserved\nRecovered",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "hold_ledger",
+   "label": "Hold Ledger",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Handling Unit Quantity Ledger"
+  },
+  {
+   "fieldname": "recovery_manifest",
+   "label": "Recovery Manifest",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Movement Manifest"
+  },
+  {
+   "fieldname": "recovered_on",
+   "label": "Recovery Received On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  }
+ ],
+ "field_order": [
+  "dispatch_plan",
+  "dispatch_allocation",
+  "handling_unit",
+  "visible_code",
+  "item_code",
+  "batch_no",
+  "stock_uom",
+  "qty",
+  "company",
+  "original_warehouse",
+  "current_warehouse",
+  "stock_state",
+  "hold_ledger",
+  "recovery_manifest",
+  "recovered_on"
+ ],
+ "permissions": []
+}

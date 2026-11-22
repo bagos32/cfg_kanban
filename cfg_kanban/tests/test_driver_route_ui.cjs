@@ -257,3 +257,14 @@ test('Driver Route keeps scoped GPS controls separate from delivery login and ro
  document.hidden=true;h.events.get('document:visibilitychange')();assert.equal(hides,1);document.hidden=false;h.events.get('document:visibilitychange')();await flush();assert.equal(shows,2);
  await h.events.get('click.cfg_driver .cfg-driver-change')();assert.equal(changes,1);assert.equal(h.view.app.state.token,null);assert(opts.active());h.view.hide();assert.equal(hides,2);
 });
+
+test('cancelled customers have separate history and no delivery/cancel-again controls',()=>{
+ const data=structuredClone(detail);data.stops[0].state='Ready for delivery';data.stops[0].plans.forEach(p=>p.delivery_session=null);data.can_request_stop_cancellation=true;let html=ui.detailView({detail:data});assert(html.includes('Request Stop Cancellation'));
+ data.can_cancel_stop=true;html=ui.detailView({detail:data});assert(html.includes('Cancel Customer Stop'));data.stops[0].plans[0].delivery_session='STARTED';assert.equal(ui.cancellationControl(data.stops[0],data,{}),'');data.stops[0].plans[0].delivery_session=null;
+ data.cancelled_stops=[{stop_key:'OLD',office_sequence:2,site_name:'<Old shop>',cancellation_reason:'Closed',stock_disposition:'Keep Reserved for Return',loaded_stock:[{visible_code:'<TAG>',qty:4,stock_uom:'Nos',stock_state:'Held for Return',current_warehouse:'LORRY'}]}];
+ html=ui.detailView({detail:data});assert(html.includes('Cancelled Customer Stops'));assert(html.includes('&lt;Old shop&gt;'));assert(html.includes('Held for Return'));assert(!html.includes('data-complete-stop="OLD"'));assert(!html.includes('data-cancel-stop="OLD"'));
+});
+test('the driver scanner opens exact selected customer cancellation with the same inline action',async()=>{
+ const h=domHarness();await h.view.show(trip);let opened;Object.defineProperty(globalThis,'navigator',{configurable:true,value:{locks:{}}});window.cfg_driver_route_actions={open:options=>{opened=options;return {focus(){},close(){options.onClose();}};}};
+ h.view.app.state.stop='STOP1';h.nodes.get('.cfg-driver-scan').val('CFG:CMD:CANCEL_CUSTOMER_STOP');h.events.get('click.cfg_driver .cfg-driver-confirm')();await flush();assert.equal(opened.stop,'STOP1');assert.equal(opened.operation,'Cancel Customer Stop');h.view.hide();
+});

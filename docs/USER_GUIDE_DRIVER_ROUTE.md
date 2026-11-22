@@ -213,7 +213,7 @@ A driver Visit Only completion shows **Visit completed**. Closed planning does n
 
 Starting freezes the itinerary, driver, lorry, source identities and approved route revision for
 this execution. Resolve a changed source/operational route through existing supervised controls;
-live order changes use the controlled workflow below. Stop removal/cancellation remains a later phase. For an incomplete/abandoned route, first settle
+live order changes use the controlled workflow below. Use the supervised stop cancellation workflow below for an unstarted customer. For an incomplete/abandoned route, first settle
 or cancel linked Plans using the existing E5/recovery workflow. An authorized office manager may
 then close/cancel the saved Trip with a reason. It records **Closed Incomplete**, releases the
 active lorry and preserves unfinished stops; it does not mark them delivered. Completed driver
@@ -484,3 +484,71 @@ Scanner access on Driver Route: `CFG:CMD:GPS_SHARE`, `CFG:CMD:GPS_STOP`,
 After the owner's manual migration/build, run [Supervisor/GPS acceptance](TEST_SUPERVISOR_LIVE_MAP.md).
 Native schema, permissions, phone/tablet location, locked/background behavior, network and
 concurrent database acceptance are **Not run**. Offline tests do not verify live-site behavior.
+
+
+## Cancel a customer stop safely
+
+Every stop cancellation needs a **Supervisor decision**, on Flexible and Planned routes alike.
+The assigned lead/assistant requests it; an authorized Supervisor can also cancel directly. This
+is separate from withdrawing a route-order request. It cancels the exact visit, not the customer,
+Sales Order, Delivery Trip, posted loading transfer or another visit to the same customer.
+
+1. Open the saved Trip in **Driver Route**, select the unstarted customer stop and choose
+   **Request Stop Cancellation**. Enter a reason and confirm. Pending requests appear in the
+   existing **Supervisor Action Centre → Route Change Requests**. The requested stop cannot start
+   delivery until the request is rejected, withdrawn or approved. Other eligible stops retain
+   their existing sequence rules.
+2. The Supervisor opens **Review**, checks the customer, address, SO/customer PO, preparation
+   state, exact tags/Items/Batch and stock-UOM quantities, then approves or rejects with a reason.
+   Native Company/source permissions, Customer Delivery/dispatch responsibilities and Supervisor
+   **View All Responsibilities**, **Can Override** and **Can Complete** are required. Direct
+   cancellation is available from the same Trip page under those permissions.
+3. For loaded, undelivered goods choose **Keep Reserved for Return** or **Release for Same-trip
+   Sale**. Both leave goods physically on the original lorry. Return holds reserve actual tagged
+   quantities and retain loose-stock commitments. Release removes only this customer's prepared
+   claim; selling afterward still uses the existing shared-pool/unassigned-stock DN and proof
+   controls, with expiry, quality, stock and customer checks. Cancellation itself posts no DN,
+   credit, QC receipt or Stock Entry. Unsound/expired stock cannot be released for sale.
+4. Approval removes the customer from the active stop list, next-stop calculation and route pins.
+   **Cancelled Customer Stops** retains the decision, reason, actor, quantities and stock custody.
+   A released line's **Last Recorded Custody** is cancellation history, not a live stock balance.
+   The original SO remains outstanding and its cancelled Trip assignment returns to the office
+   route inbox. Use another Trip for replacement work; do not delete the historical stop or
+   regenerate its dispatch request.
+
+Before loading, unused E2 reservations and entirely unused E3 vehicle claims are released through
+their existing controls. A loading command or ERP draft already created must be resolved first;
+a posted transfer is retained. A customer with any started delivery/quantity decision, DN/proof or
+native Delivery Session history uses the existing delivery/refusal/return recovery instead of
+stop cancellation. Approval also waits until every active customer delivery/proof is finished.
+
+**Return the held stock:** begin the existing Plan **Dispatch Review → Return / Transfer**,
+choose an authorized same-Company Direct Transfer route, scan every source, confirm loose
+quantities, prepare and post. E5 adopts the exact cancellation hold into its recovery reservation.
+Cancelling an unused recovery restores the hold; receiving the posted transfer releases it at the
+destination. Close a fresh D3 count and finish the Review with the submitted movement evidence.
+**Continue Same Plan Overnight** and Resume retain the hold for multi-day trips. **Close Trip —
+Stock Stays** cannot silently release a return hold.
+
+If a logistics container mixes this customer's tags with other stock, scan it in **Kanban
+Logistics**, select **Unload** for the exact held physical tag and give a reason as Supervisor,
+then scan the separate tag in recovery. The reservation, tag, Batch, certificate and quantity stay
+intact. Separate it before preparing the recovery; cancel an unused recovery first if needed.
+Do not Move/Repack, split, replace or unreserve held tags manually. A whole dedicated container
+can be scanned directly in recovery. The single-fill Production Output Container rule is unchanged.
+
+Cancelling a **Visit Only** stop skips only that exact visit; its shared Open Route stock pool and
+other customers remain available under their original controls. Cancelling the last pending stop
+completes only the driver route; E5 recovery/counts and office Trip closure remain separate.
+
+Scanner controls on Driver Route use **CFG:CMD:CANCEL_CUSTOMER_STOP**, then
+**CFG:CMD:STOP_CANCEL_REASON** and the reason. During Supervisor review,
+**CFG:CMD:STOP_STOCK_DISPOSITION** selects the stock choice; use the existing numbered
+**CFG:SELECT:1–10** inputs/choices, **CFG:CMD:CONFIRM**, **CFG:CMD:CANCEL** and
+**CFG:CMD:REFRESH**. The inline panel also supports touch and camera. Cancel safely closes the
+panel; it does not undo a recorded cancellation. A lost response retains the original action,
+source review and stock choice for retry/readback. Never replace an uncertain request with new
+values; the existing Supervisor void is available only after confirming it was not recorded.
+
+Native migration, posting, concurrent-device and tablet acceptance: **Not run**. Use
+[the cancellation acceptance checklist](TEST_DRIVER_STOP_CANCELLATION.md).

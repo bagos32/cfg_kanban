@@ -305,3 +305,25 @@ or satisfy proof. Google/Waze direction links retain their existing next-stop be
 See [driver/supervisor steps](USER_GUIDE_DRIVER_ROUTE.md#trip-gps-sharing-and-supervisor-live-map)
 and [native acceptance checklist](TEST_SUPERVISOR_LIVE_MAP.md). Native GPS/map/site acceptance
 remains **Not run**; offline tests do not establish live-site correctness.
+
+
+## Cancel a saved customer visit
+
+Open the saved normal Delivery Trip form and select **Driver Route** (or **Open Trip / Customer
+Stop Controls** on Supervisor Live Map). Select the exact unstarted customer. Drivers/assistants
+request cancellation; every route policy requires Supervisor approval. Review is inline in the
+existing Supervisor Action Centre, with exact SO/customer PO, loading and stock details. The
+Supervisor chooses whether undelivered loaded goods stay reserved for return or are released for
+same-trip sale. Physical stock stays on the lorry until normal transfer or delivery posting.
+
+The cancelled visit stays read-only in the normal form and in separate driver/map history. It is
+omitted from active pins, next-stop sequence, LIFO picking instructions and regenerated preparation.
+Order quantities remain historical; the SO is not cancelled. Its cancelled planning hold is released
+for another Trip in the route inbox. Other visits, SOs and the shared Open Route pool remain intact.
+A Trip with cancellation history retains its itinerary/order/driver sources; plan replacement work
+on another Trip. Delivery/ERP work already started needs native recovery first.
+
+See [driver steps, holds, recovery and scanner commands](USER_GUIDE_DRIVER_ROUTE.md#cancel-a-customer-stop-safely)
+and [native acceptance](TEST_DRIVER_STOP_CANCELLATION.md). This adds controlled links, a request
+type and a cancellation-stock child table; owner-managed migrate/build is required. Existing
+sequence-change requests retain their previous behavior. No existing stops are cancelled by migration.

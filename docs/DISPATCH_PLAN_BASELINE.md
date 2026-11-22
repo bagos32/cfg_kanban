@@ -636,3 +636,37 @@ See [setup](USER_GUIDE_DRIVER_ROUTE.md#trip-gps-sharing-and-supervisor-live-map)
 [acceptance](TEST_SUPERVISOR_LIVE_MAP.md). Offline tests are implementation evidence only; native
 migration, ACL, database concurrency, Leaflet/tiles, real GPS, foreground/background and mobile
 acceptance are **Not run**. No commit, push or deployment is performed by this phase.
+
+
+## 24. Supervisor-approved customer stop cancellation and undelivered stock custody
+
+Owner-approved on 22 November 2026 above `b6e53ed`: **every** saved customer cancellation needs
+Supervisor approval. An assigned lead/assistant requests it using the durable Driver Action lane;
+a Supervisor may perform the reviewed cancellation directly. Reuse the existing Route Change
+Request/Supervisor Centre and retain rejection/withdrawal/approval history. Cancellation targets
+an exact unstarted visit and preserves the original SO, itinerary, departure snapshot, Route Sheet
+revision and posted loading evidence. Started delivery/DN/proof/quantity history must use native
+recovery first. The same Trip root lock, native permissions, source rechecks and current-goods
+hash prevent stale or conflicting decisions.
+
+The Supervisor chooses **Keep Reserved for Return** or **Release for Same-trip Sale** for loaded
+undelivered goods. Hold uses the operational tag Reserve ledger plus existing prepared loose
+commitments. Release records exact source quantities and removes their prepared commitment; it
+never manufactures a DN/refusal/return receipt or moves stock. E5 subtracts only that recorded
+release. Existing E5 recovery adopts/returns custody and restores it after unused recovery
+cancellation. Overnight/Resume retains holds; an unreceived hold cannot be settled as stock-stays.
+A Supervisor may detach an exact whole held physical tag from a mixed logistics container without
+changing its quantity/reservation. Generic movement checks protect held loose quantities, including
+native Stock Entry submission of an older draft and exact Batch availability.
+
+Unused E2/E3 work is cancelled through existing release controls; pending ERP commands/documents
+block customer cancellation. Cancelled visits are absent from active driver/map/next-stop/LIFO
+preparation but retained as history. SO planning claims return to the route inbox; replacement
+work uses another Trip. Visit Only cancellation skips only its exact native visit, preserving the
+shared pool and other customers. Retiring the last stop ends driver execution/GPS according to
+existing rules; E5 and office closure still apply.
+
+This supersedes the earlier stop-removal deferral. No new delivery engine, native SO cancellation,
+stock receipt, credit creation, route optimizer or deployment is introduced. Native acceptance is
+**Not run**; see [acceptance](TEST_DRIVER_STOP_CANCELLATION.md) and
+[operation](USER_GUIDE_DRIVER_ROUTE.md#cancel-a-customer-stop-safely).

@@ -6152,3 +6152,28 @@ or satisfy proof. Google/Waze direction links retain their existing next-stop be
 See [driver/supervisor steps](USER_GUIDE_DRIVER_ROUTE.md#trip-gps-sharing-and-supervisor-live-map)
 and [native acceptance checklist](TEST_SUPERVISOR_LIVE_MAP.md). Native GPS/map/site acceptance
 remains **Not run**; offline tests do not establish live-site correctness.
+
+
+## Cancel an unstarted customer stop
+
+Every route requires Supervisor approval. On **Driver Route**, select the exact stop and choose
+**Request Stop Cancellation** with a reason. Review it in **Supervisor Action Centre → Route
+Change Requests**; an authorized Supervisor can also cancel directly from Driver Route. Loaded
+goods require **Keep Reserved for Return** or **Release for Same-trip Sale**. No stock moves and
+no SO, DN or credit is cancelled/created by this action. Existing ERP work/delivery/proof must be
+resolved before cancellation. The SO stays outstanding for another Trip.
+
+Cancelled visits leave the active route, map pins and LIFO list and remain in read-only history.
+Tagged return holds reserve the actual tag; loose goods keep their Plan commitment. Recover them
+through existing E5 Return / Transfer, then a fresh closed D3 count. Unused recovery cancellation
+restores the hold, and overnight/Resume retains it. A Supervisor can **Unload** the exact whole
+held physical tag from a mixed logistics container without unreserving its stock. Cancelling an
+optional visit leaves the shared stock pool and other visits intact. Driver route completion is
+separate from E5 and office Trip closure.
+
+Scan **CFG:CMD:CANCEL_CUSTOMER_STOP**, **CFG:CMD:STOP_CANCEL_REASON**, a reason, and the existing
+numbered inputs/Confirm. Supervisors use **CFG:CMD:STOP_STOCK_DISPOSITION** to choose the stock
+outcome. Camera, safe Cancel, original-token retry/readback and unrecorded-request void use the
+existing driver controls. Follow [the complete procedure](USER_GUIDE_DRIVER_ROUTE.md#cancel-a-customer-stop-safely)
+and [native acceptance checklist](TEST_DRIVER_STOP_CANCELLATION.md). Offline checks do not verify
+deployed behavior; native acceptance remains **Not run**.

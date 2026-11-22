@@ -79,7 +79,7 @@ def validate_setup(doc, before=None):
 def _specs(trip):
     groups = {}
     stops = {r.stop_key: r for r in trip.stops}
-    stock = [r for r in trip.orders if cint(r.is_stock_item)]
+    stock = [r for r in trip.orders if cint(r.is_stock_item) and not stops[r.stop_key].get('cancellation_request')]
     if stock:
         profile = _profile(trip.dispatch_profile, trip, 'Customer Order')
         for row in stock:
@@ -90,8 +90,8 @@ def _specs(trip):
             spec['lines'].append(dict(item_code=row.item_code, stock_uom=row.stock_uom,
                 item_name=row.item_name, requested_qty=flt(row.planned_qty), sales_order_item=row.sales_order_item,
                 batch_no=None, reserved_qty=0, loaded_qty=0, line_state='Open'))
-    visits = [r for r in trip.stops if r.stop_purpose == 'Visit Only' and r.customer_scan_point]
-    if visits or trip.get('route_stock'):
+    visits = [r for r in trip.stops if r.stop_purpose == 'Visit Only' and r.customer_scan_point and not r.get('cancellation_request')]
+    if visits or trip.get('route_stock') or (trip.get('open_route_plan') and any(r.stop_purpose=='Visit Only' and r.get('cancellation_request') for r in trip.stops)):
         policy = _profile(trip.open_route_profile, trip, 'Open Route Stock')
         key = ('open', '', '')
         groups[key] = dict(kind='open', key=key, policy=policy, stop_key=None, site=None, sales_order=None,
@@ -160,7 +160,7 @@ def _create(trip,spec,digest):
 
 
 def _seed_visits(trip,pool):
-    desired={r.stop_key:r for r in trip.stops if r.stop_purpose=='Visit Only' and r.customer_scan_point}
+    desired={r.stop_key:r for r in trip.stops if r.stop_purpose=='Visit Only' and r.customer_scan_point and not r.get('cancellation_request')}
     existing={r.office_stop_key:r for r in frappe.db.get_values('CFG Kanban Route Stop',
         {'dispatch_plan':pool.name,'state':'Planned'},['name','office_stop_key','customer_scan_point'],as_dict=True,for_update=True)}
     for key,row in existing.items():
@@ -213,8 +213,10 @@ def generate(doc, explicit=False, save=True):
         if explicit:frappe.throw('Dispatch execution has started; retain the generated requests and use existing operational controls')
         return
     specs=_specs(doc)
-    if not specs and (doc.orders or doc.get('route_stock')):frappe.throw('No physical stock quantities are available for dispatch generation')
+    if not specs and (any(not next((s.get('cancellation_request') for s in doc.stops if s.stop_key==r.stop_key),False) for r in doc.orders) or doc.get('route_stock')):frappe.throw('No physical stock quantities are available for dispatch generation')
     by_key={('open','','') if p.plan_type=='Open Route Stock' else ('customer',p.office_stop_key,p.sales_order):p for p in existing if p.state!='Cancelled'}
+    cancelled_keys={r.stop_key for r in doc.stops if r.get('cancellation_request')}
+    retained=[dict(dispatch_plan=r.dispatch_plan,stop_key=r.stop_key) for r in doc.dispatch_plans if r.stop_key in cancelled_keys]
     made=[];known=[];pool=None
     for key,spec in specs.items():
         digest=_hash(doc,spec);plan=by_key.get(key)
@@ -225,10 +227,10 @@ def generate(doc, explicit=False, save=True):
         if spec['kind']=='open':pool=plan;_seed_visits(doc,pool)
         else:known.append(dict(dispatch_plan=plan.name,stop_key=spec['stop_key']))
     for key,plan in by_key.items():
-        if key not in specs:_retire(plan,doc)
+        if key not in specs and plan.get('office_stop_key') not in cancelled_keys:_retire(plan,doc)
     doc.flags.cfg_generating_trip_dispatch=True;doc.flags.cfg_trip_dispatch=True
     try:
-        doc.set('dispatch_plans',known);doc.open_route_plan=pool.name if pool else None
+        doc.set('dispatch_plans',retained+known);doc.open_route_plan=pool.name if pool else None
         if pool:bind_existing_pool(doc,pool,doc.vehicle_warehouse)
         if not doc.get('source_warehouse') and made:doc.source_warehouse=made[0].source_warehouse
         if any(p.source_warehouse!=doc.source_warehouse for p in made):frappe.throw('Generated requests must share this Trip loading source Warehouse')

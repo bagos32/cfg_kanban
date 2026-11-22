@@ -2,7 +2,7 @@
 (function(root){
  'use strict';
  const prefix='cfg_kanban.services.driver_route_actions.';
- const actions=['Release GPS','Start GPS','Start Route','Begin Delivery','Confirm Allocations','Create Delivery Note','Open Proof','Submit Proof','Complete Stop','Collect Old Return','Release Refused Stock','Begin Open Sale','Add Assistant','Change Route Order','Request Route Change','Cancel Route Change','Decide Route Change'];
+ const actions=['Request Stop Cancellation','Cancel Customer Stop','Release GPS','Start GPS','Start Route','Begin Delivery','Confirm Allocations','Create Delivery Note','Open Proof','Submit Proof','Complete Stop','Collect Old Return','Release Refused Stock','Begin Open Sale','Add Assistant','Change Route Order','Request Route Change','Cancel Route Change','Decide Route Change'];
  function controller(env){
   const s={trip:null,pending:null,busy:false,closed:false,baseline:null,message:''};
   const fail=text=>{throw new Error(text);};
@@ -61,6 +61,10 @@
   return {list:()=>rows.map(r=>({...r})),keys:()=>rows.map(r=>r.stop_key),shift,
    move(key,target){const from=rows.findIndex(r=>r.stop_key===key),to=rows.findIndex(r=>r.stop_key===target);if(from<0||to<0)throw new Error('Select a current customer stop.');rows.splice(to,0,rows.splice(from,1)[0]);}};
  }
+ function cancellationSummary(setup){
+  const data=setup?.target||{},e=value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+  return `<div class="alert alert-warning"><strong>${e(data.sequence)}. ${e(data.site_name||data.customer)}</strong><p>${e(data.address)}</p><p>Cancel this visit only. The Sales Order stays outstanding. Loaded goods stay on the lorry; no DN, credit or stock transfer is created.</p>${(data.orders||[]).map(row=>`<div>${e(row.sales_order)} / ${e(row.customer_po||'—')} · ${e(row.item_code)} · ${e(row.planned_qty)} ${e(row.stock_uom)}</div>`).join('')}${(data.plans||[]).map(plan=>`<div class="mt-2"><strong>${e(plan.name)} · ${e(plan.state)}</strong><div>${e(plan.vehicle_warehouse||plan.source_warehouse||'')}</div>${(plan.sources||[]).map(row=>`<div>${e(row.visible_code||'Untagged ERP stock')} · ${e(row.item_code)} · ${e(row.qty)} ${e(row.stock_uom)} · Batch ${e(row.batch_no||'—')} · Expiry ${e(row.expiry_date||'—')}</div>`).join('')}</div>`).join('')}${setup?.message?`<p>${e(setup.message)}</p>`:''}</div>`;
+ }
  function open(options){
   const f=options.frappe,e=f.utils.escape_html,host=options.host,tr=value=>typeof __==='function'?__(value):value;
   const owner=options.owner(),token=options.token();
@@ -82,7 +86,7 @@
   async function recorded(result){
    if(result.action==='Begin Delivery'){quantityReview=null;}
    if(!valid())return;await options.refresh();if(!valid())return;
-   if(['Start Route','Collect Old Return','Release Refused Stock','Add Assistant','Change Route Order','Request Route Change','Cancel Route Change','Decide Route Change'].includes(result.action)){close();return;}
+   if(['Request Stop Cancellation','Cancel Customer Stop','Start Route','Collect Old Return','Release Refused Stock','Add Assistant','Change Route Order','Request Route Change','Cancel Route Change','Decide Route Change'].includes(result.action)){close();return;}
    await load();if(!valid())return;
    if(context?.next_step==='Done'){close();return;}
    const auto=context&&(['Confirm Allocations','Open Proof'].includes(context.next_step)||
@@ -93,7 +97,7 @@
   const c=controller({storage:options.storage,locks:options.locks,owner:options.owner,token:options.token,nonce:options.nonce,rpc,render:update,success:recorded});
   function update(){
    if(!valid())return;const pending=c.state.pending,own=!pending||pending.actor===owner;
-   host.find('.driver-action-confirm').text(tr(pending?'Retry original request':context?.next_step==='Done'?'Recorded':context?.next_step==='Start Route'?'Start Route':context?.next_step==='Edit Route Order'?(context.setup.enforced?'Request Supervisor Approval':'Save Stop Order'):context?.next_step==='Decide Route Change'?'Record Route Decision':context?.next_step==='Cancel Route Change'?'Cancel Route Request':context?.next_step==='Add Assistant'?'Add Assistant Driver':context?.next_step==='Collect Old Return'?(returnReview?'Issue Temporary Return Note':'Review Collected Return'):context?.next_step==='Release Refused Stock'?'Release Selected Refused Stock':context?.next_step==='Submit Proof'?'Submit delivery proof':context?.next_step==='Begin Open Sale'?'Open Customer Sale':context?.next_step==='Select Route Stock'?'Finish Selection / Create DN':context?.next_step==='Create Delivery Note'?'Confirm document details':context?.next_step==='Begin Delivery'?(quantityReview?'Confirm Accepted / Refused':'Deliver Accepted Quantities'):'Complete Stop'))
+   host.find('.driver-action-confirm').text(tr(pending?'Retry original request':context?.next_step==='Done'?'Recorded':context?.next_step==='Request Stop Cancellation'?'Request Supervisor Cancellation':context?.next_step==='Cancel Customer Stop'?'Cancel This Customer Stop':context?.next_step==='Start Route'?'Start Route':context?.next_step==='Edit Route Order'?(context.setup.enforced?'Request Supervisor Approval':'Save Stop Order'):context?.next_step==='Decide Route Change'?'Record Route Decision':context?.next_step==='Cancel Route Change'?'Cancel Route Request':context?.next_step==='Add Assistant'?'Add Assistant Driver':context?.next_step==='Collect Old Return'?(returnReview?'Issue Temporary Return Note':'Review Collected Return'):context?.next_step==='Release Refused Stock'?'Release Selected Refused Stock':context?.next_step==='Submit Proof'?'Submit delivery proof':context?.next_step==='Begin Open Sale'?'Open Customer Sale':context?.next_step==='Select Route Stock'?'Finish Selection / Create DN':context?.next_step==='Create Delivery Note'?'Confirm document details':context?.next_step==='Begin Delivery'?(quantityReview?'Confirm Accepted / Refused':'Deliver Accepted Quantities'):'Complete Stop'))
     .prop('disabled',c.state.busy||loading||!own||(!pending&&(!context||['Blocked','Await ERP','Done'].includes(context.next_step)||(context.next_step==='Select Route Stock'&&!(context.selected_stock||[]).some(r=>['Reserved','Delivery Pending'].includes(r.state))))));
    host.find('.driver-action-fields :input').prop('disabled',c.state.busy||Boolean(pending)||Boolean(returnReview)||Boolean(quantityReview));
    host.find('.driver-order-row').attr?.('draggable',!(c.state.busy||pending));
@@ -130,6 +134,11 @@
    const step=context?.next_step;
    host.find('.driver-action-edit-return').toggle((step==='Collect Old Return'&&Boolean(returnReview))||(step==='Begin Delivery'&&Boolean(quantityReview))||Boolean(quantityReview));
    host.find('.driver-action-message').text(context?.message||(!context?tr('Loading current action…'):step==='Begin Delivery'?tr('Review accepted quantities; reduce Accepted and enter a reason/condition for refused stock. The Delivery Note follows the configured Draft or auto-submit policy; required proof remains mandatory.'):step));
+   if(['Request Stop Cancellation','Cancel Customer Stop'].includes(step)){
+    host.find('.driver-action-fields').html(cancellationSummary(context.setup));
+    field({fieldname:'reason',label:tr('Customer Stop Cancellation Reason'),fieldtype:'Small Text',reqd:1});
+    if(step==='Cancel Customer Stop'&&context.setup.has_loaded_goods)field({fieldname:'stock_disposition',label:tr('Loaded Goods Disposition'),fieldtype:'Select',options:context.setup.dispositions.join('\n'),default:context.setup.dispositions[0],reqd:1});
+   }
    if(step==='Edit Route Order'){
     routeOrder=stopOrder(context.setup.stops);routeSelected=null;routePage=0;
     host.find('.driver-action-message').text(context.setup.enforced?tr('Sequence is enforced. Put the requested next customer first, arrange the other pending stops, and enter a reason. The Supervisor chooses one-next-customer or the full proposed order.'):tr('Reorder unfinished customer stops, then save. Completed stops and the loaded stock record stay fixed.'));
@@ -137,17 +146,19 @@
     field({fieldname:'reason',label:tr('Route Change Reason'),fieldtype:'Small Text',reqd:context.setup.enforced?1:0});
    }
    if(step==='Cancel Route Change'){
-    host.find('.driver-action-message').text(tr('Cancel the pending route request; the current approved route order continues.'));
+    host.find('.driver-action-message').text(tr(context.setup.request_type==='Cancel Customer Stop'?'Withdraw the pending cancellation request. The customer stop stays active.':'Cancel the pending route request; the current approved route order continues.'));
     field({fieldname:'reason',label:tr('Cancellation Reason'),fieldtype:'Small Text',reqd:1});
    }
    if(step==='Decide Route Change'){
     const setup=context.setup;
     host.find('.driver-action-message').text(`${setup.request_name} · ${setup.state} · ${setup.requested_by}: ${setup.reason}`);
-    host.find('.driver-action-fields').html(`<p><strong>${tr('Remaining Order at Request')}:</strong> ${setup.current.map(r=>e(r.label)).join(' → ')}</p><p><strong>${tr('Proposed remaining order')}:</strong> ${setup.proposed.map(r=>e(r.label)).join(' → ')}</p>`);
+    if(setup.request_type==='Cancel Customer Stop')host.find('.driver-action-fields').html(cancellationSummary(setup));
+    else host.find('.driver-action-fields').html(`<p><strong>${tr('Remaining Order at Request')}:</strong> ${setup.current.map(r=>e(r.label)).join(' → ')}</p><p><strong>${tr('Proposed remaining order')}:</strong> ${setup.proposed.map(r=>e(r.label)).join(' → ')}</p>`);
     if(setup.state==='Pending'){
      if(!setup.approvable)host.find('.driver-action-fields').append(`<p class="alert alert-warning">${tr('Trip progressed or has an active stop. Only rejection is available here; refresh after proof or ask for a fresh request.')}</p>`);
      field({fieldname:'decision',label:tr('Decision'),fieldtype:'Select',options:(setup.approvable?['Approve','Reject']:['Reject']).join('\n'),default:setup.approvable?'Approve':'Reject',reqd:1});
-     field({fieldname:'approval_mode',label:tr('Approval Scope'),fieldtype:'Select',options:setup.modes.join('\n'),default:setup.modes[0]});
+     if(setup.request_type==='Cancel Customer Stop'){if(setup.has_loaded_goods)field({fieldname:'stock_disposition',label:tr('Loaded Goods Disposition'),fieldtype:'Select',options:setup.dispositions.join('\n'),default:setup.dispositions[0],reqd:1});}
+     else field({fieldname:'approval_mode',label:tr('Approval Scope'),fieldtype:'Select',options:setup.modes.join('\n'),default:setup.modes[0]});
      field({fieldname:'reason',label:tr('Supervisor Decision Reason'),fieldtype:'Small Text',reqd:1});
     }else{context.next_step='Done';host.find('.driver-action-fields').append(`<p>${e(setup.approval_mode||'')} · ${e(setup.decision_reason||'')}</p>`);}
    }
@@ -241,7 +252,12 @@
     payload={order:routeOrder.keys(),reason:v.reason||''};step=context.setup.enforced?'Request Route Change':'Change Route Order';automatic=false;
    }
    if(step==='Cancel Route Change'){payload={request_name:context.setup.request_name,reason:v.reason||''};automatic=false;}
-   if(step==='Decide Route Change'){payload={request_name:context.setup.request_name,decision:v.decision,approval_mode:v.approval_mode,reason:v.reason||''};automatic=false;}
+   if(['Request Stop Cancellation','Cancel Customer Stop'].includes(step)){
+    const reason=String(v.reason||'').trim();if(!reason)throw new Error('Enter the customer-stop cancellation reason.');
+    payload={reason};automatic=false;
+    if(step==='Cancel Customer Stop'){payload.goods_hash=context.setup.goods_hash;payload.stock_disposition=v.stock_disposition||'Keep Reserved for Return';}
+   }
+   if(step==='Decide Route Change'){payload={request_name:context.setup.request_name,decision:v.decision,approval_mode:v.approval_mode,reason:v.reason||''};if(context.setup.request_type==='Cancel Customer Stop'){payload.goods_hash=context.setup.goods_hash;payload.stock_disposition=v.stock_disposition||'Keep Reserved for Return';}automatic=false;}
    if(step==='Add Assistant'){
     payload.employee=String(v.employee||'').trim();
     if(!payload.employee)throw new Error('Select an Assistant Driver Employee first.');
@@ -278,7 +294,7 @@
    const text=String(value||'').trim(),upper=text.toUpperCase();if(!text||!valid())return;
    if(upper==='CFG:CMD:CANCEL')return close();if(upper==='CFG:CMD:CONFIRM')return submit();
    if(['CFG:CMD:REFRESH','CFG:CMD:ROUTE_SHEET_REFRESH'].includes(upper))return c.state.pending?c.reconcile():load();
-   if(upper==='CFG:CMD:HELP'){host.find('.driver-action-message').text(context?.next_step==='Edit Route Order'?'Numbered choices select customers. ROUTE_MOVE_UP / ROUTE_MOVE_DOWN changes their order. NEXT_MATERIALS / PREVIOUS_MATERIALS pages the customer choices. ROUTE_REASON selects the reason. Confirm saves or requests approval; Cancel closes safely.':'Confirm submits reviewed details. Scan Customer Site when required. CFG:SELECT:1–10 arms a field; scan its value. DELIVERY_RECIPIENT and ERP table-row commands are supported. Cancel closes while retaining unknown results. Refresh reads back the saved outcome.');return;}
+   if(upper==='CFG:CMD:HELP'){host.find('.driver-action-message').text(context?.next_step==='Edit Route Order'?'Numbered choices select customers. ROUTE_MOVE_UP / ROUTE_MOVE_DOWN changes their order. NEXT_MATERIALS / PREVIOUS_MATERIALS pages the customer choices. ROUTE_REASON selects the reason. Confirm saves or requests approval; Cancel closes safely.':'For customer cancellation, STOP_CANCEL_REASON arms the reason; STOP_STOCK_DISPOSITION selects Keep Reserved for Return or Release for Same-trip Sale using numbered choices. Drivers request; Supervisors approve. Confirm submits reviewed details. Scan Customer Site when required. CFG:SELECT:1–10 arms a field; scan its value. DELIVERY_RECIPIENT and ERP table-row commands are supported. Cancel closes while retaining unknown results. Refresh reads back the saved outcome.');return;}
    if(c.state.pending)throw new Error('Retry or reconcile the original request before editing.');
    if(context?.next_step==='Edit Route Order'){
     const selected=upper.match(/^CFG:SELECT:(10|[1-9])$/);
@@ -294,6 +310,8 @@
    if(context?.next_step==='Begin Delivery'&&context.require_scan&&!inputScanner?.state.table&&inputScanner?.state.field==='customer_scan'&&!upper.startsWith('CFG:')){await inputs.customer_scan.set_value(text);return;}
    if(upper==='CFG:CMD:ROUTE_ALLOCATE_STOCK'&&context?.next_step==='Select Route Stock')return addStock();
    if(upper==='CFG:CMD:RETURN_CAMERA')return startCamera();
+   if(upper==='CFG:CMD:STOP_CANCEL_REASON')return inputScanner.field('reason');
+   if(upper==='CFG:CMD:STOP_STOCK_DISPOSITION')return inputScanner.field('stock_disposition');
    if(upper==='CFG:CMD:RETURN_REASON')return inputScanner.field('customer_return_reason');
    if(upper==='CFG:CMD:RETURN_ITEMS')return inputScanner.field('lines');
    const aliases={'CFG:CMD:RETURN_ADD_ITEM':'CFG:CMD:DELIVERY_ADD_ROW','CFG:CMD:RETURN_NEXT_ITEM':'CFG:CMD:DELIVERY_NEXT_ROW','CFG:CMD:RETURN_PREVIOUS_ITEM':'CFG:CMD:DELIVERY_PREVIOUS_ROW','CFG:CMD:RETURN_INPUTS':'CFG:CMD:DELIVERY_INPUTS'};
@@ -327,5 +345,5 @@
   c.restore(options.trip);render();if(!c.state.pending)queue(load);
   return {scan:value=>queue(()=>scan(value)),close,focus,controller:c,refresh:()=>queue(()=>c.state.pending?c.reconcile():load())};
  }
- const api={controller,open,stopOrder};if(typeof module!=='undefined'&&module.exports)module.exports=api;root.cfg_driver_route_actions=api;
+ const api={controller,open,stopOrder,cancellationSummary};if(typeof module!=='undefined'&&module.exports)module.exports=api;root.cfg_driver_route_actions=api;
 })(typeof window==='undefined'?globalThis:window);

@@ -310,6 +310,9 @@ def _post_internal_direct(manifest, doc):
         if source_plan and frappe.db.get_value('CFG Kanban Dispatch Plan',source_plan,'driver_delivery_outcome'):
             from cfg_kanban.services.driver_delivery_outcomes import recovery_restore
             recovery_restore(manifest, received=True)
+        if source_plan and frappe.db.get_value('CFG Kanban Dispatch Plan',source_plan,'stop_cancellation'):
+            from cfg_kanban.services.cancelled_stop_stock import recovery_restore
+            recovery_restore(manifest,received=True)
     record("Internal Transfer Posted", movement_manifest=manifest.name,
            previous_state="Dispatch Document Pending", new_state="Received",
            qty=manifest.total_quantity, reference_doctype="Stock Entry", reference_name=doc.name)

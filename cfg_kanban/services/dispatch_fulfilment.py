@@ -30,9 +30,9 @@ def prepared_plans(site_name, operator):
         'customer_site': site_name,
     }, fields=['name', 'company', 'customer', 'customer_site', 'vehicle_warehouse',
                'vehicle_reference', 'business_label', 'dispatch_responsibility',
-               'delivery_session', 'fulfilment_status', 'total_loaded_qty', 'dispatch_review_state'],
+               'delivery_session', 'fulfilment_status', 'total_loaded_qty', 'dispatch_review_state','stop_cancellation'],
         order_by='loaded_on asc, name asc', limit_page_length=200)
-    eligible = [row for row in rows if not row.get('dispatch_review_state') and row.fulfilment_status != 'Completed' and
+    eligible = [row for row in rows if not row.get('stop_cancellation') and not row.get('dispatch_review_state') and row.fulfilment_status != 'Completed' and
             (planning._view_all(operator) or row.dispatch_responsibility in planning._responsibilities(operator)) and
             (not row.delivery_session or delivery._can_view_delivery(operator,
              frappe.get_doc('CFG Kanban Delivery Session', row.delivery_session)))]
@@ -106,6 +106,7 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
         from cfg_kanban.services.route_sheets import lock_plan_route_scope, check_plan_route_scope
         route_scope_lock=lock_plan_route_scope(candidate,operator)
     plan = planning._locked_authorized_plan(dispatch_plan, operator)
+    if plan.get('stop_cancellation'):frappe.throw('This customer stop was cancelled; its goods follow the recorded Supervisor disposition')
     if sequence_trip(frappe,plan)!=sequence_name:frappe.throw('Trip assignment changed; refresh before starting customer delivery')
     if route_scope_lock:check_plan_route_scope(plan,route_scope_lock)
     if plan.get('fulfilment_mode') in ('Direct Warehouse Delivery','Customer Pickup'):

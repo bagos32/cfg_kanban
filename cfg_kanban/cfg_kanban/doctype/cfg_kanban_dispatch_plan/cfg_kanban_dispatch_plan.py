@@ -26,6 +26,8 @@ class CFGKanbanDispatchPlan(Document):
             request=lambda doc:[(r.item_code,r.batch_no or '',r.stock_uom,flt(r.requested_qty),r.sales_order_item or '') for r in doc.lines]
             if any(self.get(f)!=before.get(f) for f in fields) or request(self)!=request(before):
                 frappe.throw('Change generated dispatch quantities and sources on its office Delivery Trip before execution')
+        if self.get('stop_cancellation') != (before.get('stop_cancellation') if before else None):
+            frappe.throw('Customer stop cancellation is a controlled immutable execution reference')
         if self.get('driver_delivery_outcome') != (before.get('driver_delivery_outcome') if before else None):
             frappe.throw('Driver delivery outcome is a controlled immutable execution reference')
         if self.state not in ACTIVE_STATES | {"Cancelled", "Exception", "Reconciled"}:

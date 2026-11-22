@@ -131,7 +131,7 @@
     const badge = data.current_stop_key ? tr('Current stop') : data.sequence_source === 'Approved Route Sheet' ? tr('Next delivery stop') : tr('Next planned stop');
     return `<section class="frappe-card cfg-driver-summary p-4"><div class="cfg-driver-summary-head"><div><h2>${escape(data.trip.trip_title || data.trip.name)}</h2>
       <p>${escape(data.trip.company)} · ${escape(data.trip.driver_route_state || tr('Not Started'))} · ${escape(data.vehicle_reference || data.vehicle_warehouse || tr('Lorry not yet assigned'))}</p></div>
-      <span>${escape(data.completed_stops)} / ${escape(data.total_stops)} ${tr('stops complete')}</span></div>
+      <span>${escape(data.completed_stops)} / ${escape(data.total_stops)} ${tr('stops complete')}${data.cancelled_stop_count?' · '+escape(data.cancelled_stop_count)+' '+tr('cancelled'):''}</span></div>
       <p><strong>${badge}:</strong> ${next ? escape(next.site_name || next.customer_name) + ' · ' + escape(next.state) : tr('No next stop recorded')}
       <br><small>${escape(data.sequence_source)} · ${tr('Updated')} ${escape(data.refreshed_on)}</small></p>
       ${maps()?.navigationHTML(state)||''}
@@ -140,11 +140,19 @@
       <p><strong>${tr('Assigned Driver')}:</strong> ${escape(data.trip.driver||'—')} · <strong>${tr('Assistant Drivers')}:</strong> ${(data.trip.assistant_drivers||[]).map(row=>escape(row.employee_name||row.employee)).join(', ')||'—'}</p>
       ${data.can_add_assistant?`<button class="btn btn-default cfg-driver-add-assistant">${tr('Add Assistant Driver')}</button>`:''}
       ${data.route_sequence?.can_change?`<button class="btn btn-default cfg-driver-order">${tr(data.route_sequence.enforced?'Request Stop Order Change':'Change Stop Order')}</button>`:''}
-      ${data.route_sequence?.request?`<p class="alert alert-info">${tr('Route change')}: ${escape(data.route_sequence.request.name)} · ${escape(data.route_sequence.request.state)} · ${escape(data.route_sequence.request.approval_mode||'')} ${escape(data.route_sequence.request.decision_reason||'')}${data.route_sequence.request.can_cancel?` <button class="btn btn-default cfg-driver-cancel-order">${tr('Cancel Route Request')}</button>`:''}</p>`:''}
+      ${data.route_sequence?.request?`<p class="alert alert-info">${tr(data.route_sequence.request.request_type||'Route change')}: ${escape(data.route_sequence.request.name)} · ${escape(data.route_sequence.request.state)} · ${escape(data.route_sequence.request.approval_mode||'')} ${escape(data.route_sequence.request.decision_reason||'')}${data.route_sequence.request.can_cancel?` <button class="btn btn-default cfg-driver-cancel-order">${tr(data.route_sequence.request.request_type==='Cancel Customer Stop'?'Withdraw Cancellation Request':'Cancel Route Request')}</button>`:''}</p>`:''}
       ${(data.warnings || []).map(warning => `<p class="alert alert-warning">${escape(warning)}</p>`).join('')}
       <div class="cfg-driver-map-slot"></div>
       <div class="cfg-driver-stops">${(data.stops || []).map(stop => `<button class="btn btn-default${selected?.stop_key === stop.stop_key ? ' selected' : ''}" data-stop="${escape(stop.stop_key)}"><strong>${escape(stop.sequence)}. ${escape(stop.site_name || stop.customer_name)}</strong><span>${escape(stop.state)}${stop.purpose === 'Visit Only' ? ' · ' + tr('Visit Only') : ''}</span></button>`).join('')}</div></section>
-      ${selected ? stopView(selected, data.trip) + returnView(data,selected,state) : ''}`;
+      ${selected ? stopView(selected, data.trip) + cancellationControl(selected,data,state) + returnView(data,selected,state) : ''}${cancelledView(data)}`;
+  }
+  function cancellationControl(stop,data,state){
+    if(stop.driver_completed_on||['In Progress','Awaiting proof','Delivery Note pending','Awaiting stop completion','Review required','Completed','Completed with refusal','Cancelled'].includes(stop.state)||stop.plans?.some(p=>p.delivery_session)||(!data.can_cancel_stop&&!data.can_request_stop_cancellation))return '';
+    return `<section class="frappe-card p-3 mt-3"><button class="btn btn-warning cfg-driver-cancel-stop" data-cancel-stop="${escape(stop.stop_key)}"${state.stale||state.busy?' disabled':''}>${tr(data.can_cancel_stop?'Cancel Customer Stop':'Request Stop Cancellation')}</button><p class="text-muted">${tr('Every cancellation needs Supervisor approval. Existing delivery/proof must be resolved first.')}</p></section>`;
+  }
+  function cancelledView(data){
+    if(!data.cancelled_stops?.length)return '';
+    return `<details class="frappe-card p-3 mt-3"><summary>${tr('Cancelled Customer Stops')} (${escape(data.cancelled_stops.length)})</summary>${data.cancelled_stops.map(row=>`<section class="mt-3"><strong>${escape(row.office_sequence)}. ${escape(row.site_name||row.customer_name)}</strong><p>${escape(row.cancelled_on)} · ${escape(row.cancelled_by)} · ${escape(row.cancellation_reason)}</p><p>${escape(row.stock_disposition)} · ${escape(row.cancellation_request)}</p>${(row.loaded_stock||[]).map(stock=>`<p>${escape(stock.visible_code||stock.item_code)} · ${escape(stock.qty)} ${escape(stock.stock_uom)} · ${escape(stock.stock_state)} · ${tr('Last recorded custody')}: ${escape(stock.current_warehouse)}</p>`).join('')}</section>`).join('')}</details>`;
   }
   function stopView(stop, trip) {
     return `<section class="frappe-card p-4 mt-3"><h3>${escape(stop.sequence)}. ${escape(stop.site_name || stop.customer_name)}</h3>
@@ -217,7 +225,7 @@
     });
     app.hide(); // A late asset load must not activate an already hidden Desk page.
     const focus = () => action ? action.focus() : input.trigger('focus');
-    async function submit(value) { const text=String(value??input.val()).trim();if(/^CFG:CMD:GPS_(SHARE|STOP|REFRESH)$/.test(text)&&!action){input.val('');try{return await gps?.scan(text);}finally{focus();}} if (action) { const scan = value ?? input.val(); input.val(''); return action.scan(scan); } try { let station = ''; try { station = localStorage.getItem('cfg_kanban_station') || ''; } catch (_) {} await app.scan(value ?? input.val(), $root.find('.cfg-driver-pin').val(), station); input.val(''); $root.find('.cfg-driver-pin').val(''); } finally { focus(); } }
+    async function submit(value) { const command=String(value??input.val()).trim();if(command.toUpperCase()==='CFG:CMD:CANCEL_CUSTOMER_STOP'&&!action){input.val('');const key=app.state.stop||app.state.detail?.next_stop_key;if(!key){notice(tr('Select an unstarted customer stop first.'));focus();return;}return execute(key,'Cancel Customer Stop');} const text=String(value??input.val()).trim();if(/^CFG:CMD:GPS_(SHARE|STOP|REFRESH)$/.test(text)&&!action){input.val('');try{return await gps?.scan(text);}finally{focus();}} if (action) { const scan = value ?? input.val(); input.val(''); return action.scan(scan); } try { let station = ''; try { station = localStorage.getItem('cfg_kanban_station') || ''; } catch (_) {} await app.scan(value ?? input.val(), $root.find('.cfg-driver-pin').val(), station); input.val(''); $root.find('.cfg-driver-pin').val(''); } finally { focus(); } }
     function stopCamera() { cameraEpoch++; try { camera?.stop_scan?.(); camera?.dialog?.hide?.(); } catch (_) {} camera = null; }
     $root.on('keydown.cfg_driver', '.cfg-driver-scan', event => {
       if (!['Enter', 'Tab'].includes(event.key) || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.isComposing || !String(input.val() || '').trim()) return;
@@ -242,6 +250,7 @@
           onClose:()=>{action=null;focus();}});
       } catch(error) { $root.find('.cfg-driver-action-host').empty(); notice(message(error)); focus(); }
     }
+    $root.on('click.cfg_driver','.cfg-driver-cancel-stop',event=>execute($(event.currentTarget).attr('data-cancel-stop'),'Cancel Customer Stop'));
     $root.on('click.cfg_driver','.cfg-driver-order',()=>execute(null,'Change Route Order'));
     $root.on('click.cfg_driver','.cfg-driver-cancel-order',()=>execute(null,'Cancel Route Change'));
     $root.on('click.cfg_driver','.cfg-driver-add-assistant',()=>execute(null,'Add Assistant'));
@@ -279,5 +288,5 @@
     frappe.router?.on?.('change', () => { if (!route()) lifecycle.hide(); });
     return lifecycle;
   }
-  return { controller, scan, expired, message, tripList, detailView, mount, escape };
+  return { controller, scan, expired, message, tripList, detailView, mount, escape,cancelledView,cancellationControl };
 });

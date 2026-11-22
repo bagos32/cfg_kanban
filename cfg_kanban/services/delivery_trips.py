@@ -137,6 +137,10 @@ def _assignments(order_names, exclude_trip=None, current=False):
         WHERE assignment.parenttype=%s AND assignment.parentfield='orders'
           AND trip.state IN ('Draft','Planned') AND assignment.sales_order IN ({placeholders})
           AND trip.name != %s
+          AND NOT EXISTS (SELECT 1 FROM `tabCFG Kanban Delivery Trip Stop` stopped
+              WHERE stopped.parent=trip.name AND stopped.parenttype=assignment.parenttype
+                AND stopped.parentfield='stops' AND stopped.stop_key=assignment.stop_key
+                AND coalesce(stopped.cancellation_request,'')!='')
         ORDER BY assignment.parent, assignment.name
         {'FOR UPDATE' if current else ''}
     ''', tuple([TRIP] + names + [exclude_trip or '']), as_dict=True)
@@ -229,7 +233,8 @@ def get_route_order_inbox(route_template, company=None, trip_name=None, start=0,
     delivered = _delivered_assignments(names[:size]) if current and names[:size] else {}
     own = {(row.sales_order, row.sales_order_item): max(0, flt(row.planned_qty) -
            delivered.get((current.name, row.sales_order, row.sales_order_item), 0))
-           for row in (current.orders if current and current.state in ACTIVE else [])}
+           for row in (current.orders if current and current.state in ACTIVE else [])
+           if not next((r.get('cancellation_request') for r in current.stops if r.stop_key==row.stop_key),False)}
     rows = []
     for name in names[:size]:
         order = _order(name, template.company, template.name, allow_draft=True)
@@ -290,9 +295,9 @@ def _plans(doc, current=False):
             frappe.throw('Generated customer dispatch must remain linked to its exact office Trip and stop')
         if current and row.dispatch_plan not in prior and plan.state in ('Reconciled', 'Cancelled'):
             frappe.throw('A settled or cancelled Dispatch Plan cannot be newly assigned to a Delivery Trip')
-        if doc.vehicle_warehouse and plan.vehicle_warehouse and doc.vehicle_warehouse != plan.vehicle_warehouse:
+        if not stop.get('cancellation_request') and doc.vehicle_warehouse and plan.vehicle_warehouse and doc.vehicle_warehouse != plan.vehicle_warehouse:
             frappe.throw('Linked Dispatch Plan belongs to a different lorry Warehouse')
-        if doc.source_warehouse and plan.source_warehouse != doc.source_warehouse:
+        if not stop.get('cancellation_request') and doc.source_warehouse and plan.source_warehouse != doc.source_warehouse:
             frappe.throw('Linked Dispatch Plan uses a different loading source Warehouse')
         if (plan.company != doc.company or plan.plan_type != 'Customer Order'
                 or plan.fulfilment_mode != 'Vehicle Delivery' or stop.stop_purpose != 'Delivery'
@@ -309,7 +314,7 @@ def _plans(doc, current=False):
         row.stop_sequence, row.plan_state = stop.delivery_sequence, plan.state
         row.sales_order, row.vehicle_warehouse = plan.sales_order, plan.vehicle_warehouse
         result[plan.name] = (row, plan)
-    vehicles = {plan.vehicle_warehouse for _row, plan in result.values() if plan.vehicle_warehouse}
+    vehicles = {plan.vehicle_warehouse for row, plan in result.values() if plan.vehicle_warehouse and not stops[row.stop_key].get('cancellation_request')}
     if len(vehicles) > 1:
         frappe.throw('A trip cannot combine different lorry Warehouses')
     return result
@@ -351,13 +356,13 @@ def _source_rows(doc, plans):
     """Build loading instructions from real allocations plus unprepared order balances."""
     budgets = {}
     for row in doc.orders:
-        if not cint(row.get('is_stock_item')):
+        if not cint(row.get('is_stock_item')) or next((r.get('cancellation_request') for r in doc.stops if r.stop_key==row.stop_key),False):
             continue
         key = (row.stop_key, row.sales_order, row.item_code, row.stock_uom)
         budgets[key] = budgets.get(key, 0) + flt(row.planned_qty)
     requested = {}; covered = {}; rows = []
     for name, (link, plan) in plans.items():
-        if plan.state == 'Cancelled':
+        if plan.state == 'Cancelled' or next((r.get('cancellation_request') for r in doc.stops if r.stop_key==link.stop_key),False):
             continue
         for line in plan.lines:
             key = (link.stop_key, plan.sales_order, line.item_code, line.stock_uom)
@@ -425,8 +430,15 @@ def _protect_driver_execution(doc, before):
     original = {row.stop_key: row for row in before.stops} if before else {}
     for row in doc.stops:
         source = original.get(row.stop_key)
-        for field in ('driver_completed_on', 'driver_completed_by', 'driver_visit_notes'):
+        for field in ('driver_completed_on', 'driver_completed_by', 'driver_visit_notes','cancellation_request','stop_cancelled_on','stop_cancelled_by','stop_cancellation_reason'):
             row.set(field, source.get(field) if source else None)
+    if before and any(r.get('cancellation_request') for r in before.stops):
+        left,right=_business(doc),_business(before)
+        if (getattr(doc,'flags',None) or {}).get('cfg_trip_dispatch'):
+            left.pop('plans',None);right.pop('plans',None)
+        if left!=right:frappe.throw('A cancelled stop retains its itinerary and order history; use another Trip for replacement work')
+        previous={r.stop_key:r for r in before.stops if r.get('cancellation_request')}
+        if set(previous)-{r.stop_key for r in doc.stops}:frappe.throw('Cancelled customer history cannot be removed')
     if before and before.get('driver_route_state') in ('In Progress', 'Completed'):
         if _business(doc) != _business(before):
             frappe.throw('Started driver routes retain their itinerary, assignments and driver; use controlled recovery')
@@ -540,6 +552,8 @@ def validate_trip(doc):
         stop = stops.get(row.stop_key)
         if not stop or stop.stop_purpose != 'Delivery':
             frappe.throw('Assign each order line to an exact Delivery stop')
+        if stop.get('cancellation_request'):
+            continue
         if row.sales_order not in orders:
             orders[row.sales_order] = _order(row.sales_order, doc.company, doc.route_template, current=True)
         order = orders[row.sales_order]

@@ -160,7 +160,7 @@ def projection(trip,stops,operator):
         if stop.stop_purpose!='Visit Only':continue
         row=visit(trip,stop)
         target=stops[stop.stop_key]
-        target['can_open_sale']=bool(row and not stop.driver_completed_on and trip.driver_route_state=='In Progress')
+        target['can_open_sale']=bool(row and not stop.get('cancellation_request') and not stop.driver_completed_on and trip.driver_route_state=='In Progress')
         if not row:continue
         delivery=session(trip,stop,operator)
         target['open_sale']=dict(dispatch_plan=doc.name,route_stop=row.name,state=row.state,
@@ -173,6 +173,7 @@ def projection(trip,stops,operator):
             for allocation in allocations:_read('Item',allocation.item_code)
             target['open_sale']['allocations']=[dict(r) for r in allocations]
         if delivery and delivery.state not in ('Closed','Cancelled'):
+            if stop.get('cancellation_request'):frappe.throw('Cancelled visit unexpectedly has active delivery feedback')
             target['state']='Awaiting proof' if delivery.state=='Delivered' else 'Delivery Note pending' if delivery.state=='ERP Document Pending' else 'In Progress'
     return dict(name=doc.name,state=doc.state,vehicle_warehouse=doc.vehicle_warehouse,
         existing_stock_only=bool(doc.existing_lorry_stock_only),total_delivered_qty=flt(doc.total_delivered_qty))
@@ -188,7 +189,7 @@ def assert_delivery_scope(delivery):
     trip=lock_scope(plan)
     stop=next((r for r in trip.stops if r.stop_key==frappe.db.get_value('CFG Kanban Route Stop',delivery.route_stop,'office_stop_key')),None)
     if (trip.open_route_plan!=plan.name or trip.state!='Planned' or trip.driver_route_state!='In Progress'
-            or not stop or stop.driver_completed_on or trip.driver_active_stop_key!=stop.stop_key):
+            or not stop or stop.get('cancellation_request') or stop.driver_completed_on or trip.driver_active_stop_key!=stop.stop_key):
         frappe.throw('This Open Route delivery no longer belongs to the active Trip customer stop')
 
 
