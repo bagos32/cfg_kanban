@@ -1,0 +1,214 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Trip GPS",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "autoname": "field:delivery_trip",
+ "title_field": "delivery_trip",
+ "track_changes": 0,
+ "allow_rename": 0,
+ "field_order": [
+  "delivery_trip",
+  "company",
+  "vehicle_warehouse",
+  "vehicle_reference",
+  "state",
+  "source_employee",
+  "operator_profile",
+  "operator_session",
+  "terminal_user",
+  "device_id",
+  "lease_id",
+  "publish_token_hash",
+  "lease_until",
+  "lease_until_ms",
+  "started_on",
+  "stopped_on",
+  "stop_reason",
+  "last_sequence",
+  "last_payload_hash",
+  "last_received_on",
+  "last_received_ms",
+  "last_fix_json",
+  "pause_sequence"
+ ],
+ "fields": [
+  {
+   "fieldname": "delivery_trip",
+   "label": "Delivery Trip",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Delivery Trip",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Company",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "vehicle_warehouse",
+   "label": "Lorry Warehouse",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Warehouse",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "vehicle_reference",
+   "label": "Vehicle Reference",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "state",
+   "label": "Stored Sharing State",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "options": "Sharing\nPaused\nStopped",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "source_employee",
+   "label": "GPS Publisher",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "operator_profile",
+   "label": "Publisher Profile",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Operator Profile"
+  },
+  {
+   "fieldname": "operator_session",
+   "label": "Original Operator Session",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Operator Session"
+  },
+  {
+   "fieldname": "terminal_user",
+   "label": "ERP Terminal User",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "User"
+  },
+  {
+   "fieldname": "device_id",
+   "label": "Browser Device Identity",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "lease_id",
+   "label": "Source Identity",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "publish_token_hash",
+   "label": "GPS Token Hash",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "lease_until",
+   "label": "Sharing Permission Until",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "lease_until_ms",
+   "label": "Sharing Permission Until (UTC milliseconds)",
+   "fieldtype": "Long Int",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "started_on",
+   "label": "Sharing Started",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stopped_on",
+   "label": "Sharing Stopped",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stop_reason",
+   "label": "Stop / Release Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_sequence",
+   "label": "Last Accepted Sequence",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "last_payload_hash",
+   "label": "Last Request Hash",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "last_received_on",
+   "label": "Last Position Received",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "last_received_ms",
+   "label": "Last Receipt (UTC milliseconds)",
+   "fieldtype": "Long Int",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "last_fix_json",
+   "label": "Last Reported Position",
+   "fieldtype": "Code",
+   "read_only": 1,
+   "options": "JSON"
+  },
+  {
+   "fieldname": "pause_sequence",
+   "label": "Paused Through Sequence",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "hidden": 1,
+   "default": "0"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Stock Manager",
+   "read": 1
+  },
+  {
+   "role": "Manufacturing Manager",
+   "read": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1
+  }
+ ]
+}

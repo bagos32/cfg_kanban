@@ -16,6 +16,7 @@ pool. Use a Flexible Order Trip and an enforced Trip with both Supervisor approv
 | Validation | Extra markers/shapes, invalid JSON, NaN/Infinity, out-of-range and nonnumeric coordinates reject; 0 coordinates remain valid | Not run |
 | Site permissions | Existing native create/write/Company scope governs editing; unauthorized driver sees no editing action | Not run |
 | Driver authorization | Only assigned/team or authorized Supervisor sources appear; wrong Company/Site/address/native access rejects | Not run |
+| KL defaults and saved pin | Empty/new native Site and Driver maps start at KL 3.139,101.6869 zoom 13; saved pins focus actual coordinates; no invented lorry point | Not run |
 | Map startup | Native local Leaflet assets and configured tile provider render pins; no automatic driver GPS prompt | Not run |
 | Map details | Numbers match effective sequence; pin shows customer/status/products/SO/PO; View Stop only views the exact stop | Not run |
 | Repeated coordinate | Combined pin offers each separate visit; no silent first-match selection | Not run |
@@ -26,7 +27,7 @@ pool. Use a Flexible Order Trip and an enforced Trip with both Supervisor approv
 | Missing/very long address | No guessed or truncated destination; office setup message | Not run |
 | Google Maps on tablet/phone/desktop | Exact destination and driving directions; app/web behavior and origin reviewed on device | Not run |
 | Waze installed/not installed | Universal link opens app or website appropriately; exact point or explicit address search | Not run |
-| No automatic information transfer | Navigation URLs omit credentials, Trip, SO/PO; no CFG driver GPS watcher/capture; ordinary tile/provider requests only | Not run |
+| No automatic information transfer | Navigation URLs omit credentials, Trip, SO/PO; no automatic CFG GPS capture before explicit Share GPS; ordinary tile/provider requests only | Not run |
 | Native browser new-tab policy | User tap opens provider successfully in kiosk/tablet browser; return refreshes route | Not run |
 | Return refresh/session expiry | Passive refresh uses current saved order/pins; does not extend inactivity or post a DN/proof | Not run |
 | Ordinary refresh | Existing viewport/map retained; status updates; changed coordinates recenter appropriately | Not run |
@@ -51,3 +52,5 @@ Offline development checkpoint: **613 Python tests passed** across the related p
 dispatch, returns, stock identity, schema and navigation suites. **134 JavaScript test entries
 passed** across 13 related UI suites. These use dependency/DOM/Leaflet doubles and do not change
 the native acceptance results above. Syntax/schema checks also passed.
+
+The subsequent explicit Trip GPS feature has its own [Supervisor/GPS checklist](TEST_SUPERVISOR_LIVE_MAP.md); it does not change map/delivery/proof acceptance results above.

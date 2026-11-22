@@ -1,0 +1,20 @@
+{
+ "doctype": "Page",
+ "module": "CFG Kanban",
+ "name": "kanban-trip-monitor",
+ "page_name": "kanban-trip-monitor",
+ "roles": [
+  {
+   "role": "Stock Manager"
+  },
+  {
+   "role": "Manufacturing Manager"
+  },
+  {
+   "role": "System Manager"
+  }
+ ],
+ "standard": "Yes",
+ "system_page": 0,
+ "title": "Supervisor Live Map"
+}

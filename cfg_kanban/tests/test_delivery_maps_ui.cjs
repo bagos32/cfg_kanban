@@ -57,7 +57,7 @@ test('map state colors reflect current/completed/attention and all popup data is
 });
 class Element{
  constructor(){this.children=[];this.parentNode=null;this.nodes=new Map();this.listeners={};this.textContent='';this.hidden=false;}
- set innerHTML(value){this.html=value;for(const name of ['cfg-driver-map-info','cfg-driver-map-canvas','cfg-driver-map-message','cfg-driver-map-retry'])this.nodes.set('.'+name,new Element());}
+ set innerHTML(value){this.html=value;for(const name of ['cfg-driver-map-info','cfg-driver-map-canvas','cfg-driver-map-message','cfg-driver-map-retry','cfg-map-follow'])this.nodes.set('.'+name,new Element());}
  querySelector(name){return this.nodes.get(name);}
  appendChild(node){if(node.parentNode)node.parentNode.removeChild(node);this.children.push(node);node.parentNode=this;return node;}
  removeChild(node){this.children=this.children.filter(n=>n!==node);node.parentNode=null;}
@@ -65,7 +65,7 @@ class Element{
 }
 function library(){
  const maps=[],tiles=[],groups=[],markers=[];
- const L={map:canvas=>{const map={canvas,fit:0,invalidations:0,removed:false,remove(){this.removed=true;},removeLayer(){},fitBounds(){this.fit++;},invalidateSize(){this.invalidations++;}};maps.push(map);return map;},
+ const L={map:canvas=>{const map={canvas,fit:0,invalidations:0,removed:false,remove(){this.removed=true;},removeLayer(){},setView(center,zoom){this.center=center;this.zoom=zoom;return this;},panTo(point){this.pan=point;},fitBounds(){this.fit++;},invalidateSize(){this.invalidations++;}};maps.push(map);return map;},
   tileLayer:(url,options)=>{const layer={url,options,events:{},on(name,fn){this.events[name]=fn;return this;},addTo(){return this;}};tiles.push(layer);return layer;},
   divIcon:options=>options,featureGroup:()=>{const group={markers:[],addTo(){return this;},getBounds:()=>[]};groups.push(group);return group;},
   marker:(coords,options)=>{const marker={coords,options,bindPopup(html){this.html=html;return this;},addTo(group){group.markers.push(this);return this;}};markers.push(marker);return marker;}};
@@ -81,8 +81,8 @@ test('map uses configured native tiles and does not request a GPS position',asyn
  const h=mapHarness();await h.update();assert.equal(h.maps.length,1);assert.equal(h.tiles[0].url,'https://tiles.example/{z}/{x}/{y}.png');assert.equal(h.markers[0].coords[0],3.139);assert.equal(h.markers[0].coords[1],101.6869);assert.equal(h.maps[0].fit,1);
  assert(h.node().querySelector('.cfg-driver-map-info').textContent.includes('1 / 1'));h.map.clear();assert(h.maps[0].removed);assert.equal(h.slot.children.length,0);
 });
-test('no saved pins avoids loading any map library or tiles',async()=>{
- const h=mapHarness();await h.update(state({stops:[stop('K1',{delivery_pin:null})]}));assert.equal(h.loads(),0);assert(h.node().querySelector('.cfg-driver-map-message').textContent.includes('No delivery pins'));
+test('empty map opens at KL without inventing a customer or vehicle pin',async()=>{
+ const h=mapHarness();await h.update(state({stops:[stop('K1',{delivery_pin:null})]}));assert.equal(h.loads(),1);assert.deepEqual(h.maps[0].center,[3.139,101.6869]);assert.equal(h.maps[0].zoom,13);assert.equal(h.markers.length,0);assert(h.node().querySelector('.cfg-driver-map-message').textContent.includes('No saved locations'));
 });
 test('refresh keeps map and viewport; changed status updates markers and changed pin recenters',async()=>{
  const h=mapHarness();await h.update();const map=h.maps[0];h.map.detach();assert.equal(h.slot.children.length,0);await h.update();assert.equal(h.maps.length,1);assert.equal(map.fit,1);
@@ -94,10 +94,10 @@ test('map popup opens only the exact selected visit details and cannot complete 
  click('K2');click('OTHER');assert.deepEqual(h.picks,['K2']);
  const stale=state();stale.stale=true;await h.update(stale);click('K1');assert.deepEqual(h.picks,['K2']);
 });
-test('stale warning clears after a successful refresh and removal of all pins clears old map',async()=>{
+test('stale warning clears after a successful refresh and removal of all pins leaves an empty KL map',async()=>{
  const h=mapHarness();await h.update();const s=state();s.stale=true;await h.update(s);assert.match(h.node().querySelector('.cfg-driver-map-message').textContent,/not refreshed/);
  s.stale=false;await h.update(s);assert.equal(h.node().querySelector('.cfg-driver-map-message').textContent,'');
- s.detail.stops[0].delivery_pin=null;await h.update(s);assert(h.maps[0].removed);assert(h.node().querySelector('.cfg-driver-map-canvas').hidden);
+ s.detail.stops[0].delivery_pin=null;await h.update(s);assert(!h.maps[0].removed);assert.deepEqual(h.maps[0].center,[3.139,101.6869]);assert.equal(h.groups.at(-1).markers.length,0);
 });
 test('late library load after logout or trip replacement cannot render old customer pins',async()=>{
  const wait=deferred(),h=mapHarness(()=>wait.promise);h.map.update(state(),h.slot);h.identity.value=null;h.map.clear();wait.resolve(h.L);await flush();assert.equal(h.maps.length,0);assert.equal(h.slot.children.length,0);
@@ -130,4 +130,28 @@ test('native Leaflet assets load locally with no Google API key or remote execut
  const lib=library(),calls=[],slot=new Element();global.L=null;
  const map=api.createRouteMap({frappe:{utils:{map_defaults:{tiles:'native',options:{}}},require:async path=>{calls.push(path);if(path.endsWith('.js'))global.L=lib.L;}},document:{createElement:()=>new Element()},identity:()=> 'EMP',pick(){}});
  map.update(state(),slot);await flush();assert.deepEqual(calls,['/assets/frappe/js/lib/leaflet/leaflet.css','/assets/frappe/js/lib/leaflet/leaflet.js']);assert.equal(lib.maps.length,1);map.clear();delete global.L;
+});
+
+test('freshness ages while offline without double-counting when already-projected GPS is rendered again',()=>{
+ const raw=api.observeGPS({state:'Live',position:{latitude:4,longitude:102,accuracy:20},age_seconds:5,stale_after_seconds:90},1000);
+ const once=api.gpsDisplay(raw,11000),twice=api.gpsDisplay(once,11000);assert.equal(once.age_seconds,15);assert.equal(twice.age_seconds,15);assert.equal(twice.state,'Live');
+ assert.equal(api.gpsDisplay(raw,92000).state,'Stale');assert.equal(api.gpsDisplay({state:'Live',position:null,age_seconds:0}).live,false);
+});
+test('first real lorry fix focuses its actual location; later GPS movement preserves viewport unless Follow is enabled',async()=>{
+ const h=mapHarness();await h.update(state({stops:[]}));assert.deepEqual(h.maps[0].center,[3.139,101.6869]);assert.equal(h.maps[0].fit,0);
+ const data=state({stops:[],vehicle_locations:[{trip:{name:'TRIP'},gps:api.observeGPS({state:'Live',position:{latitude:4.2,longitude:102.3,accuracy:10},age_seconds:0,vehicle_reference:'TRUCK'})}]});
+ await h.update(data);assert.equal(h.maps[0].fit,1);assert.deepEqual(h.markers.at(-1).coords,[4.2,102.3]);assert(h.markers.at(-1).options.icon.className.includes('vehicle'));assert.match(h.markers.at(-1).html,/±10 m/);
+ data.detail.vehicle_locations[0].gps.position.latitude=4.3;await h.update(data);assert.equal(h.maps[0].fit,1);assert.equal(h.maps[0].pan,undefined);
+ h.node().listeners.click({target:{closest:selector=>selector==='.cfg-map-follow'?{}:null}});await flush();assert.deepEqual(h.maps[0].pan,[4.3,102.3]);
+ data.detail.vehicle_locations[0].gps.state='Paused';await h.update(data);assert(h.markers.at(-1).options.icon.className.includes('last-known'));assert.match(h.markers.at(-1).html,/not a live fix/);
+});
+test('a Supervisor lorry popup opens only its exact Trip, and cannot open a vanished or stale Trip',async()=>{
+ const h=mapHarness(),picks=[];h.map.clear();const map=api.createRouteMap({frappe:{utils:{map_defaults:{tiles:'native',options:{}}}},document:{createElement:()=>new Element()},identity:()=> 'SUP',pickTrip:name=>picks.push(name),load:()=>Promise.resolve(h.L)});
+ const s=state({stops:[],vehicle_locations:[{trip:{name:'TRIP'},gps:{state:'Stopped',position:{latitude:5,longitude:103},age_seconds:500}}]});map.update(s,h.slot);await flush();
+ const node=h.slot.children[0],click=key=>node.listeners.click({target:{closest:selector=>selector==='[data-map-trip]'?{getAttribute:()=>key}:null}});click('TRIP');click('OTHER');assert.deepEqual(picks,['TRIP']);s.stale=true;map.update(s,h.slot);await flush();click('TRIP');assert.deepEqual(picks,['TRIP']);map.clear();
+});
+test('the first lorry fix joins existing customer bounds once, while normal movement keeps the viewport',async()=>{
+ const h=mapHarness();await h.update();assert.equal(h.maps[0].fit,1);
+ const data=state({vehicle_locations:[{trip:{name:'TRIP'},gps:{state:'Live',position:{latitude:4,longitude:102,accuracy:10},age_seconds:0}}]});await h.update(data);assert.equal(h.maps[0].fit,2);
+ data.detail.vehicle_locations[0].gps.position.latitude=4.5;await h.update(data);assert.equal(h.maps[0].fit,2);
 });

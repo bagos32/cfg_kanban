@@ -187,8 +187,8 @@
       <button class="btn btn-primary cfg-driver-confirm">${tr('Open / Sign in')}</button><button class="btn btn-default cfg-driver-camera">${tr('Scan with Camera')}</button>
       <button class="btn btn-default cfg-driver-change">${tr('Change Operator')}</button><button class="btn btn-default cfg-driver-refresh">${tr('Refresh')}</button></div>
       <label class="mt-2"><input type="checkbox" class="cfg-driver-closed"> ${tr('Show closed trips')}</label><div class="cfg-driver-notice" role="status" aria-live="polite"></div></section>
-      <div class="cfg-driver-layout"><aside class="cfg-driver-list"></aside><main><div class="cfg-driver-detail"></div><div class="cfg-driver-action-host"></div></main></div>`);
-    const input = $root.find('.cfg-driver-scan'); let camera = null, cameraEpoch = 0, timer = null, action = null, routeMap = null;
+      <div class="cfg-driver-gps-host"></div><div class="cfg-driver-layout"><aside class="cfg-driver-list"></aside><main><div class="cfg-driver-detail"></div><div class="cfg-driver-action-host"></div></main></div>`);
+    const input = $root.find('.cfg-driver-scan'); let camera = null, cameraEpoch = 0, timer = null, action = null, routeMap = null, gps = null;
     const notice = text => $root.find('.cfg-driver-notice').text(text || '');
     const app = controller({ storage: localStorage,
       call: async (method, args) => (await frappe.call({ method, args })).message,
@@ -196,6 +196,9 @@
         if (action && (!state.active || !state.token || !state.operator || !state.detail || state.stale)) action.close();
         $root.find('.cfg-driver-identity').text(state.operator ? `${state.operator.employee_name || state.operator.employee} · ${state.operator.employee}` : tr('Sign in with your operator credential'));
         $root.find('.cfg-driver-pin').toggle(!state.token); $root.find('.cfg-driver-confirm').prop('disabled', state.busy);
+        const source=gps?.controller.state;
+        if(state.detail&&source?.binding?.trip===state.detail.trip.name&&source.gps)state.detail.vehicle_locations=[{trip:state.detail.trip,gps:source.gps}];
+        gps?.context(state);
         routeMap?.detach();
         $root.find('.cfg-driver-list').html(tripList(state)); $root.find('.cfg-driver-detail').html(detailView(state));
         routeMap?.update(state,$root.find('.cfg-driver-map-slot')[0]);
@@ -206,9 +209,15 @@
       identity:()=>{let token;try{token=localStorage.getItem(SESSION);}catch(_){return null;}return app.state.active&&frappe.get_route()?.[0]==='kanban-driver-route'&&token&&token===app.state.token&&app.state.operator?.employee?`${token}:${app.state.operator.employee}:${app.state.selected}`:null;},
       pick:key=>{if(action||!app.session()||!app.state.active||app.state.stale||app.state.busy)return;app.viewStop(key);},
     });
+    gps=window.cfg_trip_gps?.bind({frappe,host:$root.find('.cfg-driver-gps-host'),storage:sessionStorage,deviceStorage:localStorage,locks:navigator.locks,
+      nonce:()=>crypto.randomUUID(),owner:()=>app.state.operator?.employee,token:()=>app.state.token,trip:()=>app.state.selected,
+      active:()=>app.state.active&&frappe.get_route()?.[0]==='kanban-driver-route'&&!document.hidden,error:message,
+      supervisor:()=>app.state.can_view_all&&app.state.operator?.can_override,
+      position:(trip,location)=>{if(app.state.detail?.trip.name===trip){app.state.detail.vehicle_locations=[{trip:app.state.detail.trip,gps:window.cfg_delivery_maps.observeGPS(location)}];routeMap?.update(app.state,$root.find('.cfg-driver-map-slot')[0]);}},
+    });
     app.hide(); // A late asset load must not activate an already hidden Desk page.
     const focus = () => action ? action.focus() : input.trigger('focus');
-    async function submit(value) { if (action) { const scan = value ?? input.val(); input.val(''); return action.scan(scan); } try { let station = ''; try { station = localStorage.getItem('cfg_kanban_station') || ''; } catch (_) {} await app.scan(value ?? input.val(), $root.find('.cfg-driver-pin').val(), station); input.val(''); $root.find('.cfg-driver-pin').val(''); } finally { focus(); } }
+    async function submit(value) { const text=String(value??input.val()).trim();if(/^CFG:CMD:GPS_(SHARE|STOP|REFRESH)$/.test(text)&&!action){input.val('');try{return await gps?.scan(text);}finally{focus();}} if (action) { const scan = value ?? input.val(); input.val(''); return action.scan(scan); } try { let station = ''; try { station = localStorage.getItem('cfg_kanban_station') || ''; } catch (_) {} await app.scan(value ?? input.val(), $root.find('.cfg-driver-pin').val(), station); input.val(''); $root.find('.cfg-driver-pin').val(''); } finally { focus(); } }
     function stopCamera() { cameraEpoch++; try { camera?.stop_scan?.(); camera?.dialog?.hide?.(); } catch (_) {} camera = null; }
     $root.on('keydown.cfg_driver', '.cfg-driver-scan', event => {
       if (!['Enter', 'Tab'].includes(event.key) || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.isComposing || !String(input.val() || '').trim()) return;
@@ -219,7 +228,7 @@
     $root.on('click.cfg_driver', '[data-stop]', event => { action?.close(); return app.viewStop($(event.currentTarget).attr('data-stop')); });
     $root.on('click.cfg_driver', '[data-page]', event => app.page(Number($(event.currentTarget).attr('data-page'))));
     $root.on('change.cfg_driver', '.cfg-driver-closed', event => app.showClosed(event.currentTarget.checked));
-    $root.on('click.cfg_driver', '.cfg-driver-change', () => { action?.close(); stopCamera(); app.changeOperator(); focus(); });
+    $root.on('click.cfg_driver', '.cfg-driver-change', async () => { action?.close(); stopCamera(); await gps?.operatorChanged(); app.changeOperator(); focus(); });
     $root.on('click.cfg_driver', '.cfg-driver-refresh', () => action ? action.refresh() : app.refresh());
     function execute(stop, operation, outcome) {
       if (action || !app.session() || !app.state.detail || app.state.stale || app.state.busy) return;
@@ -260,12 +269,12 @@
     });
     const route = () => frappe.get_route()?.[0] === 'kanban-driver-route';
     function tick() { if (route() && !document.hidden && !app.state.busy && !action) app.refresh(app.state.selected, false); }
-    function storageChanged(event) { if (event.key === SESSION && app.state.active) { action?.close(); stopCamera(); app.refresh(); } }
+    function storageChanged(event) { if (event.key === SESSION && app.state.active) { action?.close(); stopCamera(); gps?.operatorChanged(); app.refresh(); } }
     window.addEventListener('storage', storageChanged);
-    document.addEventListener?.('visibilitychange',()=>{if(!document.hidden&&app.state.active)tick();});
+    document.addEventListener?.('visibilitychange',()=>{if(document.hidden)gps?.hide();else if(app.state.active){gps?.show();tick();}});
     const lifecycle = {
-      async show(name) { if (!timer) timer = setInterval(tick, 15000); await app.show(name); focus(); },
-      hide() { action?.close(); stopCamera(); routeMap?.clear(); app.hide(); if (timer) clearInterval(timer); timer = null; }, app,
+      async show(name) { if (!timer) timer = setInterval(tick, 15000); await app.show(name); if(!document.hidden)await gps?.show(); focus(); },
+      hide() { gps?.hide(); action?.close(); stopCamera(); routeMap?.clear(); app.hide(); if (timer) clearInterval(timer); timer = null; }, app,
     };
     frappe.router?.on?.('change', () => { if (!route()) lifecycle.hide(); });
     return lifecycle;

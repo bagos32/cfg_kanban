@@ -2,7 +2,7 @@
 (function(root){
  'use strict';
  const prefix='cfg_kanban.services.driver_route_actions.';
- const actions=['Start Route','Begin Delivery','Confirm Allocations','Create Delivery Note','Open Proof','Submit Proof','Complete Stop','Collect Old Return','Release Refused Stock','Begin Open Sale','Add Assistant','Change Route Order','Request Route Change','Cancel Route Change','Decide Route Change'];
+ const actions=['Release GPS','Start GPS','Start Route','Begin Delivery','Confirm Allocations','Create Delivery Note','Open Proof','Submit Proof','Complete Stop','Collect Old Return','Release Refused Stock','Begin Open Sale','Add Assistant','Change Route Order','Request Route Change','Cancel Route Change','Decide Route Change'];
  function controller(env){
   const s={trip:null,pending:null,busy:false,closed:false,baseline:null,message:''};
   const fail=text=>{throw new Error(text);};

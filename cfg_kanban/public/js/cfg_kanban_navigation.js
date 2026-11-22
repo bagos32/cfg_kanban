@@ -21,6 +21,8 @@
 		"kanban-logistics",
 		"kanban-operator",
 		"kanban-supervisor",
+		"kanban-trip-monitor",
+		"kanban-driver-route",
 		"kanban-tasks",
 		"kanban-workforce-supervisor",
 		"material-genealogy",

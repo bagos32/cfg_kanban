@@ -22,6 +22,7 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 	});
 	page.set_primary_action(__("Refresh"), () => load(true), "refresh");
 	page.add_inner_button(__("Open Signal List"), () => frappe.set_route("List", "CFG Kanban Signal"));
+	page.add_inner_button(__("Supervisor Live Map"), () => frappe.set_route("kanban-trip-monitor"));
 	page.add_inner_button(__("Production Floor"), () => frappe.set_route("kanban-floor"));
 	const $root = $("<div class='cfg-supervisor-centre mt-4'></div>").appendTo(page.main);
 

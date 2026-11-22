@@ -1,0 +1,12 @@
+.cfg-trip-monitor { max-width: 1700px; margin: 16px auto; }
+.cfg-monitor-layout { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(0, 3fr); gap: 20px; margin-top: 20px; }
+.cfg-monitor-controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.cfg-monitor-controls .form-control { flex: 1 1 170px; width: auto; }
+.cfg-trip-monitor .btn { min-height: 44px; white-space: normal; }
+.cfg-monitor-trip { display: flex; flex-direction: column; text-align: left; width: 100%; margin-bottom: 10px; gap: 5px; }
+.cfg-monitor-trip.selected { border: 2px solid var(--primary, #2490ef); }
+.cfg-monitor-stops { padding-left: 24px; }
+.cfg-monitor-stops .btn { width: 100%; margin-bottom: 8px; text-align: left; }
+.cfg-trip-monitor .cfg-driver-map-canvas { height: 480px; }
+.cfg-monitor-notice { overflow-wrap: anywhere; }
+@media(max-width:767px) { .cfg-monitor-layout { grid-template-columns: minmax(0,1fr); } .cfg-trip-monitor .cfg-driver-map-canvas { height: 340px; } }

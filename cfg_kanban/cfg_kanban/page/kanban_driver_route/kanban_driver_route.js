@@ -1,5 +1,8 @@
 frappe.pages['kanban-driver-route'].on_page_load = function (wrapper) {
   const ready = frappe.require([
+    '/assets/cfg_kanban/js/map_defaults.js',
+    '/assets/cfg_kanban/css/delivery_maps.css',
+    '/assets/cfg_kanban/js/trip_gps.js',
     '/assets/cfg_kanban/js/delivery_maps.js',
     '/assets/cfg_kanban/js/driver_route.js',
     '/assets/cfg_kanban/js/driver_route_actions.js',

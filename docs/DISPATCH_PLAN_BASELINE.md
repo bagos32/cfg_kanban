@@ -600,3 +600,39 @@ stop removal/recovery and thermal printing remain separately scoped later packag
 [setup](USER_GUIDE_DRIVER_ROUTE.md#customer-pins-and-directions) and
 [acceptance](TEST_DRIVER_ROUTE_MAPS.md). Native migration, permissions, real map tiles and
 mobile provider/app handoff acceptance remain **Not run**.
+
+
+## 23. Foreground Trip GPS source and Supervisor Live Map
+
+Owner-approved 22 November 2026 above `02bd4b5`: one assigned driver/assistant phone/tablet explicitly
+shares the started Trip's actual lorry location. A separate normal Supervisor Page displays the
+accessible active fleet and selected Trip's effective sequence, customer pins, delivery status and
+actual quantities/tags using the existing driver/native delivery projection. Native manager,
+Kanban Supervisor/View All/Customer Delivery and Company/Trip/lorry permissions remain required.
+Multi-day Trips have no date cutoff; completed history is opt-in and never shown as live.
+
+A 12-hour scoped device lease separates GPS publication from normal operator-action inactivity;
+it cannot renew or grant delivery access. GPS source Start/release use durable Driver Action
+receipts under the same Trip root lock, without changing delivery revisions. Stop is idempotent.
+Source identity, monotonic sequence, capture-time and pause fences reject late/wrong-source or
+changed-payload replay; duplicate/older fixes cannot refresh age. Explicit switch/revocation/Trip
+end/lorry change/expiry prevents further publication. Supervisor reason/Override releases an
+unavailable exact source; lost-response recovery retains the original request.
+
+Store only each Trip's latest position and sharing-control audit, not a route trail. The raw
+publishing token stays in the source tab's session storage; server stores its hash. Device requests
+are foreground-only, scheduled 15 seconds after each completed attempt. Background/lock/freeze
+may suspend delivery of fixes or pause messages. Show age/accuracy, stale after 90 seconds,
+poor accuracy over 100 m, and grey last-known/non-live states. No source means no lorry marker.
+This is not background telematics, route optimization, geofencing or automatic stop proof.
+
+All Desk native default maps and shared Trip maps start at Kuala Lumpur [3.139,101.6869], zoom 13,
+when empty; saved pins/selected real Trip points focus actual coordinates. Preserve native tiles,
+attribution and manual viewport; Fit Locations/Kuala Lumpur/optional Follow Lorry are available.
+This supersedes phase 22's no-GPS/supervisor-map deferral and no-pins/no-map-load behavior.
+Stop removal/recovery and thermal printing remain separately scoped.
+
+See [setup](USER_GUIDE_DRIVER_ROUTE.md#trip-gps-sharing-and-supervisor-live-map) and
+[acceptance](TEST_SUPERVISOR_LIVE_MAP.md). Offline tests are implementation evidence only; native
+migration, ACL, database concurrency, Leaflet/tiles, real GPS, foreground/background and mobile
+acceptance are **Not run**. No commit, push or deployment is performed by this phase.

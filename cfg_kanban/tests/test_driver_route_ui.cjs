@@ -97,7 +97,7 @@ test('hiding page ignores late RPC responses and does not leave a polling busy s
   h.app.hide();wait.resolve({operator:{employee:'EMP'},trips:[]});await pending;
   assert.equal(h.app.state.detail,null);assert.equal(h.app.state.busy,false);
 });
-function domHarness(mapsApi=null) {
+function domHarness(mapsApi=null,gpsApi=null) {
   const h=harness(), events=new Map(), nodes=new Map(), cameras=[], focuses=[], routes=[];let current=['kanban-driver-route'];
   class Node {
     constructor() {this.value='';this.attributes={};}
@@ -109,7 +109,7 @@ function domHarness(mapsApi=null) {
   }
   global.$=value=>value instanceof Node?value:new Node();global.localStorage=h.storage;
   global.__=value=>value;global.document={hidden:false,addEventListener:(type,callback)=>events.set('document:'+type,callback)};
-  global.window={cfg_delivery_maps:mapsApi,addEventListener(type,callback){events.set(type,callback);}};
+  global.window={cfg_trip_gps:gpsApi,cfg_delivery_maps:mapsApi,addEventListener(type,callback){events.set(type,callback);}};
   global.setInterval=callback=>{events.set('tick',callback);return 1;};global.clearInterval=()=>events.delete('tick');
   global.frappe={ui:{make_app_page:()=>({main:new Node()}),Scanner:class{constructor(options){this.options=options;this.dialog={$wrapper:new Node(),hide(){}};cameras.push(this);}stop_scan(){this.stopped=true;}}},
     call:async({method,args})=>({message:method.endsWith('get_driver_trips')?{operator:{employee:'EMP'},trips:[]}:structuredClone(detail)}),
@@ -244,4 +244,16 @@ test('native driver page loads the map helper before mounting the route',async()
  const source=fs.readFileSync(path.join(__dirname,'../cfg_kanban/page/kanban_driver_route/kanban_driver_route.js'),'utf8');let assets,mounted=0;
  const f={pages:{'kanban-driver-route':{}},require:async value=>{assets=value;},get_route:()=>['kanban-driver-route']};
  vm.runInNewContext(source,{frappe:f,window:{cfg_driver_route:{mount:()=>{mounted++;return{show:async()=>{},hide(){}};}}}});f.pages['kanban-driver-route'].on_page_load({});await flush();assert(assets.includes('/assets/cfg_kanban/js/delivery_maps.js'));assert.equal(mounted,1);
+});
+
+test('Driver Route keeps scoped GPS controls separate from delivery login and routes scanner/visibility/identity lifecycle',async()=>{
+ const data=new Map();global.sessionStorage={getItem:key=>data.get(key)||null,setItem:(key,value)=>data.set(key,value),removeItem:key=>data.delete(key)};
+ Object.defineProperty(global,'navigator',{configurable:true,value:{locks:{}}});
+ let opts,shows=0,hides=0,changes=0;const scans=[],gps={controller:{state:{binding:null,gps:null}},context(){},show:async()=>shows++,hide:()=>hides++,operatorChanged:async()=>changes++,scan:async value=>scans.push(value)};
+ const map={...mapApi,createRouteMap:()=>({detach(){},update(){},clear(){}})};
+ const h=domHarness(map,{bind:value=>{opts=value;return gps;}});await h.view.show(trip);assert.equal(shows,1);assert.equal(opts.storage,sessionStorage);assert.equal(opts.owner(),'EMP');
+ opts.position(trip,{state:'Live',position:{latitude:4,longitude:102,accuracy:10},age_seconds:0});assert.equal(h.view.app.state.detail.vehicle_locations[0].gps.position.latitude,4);
+ const input=h.nodes.get('.cfg-driver-scan');input.val('CFG:CMD:GPS_STOP');h.events.get('click.cfg_driver .cfg-driver-confirm')();await flush();assert.deepEqual(scans,['CFG:CMD:GPS_STOP']);
+ document.hidden=true;h.events.get('document:visibilitychange')();assert.equal(hides,1);document.hidden=false;h.events.get('document:visibilitychange')();await flush();assert.equal(shows,2);
+ await h.events.get('click.cfg_driver .cfg-driver-change')();assert.equal(changes,1);assert.equal(h.view.app.state.token,null);assert(opts.active());h.view.hide();assert.equal(hides,2);
 });

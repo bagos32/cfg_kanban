@@ -1,6 +1,7 @@
 /* Optional Site pins and read-only driver maps. Directions use official universal URLs. */
 (function(root){
  'use strict';
+ const defaults=f=>(root.cfg_kanban_map_defaults||(typeof require==='function'?require('./map_defaults.js'):null))?.apply(f)||{center:[3.139,101.6869],zoom:13};
  const tr=value=>typeof __==='function'?__(value):value;
  const escape=value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
  function pin(value){
@@ -44,6 +45,23 @@
   const button=(label,url)=>disabled?`<button class="btn btn-default" disabled>${tr(label)}</button>`:`<a class="btn btn-primary cfg-driver-directions" href="${escape(url)}" target="_blank" rel="noopener noreferrer">${tr(label)}</a>`;
   return `<div class="cfg-driver-navigation"><strong>${title}: ${escape(next.site_name||next.customer_name)}</strong><p>${escape(links?message:tr('Set a Delivery Pin or delivery address on the Customer Site before opening directions.'))}</p>${links?button(links.kind==='pin'?'Google Maps':'Google Maps — Address',links.google)+button(links.kind==='pin'?'Waze':'Waze — Search Address',links.waze):''}${disabled?`<small>${tr('Refresh the route before opening directions.')}</small>`:''}</div>`;
  }
+ function observeGPS(gps,now=Date.now()){return gps?{...gps,observed_ms:now}:null;}
+ function gpsDisplay(gps,now=Date.now()){
+  if(!gps)return {state:'Not Shared',live:false,position:null,age_seconds:null};
+  const point=pin(gps.position),elapsed=Number.isFinite(gps.observed_ms)?Math.max(0,now-gps.observed_ms)/1000:0;
+  const age=Number.isFinite(gps.age_seconds)?gps.age_seconds+elapsed:null;
+  let state=gps.state||'Not Shared';
+  if(['Live','Low Accuracy'].includes(state)&&(!point||age===null||age>(gps.stale_after_seconds||90)))state='Stale';
+  return {...gps,observed_ms:now,state,live:['Live','Low Accuracy'].includes(state),position:point?{...point,accuracy:gps.position.accuracy,captured_ms:gps.position.captured_ms}:null,age_seconds:age};
+ }
+ function gpsText(gps){
+  const row=gpsDisplay(gps),age=row.age_seconds===null?'No fix':Math.floor(row.age_seconds)+'s ago';
+  return `${row.state} · ${age}${Number.isFinite(gps?.position?.accuracy)?' · ±'+Math.round(gps.position.accuracy)+' m':''}`;
+ }
+ function vehicleHTML(row){
+  const gps=row.gps,trip=row.trip||{};
+  return `<div><strong>${escape(gps.vehicle_reference||gps.vehicle_warehouse||trip.vehicle_warehouse||'Lorry')}</strong><div>${escape(trip.trip_title||trip.name||'')}</div><div>${escape(gpsText(gps))}</div>${gps.live?'':`<strong>${tr('Last known position; not a live fix')}</strong>`}<div>${tr('Publisher')}: ${escape(gps.publisher_employee||'—')}</div>${trip.name?`<button type="button" class="btn btn-default" data-map-trip="${escape(trip.name)}">${tr('View Trip')}</button>`:''}</div>`;
+ }
  function mapSpec(detail){
   const groups=new Map();let located=0;
   for(const stop of detail?.stops||[]){
@@ -58,7 +76,7 @@
    else if(group.stops.every(row=>row.driver_completed_on||['Completed','Completed with refusal','Visit completed'].includes(row.state)))group.kind='completed';
    else if(group.stops.some(row=>['Review required','Awaiting proof','Delivery Note pending','Awaiting stop completion'].includes(row.state)))group.kind='attention';
   }
-  return {groups:[...groups.values()],located,total:detail?.stops?.length||0};
+  return {groups:[...groups.values()],located,total:detail?.stops?.length||0,vehicles:(detail?.vehicle_locations||[]).map(row=>({...row,gps:gpsDisplay(row.gps)})).filter(row=>row.gps.position)};
  }
  function popupHTML(stops){
   return stops.map(stop=>`<div class="cfg-driver-map-stop"><strong>${escape(stop.sequence)}. ${escape(stop.site_name||stop.customer_name)}</strong><div>${escape(stop.state)} · ${escape(stop.purpose)}</div><div>${escape(stop.address)}</div>${(stop.items||[]).map(row=>`<div>${escape(row.item_code)} · ${escape(row.planned_qty)} ${escape(row.stock_uom)}${(row.orders||[]).map(order=>` · ${escape(order.sales_order)} / ${escape(order.customer_po||'—')}`).join('')}</div>`).join('')}<button type="button" class="btn btn-default btn-sm" data-map-stop="${escape(stop.stop_key)}">${tr('View Stop')}</button></div>`).join('');
@@ -76,53 +94,72 @@
  }
  function createRouteMap(options){
   const f=options.frappe,doc=options.document||root.document;
-  let node=null,map=null,markers=null,latest=null,ticket=0,owner=null,trip=null,signature=null,failed=false,tileError=false;
+  let node=null,map=null,markers=null,latest=null,ticket=0,owner=null,trip=null,signature=null,failed=false,tileError=false,locations=null,follow=false,hadPositions=false,hadVehicles=false;
   const valid=()=>latest&&owner&&owner===options.identity();
   function detach(){if(node?.parentNode)node.parentNode.removeChild(node);}
-  function clear(){ticket++;try{map?.remove();}catch(_){}map=null;markers=null;detach();node=null;latest=null;owner=null;trip=null;signature=null;failed=false;tileError=false;}
+  function clear(){ticket++;try{map?.remove();}catch(_){}map=null;markers=null;detach();node=null;latest=null;owner=null;trip=null;signature=null;locations=null;failed=false;tileError=false;follow=false;hadPositions=false;hadVehicles=false;}
+  function fit(){if(map&&markers&&(markers._cfgCount||0))map.fitBounds(markers.getBounds(),{padding:[28,28],maxZoom:16});else if(map){const d=defaults(f);map.setView(d.center,d.zoom);}}
   function makeNode(){
    node=doc.createElement('section');node.className='cfg-driver-map';
-   node.innerHTML=`<h4>${tr('Customer location pins')}</h4><p class="cfg-driver-map-info"></p><div class="cfg-driver-map-legend"><span class="next">${tr('Next / Current')}</span><span class="completed">${tr('Completed')}</span><span class="pending">${tr('Pending')}</span><span class="attention">${tr('Check')}</span></div><div class="cfg-driver-map-canvas" role="region" aria-label="${tr('Customer stop locations')}"></div><p class="cfg-driver-map-message" role="status"></p><button type="button" class="btn btn-default cfg-driver-map-retry" hidden>${tr('Retry Map')}</button>`;
+   node.innerHTML=`<h4>${tr('Trip locations')}</h4><p class="cfg-driver-map-info"></p><div class="cfg-driver-map-legend"><span class="next">${tr('Next / Current')}</span><span class="completed">${tr('Completed')}</span><span class="pending">${tr('Pending')}</span><span class="attention">${tr('Check')}</span><span class="vehicle">${tr('Lorry GPS')}</span><span class="last-known">${tr('Last known')}</span></div><div class="cfg-driver-map-canvas" role="region" aria-label="${tr('Customer stops and lorry locations')}"></div><div class="cfg-driver-map-controls"><button type="button" class="btn btn-default cfg-map-kl">Kuala Lumpur</button> <button type="button" class="btn btn-default cfg-map-fit">${tr('Fit Locations')}</button> <button type="button" class="btn btn-default cfg-map-follow" aria-pressed="false">${tr('Follow Lorry: Off')}</button></div><p class="cfg-driver-map-message" role="status"></p><button type="button" class="btn btn-default cfg-driver-map-retry" hidden>${tr('Retry Map')}</button>`;
    node.addEventListener('click',event=>{
-    if(!valid()||latest.stale||latest.busy)return;
-    const selected=event.target.closest?.('[data-map-stop]');
-    if(selected){const key=selected.getAttribute('data-map-stop');if(latest.detail.stops.some(row=>row.stop_key===key))options.pick(key);return;}
+    if(!valid())return;
+    if(event.target.closest?.('.cfg-map-kl')){follow=false;const d=defaults(f);map?.setView(d.center,d.zoom);followLabel();return;}
+    if(event.target.closest?.('.cfg-map-fit')){follow=false;fit();followLabel();return;}
+    if(event.target.closest?.('.cfg-map-follow')){follow=!follow;followLabel();signature=null;update(latest,node.parentNode);return;}
+    if(latest.stale||latest.busy)return;
+    const selected=event.target.closest?.('[data-map-stop]'),vehicle=event.target.closest?.('[data-map-trip]');
+    if(selected){const key=selected.getAttribute('data-map-stop');if(latest.detail.stops.some(row=>row.stop_key===key))options.pick?.(key);return;}
+    if(vehicle){const key=vehicle.getAttribute('data-map-trip');if((latest.detail.vehicle_locations||[]).some(row=>row.trip?.name===key))options.pickTrip?.(key);return;}
     if(event.target.closest?.('.cfg-driver-map-retry')){failed=false;signature=null;update(latest,node.parentNode);}
    });
   }
+  function followLabel(){const button=node?.querySelector('.cfg-map-follow');if(button){button.textContent=tr(follow?'Follow Lorry: On':'Follow Lorry: Off');button.setAttribute?.('aria-pressed',String(follow));}}
   function message(text,retry=false){if(!node)return;node.querySelector('.cfg-driver-map-message').textContent=text;const button=node.querySelector('.cfg-driver-map-retry');button.hidden=!retry;button.disabled=Boolean(latest?.stale||latest?.busy);}
-  function status(){message(latest?.stale?tr('Route not refreshed. Refresh before opening customer directions.'):failed?tr('Map unavailable. Use the Google Maps/Waze buttons, or retry the map.'):tileError?tr('Map tiles unavailable. Customer directions and delivery controls remain available.'):'',failed);}
+  function status(){
+   const spec=mapSpec(latest?.detail);
+   message(latest?.stale?tr('View not refreshed. Location may be stale; refresh before acting.'):failed?tr('Map unavailable. Delivery controls remain available; retry the map.'):tileError?tr('Map tiles unavailable. Delivery controls remain available.'):!spec.located&&!spec.vehicles.length?tr('No saved locations. Map opens at Kuala Lumpur; office can add customer pins. No lorry position is assumed.'):'',failed);
+  }
   function update(state,slot){
    const identity=options.identity();
    if(!slot||!state.detail||!state.active||!identity){clear();return;}
    if(owner!==identity||trip!==state.detail.trip.name){clear();owner=identity;trip=state.detail.trip.name;}
    latest=state;if(!node)makeNode();slot.appendChild(node);
    const spec=mapSpec(state.detail);
-   node.querySelector('.cfg-driver-map-info').textContent=`${spec.located} / ${spec.total} ${tr('stops have a delivery pin. Select a pin to view the customer and order details.')}`;
-   node.querySelector('.cfg-driver-map-canvas').hidden=!spec.located;
-   if(state.stale)message(tr('Route not refreshed. Refresh before opening customer directions.'));
-   if(!spec.located){ticket++;try{map?.remove();}catch(_){}map=null;markers=null;signature=null;failed=false;tileError=false;message(tr('No delivery pins set. Office can add them on the Customer Site form; address directions remain available.'));return;}
+   node.querySelector('.cfg-driver-map-info').textContent=`${spec.located} / ${spec.total} ${tr('stops have a delivery pin. Numbered pins follow the current stop sequence.')} ${spec.vehicles.length} ${tr('lorry positions. Grey positions are last known, not live.')}`;
+   node.querySelector('.cfg-map-follow').hidden=spec.vehicles.length!==1;
    const content=JSON.stringify(spec);
    if(signature===content||failed){map?.invalidateSize();status();return;}
    signature=content;const version=++ticket;
    (options.load||(()=>leaflet(f)))().then(L=>{
     if(!valid()||version!==ticket)return;
     const canvas=node.querySelector('.cfg-driver-map-canvas');
+    const first=!map;
     if(!map){
-     map=L.map(canvas);const defaults=f.utils.map_defaults;
-     const tileMap=map;L.tileLayer(defaults.tiles,defaults.options).on('tileerror',()=>{if(valid()&&map===tileMap){tileError=true;status();}}).on('tileload',()=>{if(valid()&&map===tileMap){tileError=false;status();}}).addTo(map);
+     const d=defaults(f);map=L.map(canvas);map.setView(d.center,d.zoom);
+     const provider=f.utils.map_defaults,tileMap=map;
+     L.tileLayer(provider.tiles,provider.options).on('tileerror',()=>{if(valid()&&map===tileMap){tileError=true;status();}}).on('tileload',()=>{if(valid()&&map===tileMap){tileError=false;status();}}).addTo(map);
     }
-    const oldLocations=markers?markers._cfgLocations:null;
     if(markers)map.removeLayer(markers);
-    markers=L.featureGroup();
+    markers=L.featureGroup();markers._cfgCount=spec.groups.length+spec.vehicles.length;
     for(const group of spec.groups){
      const numbers=group.stops.map(row=>row.sequence),label=numbers.length>2?`${numbers[0]} +${numbers.length-1}`:numbers.join(' / ');
      const icon=L.divIcon({className:`cfg-driver-map-pin ${group.kind}`,html:`<span>${escape(label)}</span>`,iconSize:[44,36],iconAnchor:[22,36]});
      L.marker([group.point.latitude,group.point.longitude],{icon,keyboard:true,title:group.stops.map(row=>`${row.sequence}. ${row.site_name||row.customer_name}`).join(' / ')}).bindPopup(popupHTML(group.stops),{maxWidth:360}).addTo(markers);
     }
-    markers.addTo(map);const locations=JSON.stringify(spec.groups.map(group=>group.point));markers._cfgLocations=locations;
-    if(oldLocations!==locations)map.fitBounds(markers.getBounds(),{padding:[28,28],maxZoom:16});
-    map.invalidateSize();status();
+    for(const row of spec.vehicles){
+     const gps=row.gps,icon=L.divIcon({className:`cfg-driver-map-pin ${gps.live?'vehicle':'last-known'}`,html:`<span>${escape(gps.vehicle_reference||'Lorry')}</span>`,iconSize:[72,36],iconAnchor:[36,18]});
+     L.marker([gps.position.latitude,gps.position.longitude],{icon,keyboard:true,title:gpsText(gps)}).bindPopup(vehicleHTML(row),{maxWidth:360}).addTo(markers);
+    }
+    markers.addTo(map);
+    // GPS motion/status refresh must not override a manually chosen map viewport.
+    const nextLocations=JSON.stringify(spec.groups.map(group=>group.point));
+    if(first||locations!==nextLocations||(!hadVehicles&&spec.vehicles.length)||(hadPositions&&!spec.groups.length&&!spec.vehicles.length))fit();
+    hadVehicles=Boolean(spec.vehicles.length);
+    hadPositions=Boolean(spec.groups.length||spec.vehicles.length);
+    locations=nextLocations;
+    if(follow&&spec.vehicles.length===1&&spec.vehicles[0].gps.live){const p=spec.vehicles[0].gps.position;map.panTo([p.latitude,p.longitude]);}
+    map.invalidateSize();followLabel();status();
    }).catch(()=>{if(valid()&&version===ticket){failed=true;status();}});
   }
   return {update,detach,clear};
@@ -136,6 +173,6 @@
    if(!write)return;try{await frm.set_value('delivery_location',pointJSON(host.find('.cfg-site-latitude').val(),host.find('.cfg-site-longitude').val()));host.find('.cfg-site-pin-status').text(tr('Pin updated. Save the Customer Site.'));}catch(error){host.find('.cfg-site-pin-status').text(error.message);}
   }).on('click.cfg_delivery_pin','.cfg-site-clear-pin',async()=>{if(!write)return;await frm.set_value('delivery_location',null);host.find('.cfg-site-pin-status').text(tr('Pin cleared. Save the Customer Site.'));});
  }
- const api={pin,readPoint,pointJSON,urls,navigationHTML,mapSpec,popupHTML,createRouteMap,pinTools};
+ const api={pin,readPoint,pointJSON,urls,navigationHTML,mapSpec,popupHTML,createRouteMap,pinTools,observeGPS,gpsDisplay,gpsText,vehicleHTML};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;root.cfg_delivery_maps=api;
 })(typeof window==='undefined'?globalThis:window);

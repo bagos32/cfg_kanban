@@ -8,9 +8,11 @@ from cfg_kanban.services.idempotency import canonical_key
 from cfg_kanban.services.operator_auth import require_operator
 
 TRIP = 'CFG Kanban Delivery Trip'
-ACTIONS = ('Start Route', 'Begin Delivery', 'Confirm Allocations', 'Create Delivery Note',
+ACTIONS = ('Release GPS','Start GPS', 'Start Route', 'Begin Delivery', 'Confirm Allocations', 'Create Delivery Note',
            'Open Proof', 'Submit Proof', 'Complete Stop', 'Collect Old Return', 'Release Refused Stock', 'Begin Open Sale', 'Add Assistant', 'Change Route Order', 'Request Route Change', 'Cancel Route Change', 'Decide Route Change')
 PAYLOAD_FIELDS = {
+    'Release GPS': {'lease_id','reason'},
+    'Start GPS': {'device_id','publish_token'},
     'Change Route Order': {'order','reason'}, 'Request Route Change': {'order','reason'},
     'Cancel Route Change': {'request_name','reason'},
     'Decide Route Change': {'request_name','decision','approval_mode','reason'},
@@ -331,6 +333,8 @@ def driver_action_context(trip_name, operator_session_token, stop_key=None, oper
         revision=cint(doc.driver_route_revision), scope_hash=_core(doc),
         can_start=bool(operator.can_start), can_complete=bool(operator.can_complete),
         planning_state=doc.state, next_step='Start Route', stop_key=stop_key, dispatch_plan=None)
+    if operation in ('Start GPS','Release GPS'):
+        return dict(result,next_step=operation,stop_key=None)
     if operation=='Review Route Change':
         from cfg_kanban.services.trip_sequence import review_context
         return dict(result,next_step='Decide Route Change',stop_key=None,setup=review_context(doc,outcome_name,operator))
@@ -421,6 +425,20 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
             frappe.throw('This driver request was explicitly voided', DriverActionConflict)
         return receipt
     _owned(doc, operator)
+    if action=='Release GPS':
+        require_operator(operator_session_token,'override')
+        if stop_key or dispatch_plan or request['scope_hash']!=_core(doc) or request['expected_revision']!=cint(doc.driver_route_revision):
+            frappe.throw('Trip changed; refresh before releasing this GPS source')
+        from cfg_kanban.services.trip_gps import release
+        result=release(doc,request['payload'],operator,session)
+        return _record(doc,operator,session,key,request,result)
+    if action=='Start GPS':
+        require_operator(operator_session_token,'start')
+        if stop_key or dispatch_plan or request['scope_hash']!=_core(doc) or request['expected_revision']!=cint(doc.driver_route_revision):
+            frappe.throw('Trip changed; refresh before starting GPS sharing')
+        from cfg_kanban.services.trip_gps import start
+        result=start(doc,request['payload'],operator,session)
+        return _record(doc,operator,session,key,request,result)
     if action=='Decide Route Change':
         require_operator(operator_session_token,'complete')
         if stop_key or dispatch_plan or request['scope_hash']!=_core(doc) or request['expected_revision']!=cint(doc.driver_route_revision):

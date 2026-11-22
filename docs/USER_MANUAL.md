@@ -5961,7 +5961,7 @@ linked Plans, preserves history and releases planning commitments without alteri
 
 See [office setup and use](USER_GUIDE_OFFICE_DELIVERY_TRIP.md) and
 [Phase 1 acceptance](TEST_OFFICE_DELIVERY_TRIP_PHASE1.md). The Driver Route extensions below add departure, completion and refusal/old-return handling.
-Maps/GPS tracking and live sequence approvals remain later phases. Offline checks do not
+Live sequence approvals, customer maps/directions and Supervisor GPS visibility are described below. Offline checks do not
 verify native migration, source posting, concurrency or device behaviour.
 
 
@@ -5997,7 +5997,7 @@ camera/signature controls are available. Proof photos use the existing private S
 Driver completion remains separate from E5 reconciliation. For an unfinished trip, settle/cancel
 its linked Plans through existing controls, then an authorized office manager can close/cancel
 with a reason, record Closed Incomplete and release the lorry without fabricating stop delivery.
-Live route-order approvals now use the controlled workflow below. Maps/tracking and Bluetooth printing remain later phases. Refusal/old-return collection extends this flow as described below. See [setup and operator steps](USER_GUIDE_DRIVER_ROUTE.md) and
+Live route-order approvals now use the controlled workflow below. Customer maps/directions and Supervisor GPS visibility are described below; Bluetooth printing remains later scope. Refusal/old-return collection extends this flow as described below. See [setup and operator steps](USER_GUIDE_DRIVER_ROUTE.md) and
 [native execution acceptance](TEST_DRIVER_ROUTE_EXECUTION.md). Offline tests do not verify live
 migration, ERP posting, concurrency or devices.
 
@@ -6117,5 +6117,38 @@ clearly use address search; no coordinate is guessed. Office corrections refresh
 without rewriting stock or execution history. Map taps never bypass route, QR, DN or proof gates.
 
 See [pin setup and driver directions](USER_GUIDE_DRIVER_ROUTE.md#customer-pins-and-directions)
-and [native acceptance](TEST_DRIVER_ROUTE_MAPS.md). Directions use universal links; driver GPS
-tracking remains later scope. Native-site/mobile acceptance is **Not run**.
+and [native acceptance](TEST_DRIVER_ROUTE_MAPS.md). Directions use universal links; explicit Trip GPS sharing and the Supervisor Live Map are available as described below. Native-site/mobile acceptance is **Not run**.
+
+
+## Supervisor lorry GPS map and Kuala Lumpur defaults
+
+Open **CFG Dispatch Control → Supervisor Live Map** (`/app/kanban-trip-monitor`) or use the saved
+Delivery Trip / Supervisor Action Centre button. Identify a Kanban Supervisor with View All
+Responsibilities and Customer Delivery; native Stock/Manufacturing/System Manager and Company,
+Trip and lorry read permissions apply. Select a Trip to see its effective customer stop sequence,
+status, products, tags, planned/loaded/delivered/remaining quantities and the last real device fix.
+The active list includes multi-day Trips. Completed history is optional.
+
+One assigned driver/assistant uses **Driver Route → started Trip → Share GPS** on the lorry's
+HTTPS phone/tablet. Keep the page visible and grant location permission. Updates are scheduled
+15 seconds after each sampling attempt, while the device permits them. Browser/OS background
+or lock may pause them. The source has its own 12-hour Trip-only publishing permission; it does
+not renew operator delivery-action inactivity or grant posting authority. Explicit operator change,
+Stop, source release/replacement, revocation or Trip end prevents further updates.
+
+Age/accuracy are always shown. Live is a fix at most 90 seconds old; poor accuracy over 100 m is
+labelled Low Accuracy. Stale/paused/stopped/expired/ended positions are grey and last known.
+Missing GPS creates no lorry marker. Source Start/Stop/release has audit/retry protection; only the
+latest fix per Trip is retained, with no GPS trail. An Override-authorized Supervisor can release
+a matching unavailable source with a reason before another assigned device starts sharing.
+
+Empty/new maps, including the native Customer Site pin editor and existing Driver Route map,
+now default to **Kuala Lumpur: 3.139, 101.6869; zoom 13**. Saved pins/selected Trips focus their
+actual coordinates. Kuala Lumpur / Fit Locations controls restore the default or fit real points;
+Follow Lorry is optional. Native tile provider/attribution remain configured by Frappe.
+
+Map interactions do not approve a route exception, deliver, post stock, replace a Customer Site QR,
+or satisfy proof. Google/Waze direction links retain their existing next-stop behavior.
+See [driver/supervisor steps](USER_GUIDE_DRIVER_ROUTE.md#trip-gps-sharing-and-supervisor-live-map)
+and [native acceptance checklist](TEST_SUPERVISOR_LIVE_MAP.md). Native GPS/map/site acceptance
+remains **Not run**; offline tests do not establish live-site correctness.

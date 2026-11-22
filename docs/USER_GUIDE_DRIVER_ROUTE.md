@@ -389,7 +389,7 @@ Company/Customer/Address remains governed by the existing identity checks.
 The map uses Frappe's existing Leaflet assets and configured tile provider; it keeps the viewport
 on ordinary refresh and groups repeated coordinates. If map assets/tiles are unavailable, use
 the directions buttons and existing delivery controls; **Retry Map** retries an asset failure.
-No pins means no map-library/tile load. Directions are disabled during refresh or a stale route
+An empty map opens at Kuala Lumpur (3.139, 101.6869, zoom 13), without a fabricated customer or lorry pin. Saved customer pins and selected Trip locations focus their actual coordinates; **Kuala Lumpur** restores the default and **Fit Locations** fits the visible locations. Directions are disabled during refresh or a stale route
 read. Page hide/operator change clears map data; late loads cannot draw the previous driver's
 Trip. Returning from the external maps app triggers a passive route refresh without renewing the
 operator's inactivity timeout or recording delivery.
@@ -397,17 +397,90 @@ operator's inactivity timeout or recording delivery.
 Google/Waze links open only on the driver's tap and contain a destination coordinate or address;
 no operator credential, Trip ID, SO or customer PO is put in those links. Opening a map or tapping
 View Stop does not start/complete a visit, approve a sequence exception or satisfy a QR/proof gate.
-This phase does not track/transmit the driver's GPS; proof-of-delivery GPS still uses its existing
-policy and capture flow. Native app/browser handoff, device permissions and road routing depend
+GPS sharing is now available through the explicit controls below. Proof-of-delivery GPS still uses its existing policy and capture flow; a live lorry fix does not satisfy delivery proof. Native app/browser handoff, device permissions and road routing depend
 on the device/provider and require device acceptance. The pin map shows customer locations;
 road directions are supplied by the external map app.
 
 No Google Maps API key is used by these universal direction links. The implementation follows
 [Google Maps URLs](https://developers.google.com/maps/documentation/urls/guide) and
 [Waze Deep Links](https://developers.google.com/waze/deeplinks). Native Frappe v15 map assets and
-existing map defaults supply the in-page map. Real-time vehicle GPS, supervisor tracking maps,
-route optimization and thermal printing remain separate later work.
+Kuala Lumpur defaults supply the in-page map. Supervisor GPS visibility is described below; route optimization and thermal printing remain separate later work.
 
 Migrate/build manually, configure test pins, then run
 [pin and directions acceptance](TEST_DRIVER_ROUTE_MAPS.md). Native-site/device results are
 **Not run**; offline parser/controller tests do not establish those results.
+
+
+## Trip GPS sharing and Supervisor Live Map
+
+Use **Driver Route → select the started Trip → Share GPS** on one assigned driver/assistant's
+phone or tablet travelling with the lorry. Allow browser location permission over HTTPS. The
+Trip must be In Progress with its saved actual Company lorry and reconciled departure snapshot.
+The Employee/profile must remain active, assigned and authorized for Customer Delivery with Start.
+Use separate native ERP logins, or distinct configured terminal/station IDs when sharing a login; native operator-switch scope still applies. No location is requested merely by opening a Trip. Office/Supervisor devices should view the
+Supervisor map rather than publish an office position as the lorry.
+
+Keep Driver Route visible. The device requests a fresh high-accuracy position, with a 12-second
+request timeout, then schedules another request 15 seconds after that attempt finishes. Actual
+intervals depend on device/network response; they are not guaranteed. The source panel shows the
+Trip, lorry, publishing Employee and sharing state, with reported fix age and accuracy.
+
+**Stop GPS** immediately stops local sampling and sends an idempotent source stop. It remains
+**Stopping** if the reply is uncertain; retry it. **Retry Start** keeps the original request and
+secret after a lost response. **Check Saved GPS Source** reconciles it; an authorized Supervisor
+can void an unrecorded Start with a reason. Never clear storage to evade an unknown source outcome.
+Starting/releasing GPS uses the existing durable Driver Action receipt, without advancing a
+delivery revision or creating DN, stock or proof records.
+
+The GPS publishing permission is scoped to that Trip/source/native terminal for **12 hours**.
+It can continue after normal delivery-action inactivity expires; it neither renews that login nor
+grants delivery access. Reidentify before delivery actions. Stop/start GPS to renew after 12 hours.
+Explicit operator change/logout, profile/Employee/assignment revocation, Trip end, lorry
+reconciliation change, source replacement or Supervisor release prevents further fixes.
+A timed-out session also loses GPS authority when another operator subsequently signs in within
+its native terminal/station switch scope.
+
+Hiding the page/browser pauses local sampling and attempts to mark the source **Paused**; returning
+checks the source and obtains a new fix. The OS may freeze/close a background or locked browser
+before that message can be sent. This is a foreground device source, not a background vehicle
+tracker. See [browser lifecycle guidance](https://developer.chrome.com/docs/web-platform/page-lifecycle-api)
+and [Geolocation permission requirements](https://developer.mozilla.org/en-US/docs/Web/API/Geolocation/getCurrentPosition).
+Network/permission failure is visible. Denied location permission stops sharing. Updates do not
+invent movement or substitute customer/KL coordinates for a lorry position.
+
+The server retains the **latest fix per Trip**, not a travel trail. Source Start/Stop/release
+controls retain audit references. A source identity plus sequence/capture-time checks fences old,
+replayed or out-of-order device requests; duplicates cannot make a position appear fresh.
+The raw scoped publishing secret is stored only in that tab's session storage for recovery;
+server storage keeps its hash. No GPS coordinates are written to browser storage or navigation
+URLs by this sharing feature. The native proof workflow retains its separate evidence storage.
+
+Open **CFG Dispatch Control → Supervisor Live Map**, **Supervisor Action Centre → Supervisor
+Live Map**, or the saved Delivery Trip's **Supervisor Live Map** button. Native Stock Manager,
+Manufacturing Manager or System Manager plus an identified Kanban Supervisor/Development Proxy
+with View All Responsibilities and Customer Delivery are required. Native Trip, Company and
+lorry Warehouse read permissions apply. Filter by Company, choose a lorry/Trip, then view the
+current/next stop, effective approved sequence, customer pins and actual delivery quantities/tags.
+Active multi-day Trips remain visible without a date cutoff. **Include completed Trips** is history.
+
+The map refreshes about every 15 seconds while visible. **Live** means the last accepted fix is
+at most **90 seconds** old; age remains visible and continues ageing across read/network failure.
+**Low Accuracy** identifies reported accuracy worse than 100 metres. Paused, Stale, Expired,
+Revoked, Stopped, Waiting for GPS and Trip Ended are distinct states. A grey lorry marker is
+explicitly **last known**. A new source may show the prior source's grey last-known point until
+its first fix. Missing GPS has no lorry marker. **Follow Lorry** pans only for one fresh source;
+ordinary GPS updates do not override manual map movement.
+
+For a lost/flat source device, an authorized Supervisor with **Override** opens **Release GPS
+Source**, enters a reason and confirms. The source identity must still match. An uncertain release
+retains its original source/reason for retry/readback/authorized void. Closing a review preserves
+pending recovery in tab storage. The next assigned device then starts its own source. This action
+changes no delivery/stock/proof/sequence record. Map clicks only open exact stop/Trip details;
+sequence approvals and delivery completion stay with their existing services.
+
+Scanner access on Driver Route: `CFG:CMD:GPS_SHARE`, `CFG:CMD:GPS_STOP`,
+`CFG:CMD:GPS_REFRESH`. Ordinary keyboard-wedge, touch and camera operator sign-in remain available.
+
+After the owner's manual migration/build, run [Supervisor/GPS acceptance](TEST_SUPERVISOR_LIVE_MAP.md).
+Native schema, permissions, phone/tablet location, locked/background behavior, network and
+concurrent database acceptance are **Not run**. Offline tests do not verify live-site behavior.

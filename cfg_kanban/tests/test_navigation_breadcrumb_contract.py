@@ -1,4 +1,5 @@
 from pathlib import Path
+import ast
 import unittest
 
 
@@ -14,10 +15,10 @@ class TestNavigationBreadcrumbContract(unittest.TestCase):
         cls.navigation = NAVIGATION_JS.read_text()
 
     def test_navigation_controller_is_loaded_for_desk(self):
-        self.assertIn(
-            'app_include_js = "/assets/cfg_kanban/js/cfg_kanban_navigation.js"',
-            self.hooks,
-        )
+        assets=next(ast.literal_eval(node.value) for node in ast.parse(self.hooks).body
+                    if isinstance(node,ast.Assign) and any(getattr(t,'id',None)=='app_include_js' for t in node.targets))
+        self.assertIn('/assets/cfg_kanban/js/cfg_kanban_navigation.js',assets)
+        self.assertIn('/assets/cfg_kanban/js/map_defaults.js',assets)
 
     def test_cfg_routes_use_the_canonical_workspace(self):
         self.assertIn('label: "CFG Kanban"', self.navigation)
