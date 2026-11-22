@@ -24,3 +24,24 @@
 .driver-action-input-help { margin-top: 12px; overflow-wrap: anywhere; }
 .driver-action-panel .cfg-proof-media .cfg-logistics-line { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 10px 0; }
 .cfg-driver-start-route, .cfg-driver-resume-route, .cfg-driver-complete-stop { margin: 8px 8px 8px 0; }
+
+.cfg-driver-navigation { margin: 12px 0; padding: 12px; border: 1px solid var(--border-color, #ddd); border-radius: 8px; }
+.cfg-driver-navigation .btn { margin: 4px 8px 4px 0; }
+.cfg-driver-navigation small { display: block; }
+.cfg-driver-map { margin: 16px 0; }
+.cfg-driver-map-canvas { height: 340px; width: 100%; border: 1px solid var(--border-color, #ddd); border-radius: 8px; z-index: 1; }
+.cfg-driver-map-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0; }
+.cfg-driver-map-legend span:before { content: '●'; margin-right: 4px; }
+.cfg-driver-map-legend .next:before { color: #1365b5; }
+.cfg-driver-map-legend .completed:before { color: #237b3b; }
+.cfg-driver-map-legend .pending:before { color: #606b78; }
+.cfg-driver-map-legend .attention:before { color: #a65a00; }
+.cfg-driver-map-pin { background: transparent; border: 0; }
+.cfg-driver-map-pin span { display: flex; align-items: center; justify-content: center; min-height: 32px; padding: 4px; border: 2px solid #fff; border-radius: 16px; background: #606b78; color: #fff; font-weight: 700; box-shadow: 0 1px 5px #3338; white-space: nowrap; }
+.cfg-driver-map-pin.next span, .cfg-driver-map-pin.current span { background: #1365b5; }
+.cfg-driver-map-pin.completed span { background: #237b3b; }
+.cfg-driver-map-pin.attention span { background: #a65a00; }
+.cfg-driver-map-stop { padding: 8px 0; overflow-wrap: anywhere; }
+.cfg-driver-map-stop + .cfg-driver-map-stop { border-top: 1px solid #ddd; }
+.cfg-driver-map .leaflet-popup-content .btn { margin-top: 8px; min-height: 44px; }
+@media (max-width: 767px) { .cfg-driver-map-canvas { height: 280px; } .cfg-driver-navigation .btn { min-width: 42%; } }

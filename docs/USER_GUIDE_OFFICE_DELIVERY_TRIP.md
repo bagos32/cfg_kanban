@@ -258,3 +258,20 @@ See [the driver and Supervisor steps](USER_GUIDE_DRIVER_ROUTE.md#change-a-live-d
 for setup, scanner commands, cancellation, stale-request handling and uncertain-result recovery.
 Run [native route-order acceptance](TEST_DRIVER_ROUTE_SEQUENCE.md) after migration/build;
 results remain **Not run**. Offline tests do not verify native site/device behavior.
+
+
+## Customer location pins and driver directions
+
+On the normal **CFG Kanban Customer Scan Point → Delivery Location Pin** form, enter Latitude
+and Longitude, **Set Pin**, check the marker and Save, or keep one marker using the native map.
+Clear Pin and Save removes it. Existing manager/source permissions apply. The Trip/Template
+reuses its selected Customer Sites; legacy Sites may leave the optional pin empty.
+
+Driver Route displays numbered customer pins, current status and SO/customer PO/product details.
+Google Maps/Waze buttons navigate to the server's current next stop. Without a pin, the buttons
+clearly use address search; no coordinate is guessed. Office corrections refresh on active Trips
+without rewriting stock or execution history. Map taps never bypass route, QR, DN or proof gates.
+
+See [pin setup and driver directions](USER_GUIDE_DRIVER_ROUTE.md#customer-pins-and-directions)
+and [native acceptance](TEST_DRIVER_ROUTE_MAPS.md). Directions use universal links; driver GPS
+tracking remains later scope. Native-site/mobile acceptance is **Not run**.

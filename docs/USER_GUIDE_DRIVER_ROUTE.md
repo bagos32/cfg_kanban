@@ -253,7 +253,7 @@ Refresh to preserve entered fields. Background reads do not renew inactivity exp
 native permission/ownership rejection clears protected details; network failure marks **Not
 refreshed**. Returning to the page rereads authorized sources.
 
-Map directions/live tracking and Bluetooth printing remain later phases. Use [execution acceptance](TEST_DRIVER_ROUTE_EXECUTION.md)
+Live vehicle tracking and Bluetooth printing remain later phases. Use [execution acceptance](TEST_DRIVER_ROUTE_EXECUTION.md)
 after manual deployment; [the original view checklist](TEST_DRIVER_ROUTE_VIEW.md) remains historical.
 
 Use [refusal/old-return acceptance](TEST_DRIVER_ROUTE_REFUSALS_RETURNS.md) for this extension;
@@ -345,3 +345,69 @@ restoration remain available. These are delivery actions; no Production floor co
 Manual migration and asset build are required. Use [route-order acceptance](TEST_DRIVER_ROUTE_SEQUENCE.md).
 Offline tests cover behavior with dependency doubles; native transactions, multi-user timing,
 permissions and tablet/driver acceptance remain **Not run**.
+
+
+## Customer pins and directions
+
+On the normal **CFG Kanban Customer Scan Point** form, open **Delivery Location Pin**. Office
+users with existing Site create/write permissions can enter **Latitude** and **Longitude**, press
+**Set Pin**, check the marker, then **Save**. The numbers use latitude first in these inputs;
+for example `3.139` and `101.6869`. Set Pin replaces the old marker. Alternatively use the native
+map's marker tool, retaining exactly one marker. Remove extra markers and drawn shapes before
+saving. **View Pin in Google Maps** checks the saved/entered point. **Clear Pin**, then Save,
+removes it. Choose the unloading entrance, rather than an approximate town/customer head office.
+
+The pin belongs to that exact Site, Company, Customer and Address. Route Templates/Trips reuse
+their selected Sites; no separate pin entry is needed on every trip. A Visit Only stop may use a
+Site for its pin even without an SO. A visit without a Site uses its saved address for search.
+Legacy Sites may leave the pin empty. No automatic geocoding or location guess is performed.
+
+**Driver Route** shows numbered pins in the effective current Trip sequence, with Next/Current,
+Completed, Pending and Check status. Select a pin to see customer, address, product quantities,
+SO/customer PO and **View Stop**. Several visits at the same coordinate share a pin with separate
+numbered choices; selecting one views its details, never silently chooses which visit to deliver.
+Missing pins are counted in the `X / Y stops have a delivery pin` message.
+
+Under the next/current customer, tap **Google Maps** or **Waze**. These use that exact saved
+coordinate and let the mapping app determine the origin/device location. Looking at another
+customer's pin/details does not change the next-navigation target. A flexible reorder or approved
+route change updates the pin numbers and target after refresh. When the current stop still has
+an unfinished DN/proof, it remains the current target. Completed/closed trips offer no next-stop
+navigation. Navigation may be previewed before departure; it does not record **Start Route**.
+
+Without a valid pin, **Google Maps — Address** requests directions by the saved delivery address;
+**Waze — Search Address** opens an address search. Check its result before navigating. An absent
+address or an address too long for the supported map URL offers no guessed destination: office
+must set/correct the Site pin or address. Invalid imported pin data does not block route viewing
+or delivery; it is excluded from the map and explicitly uses address search until corrected.
+
+Pin corrections saved by the office appear on the next authorized route refresh, including an
+active multi-day Trip. They do not alter its frozen customer/address assignment, original
+itinerary, LIFO/loading record, stock, approval, DN, proof or return history. Changing actual
+Company/Customer/Address remains governed by the existing identity checks.
+
+The map uses Frappe's existing Leaflet assets and configured tile provider; it keeps the viewport
+on ordinary refresh and groups repeated coordinates. If map assets/tiles are unavailable, use
+the directions buttons and existing delivery controls; **Retry Map** retries an asset failure.
+No pins means no map-library/tile load. Directions are disabled during refresh or a stale route
+read. Page hide/operator change clears map data; late loads cannot draw the previous driver's
+Trip. Returning from the external maps app triggers a passive route refresh without renewing the
+operator's inactivity timeout or recording delivery.
+
+Google/Waze links open only on the driver's tap and contain a destination coordinate or address;
+no operator credential, Trip ID, SO or customer PO is put in those links. Opening a map or tapping
+View Stop does not start/complete a visit, approve a sequence exception or satisfy a QR/proof gate.
+This phase does not track/transmit the driver's GPS; proof-of-delivery GPS still uses its existing
+policy and capture flow. Native app/browser handoff, device permissions and road routing depend
+on the device/provider and require device acceptance. The pin map shows customer locations;
+road directions are supplied by the external map app.
+
+No Google Maps API key is used by these universal direction links. The implementation follows
+[Google Maps URLs](https://developers.google.com/maps/documentation/urls/guide) and
+[Waze Deep Links](https://developers.google.com/waze/deeplinks). Native Frappe v15 map assets and
+existing map defaults supply the in-page map. Real-time vehicle GPS, supervisor tracking maps,
+route optimization and thermal printing remain separate later work.
+
+Migrate/build manually, configure test pins, then run
+[pin and directions acceptance](TEST_DRIVER_ROUTE_MAPS.md). Native-site/device results are
+**Not run**; offline parser/controller tests do not establish those results.

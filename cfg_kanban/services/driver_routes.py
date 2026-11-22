@@ -117,6 +117,8 @@ def _warehouse(cache, name, company):
 
 
 def _stop(doc, source, cache):
+    from cfg_kanban.services.customer_locations import pin_projection
+    location=pin_projection(None)
     customer = _cached(cache, 'Customer', source.customer)
     if source.customer_address:
         address = _cached(cache, 'Address', source.customer_address)
@@ -128,6 +130,7 @@ def _stop(doc, source, cache):
         if (site.selling_company != doc.company or site.customer != source.customer
                 or site.customer_address != source.customer_address):
             frappe.throw('Trip Customer Site no longer matches its Company, Customer or address')
+        location=pin_projection(site.get('delivery_location'))
     return dict(stop_key=source.stop_key, office_sequence=cint(source.delivery_sequence),
         sequence=cint(source.delivery_sequence), purpose=source.stop_purpose or 'Delivery',
         customer=source.customer, customer_name=customer.customer_name or source.customer,
@@ -136,7 +139,7 @@ def _stop(doc, source, cache):
         address=source.address_display or '', instructions=source.instructions or '',
         state='Visit planned' if source.stop_purpose == 'Visit Only' else 'Awaiting preparation',
         driver_completed_on=source.get('driver_completed_on'), driver_completed_by=source.get('driver_completed_by'),
-        driver_visit_notes=source.get('driver_visit_notes'), items=[], sources=[], plans=[], route_sheets=[], warnings=[])
+        driver_visit_notes=source.get('driver_visit_notes'), items=[], sources=[], plans=[], route_sheets=[], warnings=[], **location)
 
 
 def _items(doc, stops, cache):

@@ -6,6 +6,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   const SESSION = 'cfg_kanban_operator_session';
   const service = 'cfg_kanban.services.driver_routes.';
+  const maps=()=>typeof window!=='undefined'?window.cfg_delivery_maps:null;
   const tr = value => typeof __ === 'function' ? __(value) : value;
   const escape = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
   function scan(value) {
@@ -133,6 +134,7 @@
       <span>${escape(data.completed_stops)} / ${escape(data.total_stops)} ${tr('stops complete')}</span></div>
       <p><strong>${badge}:</strong> ${next ? escape(next.site_name || next.customer_name) + ' · ' + escape(next.state) : tr('No next stop recorded')}
       <br><small>${escape(data.sequence_source)} · ${tr('Updated')} ${escape(data.refreshed_on)}</small></p>
+      ${maps()?.navigationHTML(state)||''}
       ${data.trip.planning_state === 'Planned' && (data.trip.driver_route_state || 'Not Started') === 'Not Started' ? `<button class="btn btn-primary cfg-driver-start-route">${tr('Start Route')}</button>` : ''}
       ${data.trip.driver_route_state && data.trip.driver_route_state !== 'Not Started' ? `<button class="btn btn-default cfg-driver-resume-route">${tr('Continue / Check saved action')}</button>` : ''}
       <p><strong>${tr('Assigned Driver')}:</strong> ${escape(data.trip.driver||'—')} · <strong>${tr('Assistant Drivers')}:</strong> ${(data.trip.assistant_drivers||[]).map(row=>escape(row.employee_name||row.employee)).join(', ')||'—'}</p>
@@ -140,6 +142,7 @@
       ${data.route_sequence?.can_change?`<button class="btn btn-default cfg-driver-order">${tr(data.route_sequence.enforced?'Request Stop Order Change':'Change Stop Order')}</button>`:''}
       ${data.route_sequence?.request?`<p class="alert alert-info">${tr('Route change')}: ${escape(data.route_sequence.request.name)} · ${escape(data.route_sequence.request.state)} · ${escape(data.route_sequence.request.approval_mode||'')} ${escape(data.route_sequence.request.decision_reason||'')}${data.route_sequence.request.can_cancel?` <button class="btn btn-default cfg-driver-cancel-order">${tr('Cancel Route Request')}</button>`:''}</p>`:''}
       ${(data.warnings || []).map(warning => `<p class="alert alert-warning">${escape(warning)}</p>`).join('')}
+      <div class="cfg-driver-map-slot"></div>
       <div class="cfg-driver-stops">${(data.stops || []).map(stop => `<button class="btn btn-default${selected?.stop_key === stop.stop_key ? ' selected' : ''}" data-stop="${escape(stop.stop_key)}"><strong>${escape(stop.sequence)}. ${escape(stop.site_name || stop.customer_name)}</strong><span>${escape(stop.state)}${stop.purpose === 'Visit Only' ? ' · ' + tr('Visit Only') : ''}</span></button>`).join('')}</div></section>
       ${selected ? stopView(selected, data.trip) + returnView(data,selected,state) : ''}`;
   }
@@ -147,6 +150,7 @@
     return `<section class="frappe-card p-4 mt-3"><h3>${escape(stop.sequence)}. ${escape(stop.site_name || stop.customer_name)}</h3>
       <p>${escape(stop.customer_name)} · ${escape(stop.purpose)} · <strong>${escape(stop.state)}</strong></p>
       <p class="cfg-driver-address">${escape(stop.address || tr('No address recorded'))}</p>
+      <p class="text-muted">${stop.delivery_pin ? tr('Delivery Pin')+': '+escape(stop.delivery_pin.latitude)+', '+escape(stop.delivery_pin.longitude) : tr('Delivery pin not set; directions use the saved address.')}</p>
       ${stop.instructions ? `<p class="cfg-driver-instructions">${escape(stop.instructions)}</p>` : ''}
       ${stop.driver_visit_notes ? `<p class="cfg-driver-instructions"><strong>${tr('Visit notes')}:</strong> ${escape(stop.driver_visit_notes)}</p>` : ''}
       ${(stop.route_sheets || []).map(row => `<p class="text-muted">${escape(row.name)} · ${escape(row.planning_state)} · ${escape(row.sequence_policy)} · ${escape(row.verification_policy)}</p>`).join('')}
@@ -184,7 +188,7 @@
       <button class="btn btn-default cfg-driver-change">${tr('Change Operator')}</button><button class="btn btn-default cfg-driver-refresh">${tr('Refresh')}</button></div>
       <label class="mt-2"><input type="checkbox" class="cfg-driver-closed"> ${tr('Show closed trips')}</label><div class="cfg-driver-notice" role="status" aria-live="polite"></div></section>
       <div class="cfg-driver-layout"><aside class="cfg-driver-list"></aside><main><div class="cfg-driver-detail"></div><div class="cfg-driver-action-host"></div></main></div>`);
-    const input = $root.find('.cfg-driver-scan'); let camera = null, cameraEpoch = 0, timer = null, action = null;
+    const input = $root.find('.cfg-driver-scan'); let camera = null, cameraEpoch = 0, timer = null, action = null, routeMap = null;
     const notice = text => $root.find('.cfg-driver-notice').text(text || '');
     const app = controller({ storage: localStorage,
       call: async (method, args) => (await frappe.call({ method, args })).message,
@@ -192,9 +196,15 @@
         if (action && (!state.active || !state.token || !state.operator || !state.detail || state.stale)) action.close();
         $root.find('.cfg-driver-identity').text(state.operator ? `${state.operator.employee_name || state.operator.employee} · ${state.operator.employee}` : tr('Sign in with your operator credential'));
         $root.find('.cfg-driver-pin').toggle(!state.token); $root.find('.cfg-driver-confirm').prop('disabled', state.busy);
+        routeMap?.detach();
         $root.find('.cfg-driver-list').html(tripList(state)); $root.find('.cfg-driver-detail').html(detailView(state));
+        routeMap?.update(state,$root.find('.cfg-driver-map-slot')[0]);
         notice(state.error ? (state.stale ? tr('Not refreshed') + ': ' : '') + state.error : state.busy ? tr('Refreshing…') : '');
       },
+    });
+    routeMap=maps()?.createRouteMap({frappe,
+      identity:()=>{let token;try{token=localStorage.getItem(SESSION);}catch(_){return null;}return app.state.active&&frappe.get_route()?.[0]==='kanban-driver-route'&&token&&token===app.state.token&&app.state.operator?.employee?`${token}:${app.state.operator.employee}:${app.state.selected}`:null;},
+      pick:key=>{if(action||!app.session()||!app.state.active||app.state.stale||app.state.busy)return;app.viewStop(key);},
     });
     app.hide(); // A late asset load must not activate an already hidden Desk page.
     const focus = () => action ? action.focus() : input.trigger('focus');
@@ -238,6 +248,7 @@
       if (!app.session() || app.state.stale || !app.state.detail?.stops?.some(stop => stop.plans.some(plan => plan.session_accessible && plan.delivery_session === name)||stop.open_sale?.delivery_session===name)) return;
       frappe.route_options = { cfg_driver_delivery_session: name }; frappe.set_route('kanban-logistics');
     });
+    $root.on('click.cfg_driver','.cfg-driver-directions',event=>{if(!app.session()||!app.state.operator||!app.state.detail||app.state.stale||app.state.busy||!app.state.active){event.preventDefault();notice(tr('Refresh the route before opening directions.'));}});
     $root.on('click.cfg_driver', '.cfg-driver-camera', () => {
       stopCamera(); if (!frappe.ui.Scanner) { notice(tr('Camera scanning is unavailable. Use the scanner field.')); focus(); return; }
       const ticket = cameraEpoch, token = app.session(); let accepted = false;
@@ -251,9 +262,10 @@
     function tick() { if (route() && !document.hidden && !app.state.busy && !action) app.refresh(app.state.selected, false); }
     function storageChanged(event) { if (event.key === SESSION && app.state.active) { action?.close(); stopCamera(); app.refresh(); } }
     window.addEventListener('storage', storageChanged);
+    document.addEventListener?.('visibilitychange',()=>{if(!document.hidden&&app.state.active)tick();});
     const lifecycle = {
       async show(name) { if (!timer) timer = setInterval(tick, 15000); await app.show(name); focus(); },
-      hide() { action?.close(); stopCamera(); app.hide(); if (timer) clearInterval(timer); timer = null; }, app,
+      hide() { action?.close(); stopCamera(); routeMap?.clear(); app.hide(); if (timer) clearInterval(timer); timer = null; }, app,
     };
     frappe.router?.on?.('change', () => { if (!route()) lifecycle.hide(); });
     return lifecycle;

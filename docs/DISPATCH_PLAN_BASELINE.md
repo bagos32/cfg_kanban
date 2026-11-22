@@ -572,3 +572,31 @@ commit. No commit/push/deploy is performed by this development step.
 
 See [driver setup](USER_GUIDE_DRIVER_ROUTE.md) and [acceptance](TEST_DRIVER_ROUTE_SEQUENCE.md).
 Offline implementation checks are distinct from native-site acceptance, currently **Not run**.
+
+
+## 22. Customer Site pins and next-stop map directions
+
+Owner-approved on 22 November 2026 above `eb4d977`: maintain one optional delivery-entrance pin
+on the normal Customer Site form and show the authorized Trip's numbered pins/status on Driver
+Route, with Google Maps/Waze directions to its effective current/next stop. Shared/repeated
+coordinates keep separate exact visit choices. The existing next-stop, sequence-approval and
+DN/proof owners remain authoritative; map interactions view information or launch directions.
+
+Pins are validated/canonicalized single-point GeoJSON on Site save. Ordinary Site read/write and
+Company/customer/address checks remain in force. Driver projection returns only finite coordinates
+and pin status, never arbitrary URLs or map properties. Missing/invalid pins keep legacy delivery
+working and use clearly labelled address search; no destination is invented. Office pin corrections
+refresh on active Trips without altering frozen itinerary/load/stock/approval/history sources.
+
+Use local native Leaflet assets and Frappe map defaults for pins; official universal Google/Waze
+URLs need no Google API key and omit operator/Trip/order references. No CFG driver GPS capture,
+watching, tracking, geocoding, route optimization or automatic delivery/QR/proof confirmation is
+introduced. Viewport, stale/identity/hide, asynchronous map load, missing pins and asset/tile
+failures are handled independently of delivery actions. Returning from maps passively refreshes
+current route data. Existing media/GPS proof controls are unchanged.
+
+This supersedes the earlier customer-pin/direction deferral. Live vehicle/supervisor tracking,
+stop removal/recovery and thermal printing remain separately scoped later packages. See
+[setup](USER_GUIDE_DRIVER_ROUTE.md#customer-pins-and-directions) and
+[acceptance](TEST_DRIVER_ROUTE_MAPS.md). Native migration, permissions, real map tiles and
+mobile provider/app handoff acceptance remain **Not run**.

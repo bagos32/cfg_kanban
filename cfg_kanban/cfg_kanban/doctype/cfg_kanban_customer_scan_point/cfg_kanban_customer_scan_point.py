@@ -23,6 +23,11 @@ class CFGKanbanCustomerScanPoint(Document):
         self.opaque_token = self.opaque_token or str(uuid.uuid4())
 
     def validate(self):
+        from cfg_kanban.services.customer_locations import delivery_pin, pin_geojson
+        try:
+            self.delivery_location = pin_geojson(delivery_pin(self.get("delivery_location")))
+        except ValueError as exc:
+            frappe.throw(str(exc))
         before = None if self.is_new() else self.get_doc_before_save()
         if before and before.opaque_token != self.opaque_token:
             frappe.throw("Opaque Scan Token is immutable; replace the Customer Scan Point instead")

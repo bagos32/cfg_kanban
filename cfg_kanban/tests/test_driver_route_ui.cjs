@@ -97,7 +97,7 @@ test('hiding page ignores late RPC responses and does not leave a polling busy s
   h.app.hide();wait.resolve({operator:{employee:'EMP'},trips:[]});await pending;
   assert.equal(h.app.state.detail,null);assert.equal(h.app.state.busy,false);
 });
-function domHarness() {
+function domHarness(mapsApi=null) {
   const h=harness(), events=new Map(), nodes=new Map(), cameras=[], focuses=[], routes=[];let current=['kanban-driver-route'];
   class Node {
     constructor() {this.value='';this.attributes={};}
@@ -108,8 +108,8 @@ function domHarness() {
     attr(key){return this.attributes[key];}
   }
   global.$=value=>value instanceof Node?value:new Node();global.localStorage=h.storage;
-  global.__=value=>value;global.document={hidden:false};
-  global.window={addEventListener(type,callback){events.set(type,callback);}};
+  global.__=value=>value;global.document={hidden:false,addEventListener:(type,callback)=>events.set('document:'+type,callback)};
+  global.window={cfg_delivery_maps:mapsApi,addEventListener(type,callback){events.set(type,callback);}};
   global.setInterval=callback=>{events.set('tick',callback);return 1;};global.clearInterval=()=>events.delete('tick');
   global.frappe={ui:{make_app_page:()=>({main:new Node()}),Scanner:class{constructor(options){this.options=options;this.dialog={$wrapper:new Node(),hide(){}};cameras.push(this);}stop_scan(){this.stopped=true;}}},
     call:async({method,args})=>({message:method.endsWith('get_driver_trips')?{operator:{employee:'EMP'},trips:[]}:structuredClone(detail)}),
@@ -220,4 +220,28 @@ test('route shows enforced/flexible editing and persistent request decision feed
  data.route_sequence={can_change:true,enforced:false,request:{name:'KRC',state:'Approved',approval_mode:'Entire Proposed Order',decision_reason:'Reviewed'}};
  html=ui.detailView({detail:data});assert.match(html,/Change Stop Order/);assert.match(html,/Entire Proposed Order/);assert.match(html,/Reviewed/);assert(!html.includes('Cancel Route Request'));
  data.route_sequence.can_change=false;html=ui.detailView({detail:data});assert(!html.includes('cfg-driver-order'));
+});
+
+const mapApi=require('../public/js/delivery_maps.js');
+test('Driver Route embeds the map while preserving its container across route refresh',async()=>{
+ let options,detached=0,cleared=0;const updates=[];
+ const maps={navigationHTML:mapApi.navigationHTML,createRouteMap:o=>{options=o;return{detach(){detached++;},clear(){cleared++;},update:state=>updates.push({trip:state.detail?.trip?.name,token:state.token})};}};
+ const h=domHarness(maps);await h.view.show(trip);assert.equal(updates.at(-1).trip,trip);assert(detached>0);assert(options.identity());
+ const extra={...structuredClone(stop),stop_key:'STOP2',site_name:'Another shop'};h.view.app.state.detail.stops.push(extra);options.pick('STOP2');assert.equal(h.view.app.state.stop,'STOP2');assert.equal(h.view.app.state.detail.next_stop_key,'STOP1');
+ h.view.app.changeOperator();assert.equal(updates.at(-1).trip,undefined);assert.equal(options.identity(),null);h.view.hide();assert.equal(cleared,1);
+});
+test('direction click cannot use an old destination after another tab replaces the operator',async()=>{
+ const h=domHarness({navigationHTML:mapApi.navigationHTML,createRouteMap:()=>({detach(){},update(){},clear(){}})});await h.view.show(trip);
+ h.data.set(SESSION,'OTHER');let prevented=0;h.events.get('click.cfg_driver .cfg-driver-directions')({preventDefault(){prevented++;}});
+ assert.equal(prevented,1);assert.equal(h.view.app.state.detail,null);assert.match(h.nodes.get('.cfg-driver-notice').caption,/Refresh/);h.view.hide();
+});
+test('return from the maps app refreshes passively and never starts or completes a customer stop',async()=>{
+ const h=domHarness();await h.view.show(trip);const calls=[],refresh=h.view.app.refresh;h.view.app.refresh=(...args)=>{calls.push(args);return refresh(...args);};
+ h.events.get('document:visibilitychange')();await flush();assert.equal(calls.length,1);assert.equal(calls[0][1],false);
+ document.hidden=true;h.events.get('document:visibilitychange')();assert.equal(calls.length,1);document.hidden=false;h.view.hide();h.events.get('document:visibilitychange')();assert.equal(calls.length,1);
+});
+test('native driver page loads the map helper before mounting the route',async()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../cfg_kanban/page/kanban_driver_route/kanban_driver_route.js'),'utf8');let assets,mounted=0;
+ const f={pages:{'kanban-driver-route':{}},require:async value=>{assets=value;},get_route:()=>['kanban-driver-route']};
+ vm.runInNewContext(source,{frappe:f,window:{cfg_driver_route:{mount:()=>{mounted++;return{show:async()=>{},hide(){}};}}}});f.pages['kanban-driver-route'].on_page_load({});await flush();assert(assets.includes('/assets/cfg_kanban/js/delivery_maps.js'));assert.equal(mounted,1);
 });
