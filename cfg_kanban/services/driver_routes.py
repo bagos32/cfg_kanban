@@ -401,6 +401,12 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
                   and stop['state'] not in ('Review required', 'Awaiting proof', 'Delivery Note pending')):
                 stop['state'] = 'In Progress'
     ordered, source = _route_order(doc, stops, plans, cache, warnings)
+    source_stop_order=[r['stop_key'] for r in ordered]
+    sequence=None
+    if doc.get('route_sequence_revision') is not None:
+        from cfg_kanban.services.trip_sequence import project
+        ordered,sequence=project(doc,ordered,operator)
+        if sequence and sequence.get('source'):source=sequence['source']
     active = [stop for stop in ordered if stop['state'] in ('In Progress', 'Awaiting proof', 'Delivery Note pending', 'Awaiting stop completion')]
     pending = [stop for stop in ordered if stop['state'] not in TERMINAL]
     current = active[0] if len(active) == 1 else None
@@ -410,7 +416,7 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
     if doc.state in ('Closed', 'Cancelled') or doc.get('driver_route_state') == 'Completed' or len(vehicles) > 1:
         next_stop = current = None
     vehicle = _warehouse(cache, next(iter(vehicles)), doc.company) if len(vehicles) == 1 else None
-    return dict(trip=_header(doc), stops=ordered, warnings=list(dict.fromkeys(warnings)),
+    return dict(trip=_header(doc), stops=ordered, source_stop_order=source_stop_order, route_sequence=sequence, warnings=list(dict.fromkeys(warnings)),
         sequence_source=source, current_stop_key=current['stop_key'] if current else None,
         next_stop_key=next_stop['stop_key'] if next_stop else None,
         completed_stops=sum(stop['state'] in ('Completed', 'Completed with refusal', 'Visit completed') for stop in ordered), total_stops=len(ordered),

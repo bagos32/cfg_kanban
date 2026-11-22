@@ -4,7 +4,7 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 		title: __("Kanban Supervisor Action Centre"),
 		single_column: true,
 	});
-	const state = { data: null, timer: null, type: "All", priority: "All", search: "" };
+	const state = { active: true, routePanel: null, data: null, timer: null, type: "All", priority: "All", search: "" };
 	const type_field = page.add_field({
 		label: __("Signal Type"), fieldtype: "Select", fieldname: "signal_type",
 		options: ["All", "Production Replenishment", "Certificate Process", "Purchase Replenishment", "Transfer Replenishment", "Stock Withdrawal"],
@@ -25,6 +25,17 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 	page.add_inner_button(__("Production Floor"), () => frappe.set_route("kanban-floor"));
 	const $root = $("<div class='cfg-supervisor-centre mt-4'></div>").appendTo(page.main);
 
+	const $routes = $("<div class='cfg-supervisor-routes mt-4'></div>").appendTo(page.main);
+	const routeReady=frappe.require(['/assets/cfg_kanban/js/driver_route_actions.js','/assets/cfg_kanban/js/delivery_action_scanner.js','/assets/cfg_kanban/js/dispatch_recovery.js','/assets/cfg_kanban/js/delivery_proof_tools.js','/assets/cfg_kanban/js/supervisor_route_changes.js']).then(()=>{
+		state.routePanel=window.cfg_supervisor_route_changes.bind({frappe,host:$routes,storage:localStorage,locks:navigator.locks,nonce:()=>crypto.randomUUID(),
+		 active:()=>state.active&&frappe.get_route()?.[0]==='kanban-supervisor',error:error=>error.message||__('Route review failed; refresh and retry.'),
+		 onBusy:()=>{if(state.timer)clearTimeout(state.timer);state.timer=null;},onIdle:()=>schedule(),refresh:()=>load(false)});
+		state.routePanel.update(state.data?.route_changes||[]);if(!state.active)state.routePanel.hide();return state.routePanel;
+	});
+	async function show(){state.active=true;const panel=await routeReady;panel.show();await load(false);const name=frappe.route_options?.cfg_route_change_request;if(name){delete frappe.route_options.cfg_route_change_request;await panel.openName(name);}}
+	frappe.pages['kanban-supervisor'].on_page_show=show;
+	frappe.pages['kanban-supervisor'].on_page_hide=()=>{state.active=false;if(state.timer)clearTimeout(state.timer);state.timer=null;state.routePanel?.hide();};
+
 	async function load(freeze = false) {
 		try {
 			const response = await frappe.call({
@@ -32,7 +43,9 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 				args: { limit: 200 }, freeze,
 				freeze_message: __("Loading supervisor actions..."),
 			});
+			if(!state.active)return;
 			state.data = response.message || {};
+			state.routePanel?.update(state.data.route_changes||[]);
 			render();
 		} finally {
 			schedule();
@@ -41,13 +54,15 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 
 	function schedule() {
 		if (state.timer) clearTimeout(state.timer);
-		state.timer = setTimeout(() => load(false), 30000);
+		state.timer = null;
+		if(state.active&&!state.routePanel?.busy())state.timer = setTimeout(() => load(false), 30000);
 	}
 
 	function render() {
 		if (!state.data) return;
 		const counts = state.data.counts || {};
 		$root.empty().append(`<div class="cfg-supervisor-kpis">
+			${kpi(__("Route requests"), counts.route_changes || 0, "blue")}
 			${kpi(__("Signal approvals"), counts.signals || 0, "orange")}
 			${kpi(__("Service verification"), counts.service_verifications || 0, "blue")}
 			${kpi(__("Process verification"), counts.process_verifications || 0, "purple")}
@@ -221,6 +236,7 @@ frappe.pages["kanban-supervisor"].on_page_load = function (wrapper) {
 		return `<a href="/app/${route}/${encodeURIComponent(name)}">${frappe.utils.escape_html(name)}</a>`;
 	}
 
+	frappe.router?.on?.('change',()=>{if(frappe.get_route()?.[0]!=='kanban-supervisor')frappe.pages['kanban-supervisor'].on_page_hide();});
 	$(window).on("beforeunload.cfg-kanban-supervisor", () => state.timer && clearTimeout(state.timer));
-	load(true);
+	show();
 };

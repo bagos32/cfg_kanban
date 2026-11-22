@@ -2,7 +2,7 @@
 (function(root){
  'use strict';
  const prefix='cfg_kanban.services.driver_route_actions.';
- const actions=['Start Route','Begin Delivery','Confirm Allocations','Create Delivery Note','Open Proof','Submit Proof','Complete Stop','Collect Old Return','Release Refused Stock','Begin Open Sale','Add Assistant'];
+ const actions=['Start Route','Begin Delivery','Confirm Allocations','Create Delivery Note','Open Proof','Submit Proof','Complete Stop','Collect Old Return','Release Refused Stock','Begin Open Sale','Add Assistant','Change Route Order','Request Route Change','Cancel Route Change','Decide Route Change'];
  function controller(env){
   const s={trip:null,pending:null,busy:false,closed:false,baseline:null,message:''};
   const fail=text=>{throw new Error(text);};
@@ -55,11 +55,17 @@
   };
  }
 
+ function stopOrder(stops){
+  const rows=stops.map(row=>({...row}));
+  function shift(key,delta){const index=rows.findIndex(r=>r.stop_key===key),next=index+delta;if(index<0)throw new Error('Select a current customer stop.');if(next<0||next>=rows.length)return;rows.splice(next,0,rows.splice(index,1)[0]);}
+  return {list:()=>rows.map(r=>({...r})),keys:()=>rows.map(r=>r.stop_key),shift,
+   move(key,target){const from=rows.findIndex(r=>r.stop_key===key),to=rows.findIndex(r=>r.stop_key===target);if(from<0||to<0)throw new Error('Select a current customer stop.');rows.splice(to,0,rows.splice(from,1)[0]);}};
+ }
  function open(options){
   const f=options.frappe,e=f.utils.escape_html,host=options.host,tr=value=>typeof __==='function'?__(value):value;
   const owner=options.owner(),token=options.token();
   let context=null,inputs={},inputScanner=null,camera=null,cameraVersion=0,closed=false,loading=false,tools=null,epoch=0,arrival='',automatic=false,returnReview=null,quantityReview=null;
-  let stockChild=null;
+  let stockChild=null,routeOrder=null,routeSelected=null,draggedStop=null,routePage=0;
   let tail=Promise.resolve();
   const valid=()=>!closed&&options.owner()===owner&&options.token()===token&&options.active();
   const focus=()=>{if(stockChild)return stockChild.focus();if(valid())host.find('.driver-action-scan').trigger('focus');};
@@ -76,7 +82,7 @@
   async function recorded(result){
    if(result.action==='Begin Delivery'){quantityReview=null;}
    if(!valid())return;await options.refresh();if(!valid())return;
-   if(['Start Route','Collect Old Return','Release Refused Stock','Add Assistant'].includes(result.action)){close();return;}
+   if(['Start Route','Collect Old Return','Release Refused Stock','Add Assistant','Change Route Order','Request Route Change','Cancel Route Change','Decide Route Change'].includes(result.action)){close();return;}
    await load();if(!valid())return;
    if(context?.next_step==='Done'){close();return;}
    const auto=context&&(['Confirm Allocations','Open Proof'].includes(context.next_step)||
@@ -87,9 +93,10 @@
   const c=controller({storage:options.storage,locks:options.locks,owner:options.owner,token:options.token,nonce:options.nonce,rpc,render:update,success:recorded});
   function update(){
    if(!valid())return;const pending=c.state.pending,own=!pending||pending.actor===owner;
-   host.find('.driver-action-confirm').text(tr(pending?'Retry original request':context?.next_step==='Start Route'?'Start Route':context?.next_step==='Add Assistant'?'Add Assistant Driver':context?.next_step==='Collect Old Return'?(returnReview?'Issue Temporary Return Note':'Review Collected Return'):context?.next_step==='Release Refused Stock'?'Release Selected Refused Stock':context?.next_step==='Submit Proof'?'Submit delivery proof':context?.next_step==='Begin Open Sale'?'Open Customer Sale':context?.next_step==='Select Route Stock'?'Finish Selection / Create DN':context?.next_step==='Create Delivery Note'?'Confirm document details':context?.next_step==='Begin Delivery'?(quantityReview?'Confirm Accepted / Refused':'Deliver Accepted Quantities'):'Complete Stop'))
+   host.find('.driver-action-confirm').text(tr(pending?'Retry original request':context?.next_step==='Done'?'Recorded':context?.next_step==='Start Route'?'Start Route':context?.next_step==='Edit Route Order'?(context.setup.enforced?'Request Supervisor Approval':'Save Stop Order'):context?.next_step==='Decide Route Change'?'Record Route Decision':context?.next_step==='Cancel Route Change'?'Cancel Route Request':context?.next_step==='Add Assistant'?'Add Assistant Driver':context?.next_step==='Collect Old Return'?(returnReview?'Issue Temporary Return Note':'Review Collected Return'):context?.next_step==='Release Refused Stock'?'Release Selected Refused Stock':context?.next_step==='Submit Proof'?'Submit delivery proof':context?.next_step==='Begin Open Sale'?'Open Customer Sale':context?.next_step==='Select Route Stock'?'Finish Selection / Create DN':context?.next_step==='Create Delivery Note'?'Confirm document details':context?.next_step==='Begin Delivery'?(quantityReview?'Confirm Accepted / Refused':'Deliver Accepted Quantities'):'Complete Stop'))
     .prop('disabled',c.state.busy||loading||!own||(!pending&&(!context||['Blocked','Await ERP','Done'].includes(context.next_step)||(context.next_step==='Select Route Stock'&&!(context.selected_stock||[]).some(r=>['Reserved','Delivery Pending'].includes(r.state))))));
    host.find('.driver-action-fields :input').prop('disabled',c.state.busy||Boolean(pending)||Boolean(returnReview)||Boolean(quantityReview));
+   host.find('.driver-order-row').attr?.('draggable',!(c.state.busy||pending));
    host.find('.driver-action-readback').toggle(true).prop('disabled',c.state.busy);
    host.find('.driver-action-void,.driver-action-void-reason').toggle(Boolean(pending)&&options.supervisor());
    if(pending){stopCamera();host.find('.driver-action-message').text(own?`Original ${pending.request.action} retained. Retry uses the same details. ${c.state.message}`:'Another operator has an unresolved request. Reidentify that operator or use authorized Supervisor reconciliation.');}
@@ -100,6 +107,13 @@
   function valueOf(control){return control.df.fieldtype==='Table'?(control.grid?.get_data?.()||control.get_value?.()||control.df.data||[]):control.get_value?.();}
   function values(){return Object.fromEntries(Object.entries(inputs).filter(([_key,control])=>control.get_value||control.df.fieldtype==='Table').map(([key,control])=>[key,valueOf(control)]));}
 
+  function orderEditable(){if(!valid()||c.state.busy||c.state.pending||context?.next_step!=='Edit Route Order')throw new Error('Finish the original route request before changing its order.');}
+  function drawOrder(){
+   if(!routeOrder)return;const rows=routeOrder.list();
+   host.find('.driver-order-list').html(rows.map((row,index)=>`<div class="driver-order-row p-2 border mb-2${row.stop_key===routeSelected?' bg-light':''}" draggable="true" data-order-key="${e(row.stop_key)}"><strong>${index+1}. ${e(row.label)}</strong> · ${e(row.customer)} <button type="button" class="btn btn-default btn-sm driver-order-up" data-order-key="${e(row.stop_key)}"${index===0?' disabled':''}>↑ ${tr('Up')}</button> <button type="button" class="btn btn-default btn-sm driver-order-down" data-order-key="${e(row.stop_key)}"${index===rows.length-1?' disabled':''}>↓ ${tr('Down')}</button></div>`).join(''));
+   host.find('.driver-order-help').text(`${tr('Drag customers or use Up/Down. Scanner: SELECT chooses a customer, ROUTE_MOVE_UP / ROUTE_MOVE_DOWN moves it, ROUTE_REASON enters the reason.')} ${tr('Customer numbers on this scanner page')}: `+rows.slice(routePage*10,routePage*10+10).map((r,i)=>`${i+1}. ${r.label}`).join(' · '));
+  }
+  function moveOrder(key,delta){orderEditable();routeOrder.shift(key,delta);routeSelected=key;routePage=Math.floor(routeOrder.keys().indexOf(key)/10);drawOrder();}
   function render(){
    if(!valid())return;tools?.close?.();tools=null;inputs={};inputScanner=null;
    const detail=options.detail(),stop=(detail?.stops||[]).find(row=>row.stop_key===(c.state.pending?c.state.pending.request.stop_key:context?.stop_key||options.stop));
@@ -111,11 +125,32 @@
     <input class="form-control driver-action-void-reason" placeholder="${tr('Supervisor reason to void an unrecorded request')}"><button class="btn btn-warning driver-action-void">${tr('Void if unrecorded')}</button><button class="btn btn-default driver-action-edit-return">${tr('Return to Edit')}</button><button class="btn btn-default driver-action-cancel">${tr('Close')}</button></div></section>`);
    if(owned)host.find('.driver-action-summary').html(stop?`<h4>${e(stop.site_name||stop.customer_name)}</h4><p>${e(stop.address||'')}</p>`+
     stop.items.map(row=>`<div><strong>${e(row.item_code)}</strong> · ${e(row.planned_qty)} ${e(row.stock_uom)} ${e(row.orders.map(order=>order.sales_order).join(', '))}</div>`).join(''):
-    `<h4>${e(detail?.trip?.trip_title||options.trip)}</h4><p>${tr('Start this loaded route. This records departure; it creates no customer Delivery Note.')}</p>`);
+    `<h4>${e(detail?.trip?.trip_title||options.trip)}</h4>${context?.next_step==='Start Route'?`<p>${tr('Start this loaded route. This records departure; it creates no customer Delivery Note.')}</p>`:''}`);
    if(pending){update();return;}
    const step=context?.next_step;
    host.find('.driver-action-edit-return').toggle((step==='Collect Old Return'&&Boolean(returnReview))||(step==='Begin Delivery'&&Boolean(quantityReview))||Boolean(quantityReview));
    host.find('.driver-action-message').text(context?.message||(!context?tr('Loading current action…'):step==='Begin Delivery'?tr('Review accepted quantities; reduce Accepted and enter a reason/condition for refused stock. The Delivery Note follows the configured Draft or auto-submit policy; required proof remains mandatory.'):step));
+   if(step==='Edit Route Order'){
+    routeOrder=stopOrder(context.setup.stops);routeSelected=null;routePage=0;
+    host.find('.driver-action-message').text(context.setup.enforced?tr('Sequence is enforced. Put the requested next customer first, arrange the other pending stops, and enter a reason. The Supervisor chooses one-next-customer or the full proposed order.'):tr('Reorder unfinished customer stops, then save. Completed stops and the loaded stock record stay fixed.'));
+    host.find('.driver-action-fields').html('<div class="driver-order-list"></div><p class="driver-order-help text-muted"></p>');drawOrder();
+    field({fieldname:'reason',label:tr('Route Change Reason'),fieldtype:'Small Text',reqd:context.setup.enforced?1:0});
+   }
+   if(step==='Cancel Route Change'){
+    host.find('.driver-action-message').text(tr('Cancel the pending route request; the current approved route order continues.'));
+    field({fieldname:'reason',label:tr('Cancellation Reason'),fieldtype:'Small Text',reqd:1});
+   }
+   if(step==='Decide Route Change'){
+    const setup=context.setup;
+    host.find('.driver-action-message').text(`${setup.request_name} · ${setup.state} · ${setup.requested_by}: ${setup.reason}`);
+    host.find('.driver-action-fields').html(`<p><strong>${tr('Remaining Order at Request')}:</strong> ${setup.current.map(r=>e(r.label)).join(' → ')}</p><p><strong>${tr('Proposed remaining order')}:</strong> ${setup.proposed.map(r=>e(r.label)).join(' → ')}</p>`);
+    if(setup.state==='Pending'){
+     if(!setup.approvable)host.find('.driver-action-fields').append(`<p class="alert alert-warning">${tr('Trip progressed or has an active stop. Only rejection is available here; refresh after proof or ask for a fresh request.')}</p>`);
+     field({fieldname:'decision',label:tr('Decision'),fieldtype:'Select',options:(setup.approvable?['Approve','Reject']:['Reject']).join('\n'),default:setup.approvable?'Approve':'Reject',reqd:1});
+     field({fieldname:'approval_mode',label:tr('Approval Scope'),fieldtype:'Select',options:setup.modes.join('\n'),default:setup.modes[0]});
+     field({fieldname:'reason',label:tr('Supervisor Decision Reason'),fieldtype:'Small Text',reqd:1});
+    }else{context.next_step='Done';host.find('.driver-action-fields').append(`<p>${e(setup.approval_mode||'')} · ${e(setup.decision_reason||'')}</p>`);}
+   }
    if(step==='Add Assistant'){
     host.find('.driver-action-message').text(tr('Select an Employee or scan their Employee ID. Each assistant signs in separately.')+((context.setup.team||[]).length?' '+tr('Current assistants')+': '+context.setup.team.join(', '):''));
     field({fieldname:'employee',label:tr('Assistant Driver Employee / ID'),fieldtype:'Link',options:'Employee',reqd:1,get_query:()=>({filters:{status:'Active'}})});
@@ -172,13 +207,15 @@
    if(step==='Complete Stop'&&context.purpose==='Visit Only')field({fieldname:'notes',label:tr('Visit information / notes'),fieldtype:'Small Text'});
    if(step==='Await ERP'&&context.delivery_note)host.find('.driver-action-fields').html(`<p>${tr('Awaiting authorized ERP submission')}: ${e(context.delivery_note)}. ${tr('Refresh after submission; this stop stays open.')}</p>`);
    const defs=Object.entries(inputs).filter(([_name,control])=>!['HTML','Section Break','Column Break'].includes(control.df.fieldtype)).map(([name,control])=>({...control.df,name}));
+   const orderHelp=tr('Numbered choices select customers in the order list above. ROUTE_REASON selects the reason field.');
    inputScanner=window.cfg_delivery_action_scanner.createController({fields:defs,owner:options.owner,openedOwner:owner,render:s=>{
+     if(step==='Edit Route Order'){host.find('.driver-action-input-help').text(orderHelp);return;}
      const choices=inputScanner?.choices()||defs;
      host.find('.driver-action-input-help').text((s.table?`${s.table.label} · Row ${s.table.index+1}. `:'')+
       choices.slice(s.page*10,s.page*10+10).map((row,index)=>`${index+1}. ${row.label||row.name}${(s.table?s.table.column:s.field)===row.name?' ✓':''}`).join(' · '));
     },nonce:options.nonce,values,
     set:(name,value)=>inputs[name].set_value(value),read:name=>valueOf(inputs[name]),submit:async()=>submit(),close:()=>{},success:async()=>{},camera:startCamera});
-   host.find('.driver-action-input-help').text(defs.map((row,index)=>`${index+1}. ${row.label||row.name}`).join(' · '));
+   host.find('.driver-action-input-help').text(step==='Edit Route Order'?orderHelp:defs.map((row,index)=>`${index+1}. ${row.label||row.name}`).join(' · '));
    update();focus();
   }
   async function submit(auto=false){
@@ -199,6 +236,12 @@
     if(quantityReview)payload=quantityReview;
    }
    if(step==='Begin Delivery'&&quantityReview)payload=JSON.parse(JSON.stringify(quantityReview));
+   if(step==='Edit Route Order'){
+    if(context.setup.enforced&&!String(v.reason||'').trim())throw new Error('Enter a reason for the Supervisor route request.');
+    payload={order:routeOrder.keys(),reason:v.reason||''};step=context.setup.enforced?'Request Route Change':'Change Route Order';automatic=false;
+   }
+   if(step==='Cancel Route Change'){payload={request_name:context.setup.request_name,reason:v.reason||''};automatic=false;}
+   if(step==='Decide Route Change'){payload={request_name:context.setup.request_name,decision:v.decision,approval_mode:v.approval_mode,reason:v.reason||''};automatic=false;}
    if(step==='Add Assistant'){
     payload.employee=String(v.employee||'').trim();
     if(!payload.employee)throw new Error('Select an Assistant Driver Employee first.');
@@ -235,8 +278,17 @@
    const text=String(value||'').trim(),upper=text.toUpperCase();if(!text||!valid())return;
    if(upper==='CFG:CMD:CANCEL')return close();if(upper==='CFG:CMD:CONFIRM')return submit();
    if(['CFG:CMD:REFRESH','CFG:CMD:ROUTE_SHEET_REFRESH'].includes(upper))return c.state.pending?c.reconcile():load();
-   if(upper==='CFG:CMD:HELP'){host.find('.driver-action-message').text('Confirm submits reviewed details. Scan Customer Site when required. CFG:SELECT:1–10 arms a field; scan its value. DELIVERY_RECIPIENT and ERP table-row commands are supported. Cancel closes while retaining unknown results. Refresh reads back the saved outcome.');return;}
+   if(upper==='CFG:CMD:HELP'){host.find('.driver-action-message').text(context?.next_step==='Edit Route Order'?'Numbered choices select customers. ROUTE_MOVE_UP / ROUTE_MOVE_DOWN changes their order. NEXT_MATERIALS / PREVIOUS_MATERIALS pages the customer choices. ROUTE_REASON selects the reason. Confirm saves or requests approval; Cancel closes safely.':'Confirm submits reviewed details. Scan Customer Site when required. CFG:SELECT:1–10 arms a field; scan its value. DELIVERY_RECIPIENT and ERP table-row commands are supported. Cancel closes while retaining unknown results. Refresh reads back the saved outcome.');return;}
    if(c.state.pending)throw new Error('Retry or reconcile the original request before editing.');
+   if(context?.next_step==='Edit Route Order'){
+    const selected=upper.match(/^CFG:SELECT:(10|[1-9])$/);
+    if(selected){orderEditable();const row=routeOrder.list()[routePage*10+Number(selected[1])-1];if(!row)throw new Error('Choose a displayed customer number.');routeSelected=row.stop_key;drawOrder();return;}
+    if(['CFG:CMD:NEXT_MATERIALS','CFG:CMD:PREVIOUS_MATERIALS'].includes(upper)){orderEditable();routePage=Math.max(0,Math.min(Math.ceil(routeOrder.list().length/10)-1,routePage+(upper.includes('NEXT_')?1:-1)));drawOrder();return;}
+    if(upper==='CFG:CMD:ROUTE_REASON')return inputScanner.field('reason');
+    if(['CFG:CMD:ROUTE_MOVE_UP','CFG:CMD:ROUTE_MOVE_DOWN'].includes(upper)){
+     if(!routeSelected)throw new Error('Select the customer number to move first.');return moveOrder(routeSelected,upper.endsWith('_UP')?-1:1);
+    }
+   }
    if(upper==='CFG:CMD:RETURN_EDIT'){returnReview=null;quantityReview=null;host.find('.driver-action-edit-return').toggle(false);update();return;}
    if(returnReview||quantityReview)throw new Error('Use Return to Edit before changing reviewed quantities.');
    if(context?.next_step==='Begin Delivery'&&context.require_scan&&!inputScanner?.state.table&&inputScanner?.state.field==='customer_scan'&&!upper.startsWith('CFG:')){await inputs.customer_scan.set_value(text);return;}
@@ -266,8 +318,14 @@
    .on('click.cfg_driver_action','.driver-action-camera',()=>queue(startCamera)).on('click.cfg_driver_action','.driver-action-cancel',close)
    .on('click.cfg_driver_action','.driver-action-void',()=>queue(async()=>{const reason=String(host.find('.driver-action-void-reason').val()||'').trim();if(!reason)throw new Error('Enter the Supervisor reason first.');await c.reconcile(reason);} ))
    .on('keydown.cfg_driver_action','.driver-action-scan',event=>{if(!['Enter','Tab'].includes(event.key)||event.shiftKey||event.ctrlKey||event.altKey||event.metaKey||event.isComposing)return;const input=host.find('.driver-action-scan'),value=String(input.val()||'').trim();if(!value)return;event.preventDefault();event.stopPropagation();input.val('');queue(()=>scan(value));});
+  host.on('click.cfg_driver_action','.driver-order-up',event=>queue(()=>moveOrder($(event.currentTarget).attr('data-order-key'),-1)))
+   .on('click.cfg_driver_action','.driver-order-down',event=>queue(()=>moveOrder($(event.currentTarget).attr('data-order-key'),1)))
+   .on('dragstart.cfg_driver_action','.driver-order-row',event=>{try{orderEditable();draggedStop=$(event.currentTarget).attr('data-order-key');event.originalEvent.dataTransfer.setData('text/plain',draggedStop);}catch(_){event.preventDefault();}})
+   .on('dragover.cfg_driver_action','.driver-order-row',event=>{if(draggedStop&&!c.state.pending&&!c.state.busy)event.preventDefault();})
+   .on('drop.cfg_driver_action','.driver-order-row',event=>{event.preventDefault();const key=$(event.currentTarget).attr('data-order-key'),source=draggedStop;draggedStop=null;queue(()=>{orderEditable();routeOrder.move(source,key);routeSelected=source;routePage=Math.floor(routeOrder.keys().indexOf(source)/10);drawOrder();});})
+   .on('dragend.cfg_driver_action','.driver-order-row',()=>{draggedStop=null;});
   c.restore(options.trip);render();if(!c.state.pending)queue(load);
   return {scan:value=>queue(()=>scan(value)),close,focus,controller:c,refresh:()=>queue(()=>c.state.pending?c.reconcile():load())};
  }
- const api={controller,open};if(typeof module!=='undefined'&&module.exports)module.exports=api;root.cfg_driver_route_actions=api;
+ const api={controller,open,stopOrder};if(typeof module!=='undefined'&&module.exports)module.exports=api;root.cfg_driver_route_actions=api;
 })(typeof window==='undefined'?globalThis:window);

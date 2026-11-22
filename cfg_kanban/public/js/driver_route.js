@@ -137,6 +137,8 @@
       ${data.trip.driver_route_state && data.trip.driver_route_state !== 'Not Started' ? `<button class="btn btn-default cfg-driver-resume-route">${tr('Continue / Check saved action')}</button>` : ''}
       <p><strong>${tr('Assigned Driver')}:</strong> ${escape(data.trip.driver||'—')} · <strong>${tr('Assistant Drivers')}:</strong> ${(data.trip.assistant_drivers||[]).map(row=>escape(row.employee_name||row.employee)).join(', ')||'—'}</p>
       ${data.can_add_assistant?`<button class="btn btn-default cfg-driver-add-assistant">${tr('Add Assistant Driver')}</button>`:''}
+      ${data.route_sequence?.can_change?`<button class="btn btn-default cfg-driver-order">${tr(data.route_sequence.enforced?'Request Stop Order Change':'Change Stop Order')}</button>`:''}
+      ${data.route_sequence?.request?`<p class="alert alert-info">${tr('Route change')}: ${escape(data.route_sequence.request.name)} · ${escape(data.route_sequence.request.state)} · ${escape(data.route_sequence.request.approval_mode||'')} ${escape(data.route_sequence.request.decision_reason||'')}${data.route_sequence.request.can_cancel?` <button class="btn btn-default cfg-driver-cancel-order">${tr('Cancel Route Request')}</button>`:''}</p>`:''}
       ${(data.warnings || []).map(warning => `<p class="alert alert-warning">${escape(warning)}</p>`).join('')}
       <div class="cfg-driver-stops">${(data.stops || []).map(stop => `<button class="btn btn-default${selected?.stop_key === stop.stop_key ? ' selected' : ''}" data-stop="${escape(stop.stop_key)}"><strong>${escape(stop.sequence)}. ${escape(stop.site_name || stop.customer_name)}</strong><span>${escape(stop.state)}${stop.purpose === 'Visit Only' ? ' · ' + tr('Visit Only') : ''}</span></button>`).join('')}</div></section>
       ${selected ? stopView(selected, data.trip) + returnView(data,selected,state) : ''}`;
@@ -221,6 +223,8 @@
           onClose:()=>{action=null;focus();}});
       } catch(error) { $root.find('.cfg-driver-action-host').empty(); notice(message(error)); focus(); }
     }
+    $root.on('click.cfg_driver','.cfg-driver-order',()=>execute(null,'Change Route Order'));
+    $root.on('click.cfg_driver','.cfg-driver-cancel-order',()=>execute(null,'Cancel Route Change'));
     $root.on('click.cfg_driver','.cfg-driver-add-assistant',()=>execute(null,'Add Assistant'));
     $root.on('click.cfg_driver','.cfg-driver-open-sale',event=>execute($(event.currentTarget).attr('data-sale-stop'),'Sell from Lorry'));
     $root.on('click.cfg_driver', '.cfg-driver-collect-return', event => execute($(event.currentTarget).attr('data-collect-stop'),'Collect Old Return'));

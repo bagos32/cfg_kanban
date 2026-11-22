@@ -54,7 +54,11 @@
   "driver_route_completed_on",
   "driver_active_stop_key",
   "driver_active_vehicle_key",
-  "driver_route_snapshot_json"
+  "driver_route_snapshot_json",
+  "driver_stop_order_json",
+  "route_sequence_revision",
+  "route_order_source",
+  "route_change_request"
  ],
  "fields": [
   {
@@ -372,6 +376,34 @@
    "label": "Team Revision",
    "fieldtype": "Int",
    "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "driver_stop_order_json",
+   "label": "Runtime Delivery Order",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "route_sequence_revision",
+   "label": "Runtime Order Revision",
+   "fieldtype": "Int",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "route_order_source",
+   "label": "Runtime Order Source",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "route_change_request",
+   "label": "Latest Route Change Request",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Route Change Request",
    "read_only": 1
   }
  ],

@@ -5997,7 +5997,7 @@ camera/signature controls are available. Proof photos use the existing private S
 Driver completion remains separate from E5 reconciliation. For an unfinished trip, settle/cancel
 its linked Plans through existing controls, then an authorized office manager can close/cancel
 with a reason, record Closed Incomplete and release the lorry without fabricating stop delivery.
-Live route-edit approvals, maps/tracking and Bluetooth printing remain later phases. Refusal/old-return collection extends this flow as described below. See [setup and operator steps](USER_GUIDE_DRIVER_ROUTE.md) and
+Live route-order approvals now use the controlled workflow below. Maps/tracking and Bluetooth printing remain later phases. Refusal/old-return collection extends this flow as described below. See [setup and operator steps](USER_GUIDE_DRIVER_ROUTE.md) and
 [native execution acceptance](TEST_DRIVER_ROUTE_EXECUTION.md). Offline tests do not verify live
 migration, ERP posting, concurrency or devices.
 
@@ -6083,3 +6083,22 @@ requests refresh, and uncertain actions retain their original actor/payload/toke
 See [office setup](USER_GUIDE_OFFICE_DELIVERY_TRIP.md), [driver steps](USER_GUIDE_DRIVER_ROUTE.md)
 and [native acceptance](TEST_TRIP_TEAM.md). No live migration, stock posting, concurrency or tablet
 acceptance is established by the offline tests.
+
+## Change a live delivery order
+
+After Start Route, **Driver Route → Change Stop Order** lets the lead or an assistant reorder
+unfinished customers on a Flexible Order route using drag/drop, tablet arrows or the scanner.
+A Planned Order Trip, native Route Sheet or participating Open Route Plan instead requires a
+reasoned **Request Stop Order Change**. The current approved order continues until approval.
+
+Review in **Kanban Supervisor Action Centre → Delivery Route Changes**. A Supervisor with
+View All Responsibilities, Can Override, Can Complete and native source access chooses
+**Next Customer Only** (then prior remaining order) or **Entire Proposed Order**, or rejects
+with a reason. Captured Profiles must permit **Allow Controlled Supervisor Override** for the
+affected customer Plans. Completed stops stay fixed; active delivery/proof blocks route edits.
+The order change preserves office/LIFO/loading history and required QR/stock/DN/proof controls.
+
+See [the driver and Supervisor steps](USER_GUIDE_DRIVER_ROUTE.md#change-a-live-delivery-order)
+for setup, scanner commands, cancellation, stale-request handling and uncertain-result recovery.
+Run [native route-order acceptance](TEST_DRIVER_ROUTE_SEQUENCE.md) after migration/build;
+results remain **Not run**. Offline tests do not verify native site/device behavior.

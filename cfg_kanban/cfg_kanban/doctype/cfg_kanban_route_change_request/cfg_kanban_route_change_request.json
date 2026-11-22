@@ -1,0 +1,229 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Route Change Request",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "autoname": "KRC-.YYYY.-.#####",
+ "track_changes": 1,
+ "field_order": [
+  "state",
+  "delivery_trip",
+  "company",
+  "vehicle_warehouse",
+  "requested_by",
+  "operator_session",
+  "target_customer",
+  "target_customer_site",
+  "requested_on",
+  "reason",
+  "target_stop_key",
+  "base_order_json",
+  "proposed_order_json",
+  "source_fingerprint",
+  "idempotency_key",
+  "pending_trip_key",
+  "approval_mode",
+  "decision_reason",
+  "decided_by",
+  "deciding_session",
+  "decided_on",
+  "applied_order_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "state",
+   "label": "State",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "options": "Pending\nApproved\nRejected\nCancelled\nSuperseded",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "delivery_trip",
+   "label": "Delivery Trip",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Delivery Trip",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Company",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "vehicle_warehouse",
+   "label": "Lorry Warehouse",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Warehouse",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "requested_by",
+   "label": "Requested By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "operator_session",
+   "label": "Requesting Session",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Operator Session",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "target_customer",
+   "label": "Requested Customer",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Customer",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "target_customer_site",
+   "label": "Requested Customer Site",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Customer Scan Point",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "requested_on",
+   "label": "Requested On",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "reason",
+   "label": "Driver Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "target_stop_key",
+   "label": "Requested Stop Identity",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "base_order_json",
+   "label": "Remaining Order at Request",
+   "fieldtype": "Code",
+   "read_only": 1,
+   "options": "JSON"
+  },
+  {
+   "fieldname": "proposed_order_json",
+   "label": "Proposed Remaining Order",
+   "fieldtype": "Code",
+   "read_only": 1,
+   "options": "JSON"
+  },
+  {
+   "fieldname": "source_fingerprint",
+   "label": "Original Source Fingerprint",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "idempotency_key",
+   "label": "Request Identity",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "unique": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "pending_trip_key",
+   "label": "Pending Trip Identity",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "unique": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "approval_mode",
+   "label": "Approval Scope",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "options": "Next Customer Only\nEntire Proposed Order"
+  },
+  {
+   "fieldname": "decision_reason",
+   "label": "Supervisor Decision Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "decided_by",
+   "label": "Decision By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "deciding_session",
+   "label": "Decision Session",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Operator Session"
+  },
+  {
+   "fieldname": "decided_on",
+   "label": "Decided On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "applied_order_json",
+   "label": "Applied Runtime Order",
+   "fieldtype": "Code",
+   "read_only": 1,
+   "options": "JSON"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "allow_rename": 0,
+ "permissions": [
+  {
+   "role": "Stock User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "CFG Kanban System Maintenance",
+   "read": 1,
+   "print": 1
+  }
+ ]
+}

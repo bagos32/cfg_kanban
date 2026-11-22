@@ -76,18 +76,18 @@ function panel({step='Begin Delivery',requireScan=false,requirements=[],proof=nu
  const nodes=new Map(),events=new Map(),controls={},calls=[],cameras=[],storage=existingStorage||memory();let owner='EMP',token='TOKEN',active=true,closed=0,refreshes=0,revision=0,current=step,lastAction='',stockOptions=null,stockClosed=0,stockFocus=0;const stockScans=[];
  class Node{
   constructor(){this.value='';this.disabled=false;this.caption='';this.visible=true;}
-  html(v){this.markup=v;return this;}text(v){this.caption=v;return this;}empty(){this.markup='';return this;}appendTo(){return this;}
+  html(v){this.markup=v;return this;}append(v){this.markup=(this.markup||'')+v;return this;}attr(k,v){this.attrs=this.attrs||{};if(arguments.length===2){this.attrs[k]=v;return this;}return this.attrs[k];}text(v){this.caption=v;return this;}empty(){this.markup='';return this;}appendTo(){return this;}
   find(key){if(!nodes.has(key))nodes.set(key,new Node());return nodes.get(key);}prop(k,v){this[k]=v;return this;}toggle(v){this.visible=v;return this;}
   val(v){if(arguments.length){this.value=v;return this;}return this.value;}trigger(){this.focused=true;return this;}
   off(){return this;}on(type,selector,callback){events.set(type+' '+selector,callback);return this;}one(){return this;}
  }
- global.$=()=>new Node();global.__=v=>v;
+ global.$=value=>value instanceof Node?value:new Node();global.__=v=>v;
  const host=new Node(),f={utils:{escape_html:v=>String(v??'').replaceAll('<','&lt;')},ui:{form:{make_control:({df})=>{
   const control={df,$wrapper:new Node(),value:df.default,get_value(){return this.value;},set_value(v){this.value=v;}};controls[df.fieldname]=control;return control;}
  },Scanner:class{constructor(opts){this.opts=opts;this.dialog={$wrapper:new Node(),hide(){}};cameras.push(this);}stop_scan(){this.stopped=true;}}},
  require:async()=>{window.cfg_route_delivery=stockApi;},call:async({method,args})=>{
   calls.push({method,args});
-  if(method.endsWith('driver_action_context'))return{message:{...context,revision,next_step:current,dispatch_plan:current==='Add Assistant'?null:context.dispatch_plan,stop_key:current==='Add Assistant'?null:context.stop_key,delivery_session:'DELIVERY',selected_stock:selectedStock,quantities,setup,require_scan:requireScan,requirements:{fields:requirements},proof,delivery_note:'DN',purpose:current==='Complete Stop'?'Visit Only':'Delivery'}};
+  if(method.endsWith('driver_action_context'))return{message:{...context,revision,next_step:current,dispatch_plan:['Add Assistant','Edit Route Order','Decide Route Change','Cancel Route Change'].includes(current)?null:context.dispatch_plan,stop_key:['Add Assistant','Edit Route Order','Decide Route Change','Cancel Route Change'].includes(current)?null:context.stop_key,delivery_session:'DELIVERY',selected_stock:selectedStock,quantities,setup,require_scan:requireScan,requirements:{fields:requirements},proof,delivery_note:'DN',purpose:current==='Complete Stop'?'Visit Only':'Delivery'}};
   if(method.endsWith('preview_driver_quantities')){if(previewFailure)throw previewFailure;return {message:args.quantities.map(row=>({...row,item_code:'ITEM',stock_uom:'Nos',refused_qty:5-Number(row.accepted_qty)}))};}
   if(method.endsWith('preview_driver_collection')){if(previewFailure)throw previewFailure;return {message:{...args.payload,company:'A',customer:'CUST',inspection_location:'QC BAY',lines:args.payload.lines.map(row=>({...row,stock_uom:'Nos'}))}};}
   if(method.endsWith('reconcile_driver_action'))return{message:{status:'Recorded',action:lastAction}};
@@ -254,4 +254,56 @@ test('assistant selection supports camera, safe Cancel and focus restoration',as
  const h=panel({step:'Add Assistant',setup:{team:[]}});await tick();h.events.get('click.cfg_driver_action .driver-action-camera')();await tick();
  h.cameras[0].opts.on_scan({decodedText:'HELP1'});await tick();assert.equal(h.controls.employee.get_value(),'HELP1');
  await h.view.scan('CFG:CMD:CANCEL');assert.equal(h.closed(),1);assert.equal(h.calls.filter(c=>c.method.endsWith('perform_driver_action')).length,0);
+});
+
+const orderStops=()=>['A','B','C'].map(stop_key=>({stop_key,label:'Shop '+stop_key,customer:'Customer '+stop_key}));
+test('scanner reorders unfinished stops and records the exact displayed flexible order',async()=>{
+ const h=panel({step:'Edit Route Order',setup:{enforced:false,stops:orderStops()}});await tick();
+ await h.view.scan('CFG:SELECT:3');await h.view.scan('CFG:CMD:ROUTE_MOVE_UP');await h.view.scan('CFG:CMD:ROUTE_MOVE_UP');
+ await h.view.scan('CFG:CMD:CONFIRM');await tick();const write=h.calls.find(c=>c.args.action==='Change Route Order');
+ assert.deepEqual(write.args.payload.order,['C','A','B']);assert.equal(write.args.stop_key,null);assert.equal(write.args.dispatch_plan,null);assert.equal(h.closed(),1);
+});
+test('enforced order submits a reasoned proposal and never selects the approval scope for the Supervisor',async()=>{
+ const h=panel({step:'Edit Route Order',setup:{enforced:true,stops:orderStops()}});await tick();await h.view.scan('CFG:SELECT:2');await h.view.scan('CFG:CMD:ROUTE_MOVE_UP');
+ await h.view.scan('CFG:CMD:CONFIRM');assert(!h.calls.some(c=>c.method.endsWith('perform_driver_action')));assert.match(h.nodes.get('.driver-action-message').caption,/reason/);
+ await h.view.scan('CFG:CMD:ROUTE_REASON');await h.view.scan('Customer closes early');await h.view.scan('CFG:CMD:CONFIRM');await tick();
+ const write=h.calls.find(c=>c.args.action==='Request Route Change');assert.deepEqual(write.args.payload,{order:['B','A','C'],reason:'Customer closes early'});assert.equal(h.closed(),1);
+});
+test('touch arrows and drag/drop share the same customer order model',async()=>{
+ const h=panel({step:'Edit Route Order',setup:{enforced:false,stops:orderStops()}});await tick();const row=new h.Node();row.attr('data-order-key','C');
+ h.events.get('click.cfg_driver_action .driver-order-up')({currentTarget:row});await tick();
+ h.events.get('dragstart.cfg_driver_action .driver-order-row')({currentTarget:row,originalEvent:{dataTransfer:{setData(){}}},preventDefault(){}});
+ const target=new h.Node();target.attr('data-order-key','A');h.events.get('drop.cfg_driver_action .driver-order-row')({currentTarget:target,preventDefault(){}});await tick();
+ await h.view.scan('CFG:CMD:CONFIRM');await tick();assert.deepEqual(h.calls.find(c=>c.args.action==='Change Route Order').args.payload.order,['C','A','B']);
+});
+test('both decision scopes are selectable during Supervisor review and rejection is explicit',async()=>{
+ for(const mode of ['Next Customer Only','Entire Proposed Order']){
+  const h=panel({step:'Decide Route Change',setup:{request_name:'KRC',state:'Pending',requested_by:'EMP',reason:'Traffic',current:orderStops(),proposed:orderStops().reverse(),approvable:true,modes:['Next Customer Only','Entire Proposed Order']}});await tick();
+  assert.match(h.controls.approval_mode.df.options,/Next Customer Only\nEntire Proposed Order/);h.controls.approval_mode.set_value(mode);h.controls.reason.set_value('Checked');
+  await h.view.scan('CFG:CMD:CONFIRM');await tick();assert.deepEqual(h.calls.find(c=>c.args.action==='Decide Route Change').args.payload,{request_name:'KRC',decision:'Approve',approval_mode:mode,reason:'Checked'});assert.equal(h.closed(),1);
+ }
+});
+test('stale request only offers Reject and completed decision cannot be submitted again',async()=>{
+ const setup={request_name:'KRC',state:'Pending',requested_by:'EMP',reason:'Traffic',current:orderStops(),proposed:orderStops().reverse(),approvable:false,modes:['Next Customer Only','Entire Proposed Order']};
+ const h=panel({step:'Decide Route Change',setup});await tick();assert.equal(h.controls.decision.df.options,'Reject');h.controls.reason.set_value('Trip progressed');await h.view.scan('CFG:CMD:CONFIRM');await tick();assert.equal(h.calls.find(c=>c.args.action==='Decide Route Change').args.payload.decision,'Reject');
+ const done=panel({step:'Decide Route Change',setup:{...setup,state:'Approved',decision_reason:'Checked'}});await tick();await done.view.scan('CFG:CMD:CONFIRM');assert(!done.calls.some(c=>c.method.endsWith('perform_driver_action')));
+});
+test('unknown route request survives Close and retry without replacing its order or reason',async()=>{
+ const h=panel({step:'Edit Route Order',setup:{enforced:true,stops:orderStops()},fail:new Error('Lost response')});await tick();await h.view.scan('CFG:SELECT:2');await h.view.scan('CFG:CMD:ROUTE_MOVE_UP');await h.view.scan('CFG:CMD:ROUTE_REASON');await h.view.scan('Traffic');await h.view.scan('CFG:CMD:CONFIRM');assert(h.view.controller.state.pending);await h.view.scan('CFG:CMD:CANCEL');
+ const next=panel({existingStorage:h.storage});await tick();await next.view.scan('CFG:CMD:ROUTE_MOVE_DOWN');assert(next.view.controller.state.pending);await next.view.scan('CFG:CMD:CONFIRM');await tick();const write=next.calls.find(c=>c.args.action==='Request Route Change');assert.deepEqual(write.args.payload,{order:['B','A','C'],reason:'Traffic'});assert.equal(next.closed(),1);
+});
+test('request cancellation and scanner safe Close retain distinct meanings',async()=>{
+ const h=panel({step:'Cancel Route Change',setup:{request_name:'KRC'}});await tick();await h.view.scan('Office changed');await h.view.scan('CFG:CMD:CONFIRM');await tick();assert.deepEqual(h.calls.find(c=>c.args.action==='Cancel Route Change').args.payload,{request_name:'KRC',reason:'Office changed'});
+ const other=panel({step:'Edit Route Order',setup:{enforced:false,stops:orderStops()}});await tick();await other.view.scan('CFG:CMD:CANCEL');assert.equal(other.closed(),1);assert(!other.calls.some(c=>c.method.endsWith('perform_driver_action')));
+});
+test('pure order model preserves source identities and refuses unknown drag targets',()=>{
+ const source=orderStops(),model=api.stopOrder(source);model.move('C','A');assert.deepEqual(model.keys(),['C','A','B']);assert.deepEqual(source,orderStops());assert.throws(()=>model.move('UNKNOWN','A'),/current customer/);model.shift('C',-1);assert.deepEqual(model.keys(),['C','A','B']);
+});
+
+test('more than ten customers page their scanner numbers and keep a moved customer on its new page',async()=>{
+ const stops=Array.from({length:21},(_,n)=>({stop_key:'K'+n,label:'Shop '+n,customer:'C'+n}));
+ const h=panel({step:'Edit Route Order',setup:{enforced:false,stops}});await tick();assert.match(h.nodes.get('.driver-action-input-help').caption,/Numbered choices select customers/);
+ await h.view.scan('CFG:CMD:NEXT_MATERIALS');await h.view.scan('CFG:SELECT:1');await h.view.scan('CFG:CMD:ROUTE_MOVE_UP');
+ assert.match(h.nodes.get('.driver-order-help').caption,/10\. Shop 10/);await h.view.scan('CFG:CMD:ROUTE_REASON');await h.view.scan('Traffic');assert.match(h.nodes.get('.driver-action-input-help').caption,/ROUTE_REASON/);
+ await h.view.scan('CFG:CMD:CONFIRM');await tick();const order=h.calls.find(c=>c.args.action==='Change Route Order').args.payload.order;assert.equal(order[9],'K10');assert.equal(order[10],'K9');assert.equal(order.length,21);
 });

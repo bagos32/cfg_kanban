@@ -329,7 +329,12 @@ def start_route_stop(dispatch_plan, customer_scan, event_token, operator_session
     engine = _engine()
     engine._require_customer_delivery(operator)
     candidate=frappe.get_doc('CFG Kanban Dispatch Plan',dispatch_plan)
-    if candidate.get('office_delivery_trip'):
+    from cfg_kanban.services.trip_sequence_scope import sequence_trip
+    sequence_name=sequence_trip(frappe,candidate)
+    if sequence_name:
+        from cfg_kanban.services.trip_sequence import lock_plan, native_target, native_order_permitted
+        lock_plan(candidate)
+    elif candidate.get('office_delivery_trip'):
         from cfg_kanban.services.trip_sales import lock_scope
         lock_scope(candidate)
     route_scope_lock=None
@@ -337,6 +342,7 @@ def start_route_stop(dispatch_plan, customer_scan, event_token, operator_session
         from cfg_kanban.services.route_sheets import lock_plan_route_scope, check_plan_route_scope
         route_scope_lock=lock_plan_route_scope(candidate,operator)
     plan = _locked_plan(dispatch_plan, operator)
+    if sequence_trip(frappe,plan)!=sequence_name:frappe.throw('Trip assignment changed; refresh before starting this route stop')
     if route_scope_lock:check_plan_route_scope(plan,route_scope_lock)
     key = canonical_key('route-stop-start', plan.name, event_token)
     identity = engine.resolve_logistics_scan(customer_scan)
@@ -372,11 +378,13 @@ def start_route_stop(dispatch_plan, customer_scan, event_token, operator_session
         frappe.throw('Select a Planned Stop for this exact Plan and Customer Site')
     if stop and (stop.customer != site.customer or stop.customer_address != site.customer_address):
         frappe.throw('Planned Customer Site details changed; Supervisor must skip/replan this Stop')
+    sequence_target=native_target(plan,site.name,stop.name if stop else None,operator,operator_session_token) if sequence_name else None
     if _sequence_policy(plan) == 'Planned Order':
         if not stop or not cint(stop.planned_sequence):
             frappe.throw('Planned Order requires a Supervisor-planned Customer Stop')
         next_stop = next((row for row in planned if cint(row.planned_sequence)>0), None)
-        if next_stop and next_stop.name != stop.name and not (stop.override_approved_by and stop.override_reason):
+        approved=bool(stop.override_approved_by and stop.override_reason) or bool(sequence_name and native_order_permitted(plan,site.name,stop.name))
+        if next_stop and next_stop.name != stop.name and not approved:
             frappe.throw('Visit the next planned Customer Stop or obtain a reasoned Supervisor sequence approval')
     if plan.get('route_approval_required') or plan.get('route_sequence_scope')=='Combined Lorry Trip' or plan.get('active_route_sheet'):
         from cfg_kanban.services.route_sheets import assert_visit_allowed
@@ -405,7 +413,9 @@ def start_route_stop(dispatch_plan, customer_scan, event_token, operator_session
            delivery_session=delivery.name, operator=operator.employee, operator_session=session.name,
            terminal_user=session.terminal_user, device_id=key,
            notes=f'{plan.name}; planned {stop.planned_sequence or 0}; actual {actual}; {site.site_code}')
-    if plan.get('office_delivery_trip'):
+    if sequence_target:
+        sequence_target[0].db_set('driver_active_stop_key',sequence_target[1].stop_key,update_modified=True)
+    elif plan.get('office_delivery_trip'):
         frappe.db.set_value('CFG Kanban Delivery Trip',plan.office_delivery_trip,'driver_active_stop_key',stop.office_stop_key,update_modified=True)
     return engine.get_delivery_session(delivery.name, operator_session_token)
 

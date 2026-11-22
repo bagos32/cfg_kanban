@@ -96,11 +96,17 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
     engine, planning = _delivery_services(), _planning_services()
     engine._require_customer_delivery(operator)
     candidate=frappe.get_doc('CFG Kanban Dispatch Plan',dispatch_plan)
+    from cfg_kanban.services.trip_sequence_scope import sequence_trip
+    sequence_name=sequence_trip(frappe,candidate)
+    if sequence_name:
+        from cfg_kanban.services.trip_sequence import lock_plan, native_target
+        lock_plan(candidate)
     route_scope_lock=None
     if candidate.get('route_approval_required') or candidate.get('route_sequence_scope')=='Combined Lorry Trip' or candidate.get('active_route_sheet'):
         from cfg_kanban.services.route_sheets import lock_plan_route_scope, check_plan_route_scope
         route_scope_lock=lock_plan_route_scope(candidate,operator)
     plan = planning._locked_authorized_plan(dispatch_plan, operator)
+    if sequence_trip(frappe,plan)!=sequence_name:frappe.throw('Trip assignment changed; refresh before starting customer delivery')
     if route_scope_lock:check_plan_route_scope(plan,route_scope_lock)
     if plan.get('fulfilment_mode') in ('Direct Warehouse Delivery','Customer Pickup'):
         from cfg_kanban.services.warehouse_fulfilment import start_warehouse_delivery
@@ -127,6 +133,7 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
     if (site.name != plan.customer_site or site.selling_company != plan.company or
             site.customer != plan.customer or site.customer_address != plan.customer_address):
         frappe.throw('Scanned Customer Site does not match the prepared Plan Company, Customer and address')
+    sequence_target=native_target(plan,site.name,operator=operator,token=operator_session_token) if sequence_name else None
     if plan.get('route_approval_required') or plan.get('route_sequence_scope')=='Combined Lorry Trip' or plan.get('active_route_sheet'):
         from cfg_kanban.services.route_sheets import assert_visit_allowed
         assert_visit_allowed(plan,site.name)
@@ -185,6 +192,8 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
     plan.db_set({'delivery_session': created.name, 'fulfilment_status': 'In Progress', 'prepared_stock_commitment': 1}, update_modified=True)
     if outcome:
         sync_plan_delivery(created)
+    if sequence_target:
+        sequence_target[0].db_set('driver_active_stop_key',sequence_target[1].stop_key,update_modified=True)
     record('Prepared Customer Delivery Started', delivery_session=created.name,
            reference_doctype=plan.doctype, reference_name=plan.name,
            operator=operator.employee, operator_session=session.name,

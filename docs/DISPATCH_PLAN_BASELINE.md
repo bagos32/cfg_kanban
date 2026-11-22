@@ -546,3 +546,29 @@ Office presets cannot rewrite started team history; only the lead adds through t
 
 See [assistant acceptance](TEST_TRIP_TEAM.md). Native migration, database concurrency/rollback,
 ERP feedback, permissions and device acceptance remain Not run.
+
+
+## 21. Runtime stop order and Supervisor choice of approval scope
+
+Owner-approved on 22 November 2026 above `dba2794`: between customer stops, a lead or assistant may
+reorder unfinished Trip customers directly for Flexible Order, or submit a reasoned full proposal
+for Planned Order. Enforced policy includes the Trip, mapped native Route Sheets and participating
+Open Route Plans. At review the Supervisor chooses **Next Customer Only** (then prior remaining
+order) or **Entire Proposed Order**. Both options are required by the latest owner clarification.
+
+Review is inline in the existing Supervisor Centre, with operator identity, View All/Override/
+Complete, captured Profile override permission, native Company/source access and immutable decision
+history. Runtime order/revision is separate from frozen office/loading/Route Sheet sources.
+Completed stops are fixed; active DN/proof blocks changes; stale proposals cannot be approved.
+Native prepared and open-route entry points enforce the exact approved runtime target without
+relaxing Site QR, stock/commitment, DN, proof, QC or E5 controls. All mutations share the Trip root
+lock and original driver receipt/retry controls. Pending request uniqueness and retained terminal
+history support cancellation/rejection/supersession and uncertain-result reconciliation.
+
+This supersedes the earlier no-live-order-edit boundary. Customer stop removal, maps/GPS pins/
+tracking, thermal printing and the remaining separately documented E5 scope remain later packages.
+The pending Dispatch Control icon and Kanban Card breadcrumb corrections stay in the same planned
+commit. No commit/push/deploy is performed by this development step.
+
+See [driver setup](USER_GUIDE_DRIVER_ROUTE.md) and [acceptance](TEST_DRIVER_ROUTE_SEQUENCE.md).
+Offline implementation checks are distinct from native-site acceptance, currently **Not run**.

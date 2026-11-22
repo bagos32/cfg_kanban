@@ -213,7 +213,7 @@ A driver Visit Only completion shows **Visit completed**. Closed planning does n
 
 Starting freezes the itinerary, driver, lorry, source identities and approved route revision for
 this execution. Resolve a changed source/operational route through existing supervised controls;
-this phase adds no live resequencing/skip approval. For an incomplete/abandoned route, first settle
+live order changes use the controlled workflow below. Stop removal/cancellation remains a later phase. For an incomplete/abandoned route, first settle
 or cancel linked Plans using the existing E5/recovery workflow. An authorized office manager may
 then close/cancel the saved Trip with a reason. It records **Closed Incomplete**, releases the
 active lorry and preserves unfinished stops; it does not mark them delivered. Completed driver
@@ -253,7 +253,7 @@ Refresh to preserve entered fields. Background reads do not renew inactivity exp
 native permission/ownership rejection clears protected details; network failure marks **Not
 refreshed**. Returning to the page rereads authorized sources.
 
-Map directions/live tracking, driver route-edit approval and Bluetooth printing remain later phases. Use [execution acceptance](TEST_DRIVER_ROUTE_EXECUTION.md)
+Map directions/live tracking and Bluetooth printing remain later phases. Use [execution acceptance](TEST_DRIVER_ROUTE_EXECUTION.md)
 after manual deployment; [the original view checklist](TEST_DRIVER_ROUTE_VIEW.md) remains historical.
 
 Use [refusal/old-return acceptance](TEST_DRIVER_ROUTE_REFUSALS_RETURNS.md) for this extension;
@@ -284,3 +284,64 @@ reidentify its original operator or use authorized Supervisor reconciliation. An
 cannot replace its token or payload. Add Assistant uses the existing scanner, camera,
 Confirm/Cancel and durable retry controls. Verify [the assistant checklist](TEST_TRIP_TEAM.md)
 after migration/build; offline tests do not establish device or native ERP behavior.
+
+## Change a live delivery order
+
+After **Start Route**, between customer stops, the driver or an assigned assistant can open
+**Change Stop Order**. Move unfinished customers by drag and drop, or the tablet **Up / Down**
+buttons, then save. The office itinerary, Sales Orders, tags, loaded quantities and LIFO loading
+record stay as released. Completed stops cannot move or disappear. Finish an active customer
+Delivery Note and all required proof before changing order.
+
+**Flexible Order** permits saving the new remaining order directly. **Planned Order** on the Trip,
+an approved native Route Sheet or a participating Open Route Plan requires a Supervisor request.
+The button becomes **Request Stop Order Change**: put the requested next customer first, arrange
+all other remaining customers, enter a reason and confirm. The currently approved order remains
+authoritative while the request is Pending. A requester or the lead may **Cancel Route Request**
+with a reason; closing the panel only leaves the request intact.
+
+The office opens **Kanban Supervisor Action Centre → Delivery Route Changes → Review Request**.
+Sign in with a Supervisor operator credential if needed. The profile needs **View All
+Responsibilities**, **Can Override**, **Can Complete**, native Company/Trip/request access, and
+the existing delivery/Dispatch access used by that Trip. A Desk manager role alone does not
+supply the operator's approval authority. Review the current and proposed remaining customers,
+choose **Approve** or **Reject**, enter a decision reason, and on approval choose:
+
+- **Next Customer Only**: visit the requested first customer next, then resume the prior relative
+  order of all other unfinished customers.
+- **Entire Proposed Order**: use the complete proposed order for the unfinished customers.
+
+For a delivery or optional-sale customer, the captured Dispatch Profile must permit **Allow
+Controlled Supervisor Override**. One-next approval requires that permission for the requested customer's
+Plans; entire-order approval requires it for all affected customer Plans. Informational visits
+with no delivery Plan still require the Supervisor's Trip decision when the Trip is enforced.
+The original operational Route Sheet stays approved at its existing revision; the audited Trip
+runtime order supplies only this exact sequence exception. Required Customer Site QR, stock,
+Company, Delivery Note submission, proof and QC restrictions continue to apply. No stock or ERP
+document is created by a route edit or its approval.
+
+The driver sees Pending/Approved/Rejected/Cancelled status, approval scope and the Supervisor
+reason after refresh. The page refreshes between actions; use **Refresh** to check sooner. If the
+Trip has progressed since the proposal, the Supervisor must reject it or the driver must submit
+an updated request (the older Pending request is retained as Superseded). Approval also checks
+current sources and active deliveries. Closed or stale requests can still be rejected from the
+Supervisor Centre. Historical request forms offer **Review in Supervisor Centre** for outcome
+lookup/recovery. The latest link and the normal **CFG Kanban Route Change Request** list retain
+request and decision history.
+
+Route-order panels share the existing durable original actor/token/payload retry controls. An
+uncertain request/decision must be read back or retried intact; do not send a replacement because
+the response was lost. Reopen the request's review or the Trip's saved-action panel to recover it.
+Supervisor queue refresh pauses while identity/review is open, preserving entered choices.
+
+Scanner: in the order editor, `CFG:SELECT:1`–`10` selects a displayed customer, then
+`CFG:CMD:ROUTE_MOVE_UP` / `CFG:CMD:ROUTE_MOVE_DOWN` moves it. `NEXT_MATERIALS` /
+`PREVIOUS_MATERIALS` pages the numbered list. `CFG:CMD:ROUTE_REASON` arms the reason. Confirm
+saves/requests; Cancel safely closes. Supervisor review uses numbered input selection and scanned
+values for Decision, Approval Scope and Reason. Its camera button and Enter/Tab credential entry
+use the same identity check. The existing action camera, Confirm/Cancel/Refresh and focus
+restoration remain available. These are delivery actions; no Production floor command is added.
+
+Manual migration and asset build are required. Use [route-order acceptance](TEST_DRIVER_ROUTE_SEQUENCE.md).
+Offline tests cover behavior with dependency doubles; native transactions, multi-user timing,
+permissions and tablet/driver acceptance remain **Not run**.

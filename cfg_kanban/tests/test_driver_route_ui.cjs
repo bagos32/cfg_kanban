@@ -213,3 +213,11 @@ test('route displays its team and only exposes Add Assistant when server permits
  const state={detail:data};let html=ui.detailView(state);assert.match(html,/Assigned Driver/);assert.match(html,/LEAD/);assert.match(html,/&lt;Assistant&gt;/);assert.match(html,/HELP2/);assert.match(html,/cfg-driver-add-assistant/);
  data.can_add_assistant=false;html=ui.detailView(state);assert(!html.includes('cfg-driver-add-assistant'));
 });
+
+test('route shows enforced/flexible editing and persistent request decision feedback',()=>{
+ const data=structuredClone(detail);data.route_sequence={can_change:true,enforced:true,request:{name:'KRC',state:'Pending',can_cancel:true}};
+ let html=ui.detailView({detail:data});assert.match(html,/Request Stop Order Change/);assert.match(html,/Cancel Route Request/);
+ data.route_sequence={can_change:true,enforced:false,request:{name:'KRC',state:'Approved',approval_mode:'Entire Proposed Order',decision_reason:'Reviewed'}};
+ html=ui.detailView({detail:data});assert.match(html,/Change Stop Order/);assert.match(html,/Entire Proposed Order/);assert.match(html,/Reviewed/);assert(!html.includes('Cancel Route Request'));
+ data.route_sequence.can_change=false;html=ui.detailView({detail:data});assert(!html.includes('cfg-driver-order'));
+});

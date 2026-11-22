@@ -37,7 +37,7 @@ class TestNavigationBreadcrumbContract(unittest.TestCase):
     def test_late_frappe_breadcrumb_updates_are_reconciled(self):
         self.assertIn("new MutationObserver(schedule_breadcrumb_update)", self.navigation)
         self.assertIn('frappe.router.on("change"', self.navigation)
-        self.assertIn('document.querySelector(".navbar-breadcrumbs")', self.navigation)
+        self.assertIn('document.querySelector("#navbar-breadcrumbs")', self.navigation)
 
     def test_native_erpnext_documents_are_not_claimed(self):
         self.assertNotIn('target.startsWith("work order")', self.navigation)

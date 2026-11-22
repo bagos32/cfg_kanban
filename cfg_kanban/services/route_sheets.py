@@ -454,6 +454,11 @@ def assert_visit_allowed(plan,site_name,route_stop=None):
     if sheet.sequence_policy=='Planned Order' and pending and pending[0].name!=target.name:
         source=_live_source_stop(target)
         approved=bool(source and plan.get('allow_supervisor_override') and source.get('override_approved_by') and source.get('override_reason'))
+        if not approved:
+            from cfg_kanban.services.trip_sequence_scope import sequence_trip
+            if sequence_trip(frappe,plan):
+                from cfg_kanban.services.trip_sequence import native_order_permitted
+                approved=native_order_permitted(plan,site_name,route_stop)
         if not approved:frappe.throw('Visit the next customer in the approved lorry route sequence')
     return sheet,target
 
@@ -466,13 +471,18 @@ def start_route_sheet_stop(route_sheet,row_key,event_token,operator_session_toke
     selected=next((row for row in reference.stops if row.row_key==row_key),None)
     if selected:
         source_plan=frappe.get_doc('CFG Kanban Dispatch Plan',selected.dispatch_plan)
-        if source_plan.get('office_delivery_trip'):
+        from cfg_kanban.services.trip_sequence_scope import sequence_trip
+        if sequence_trip(frappe,source_plan):
+            from cfg_kanban.services.trip_sequence import lock_plan
+            lock_plan(source_plan)
+        elif source_plan.get('office_delivery_trip'):
             from cfg_kanban.services.trip_sales import lock_scope
             lock_scope(source_plan)
     _lock(_scope_key(plan=reference.dispatch_plan) if reference.scope==PER_PLAN else _scope_key(warehouse=reference.vehicle_warehouse))
     sheet=frappe.get_doc(SHEET,route_sheet,for_update=True)
     row=next((row for row in sheet.stops if row.row_key==row_key),None)
     if not row:frappe.throw('Select a customer stop on this Route Sheet')
+    if not selected or row.dispatch_plan!=selected.dispatch_plan:frappe.throw('Route Sheet changed; refresh before starting this customer visit')
     plan=frappe.get_doc('CFG Kanban Dispatch Plan',row.dispatch_plan)
     sheet_context(sheet,operator)
     _plans()._assert_plan_authorized(plan,operator)

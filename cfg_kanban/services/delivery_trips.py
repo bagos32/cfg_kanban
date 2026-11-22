@@ -419,6 +419,9 @@ def _protect_driver_execution(doc, before):
     for field in fields:
         doc.set(field, before.get(field) if before else
                 'Not Started' if field == 'driver_route_state' else 0 if field == 'driver_route_revision' else None)
+    for field in ('driver_stop_order_json','route_sequence_revision','route_order_source','route_change_request'):
+        if doc.get(field) is not None or (before and before.get(field) is not None):
+            doc.set(field,before.get(field) if before else 0 if field=='route_sequence_revision' else None)
     original = {row.stop_key: row for row in before.stops} if before else {}
     for row in doc.stops:
         source = original.get(row.stop_key)

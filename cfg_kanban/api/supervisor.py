@@ -30,6 +30,10 @@ def get_action_centre(limit=100):
     action_recoveries = _doctype_action_recoveries(limit)
     production_cancellations = _production_cancellations(limit)
     exceptions = _open_exceptions(limit)
+    route_changes=[]
+    if frappe.db.table_exists('CFG Kanban Route Change Request'):
+        from cfg_kanban.services.trip_sequence import supervisor_requests
+        route_changes=supervisor_requests(limit)
     return {
         "permissions": {
             "can_approve_signals": bool(roles.intersection(SIGNAL_APPROVAL_ROLES)),
@@ -45,6 +49,7 @@ def get_action_centre(limit=100):
             "action_recoveries": len(action_recoveries),
             "production_cancellations": len(production_cancellations),
             "exceptions": len(exceptions),
+            "route_changes": sum(row["state"]=="Pending" for row in route_changes),
         },
         "signals": signals,
         "service_verifications": service_tasks,
@@ -52,6 +57,7 @@ def get_action_centre(limit=100):
         "action_recoveries": action_recoveries,
         "production_cancellations": production_cancellations,
         "exceptions": exceptions,
+        "route_changes": route_changes,
     }
 
 

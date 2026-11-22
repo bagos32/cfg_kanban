@@ -239,3 +239,22 @@ Each operational action keeps its real actor; the original Session creator is re
 additions have a separate revision and do not rewrite the frozen itinerary/loading snapshot.
 Unknown requests still require the original actor or authorized Supervisor reconciliation.
 See [assistant acceptance](TEST_TRIP_TEAM.md); native-site acceptance remains pending.
+
+## Change a live delivery order
+
+After Start Route, **Driver Route → Change Stop Order** lets the lead or an assistant reorder
+unfinished customers on a Flexible Order route using drag/drop, tablet arrows or the scanner.
+A Planned Order Trip, native Route Sheet or participating Open Route Plan instead requires a
+reasoned **Request Stop Order Change**. The current approved order continues until approval.
+
+Review in **Kanban Supervisor Action Centre → Delivery Route Changes**. A Supervisor with
+View All Responsibilities, Can Override, Can Complete and native source access chooses
+**Next Customer Only** (then prior remaining order) or **Entire Proposed Order**, or rejects
+with a reason. Captured Profiles must permit **Allow Controlled Supervisor Override** for the
+affected customer Plans. Completed stops stay fixed; active delivery/proof blocks route edits.
+The order change preserves office/LIFO/loading history and required QR/stock/DN/proof controls.
+
+See [the driver and Supervisor steps](USER_GUIDE_DRIVER_ROUTE.md#change-a-live-delivery-order)
+for setup, scanner commands, cancellation, stale-request handling and uncertain-result recovery.
+Run [native route-order acceptance](TEST_DRIVER_ROUTE_SEQUENCE.md) after migration/build;
+results remain **Not run**. Offline tests do not verify native site/device behavior.

@@ -35,6 +35,8 @@
 	const DOCUMENT_ROUTE_TYPES = new Set(["form", "list", "tree"]);
 
 	let breadcrumb_observer;
+	let observed_nav;
+	let router_bound = false;
 	let scheduled = false;
 
 	function normalize(value) {
@@ -98,7 +100,7 @@
 			return;
 		}
 
-		const nav = document.querySelector(".navbar-breadcrumbs");
+		const nav = document.querySelector("#navbar-breadcrumbs");
 		if (!nav) {
 			return;
 		}
@@ -139,11 +141,13 @@
 	}
 
 	function observe_breadcrumbs() {
-		const nav = document.querySelector(".navbar-breadcrumbs");
-		if (!nav || breadcrumb_observer) {
+		const nav = document.querySelector("#navbar-breadcrumbs");
+		if (!nav || nav === observed_nav) {
 			return;
 		}
 
+		if (breadcrumb_observer) breadcrumb_observer.disconnect();
+		observed_nav = nav;
 		breadcrumb_observer = new MutationObserver(schedule_breadcrumb_update);
 		breadcrumb_observer.observe(nav, {
 			childList: true,
@@ -158,7 +162,8 @@
 		observe_breadcrumbs();
 		schedule_breadcrumb_update();
 
-		if (frappe.router && typeof frappe.router.on === "function") {
+		if (typeof frappe !== "undefined" && frappe.router && typeof frappe.router.on === "function" && !router_bound) {
+			router_bound = true;
 			frappe.router.on("change", () => {
 				observe_breadcrumbs();
 				schedule_breadcrumb_update();
@@ -166,9 +171,13 @@
 		}
 	}
 
-	if (typeof frappe !== "undefined" && typeof frappe.ready === "function") {
-		frappe.ready(initialize_navigation);
-	} else {
+	// Desk creates the toolbar during startup; frappe.ready belongs to Website pages.
+	if (typeof $ === "function") {
+		$(document).on("app_ready.cfg_kanban_navigation", initialize_navigation);
+	}
+	if (document.readyState === "loading") {
 		document.addEventListener("DOMContentLoaded", initialize_navigation, { once: true });
+	} else {
+		initialize_navigation();
 	}
 })();
