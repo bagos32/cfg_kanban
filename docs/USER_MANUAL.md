@@ -6248,6 +6248,11 @@ open each bridge segment and confirm the physical paper. Unknown output is never
 automatically. A retry needs a reason. Unfinished jobs remain accessible for readback/resume or
 reasoned closure. Changed sources/formats cannot silently replace prepared segments.
 
+Preparation shows its current stage and the preview's job number. A rendering error displays
+the actual reason; a stalled preview stops after 60 seconds of browser execution. The recorded
+job remains recoverable and is never automatically recreated or sent. Choose **Documents** to
+use normal printing or resume/review the job; reasoned closure remains available without a preview.
+
 The **Unfinished print jobs** list includes blocking jobs for the displayed documents even if
 another operator, stop or Trip prepared them. **Resume / Review** is available for your own job
 on the current Trip, retaining its original stop. Otherwise **Open Print Job for Office Recovery** opens the normal

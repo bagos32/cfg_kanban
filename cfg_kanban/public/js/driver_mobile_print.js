@@ -58,13 +58,15 @@
     prefStore=bridge.preferences(options.storage,root.location.origin,next.company);prefs=prefStore.load(next.defaults);mode='choose';draw();}
    finally{loading=false;update();}
   }
-  async function showJob(name){jobName=name;mode='job';prepared=null;handed=false;loading=true;if(job?.name!==name){job=null;frames=[];}draw();const ticket=++version;
+  async function showJob(name){jobName=name;mode='job';prepared=null;handed=false;loading=true;message='Loading print job '+name+'…';if(job?.name!==name){job=null;frames=[];}draw();const ticket=++version;
    const original=context.active_jobs.find(row=>row.name===name);jobStop=original?(original.stop_key||null):(options.stop||null);
    try{const next=await rpc(service+'get_mobile_print_job',{trip_name:options.trip,print_job:name});if(ticket!==version||!valid())return;
     if(Object.prototype.hasOwnProperty.call(next,'stop_key'))jobStop=next.stop_key||null;
     const dimensions=prefStore.validate(next.printer_settings||prefs),settings=JSON.stringify(dimensions),old=job;job=next;
-    if(!frames.length||old?.name!==next.name||old?.render_hash!==next.render_hash||old?.settings!==settings){const rendered=await bridge.render(next.html,dimensions);if(ticket!==version||!valid())return;frames=copies(rendered,Number(next.copies));}
-    job.settings=settings;mode='job';draw();
+    if(!frames.length||old?.name!==next.name||old?.render_hash!==next.render_hash||old?.settings!==settings){message='Rendering 80mm preview for '+name+'… No new printer handoff has been made.';update();const rendered=await bridge.render(next.html,dimensions);if(ticket!==version||!valid())return;frames=copies(rendered,Number(next.copies));}
+    job.settings=settings;message='Preview ready: '+frames.length+' segment(s). Review the preview, then pair the companion key and prepare a segment.';mode='job';draw();
+   }catch(error){if(ticket!==version||!valid())return;job=null;frames=[];prepared=null;
+    message='Print job '+name+' could not be previewed: '+options.error(error)+'. No new printer handoff was made. Use Documents to resume/review this job or Normal ERPNext Print; close the unfinished job with a reason before preparing another.';draw();
    }finally{loading=false;update();}
   }
   async function recorded(receipt){if(!valid())return;message='';const result=receipt.result||{};
@@ -162,7 +164,8 @@
   }
   async function confirm(){if(loading||c.state.busy||c.state.pending)throw new Error('Resolve the original request before confirming new details.');
    if(mode==='setup'){const v=values();prefs=prefStore.save({...v,formats:prefs.formats});message='Device settings saved. The signing key was not saved.';mode='choose';draw();return;}
-   if(mode==='choose'){const entry=selectedEntry();if(!entry)throw new Error('Choose a document first.');await lease();
+   if(mode==='choose'){const entry=selectedEntry();if(!entry)throw new Error('Choose a document first.');message='Checking direct-print access…';update();await lease();
+    message='Preparing print job… No new printer handoff has been made.';update();
     prefs=prefStore.save({...prefs,formats:{...prefs.formats,[entry.doctype]:value('format')}});
     return c.mutate(context,'Prepare Mobile Print',{doctype:entry.doctype,name:entry.name,print_format:value('format'),copies:Number(value('copies')),no_letterhead:Number(value('no_letterhead'))||0,reason:value('reason')||'',printer_settings:{dpi:prefs.dpi,printable_width:prefs.printable_width,paper_width_mm:prefs.paper_width_mm}});}
    if(mode==='invoice'){if(!requirements||value('delivery_note')!==requirements.delivery_note)throw new Error('Select a Delivery Note and wait for its Invoice requirements.');
@@ -205,7 +208,7 @@
    throw new Error('Choose an input with a numbered scanner label, then scan its value.');});}
   function close(){if(closed)return;closed=true;version++;stopCamera();if(!options.active()||options.owner()!==owner||options.token()!==token)forget();else if(signer!==memoryKey?.signer)signer.forget();prepared=null;frames=[];job=null;
    releaseLease?.();releaseLease=null;c.close();host.off('.cfg_mobile').empty();options.onClose();}
-  host.on('click.cfg_mobile','[data-mobile]',event=>queue(()=>command($(event.currentTarget).attr('data-mobile'),event.currentTarget)));
+  host.on('click.cfg_mobile','[data-mobile]',event=>{const node=event.currentTarget,name=$(node).attr('data-mobile');event.preventDefault();queue(()=>command(name,node));});
   host.on('click.cfg_mobile','.cfg-mobile-native',event=>{if(!valid()||loading||c.state.pending||!host.find('.cfg-mobile-native').attr('href'))event.preventDefault();});
   function openBridge(){try{if(!valid()||loading||c.state.busy||c.state.pending||handed||!leaseReady)throw new Error('Prepare the current operator’s print handoff first.');
     const uri=signer.current(prepared);handed=true;prepared=null;message='Label Bridge opened; physical outcome is unknown. Check the paper, then confirm or record Outcome Unknown.';draw();root.location.href=uri;

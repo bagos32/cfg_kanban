@@ -110,6 +110,15 @@ Source printed ranges are provenance, not invented individual-unit assignments f
 
 ## Recovery and format limits
 
+- **Prepare Direct Print** first saves the print job and renders its 80mm preview. It does not
+  open Label Bridge. The panel shows checking, preparation, rendering and preview-ready messages.
+  If preview generation fails, it shows the job number and actual error, retains the recorded
+  preparation and permits reasoned closure. Rendering has a 60-second elapsed-time limit while
+  the browser is running; a failed preview never automatically creates another job or sends it.
+  Use **Documents** for native printing or to resume/review the original job. Button actions are
+  captured before entering the asynchronous queue, so later changes to the browser click event
+  cannot silently discard the selected action.
+
 - New invoices, labels, print jobs and print confirmations use the existing durable driver action
   identity. After a lost response, use **Retry original request** or **Read back result**. Do not
   create a new request to bypass uncertainty. Another operator cannot retry your retained request.

@@ -67,6 +67,8 @@ ERPNext Desk, hooks and custom apps requires the database tests above; mocks can
 | Recovery permissions | Ordinary driver, denied job/Trip/Company, missing Trip write, wrong Company and GET request cannot perform office closure | Not run |
 | Closure concurrency | Changed job version requires reload; office close versus segment confirmation serializes; confirmed job stays confirmed; repeated close preserves first reason and one closure event | Not run |
 | Recovery refresh | Documents refreshes after office closure; a stale preview still allows reason entry/close and restores Scanner Ready; no automatic preparation/handoff | Not run |
+| Mac Chrome Prepare | Touch/click Prepare saves one job and displays preview; button action survives an event target being cleared/reused after dispatch; no automatic Label Bridge launch | Not run |
+| Preview errors and stalls | Job number and actual error are visible; stalled rendering times out, removes its sandbox, retains Recorded preparation, enables closure and restores Scanner Ready without a duplicate job/handoff | Not run |
 | Image/CSS limits | External image fails visibly, same-origin/private/data assets render; complex format uses native fallback | Not run |
 | Saved settings | Browser/Company isolation, printer alias/DPI/width/formats retained, signing key not persisted | Not run |
 | Tablet/scanner | Camera, touch, Enter/Tab, printable commands, required ERP tables, Cancel/error/success focus | Not run |
@@ -74,6 +76,16 @@ ERPNext Desk, hooks and custom apps requires the database tests above; mocks can
 | Two tabs | Device lock blocks simultaneous direct handoff; original pending driver identity retained | Not run |
 
 ## Offline evidence
+
+### Prepare Direct Print responsiveness — 23 November 2026
+
+Baseline `4b2680a` plus this change set. Reproduced the old queued handler losing Confirm when
+the event target changes after dispatch. The new handler captures the action/element immediately.
+Related Node regression: **104 entries passed**. Isolated Chrome fixture: **45 checks passed**,
+now clearing event targets after handlers return and exercising both renderer rejection and a
+stalled renderer. These prove local control flow using native/backend doubles, not the exact
+cause or corrected behavior on the reported Mac, native Frappe, Label Bridge or physical printer.
+The live acceptance rows above remain **Not run**.
 
 ### Unfinished-job recovery verification — 23 November 2026
 

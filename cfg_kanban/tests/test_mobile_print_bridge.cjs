@@ -1,6 +1,18 @@
 const test=require('node:test'),assert=require('node:assert/strict'),crypto=require('node:crypto');
 const bridge=require('../public/js/mobile_print_bridge.js'),ui=require('../public/js/driver_mobile_print.js');
 const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+test('queued print clicks retain their action when the browser event target changes',async()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../public/js/driver_mobile_print.js'),'utf8');
+ const binding=source.split('\n').find(line=>line.includes("host.on('click.cfg_mobile','[data-mobile]'"));
+ for(const name of ['confirm','resume','abandon','setup','close']){
+  let handler,queued,called,prevented=false;
+  const node={action:name},event={currentTarget:node,preventDefault:()=>prevented=true};
+  vm.runInNewContext(binding,{host:{on:(_event,_selector,fn)=>handler=fn},queue:fn=>queued=fn,
+   command:(action,target)=>called={action,target},$:target=>({attr:()=>target?.action})});
+  handler(event);event.currentTarget=null;await queued();
+  assert.equal(called.action,name);assert.equal(called.target,node);assert(prevented);
+ }
+});
 function unpack(payload){const data=JSON.parse(atob(payload)),raw=Uint8Array.from(Buffer.from(data.raster,'base64'));if(!data.packing)return {...data,bytes:raw};const out=[];for(let at=0;at<raw.length;){const code=raw[at++],n=(code&127)+1;if(code&128){const value=raw[at++];for(let k=0;k<n;k++)out.push(value);}else for(let k=0;k<n;k++)out.push(raw[at++]);}return {...data,bytes:new Uint8Array(out)};}
 test('raster uses alpha-on-white, luminance and MSB-first bytes',()=>{
  const rgba=new Uint8ClampedArray(8*4);for(let n=0;n<8;n++)rgba.set([255,255,255,255],n*4);

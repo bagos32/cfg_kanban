@@ -45,6 +45,8 @@
  function resource(value,origin){if(/^data:image\/(png|jpeg|gif|webp|svg\+xml)[;,]/i.test(value))return value;
   const url=new URL(value,origin);if(url.origin!==new URL(origin).origin||!['http:','https:'].includes(url.protocol))throw new Error('Direct print cannot read an external image/font. Use normal ERPNext print or a same-origin Print Format asset.');return url.href;}
  async function render(html,settings,env={}){
+  const expires=Date.now()+(env.timeoutMs||60000);
+  async function wait(promise){let timer;try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Direct-print preview timed out. Use Normal ERPNext Print or review the saved job before retrying.')),Math.max(1,expires-Date.now()));})]);}finally{clearTimeout(timer);}}
   const document=env.document||root.document,canvasRenderer=env.html2canvas||root.html2canvas,origin=env.origin||root.location.origin;
   if(!canvasRenderer)throw new Error('The receipt renderer is not loaded. Refresh this page.');
   const parsed=new DOMParser().parseFromString(html,'text/html');
@@ -63,13 +65,13 @@
   const sizing=`<style>html,body{margin:0!important;width:${cssWidth}px!important;min-width:0!important;background:white!important}.print-format{max-width:100%!important;min-height:0!important;box-sizing:border-box}.print-format-gutter{padding:0!important;margin:0!important;background:white!important}.print-toolbar,.action-banner{display:none!important}@media screen{.print-format{margin:0!important;box-shadow:none!important}}</style>`;
   document.body.appendChild(iframe);
   try{
-   await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('Print Format resources did not load.')),15000);iframe.onload=()=>{clearTimeout(timeout);resolve();};iframe.srcdoc='<!doctype html><html><head>'+security+parsed.head.innerHTML+sizing+'</head><body>'+parsed.body.innerHTML+'</body></html>';});
+   await wait(new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('Print Format resources did not load.')),15000);iframe.onload=()=>{clearTimeout(timeout);resolve();};iframe.srcdoc='<!doctype html><html><head>'+security+parsed.head.innerHTML+sizing+'</head><body>'+parsed.body.innerHTML+'</body></html>';}));
    const doc=iframe.contentDocument;
    // Match the safe layout adjustments made by native Frappe v15 printview.
    const page=doc.querySelector('.page-break');if(page){page.style.display='flex';page.style.flexDirection='column';}
    const footer=doc.getElementById('footer-html');if(footer){footer.classList.add('hidden-pdf');footer.classList.remove('visible-pdf');footer.style.order='1';footer.style.marginTop='20px';}
-   await Promise.race([doc.fonts?.ready||Promise.resolve(),new Promise((_,reject)=>setTimeout(()=>reject(new Error('Print fonts did not load.')),10000))]);
-   for(const image of doc.images){if(!image.complete)await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('A Print Format image did not load.')),10000);image.onload=()=>{clearTimeout(timeout);resolve();};image.onerror=()=>{clearTimeout(timeout);reject(new Error('A Print Format image could not be read.'));};});if(!image.naturalWidth)throw new Error('A Print Format image is unavailable. Use normal print or correct its asset.');}
+   await wait(Promise.race([doc.fonts?.ready||Promise.resolve(),new Promise((_,reject)=>setTimeout(()=>reject(new Error('Print fonts did not load.')),10000))]));
+   for(const image of doc.images){if(!image.complete)await wait(new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('A Print Format image did not load.')),10000);image.onload=()=>{clearTimeout(timeout);resolve();};image.onerror=()=>{clearTimeout(timeout);reject(new Error('A Print Format image could not be read.'));};}));if(!image.naturalWidth)throw new Error('A Print Format image is unavailable. Use normal print or correct its asset.');}
    let element=doc.querySelector('.print-format');const roots=Array.from(doc.querySelectorAll('.print-format')).filter(node=>!node.parentElement?.closest('.print-format'));
    if(roots.length>1){element=doc.createElement('div');element.style.width=cssWidth+'px';for(const page of roots)element.appendChild(page);doc.body.appendChild(element);}
    if(!element)throw new Error('ERPNext did not return a printable document.');
@@ -80,13 +82,13 @@
    let start=0;const frames=[];
    while(start<height){let end=Math.min(start+4096,height);if(end<height){const safe=boundaries.filter(y=>y>start+3000&&y<=end);if(safe.length)end=Math.max(...safe);}
     const capture=doc.createElement('canvas');capture.width=settings.printable_width;capture.height=end-start;
-    const canvas=await canvasRenderer(element,{canvas:capture,backgroundColor:'#ffffff',scale,width:cssWidth,height:(end-start)/scale,x:0,y:start/scale,windowWidth:cssWidth,windowHeight:900,scrollX:0,scrollY:0,useCORS:false,allowTaint:false,logging:false,imageTimeout:10000,removeContainer:true});
+    const canvas=await wait(canvasRenderer(element,{canvas:capture,backgroundColor:'#ffffff',scale,width:cssWidth,height:(end-start)/scale,x:0,y:start/scale,windowWidth:cssWidth,windowHeight:900,scrollX:0,scrollY:0,useCORS:false,allowTaint:false,logging:false,imageTimeout:10000,removeContainer:true}));
     if(canvas.width!==settings.printable_width||canvas.height!==end-start)throw new Error('Renderer dimensions do not match the printer setup.');
     const pixels=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
     frames.push(...chunks(raster(pixels,canvas.width,canvas.height),canvas.width,canvas.height,boundaries.filter(y=>y>start&&y<=end).map(y=>y-start)));
     start=end;if(frames.length>1000)throw new Error('Too many print segments. Use normal ERPNext print.');
    }
-   for(const frame of frames)frame.hash=await digest(new TextEncoder().encode(frame.width+'\n'+frame.height+'\n'+frame.payload));
+   for(const frame of frames)frame.hash=await wait(digest(new TextEncoder().encode(frame.width+'\n'+frame.height+'\n'+frame.payload)));
    return frames;
   }finally{iframe.remove();}
  }
