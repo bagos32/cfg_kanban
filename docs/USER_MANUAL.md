@@ -6177,3 +6177,33 @@ outcome. Camera, safe Cancel, original-token retry/readback and unrecorded-reque
 existing driver controls. Follow [the complete procedure](USER_GUIDE_DRIVER_ROUTE.md#cancel-a-customer-stop-safely)
 and [native acceptance checklist](TEST_DRIVER_STOP_CANCELLATION.md). Offline checks do not verify
 deployed behavior; native acceptance remains **Not run**.
+
+
+## Customer Return QC monitor
+
+Open **CFG Dispatch Control → Customer Return QC**, **Kanban Logistics → Customer Return QC**, or
+its button on a saved Return Case. The dedicated normal page is `/app/kanban-return-qc`. Sign in
+with Customer Return QC responsibility or an unrestricted Supervisor; native terminal user Company
+and Return Case Read permissions still apply. Give the QC operator Start/Complete for inspection.
+
+**Needs Follow-up** defaults to oldest intake first with pagination; **All Returns** and **Closed /
+Cancelled** retain complete accessible history. Filter Company, Customer, inspection location,
+Trip, state, workflow, dates and text. Counts cover the filtered permitted records across all pages.
+Cases awaiting accounting and physical disposition stay visible until both tracks finish.
+
+Select/scan a case to see exact Item/Batch/tag/expiry, received/accepted/rejected quantities by UOM,
+QC reasons, status, age, owning team and pending next steps. Receipt remains unconfirmed until QC
+acknowledges it. Company-owned refusals use their existing release/recovery/disposal and never a
+new customer credit or duplicate stock receipt. Rejected/investigation work remains visible for
+QC/Supervisor review.
+
+**Open QC Inspection** rechecks identity/access and opens the existing inspector without starting
+or completing QC automatically. **Open Return Case** and permitted document links continue through
+existing accounting/stock controls. Start/Complete endpoints now recheck native Case and Company
+Read permission before mutation. Passive refresh does not keep an unattended operator signed in.
+
+Scanner commands: **CFG:CMD:VIEW_RETURN_QC_MONITOR**, **CFG:SELECT:1–10**, **CFG:CMD:NEXT_MATERIALS** /
+**PREVIOUS_MATERIALS**, **CFG:CMD:QC_INSPECT_RETURN**, **CFG:CMD:RETURN_CASE_RECORD**, plus existing
+**REFRESH/CANCEL/HELP** commands. Camera and Enter/Tab scans are supported. Print the monitor labels
+from the Customer Return QC section of Scanner Command Labels. See [setup and operation](USER_GUIDE_CUSTOMER_RETURN_QC.md)
+and [native acceptance](TEST_CUSTOMER_RETURN_QC_MONITOR.md); site acceptance remains **Not run**.

@@ -1,5 +1,6 @@
 frappe.ui.form.on("CFG Kanban Return Case", {
 	refresh(frm) {
+        if (!frm.is_new()) frm.add_custom_button(__("Customer Return QC"),()=>frappe.set_route("kanban-return-qc",frm.doc.name));
 		if (frm.is_new() || frm.doc.return_flow !== "Customer Return for QC") return;
         if (frm.doc.stock_already_owned) {
             frm.set_intro?.(__('These refused goods remain company stock. Use the linked refusal outcome and controlled transfer/recovery. No customer credit or Material Receipt is allowed.'), 'yellow');

@@ -254,6 +254,8 @@ def start_qc_inspection(return_case, event_token, operator_session_token):
     profile, session = require_operator(operator_session_token, "start")
     _require_qc(profile)
     case = frappe.get_doc("CFG Kanban Return Case", return_case, for_update=True)
+    case.check_permission("read")
+    frappe.get_doc("Company", case.selling_company).check_permission("read")
     if case.return_flow != "Customer Return for QC":
         frappe.throw(_("Only Customer Return for QC can enter inspection"))
     if case.state == "QC In Progress":
@@ -282,6 +284,8 @@ def complete_qc_inspection(return_case, lines, qc_notes, event_token,
     profile, session = require_operator(operator_session_token, "complete")
     _require_qc(profile)
     case = frappe.get_doc("CFG Kanban Return Case", return_case, for_update=True)
+    case.check_permission("read")
+    frappe.get_doc("Company", case.selling_company).check_permission("read")
     if case.return_flow != "Customer Return for QC" or case.state != "QC In Progress":
         frappe.throw(_("Start QC inspection before recording its result"))
     submitted = frappe.parse_json(lines) if isinstance(lines, str) else (lines or [])
@@ -536,10 +540,12 @@ def get_return_case(return_case, operator_session_token):
 def return_case_summaries(profile, limit=30):
     if not (_intake_allowed(profile) or _qc_allowed(profile)):
         return []
+    if not frappe.has_permission("CFG Kanban Return Case", ptype="read"):
+        return []
     filters = {"state": ["in", list(OPEN_RETURN_STATES)]}
     if not _can_view_all(profile) and not _qc_allowed(profile):
         filters["created_by_operator"] = profile.employee
-    return frappe.get_all(
+    return frappe.get_list(
         "CFG Kanban Return Case", filters=filters,
         fields=["name", "state", "return_flow", "site_code", "site_name", "customer",
                 "selling_company", "claimed_total_qty", "claimed_on",

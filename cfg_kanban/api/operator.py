@@ -310,6 +310,11 @@ def _scanner_command_catalog(quantity_steps=None):
             (f"Material +{number:g}", f"CFG:QTY:MATERIAL:+{number:g}", "")
             for number in normalized_steps
         ]),
+        ("Customer Return QC", [
+            ("QC: Open Return Worklist (Logistics)", "CFG:CMD:VIEW_RETURN_QC_MONITOR", ""),
+            ("QC: Open Existing Inspection", "CFG:CMD:QC_INSPECT_RETURN", ""),
+            ("QC: Open Selected Return Record", "CFG:CMD:RETURN_CASE_RECORD", ""),
+        ]),
         ("Confirmation", [
             ("Reject +1", "CFG:QTY:REJECT:+1", ""),
             ("Confirm / Submit", "CFG:CMD:CONFIRM", ""),

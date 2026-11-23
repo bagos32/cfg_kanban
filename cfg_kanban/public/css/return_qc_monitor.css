@@ -1,0 +1,10 @@
+.cfg-return-qc .cfg-qc-filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:0 16px; }
+.cfg-return-qc .cfg-qc-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:8px 0; }
+.cfg-return-qc .cfg-qc-actions .form-control { flex:1 1 200px; max-width:420px; }
+.cfg-return-qc .cfg-qc-actions button { min-height:40px; white-space:normal; }
+.cfg-return-qc .cfg-qc-totals { display:flex; flex-wrap:wrap; gap:10px 20px; margin-bottom:8px; }
+.cfg-return-qc .cfg-qc-table td { vertical-align:top; min-width:170px; }
+.cfg-return-qc .cfg-qc-follow { margin-bottom:8px; }
+.cfg-return-qc .cfg-qc-detail td { overflow-wrap:anywhere; }
+.cfg-return-qc .cfg-qc-notice:not(:empty) { padding:8px 0; font-weight:500; }
+@media(max-width:767px) { .cfg-return-qc .cfg-qc-actions .form-control { max-width:none; } .cfg-return-qc .cfg-qc-filters { grid-template-columns:repeat(2,minmax(120px,1fr)); gap:0 8px; } }

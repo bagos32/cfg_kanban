@@ -670,3 +670,26 @@ This supersedes the earlier stop-removal deferral. No new delivery engine, nativ
 stock receipt, credit creation, route optimizer or deployment is introduced. Native acceptance is
 **Not run**; see [acceptance](TEST_DRIVER_STOP_CANCELLATION.md) and
 [operation](USER_GUIDE_DRIVER_ROUTE.md#cancel-a-customer-stop-safely).
+
+
+## 25. Dedicated Customer Return QC worklist and follow-up visibility
+
+Owner-requested 23 November 2026 above `2f988ba`: a separate normal **Customer Return QC** Page over
+existing customer Returns, owned quality refusals, delivery corrections and historical records.
+Oldest active work, all-history/terminal views, bounded pagination, common filters and native
+permission-aware grouped counts replace reliance on the Logistics console's 30-recent-case list.
+The existing Return Case state/QC results, parallel accounting/physical tracks, ERP feedback and
+owned-refusal outcomes remain authoritative. No new return engine or transactional DocType exists.
+
+QC responsibility (or existing unrestricted Supervisor), native Return Case/Company scope and
+current operator identity apply to every monitor read. The existing Logistics recent-return
+list is also changed from permission-bypassing `get_all` to permission-aware `get_list`. Start/Complete QC now also require native Case and
+Company Read before mutation. Case detail/navigation exposes only permitted linked documents and
+exact owned-custody lines; UOM quantities remain separate. Existing inspection/media, accounting,
+physical disposition and release/recovery/disposal services perform actions. Opening the Page or
+its case handoff performs no QC completion, receipt, credit, task creation or stock change.
+
+Rejected/investigation cases and pending financial/physical follow-up remain visible; no automatic
+case closure or invented SLA is added. Camera/scanner, print labels, stale/identity/page lifecycle
+controls accompany the monitor. Native acceptance remains **Not run**. See
+[setup](USER_GUIDE_CUSTOMER_RETURN_QC.md) and [acceptance](TEST_CUSTOMER_RETURN_QC_MONITOR.md).

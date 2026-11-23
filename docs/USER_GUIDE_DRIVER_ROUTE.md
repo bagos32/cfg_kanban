@@ -552,3 +552,13 @@ values; the existing Supervisor void is available only after confirming it was n
 
 Native migration, posting, concurrent-device and tablet acceptance: **Not run**. Use
 [the cancellation acceptance checklist](TEST_DRIVER_STOP_CANCELLATION.md).
+
+
+## QC team follow-up of collected returns
+
+QC staff use **CFG Dispatch Control → Customer Return QC** (`/app/kanban-return-qc`) to monitor all
+accessible customer returns, including this Trip's old-goods collections and owned quality refusals.
+Filter Driver Trip, customer or inspection location. Receipt is unconfirmed until QC actually
+receives/starts inspection; the collection lorry reference is not live custody. Accounts/physical
+stock follow-ups remain independent and visible after inspection. Driver delivery/collection and
+native ERP posting controls are unchanged. See [the QC guide](USER_GUIDE_CUSTOMER_RETURN_QC.md).
