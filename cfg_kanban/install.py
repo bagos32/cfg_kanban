@@ -1,12 +1,18 @@
 import frappe
 
 
+def before_install():
+    """Refresh discovery before native sync_for reads its in-process module map."""
+    frappe.cache.delete_value("app_modules")
+    frappe.setup_module_map(include_all_apps=True)
+    expected = {frappe.scrub(name) for name in frappe.get_module_list("cfg_kanban")}
+    actual = set(frappe.local.app_modules.get("cfg_kanban") or [])
+    if not expected or actual != expected:
+        frappe.throw("CFG Kanban module map could not be rebuilt; schema installation has not started")
+
+
 def after_install():
     """Apply app-owned ERPNext traceability fields after schema installation."""
-    for role_name in ("Kanban Terminal", "CFG Kanban System Maintenance"):
-        if not frappe.db.exists("Role", role_name):
-            frappe.get_doc({"doctype": "Role", "role_name": role_name,
-                            "desk_access": 1}).insert(ignore_permissions=True)
     from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
     fields_by_doctype = _custom_fields()
@@ -18,20 +24,42 @@ def after_install():
             {"fieldname": "cfg_scan_event", "label": "Kanban Accounting Event Identity", "fieldtype": "Data",
              "read_only": 1, "no_copy": 1, "insert_after": "cfg_return_case"},
         ]
+    _require_custom_field_schema(fields_by_doctype)
+    for role_name in ("Kanban Terminal", "CFG Kanban System Maintenance"):
+        if not frappe.db.exists("Role", role_name):
+            frappe.get_doc({"doctype": "Role", "role_name": role_name,
+                            "desk_access": 1}).insert(ignore_permissions=True)
     for fields in fields_by_doctype.values():
         for field in fields:
             field.setdefault("module", "CFG Kanban")
     create_custom_fields(fields_by_doctype, update=True)
     _ensure_responsibilities()
-    _ensure_process_certificate_inventory_dimension()
 
 
 def after_migrate():
     after_install()
+    # The native dimension adds Custom Fields to system ledgers with hidden,
+    # mandatory keys. Frappe validates that metadata in its migration context.
+    _ensure_process_certificate_inventory_dimension()
+
+
+def _require_custom_field_schema(fields_by_doctype):
+    required = {name for name in fields_by_doctype if name.startswith("CFG ")}
+    required.add("CFG Process Certificate Set")
+    for fields in fields_by_doctype.values():
+        required.update(field["options"] for field in fields
+            if field.get("fieldtype") in ("Link", "Table", "Table MultiSelect")
+            and (field.get("options") or "").startswith("CFG "))
+    missing = sorted(name for name in required if not frappe.db.exists("DocType", name))
+    if missing:
+        frappe.throw("CFG Kanban schema is incomplete. Missing DocTypes: " + ", ".join(missing)
+            + ". Complete native CFG Kanban schema installation before creating ERP custom fields")
 
 
 def _ensure_process_certificate_inventory_dimension():
     """Expose certificate-qualified stock in native ERPNext inventory documents/reports."""
+    if not frappe.flags.in_migrate:
+        frappe.throw("Process Certificate Set Inventory Dimension setup requires native site migration")
     if not frappe.db.exists("DocType", "Inventory Dimension"):
         return
     if not frappe.db.table_exists("CFG Process Certificate Set"):
@@ -71,6 +99,9 @@ def _ensure_process_certificate_inventory_dimension():
                 "Inventory Dimension 'Process Certificate Set' uses an unexpected ledger "
                 "fieldname. Resolve the collision before migrating CFG Kanban."
             )
+        # A failed native on_update can commit the Dimension before all of its
+        # fields exist. Its own adder skips existing fields and fills the gaps.
+        frappe.get_doc("Inventory Dimension", existing_name).add_custom_fields()
         return
 
     frappe.get_doc({

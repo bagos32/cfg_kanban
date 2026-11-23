@@ -169,5 +169,6 @@ scheduler_events = {
     ]
 }
 
+before_install = "cfg_kanban.install.before_install"
 after_install = "cfg_kanban.install.after_install"
 after_migrate = "cfg_kanban.install.after_migrate"

@@ -227,6 +227,34 @@ bench --site kanban.localhost migrate
 Add `kanban.localhost` to the hosts file if the local resolver does not handle it, then open
 `http://kanban.localhost:8000`.
 
+Initial installation requires the subsequent **native site migration** shown above. CFG refreshes
+Frappe's module-discovery cache before schema import and checks its referenced DocTypes before
+adding ERP custom fields. The `Process Certificate Set` Inventory Dimension is provisioned during
+`after_migrate`, after native schema synchronization. Its fields extend system ledgers that have
+hidden, mandatory identity keys; those keys remain required, hidden and unique. CFG does not set
+Frappe's migration flag or disable field validation to work around installation errors.
+This follows [Frappe v15's native field-validation rule](https://github.com/frappe/frappe/blob/v15.69.2/frappe/core/doctype/doctype/doctype.py#L1296).
+
+If a new installation failed after CFG was registered in the site, retain the pre-install backup
+and keep maintenance mode enabled. After updating CFG to the corrected revision, clear the site
+cache, retry the native **CFG-only** installation and complete migration:
+
+```bash
+bench --site kanban.localhost clear-cache
+bench --site kanban.localhost install-app cfg_kanban --force
+bench --site kanban.localhost migrate
+```
+
+Use the forced application retry for a partial new installation, not as a routine update: native
+installation reimports CFG's standard metadata and permissions. It does not reinstall the ERPNext
+site or fetch newer Frappe/ERPNext code. Migration synchronizes the currently checked-out installed
+apps and can run their pending patches; do not combine this repair with other app updates.
+An existing certificate Dimension may have been committed before its Custom Fields finished.
+Migration validates its original reference/field names and invokes ERPNext's own field-completion
+method to create missing fields. It does not delete the Dimension or overwrite its configuration.
+Run the asset build, cache clear and Bench restart after successful recovery, then verify installed
+apps, the CFG Cycle DocType and the certificate dimension fields before reopening the site.
+
 ## First configuration
 
 1. Open the **CFG Kanban** workspace from the Desk sidebar. It groups configuration, live
@@ -386,6 +414,18 @@ ruff check apps/cfg_kanban
 Before production use, add site-backed integration tests for concurrent duplicate scans, ERPNext
 version-specific Job Card methods, Stock Entry mappings, permissions, failure retries, and reversal
 flows. The scan endpoint is a server API skeleton, not a finished scanner UI or offline queue.
+
+The installation regression module is `cfg_kanban.tests.test_installation`. Its offline checks
+cover stale discovery, incomplete-schema rejection before ERP custom-field writes, the native
+migration phase, partial certificate-dimension recovery, collision rejection and unchanged ledger
+key requirements. These use explicit native/database doubles; they do not establish successful
+fresh-site installation, MariaDB DDL/rollback or production acceptance. The 24 November 2026
+reported installation reached full CFG schema import but failed at the earlier dimension setup;
+the corrected release must be retested on the site. Package L1 acceptance remains open separately.
+On that baseline, **113 offline Python tests passed** across installation, DocType schemas,
+certificate foundations and optional Credit Note integration. Separately, the exact native
+Frappe 15.69.2 hidden/mandatory validator reproduced the reported ledger rejection outside
+migration and accepted the unchanged schema inside migration. Neither check writes a real database.
 
 ## Deployment notes
 
