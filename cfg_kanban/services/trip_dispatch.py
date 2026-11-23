@@ -56,7 +56,13 @@ def _profile(name, trip, kind):
 def validate_setup(doc, before=None):
     if not (getattr(doc,'flags',None) or {}).get('cfg_trip_dispatch'):
         for field in ('open_route_plan', 'dispatch_generated_on'):
-            if doc.get(field) != (before.get(field) if before else None):
+            current=doc.get(field) or None
+            original=(before.get(field) if before else None) or None
+            if field=='dispatch_generated_on':
+                # Desk sends JSON text; the saved Doc can contain a native datetime.
+                current=get_datetime(current) if current else None
+                original=get_datetime(original) if original else None
+            if current != original:
                 frappe.throw('Generated Dispatch links and audit facts are controlled; use Generate / Refresh Dispatch')
     seen = set()
     for row in doc.get('route_stock') or []:

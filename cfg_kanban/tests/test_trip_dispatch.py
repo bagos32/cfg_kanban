@@ -70,6 +70,87 @@ class TestTripDispatch(unittest.TestCase):
         return row.get(fields)
     def generate(self,explicit=False):return self.mod.generate(self.trip,explicit)
     def plans(self):return list(self.data.get(PLAN,{}).values())
+    def browser_reload(self):
+        # Desk receives JSON strings; a fresh server request has no generation flags.
+        values=json.loads(json.dumps(self.data[base.TRIP][self.trip.name].as_dict(),default=str))
+        self.trip=type(self.trip)(base.document(values));self.trip.flags=base.Doc();self.b.doc=self.trip
+        return self.trip
+    def generated_draft(self):
+        self.trip.state='Draft';self.trip.save();self.generate(explicit=True)
+        return [plan.name for plan in self.plans()]
+
+    def test_mark_planned_after_generating_draft_and_browser_reload_reuses_dispatch(self):
+        names=self.generated_draft();pool=self.trip.open_route_plan;events=self.events.call_count
+        self.assertEqual(self.trip.state,'Draft')
+        self.assertIsInstance(self.trip.dispatch_generated_on,datetime.datetime)
+        self.browser_reload();self.assertIsInstance(self.trip.dispatch_generated_on,str)
+        self.trip.state='Planned';self.trip.save()
+        self.assertEqual(self.data[base.TRIP][self.trip.name].state,'Planned')
+        self.assertEqual([plan.name for plan in self.plans()],names);self.assertEqual(self.trip.open_route_plan,pool)
+        self.assertEqual(self.events.call_count,events);self.assertEqual(len(self.data[STOP]),1)
+        self.ledger.assert_not_called();self.assertFalse(self.data.get('Stock Entry'))
+
+    def test_browser_status_and_notes_saves_retain_generated_audit_and_links(self):
+        names=self.generated_draft();stamp=self.trip.dispatch_generated_on;pool=self.trip.open_route_plan
+        for state in ('Draft','Planned','Planned','Draft'):
+            with self.subTest(state=state):
+                self.browser_reload();self.trip.state=state;self.trip.notes='Office preparation update';self.trip.save()
+                self.assertEqual(datetime.datetime.fromisoformat(str(self.trip.dispatch_generated_on)),stamp)
+                self.assertEqual(self.trip.open_route_plan,pool);self.assertEqual([plan.name for plan in self.plans()],names)
+        self.ledger.assert_not_called()
+
+    def test_mark_planned_after_browser_reload_preserves_dispatch_work_already_loaded(self):
+        names=self.generated_draft();known=self.data[PLAN][self.trip.dispatch_plans[0].dispatch_plan]
+        known.update(state='Loaded',movement_manifest='EXISTING-MANIFEST')
+        self.browser_reload();self.trip.state='Planned';self.trip.save()
+        self.assertEqual(self.trip.state,'Planned');self.assertEqual(known.state,'Loaded')
+        self.assertEqual(known.movement_manifest,'EXISTING-MANIFEST')
+        self.assertEqual([plan.name for plan in self.plans()],names);self.ledger.assert_not_called()
+
+    def test_customer_only_generated_trip_accepts_empty_optional_pool_link(self):
+        self.trip.stops=self.trip.stops[:1];names=self.generated_draft()
+        self.assertIsNone(self.trip.open_route_plan)
+        self.browser_reload();self.trip.open_route_plan='';self.trip.state='Planned';self.trip.save()
+        self.assertEqual(self.trip.state,'Planned');self.assertFalse(self.trip.open_route_plan)
+        self.assertEqual([plan.name for plan in self.plans()],names);self.assertEqual(len(names),1)
+
+    def test_empty_browser_generated_fields_allow_ordinary_ungenerated_draft_save(self):
+        self.trip.state='Draft';self.trip.save();self.browser_reload()
+        self.trip.dispatch_generated_on='';self.trip.open_route_plan='';self.trip.save()
+        self.assertEqual(self.trip.state,'Draft');self.assertFalse(self.plans());self.ledger.assert_not_called()
+
+    def test_native_datetime_fractional_string_and_iso_string_keep_exact_audit_instant(self):
+        stamp=datetime.datetime(2026,11,21,12,34,56,345678)
+        self.mod.generate.__globals__['now_datetime']=lambda:stamp
+        names=self.generated_draft()
+        for value in (stamp.isoformat(' '),stamp.isoformat('T'),stamp):
+            with self.subTest(value=value):
+                self.browser_reload();self.trip.dispatch_generated_on=value;self.trip.state='Planned';self.trip.save()
+                self.assertEqual(datetime.datetime.fromisoformat(str(self.trip.dispatch_generated_on)),stamp)
+                self.assertEqual([plan.name for plan in self.plans()],names)
+
+    def test_browser_cannot_replace_clear_or_change_generated_links_and_audit_time(self):
+        names=self.generated_draft();stamp=self.trip.dispatch_generated_on;pool=self.trip.open_route_plan;events=self.events.call_count
+        changes=(('open_route_plan','FOREIGN'),('open_route_plan',None),('open_route_plan',''),
+            ('dispatch_generated_on',None),('dispatch_generated_on',''),
+            ('dispatch_generated_on',str(stamp+datetime.timedelta(microseconds=1))),
+            ('dispatch_generated_on',str(stamp+datetime.timedelta(days=1))))
+        for field,value in changes:
+            with self.subTest(field=field,value=value):
+                self.browser_reload();self.trip[field]=value;self.trip.state='Planned'
+                with self.assertRaisesRegex(ValueError,'Generated Dispatch links and audit facts are controlled'):self.trip.save()
+                saved=self.data[base.TRIP][self.trip.name]
+                self.assertEqual(saved.state,'Draft');self.assertEqual(saved.dispatch_generated_on,stamp);self.assertEqual(saved.open_route_plan,pool)
+                self.assertEqual([plan.name for plan in self.plans()],names);self.assertEqual(self.events.call_count,events)
+        self.ledger.assert_not_called()
+
+    def test_new_trip_cannot_forge_generated_link_or_audit_timestamp(self):
+        for field,value in (('open_route_plan','FOREIGN'),('dispatch_generated_on','2026-11-21 12:00:00')):
+            fresh=base.document(self.trip.as_dict());fresh.flags=base.Doc();fresh[field]=value
+            with self.subTest(field=field),self.assertRaisesRegex(ValueError,'Generated Dispatch links and audit facts are controlled'):
+                self.mod.validate_setup(fresh,None)
+        self.assertFalse(self.plans());self.ledger.assert_not_called()
+
     def test_mark_planned_creates_exact_customer_request_and_one_existing_stock_pool(self):
         self.generate();self.assertEqual(len(self.plans()),2);self.assertEqual(len(self.trip.dispatch_plans),1)
         known=self.data[PLAN][self.trip.dispatch_plans[0].dispatch_plan];pool=self.data[PLAN][self.trip.open_route_plan]

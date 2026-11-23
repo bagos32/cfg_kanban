@@ -23,6 +23,9 @@ expected/actual quantities and evidence after owner-managed migration/build.
 | --- | --- | --- |
 | Load Template | Full DocType form inherits generation/Profile defaults, captured revision and stable stops; no popup or mutation of old Trips | Not run |
 | Save Draft then Mark Planned | One Customer Order Plan per SO + stop with exact SO Item/quantity; one shared Open Route Plan and exact native visits | Not run |
+| Generate on Draft, reload, Mark Planned | Fresh Desk/server request accepts the unchanged generation timestamp as JSON text versus the database datetime; Trip becomes Planned using the same Plan/visit IDs and no new stock posting | Not run |
+| Generated-field integrity across browser saves | Notes/status save succeeds with unchanged links/date, including fractional seconds and an empty optional pool; changed/cleared timestamp or Plan link and forged insert facts remain rejected | Not run |
+| Warehouse work already started | Mark Planned retains generated Plans, allocations, Manifest and load history; source/quantity changes remain protected by existing execution guards | Not run |
 | Existing lorry stock only | Empty extra-goods table creates controlled request, no Manifest/Stock Entry/reservation; approval + actual lorry needed for Ready for Fulfilment | Not run |
 | Extra goods | One shared loading request with Item/Batch/UOM quantities; E3 actual reservation/loading/submitted transfer remains required | Not run |
 | Approval | Both Profiles retain Awaiting Approval when configured; required request/route approval cannot be skipped at departure | Not run |
@@ -63,3 +66,17 @@ and DocType field/schema consistency passed, and `git diff --check` passed. The 
 includes all three new Trip suites and the existing order quantity, E3, fulfilment, route,
 warehouse/pickup, E5 recovery, lorry visibility, office and driver/refusal/collection suites.
 These are offline results; every native-site result above remains Not run.
+
+### Mark Planned after generated Draft — 23 November 2026
+
+Working correction above `3b9a092`: the reported rejection was reproduced by generating a Draft,
+serializing/reloading its timestamp through JSON, then saving Planned with fresh server flags.
+The guard now compares parsed datetimes at full precision and normalizes empty optional values;
+changed/cleared links or audit times and forged insert facts remain rejected. Existing generated
+requests, visits and loaded Manifest references are retained on the status change.
+
+**528 Python tests passed** across 21 trip, office, driver, dispatch/E5, route and lorry modules;
+**142 Node test entries passed** for the office form, driver, route, GPS/monitor and dispatch
+adapters. This includes eight new generation/save regression cases. Python syntax and patch
+whitespace checks passed. These tests use offline database/framework/UI substitutes; native Desk,
+database rollback/concurrency and live-site Mark Planned acceptance remain **Not run**.

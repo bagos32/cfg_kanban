@@ -6058,6 +6058,10 @@ request for every no-order Visit Only stop with a Customer Site. The office no l
 create those Plans separately. Repeated saves reuse them; unused revisions preserve cancelled
 history. Manual links remain supported with automatic mode off.
 
+If **Generate / Refresh Dispatch** was used on a saved Draft, reload it and select **Planning
+Status → Mark Planned**. The unchanged generated links/timestamp remain valid across browser
+saves, and existing requests are reused. Keep the read-only generated fields intact.
+
 The Profile's normal approval/picking/loading controls remain mandatory. LIFO lists ordered stock
 last-stop-first and shared extra stock as an accessible common pool. With no extra goods, the pool
 uses eligible stock already on the actual lorry: **Ready for Fulfilment**, with no fabricated

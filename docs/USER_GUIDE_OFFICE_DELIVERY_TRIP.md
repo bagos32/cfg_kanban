@@ -124,6 +124,11 @@ on a saved, clean Draft or Planned Trip, before execution. Unused changes replac
 retaining cancelled history. Reservations/loading/route approval freeze the sources; use existing
 controlled release/cancellation/reconciliation after execution begins. Keep loaded stock unchanged.
 
+If dispatch was generated while the Trip was still Draft, reload the Trip and use **Planning
+Status → Mark Planned**. Saving the unchanged generated links and generation time is supported;
+the existing requests are reused. Do not clear or edit these read-only fields to change status.
+Mark Planned does not replace or reopen warehouse work that has already started.
+
 **Manual mode remains available:** leave automatic generation off and link existing compatible
 Customer Order Plans. Do not enable generation over manual Plan links; keep manual mode or remove
 unused links first. Existing trips are not silently converted.
