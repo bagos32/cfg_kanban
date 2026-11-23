@@ -6268,6 +6268,18 @@ the actual reason; a stalled preview stops after 60 seconds of browser execution
 job remains recoverable and is never automatically recreated or sent. Choose **Documents** to
 use normal printing or resume/review the job; reasoned closure remains available without a preview.
 
+Saving a Print Format without changing this document's rendered HTML/CSS no longer blocks an
+existing job solely because its format version changed. The source document version must still
+match, and permissions, signature policy and segment/retry checks still apply. Original review
+metadata remains intact; handoff audit records the revalidated format version. Actual source or
+rendered-content changes require reasoned closure and a reviewed new print; the error names the job
+and the failed check.
+
+An inactive/expired operator session closes stale print controls, clears the transient signing key
+and returns Scanner Ready focus to operator sign-in. Scan the original operator's QR again, reopen
+the Trip's documents and use readback for any unresolved request. Original request identity and
+unfinished-job history are retained; re-signing in never automatically sends a print.
+
 Firefox previews explicitly allow the current ERP site origin for native print styles, fonts and
 letterhead images inside the sandbox, including BMP files. Scripts and unrelated external assets
 remain blocked. After updating print assets, reload without cache before resuming an existing job.

@@ -303,6 +303,66 @@ class TestMobilePrinting(unittest.TestCase):
             self.ns['get_mobile_print_job']('TRIP',job.name,'TOKEN')
         with self.assertRaisesRegex(ValueError,'changed'):self.segment(job)
         self.assertEqual(job.status,'Prepared')
+    def test_stale_review_identifies_the_source_document_version_without_changing_the_job(self):
+        job=self.prepare();self.source.modified='CHANGED';self.fmt.modified='NEW FORMAT VERSION'
+        for action in (lambda:self.ns['get_mobile_print_job']('TRIP',job.name,'TOKEN'),lambda:self.segment(job)):
+            with self.assertRaisesRegex(ValueError,job.name+': source document version changed') as error:action()
+            self.assertIn('Close this job with a reason',str(error.exception))
+        self.assertEqual(job.status,'Prepared');self.assertIsNone(job.segments_json);self.ns['record'].assert_not_called()
+    def test_native_format_save_with_identical_render_can_resume_without_replacing_the_original_review(self):
+        job=self.prepare();original_version=job.format_version;original_hash=job.render_hash
+        self.fmt.modified='NEW FORMAT VERSION'
+        result=self.ns['get_mobile_print_job']('TRIP',job.name,'TOKEN')
+        self.assertEqual(result['render_hash'],original_hash);self.assertEqual(job.status,'Prepared')
+        self.ns['record'].assert_not_called()
+        self.segment(job)
+        self.assertEqual(job.status,'Awaiting Confirmation');self.assertEqual(job.format_version,original_version)
+        self.assertEqual(job.render_hash,original_hash);self.assertFalse(job.confirmed_on)
+        event=self.ns['record'].call_args.kwargs['payload']
+        self.assertEqual(event['original_format_version'],original_version)
+        self.assertNotEqual(event['validated_format_version'],original_version)
+        self.assertEqual(event['render_hash'],original_hash)
+    def test_timestamp_only_format_save_still_requires_a_reason_for_an_uncertain_segment_retry(self):
+        job=self.prepare();self.segment(job);self.segment(job,'Outcome Unknown')
+        self.fmt.modified='NEW FORMAT VERSION';original_version=job.format_version
+        self.ns['get_mobile_print_job']('TRIP',job.name,'TOKEN')
+        before=job.segments_json;events=self.ns['record'].call_count
+        with self.assertRaisesRegex(ValueError,'give a reason'):self.segment(job)
+        self.assertEqual(job.segments_json,before);self.assertEqual(self.ns['record'].call_count,events)
+        self.segment(job,reason='No receipt; checked paper before retry')
+        self.assertEqual(json.loads(job.segments_json)['pages']['1']['attempts'],2)
+        self.assertEqual(job.format_version,original_version);self.assertFalse(job.confirmed_on)
+        self.assertEqual(self.ns['record'].call_args.kwargs['payload']['original_format_version'],original_version)
+    def test_actual_format_output_change_identifies_the_selected_format_and_rejects_handoff(self):
+        job=self.prepare();self.fmt.modified='NEW FORMAT VERSION'
+        self.frappe.get_print=lambda *a,**kw:'<style>.print-format{width:70mm}</style><div>NEW LAYOUT</div>'
+        for action in (lambda:self.ns['get_mobile_print_job']('TRIP',job.name,'TOKEN'),lambda:self.segment(job)):
+            with self.assertRaisesRegex(ValueError,'selected Print Format changed') as error:action()
+            self.assertIn('rendered print content changed',str(error.exception))
+        self.assertEqual(job.status,'Prepared');self.assertIsNone(job.segments_json);self.ns['record'].assert_not_called()
+    def test_identical_render_cannot_bypass_revoked_permissions_or_an_invalid_format(self):
+        job=self.prepare()
+        for permission in ('read','print'):
+            self.source.denied={permission}
+            with self.assertRaises(PermissionError):self.ns['get_mobile_print_job']('TRIP',job.name,'TOKEN')
+            with self.assertRaises(PermissionError):self.segment(job)
+        self.source.denied=set()
+        for field,value in [('doc_type','Delivery Note'),('disabled',1),('raw_printing',1)]:
+            with self.subTest(field=field):
+                original=getattr(self.fmt,field);setattr(self.fmt,field,value)
+                with self.assertRaisesRegex(ValueError,'enabled, non-raw'):
+                    self.ns['get_mobile_print_job']('TRIP',job.name,'TOKEN')
+                with self.assertRaisesRegex(ValueError,'enabled, non-raw'):self.segment(job)
+                setattr(self.fmt,field,original)
+        self.assertEqual(job.status,'Prepared');self.assertIsNone(job.segments_json);self.ns['record'].assert_not_called()
+    def test_stale_render_identifies_content_and_preserves_prior_handoff_and_uncertain_history(self):
+        job=self.prepare();self.segment(job);self.segment(job,'Outcome Unknown')
+        before=copy.deepcopy(job.__dict__);events=self.ns['record'].call_count
+        self.frappe.get_print=lambda *a,**kw:'<div class="print-format">CURRENT STOCK CHANGED</div>'
+        for action in (lambda:self.ns['get_mobile_print_job']('TRIP',job.name,'TOKEN'),lambda:self.segment(job,reason='Checked paper')):
+            with self.assertRaisesRegex(ValueError,'rendered print content changed') as error:action()
+            self.assertNotIn('source document version changed',str(error.exception))
+        self.assertEqual(job.__dict__,before);self.assertEqual(self.ns['record'].call_count,events)
     def test_print_profile_delivery_note_copy_count_is_bounded_and_defaults_to_two(self):
         self.assertEqual(self.ns['delivery_note_copies'](self.profile),2)
         for value in (1,2,5):

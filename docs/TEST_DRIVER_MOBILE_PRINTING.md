@@ -62,6 +62,8 @@ ERPNext Desk, hooks and custom apps requires the database tests above; mocks can
 | Unknown output | App absent, Bluetooth off, paper out, device locked/backgrounded, app rejection: no automatic retry or false confirmation | Not run |
 | Retry reason | Same uncertain segment needs reason; confirmed segment cannot be resent within job | Not run |
 | Source/format changed | Cached preview cannot hand off changed document; close reason and new review required | Not run |
+| Format version only | Save/migrate the selected format without changing this document's output: original job resumes and handoff revalidates identical HTML/CSS; original review remains immutable and handoff audit records both format versions; uncertain retry still needs a reason | Not run |
+| Expired operator session | Preview, segment retry and pending readback rejection close stale controls, clear the transient key and restore operator-scanner sign-in; original Employee can sign in again and reconcile without duplicate preparation/handoff; stale old-token errors cannot sign out a replacement operator | Not run |
 | Hidden unfinished job | Same document's job from another operator/stop/Trip is listed with original identity and Office Recovery link; no foreign Resume authority; unrelated documents/Companies remain absent | Not run |
 | Office recovery | Native authorized office user closes original job with reason after Trip reassignment/closure; Closed By/On and event retained; segments/source stock/accounting unchanged | Not run |
 | Recovery permissions | Ordinary driver, denied job/Trip/Company, missing Trip write, wrong Company and GET request cannot perform office closure | Not run |
@@ -85,6 +87,41 @@ ERPNext Desk, hooks and custom apps requires the database tests above; mocks can
 | Two tabs | Device lock blocks simultaneous direct handoff; original pending driver identity retained | Not run |
 
 ## Offline evidence
+
+### Identical-output format revalidation and session recovery — 24 November 2026
+
+Baseline `0edb336`. The owner's development-site console diagnostics for `KMP-2026-00012`
+(`CFG Delivery Note 80mm`, Awaiting Confirmation) reported **document version matching, format
+version different, rendered content matching**. The earlier all-matching diagnostic was for a
+different job, `KMP-2026-00015` (Trip stock list). These are user-supplied diagnostic results,
+not corrected-site or physical-printer acceptance.
+
+The timestamp-only format rejection is reproduced against the baseline application functions.
+The correction re-renders through native print checks and permits the existing job only when
+the source version and complete HTML/CSS still match. It retains the original review and records
+both format versions in the handoff event. Real output/source changes, revoked permissions,
+invalid formats and missing uncertain-retry reasons remain rejected without altering job history.
+
+Inactive/expired-session errors in print RPCs now use the route's operator sign-in recovery.
+Customer/print content and paired key are cleared, Scanner Ready returns to sign-in and unresolved
+action identity remains available to the original Employee with a new session. Ordinary print
+validation failures and late errors from an old operator do not cause a new operator logout.
+
+- **159 Python tests passed**, covering mobile printing/invoicing, DN signature scope, shipped
+  template rendering and driver route/action regressions with native/database doubles. Includes
+  the identical-output resume and explicit uncertain retry, immutable review/audit, changed source/
+  layout/proof, revoked permissions and disabled/raw/wrong-DocType format checks.
+- **116 Node entries passed**, covering route/session recovery, stale-token protection, pending
+  action identity, scanner focus and the existing delivery/print/signing checks.
+- **79 isolated Chrome checks and 79 Firefox checks passed**, including authentication rejection
+  during preview read, explicit segment retry and uncertain-request readback; same-Employee
+  re-sign-in/readback without duplicate preparation; key clearing and no automatic handoff.
+- Syntax and intended-patch whitespace/applicability were checked. The browser fixtures use
+  synthetic documents, print assets and backend adapters; no native app or printer is contacted.
+
+Native Frappe database/concurrency, corrected live-site behavior and physical Label Bridge/printer
+acceptance remain **Not run**. The owner's earlier diagnostics identify the failure; they do not
+verify the undeployed correction. Both protected untracked documents remain outside this change.
 
 ### Firefox same-origin CSP correction — 24 November 2026
 

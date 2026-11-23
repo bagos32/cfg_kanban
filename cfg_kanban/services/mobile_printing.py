@@ -471,6 +471,23 @@ def close_mobile_print_job(print_job, reason, expected_modified):
     return _close_job(job, reason)
 
 
+def _assert_print_review(job, source, format_version, render_hash):
+    changes = []
+    if str(source.modified) != job.source_modified:
+        changes.append('source document version changed')
+    if render_hash != job.render_hash:
+        if format_version != job.format_version:
+            changes.append('selected Print Format changed')
+        changes.append('rendered print content changed')
+    if changes:
+        frappe.throw('Print job ' + job.name + ': ' + '; '.join(changes)
+            + '. Close this job with a reason, then review a new print')
+    # A native format save/migration can change its timestamp without changing
+    # this document's HTML/CSS. Re-rendering still enforces native permission,
+    # format validity and signature policy. Keep the original review immutable.
+    return format_version != job.format_version
+
+
 @frappe.whitelist()
 def get_mobile_print_job(trip_name, print_job, operator_session_token):
     from cfg_kanban.services import driver_routes
@@ -482,8 +499,7 @@ def get_mobile_print_job(trip_name, print_job, operator_session_token):
     html, version, digest = _render(doc, job.print_format, job.no_letterhead, job.created_on)
     if job.status in ('Operator Confirmed', 'Abandoned'):
         frappe.throw('This print job has ended; prepare a reviewed reprint if needed')
-    if str(doc.modified) != job.source_modified or version != job.format_version or digest != job.render_hash:
-        frappe.throw('Document or Print Format changed. Close this job with a reason, then review a new print')
+    _assert_print_review(job, doc, version, digest)
     return dict(name=job.name, html=html, render_hash=digest, copies=job.copies, status=job.status,
                 segments=json.loads(job.segments_json or '{}'), print_format=job.print_format,
                 document_name=job.document_name, document_type=job.document_type, stop_key=job.stop_key or None,
@@ -519,12 +535,14 @@ def _segment(trip, values, operator, session=None):
         frappe.throw('This segment is already confirmed; use a new reviewed reprint job')
     if status != 'Awaiting Confirmation' and not prior:
         frappe.throw('Prepare this segment for handoff before recording its outcome')
+    revalidation = {}
     if status == 'Awaiting Confirmation':
         get_profile(trip.company)
         source = _source(trip, job.stop_key or None, operator, job.document_type, job.document_name)
         _html, version, digest = _render(source, job.print_format, job.no_letterhead, job.created_on)
-        if str(source.modified) != job.source_modified or version != job.format_version or digest != job.render_hash:
-            frappe.throw('Document or Print Format changed; close this job and review a new print')
+        if _assert_print_review(job, source, version, digest):
+            revalidation = dict(original_format_version=job.format_version,
+                validated_format_version=version, render_hash=digest)
     if status == 'Awaiting Confirmation' and prior and not str(values.get('reason') or '').strip():
         frappe.throw('The previous physical outcome is uncertain; give a reason to retry this same segment')
     history = list(prior.get('history') or [])
@@ -546,7 +564,8 @@ def _segment(trip, values, operator, session=None):
         operator=operator.employee, operator_session=session.name if session else None,
         terminal_user=session.terminal_user if session else None, system_generated=False,
         notes=values.get('reason'), payload=dict(page=page, outcome=status,
-            manifest_hash=canonical_key('print-frames', hashes), attempts=state['pages'][str(page)]['attempts']))
+            manifest_hash=canonical_key('print-frames', hashes), attempts=state['pages'][str(page)]['attempts'],
+            **revalidation))
     return dict(print_job=job.name, page=page, outcome=status, job_status=job.status)
 
 

@@ -41,7 +41,8 @@
       jobName=null,jobStop=options.stop||null,releaseLease=null,leaseReady=false,selected=null,selectedLabel=null;
   let tail=Promise.resolve();const inputLocks=new WeakMap(),keyEntry=pairingEntry();
   const valid=()=>!closed&&options.active()&&options.owner()===owner&&options.token()===token;
-  const rpc=async(method,args)=>{const answer=(await f.call({method,args:{...args,operator_session_token:token}})).message;if(!valid())throw new Error('Operator or page changed.');return answer;};
+  const rpc=async(method,args)=>{try{const answer=(await f.call({method,args:{...args,operator_session_token:token}})).message;if(!valid())throw new Error('Operator or page changed.');return answer;}
+   catch(error){if(valid())options.onSessionError?.(error,token);throw error;}};
   const focus=()=>{if(valid())host.find('.cfg-mobile-scan').trigger('focus');};
   function stopCamera(){cameraVersion++;try{camera?.stop_scan?.();camera?.dialog?.hide?.();}catch(_){}camera=null;}
   function queue(work){tail=tail.then(async()=>{if(!valid())return;try{await work();}catch(error){if(valid()){message=options.error(error);update();}}finally{focus();}});return tail;}

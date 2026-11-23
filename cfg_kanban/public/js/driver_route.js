@@ -44,6 +44,12 @@
       return true;
     }
     function valid(ticket, token) { return state.active && epoch === ticket && state.token === token && readToken() === token; }
+    function rejectSession(error, token) {
+      if (!expired(error) || !state.active || !token || state.token !== token || readToken() !== token) return false;
+      epoch++; clear(); state.token = null; state.busy = false;
+      try { if (readToken() === token) storage.removeItem(SESSION); } catch (_) { /* sign-in still required */ }
+      state.error = message(error); emit(); return true;
+    }
     async function refresh(selected = state.selected, manual = true) {
       const previousToken = state.token, previousSelected = state.selected;
       const changed = sync();
@@ -79,7 +85,7 @@
         if (rejected && !listRead) { state.trips = []; state.operator = null; }
         if (expired(error) || rejected || manual) {
           state.detail = null;
-          if (expired(error)) { clear(); state.token = null; try { if (readToken() === token) storage.removeItem(SESSION); } catch (_) {} state.error = message(error); }
+          if (expired(error)) rejectSession(error, token);
         }
       } finally { if (readToken() !== state.token) { sync(); emit(); } else if (valid(ticket, token)) { state.busy = false; emit(); } else if (state.active && epoch === ticket && !state.token) { state.busy = false; emit(); } }
     }
@@ -98,7 +104,7 @@
         state.token = result.session_token; state.busy = false; return refresh(state.selected);
       } catch (error) { if (state.active && epoch === ticket) { state.error = message(error); state.busy = false; emit(); } }
     }
-    return { state, refresh, identify,
+    return { state, refresh, identify, rejectSession,
       select(name) { state.stop = null; return refresh(name); },
       viewStop(key) { if (sync()) { emit(); return; } if (state.detail?.stops?.some(row => row.stop_key === key)) { state.stop = key; emit(); } },
       changeOperator() { epoch++; clear(); state.token = null; state.selected = null; state.busy = false; try { storage.removeItem(SESSION); } catch (_) {} emit(); },
@@ -262,6 +268,7 @@
         trip:app.state.selected,stop:stopKey||app.state.stop||app.state.detail.next_stop_key||null,
         owner:()=>app.state.operator?.employee,token:()=>app.session(),active:()=>app.state.active&&route(),
         refresh:()=>app.refresh(app.state.selected,true),storage:localStorage,locks:navigator.locks,
+        onSessionError:(error,token)=>app.rejectSession(error,token),
         nonce:()=>crypto.randomUUID(),error:message,onClose:()=>{action=null;focus();}});
       }catch(error){$root.find('.cfg-driver-action-host').empty();notice(message(error));focus();}
     }

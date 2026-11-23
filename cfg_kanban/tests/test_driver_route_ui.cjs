@@ -51,6 +51,33 @@ test('expired session clears source data; permission rejection never becomes log
   h.respond(() => {throw new Error('Operator session expired');});await h.app.refresh();
   assert.equal(h.app.state.token,null);assert.equal(h.app.state.busy,false);assert.equal(h.data.has(SESSION),false);
 });
+test('print session rejection returns to sign-in and preserves the original unresolved action', async () => {
+  const h=harness();await h.app.show(trip);
+  const key='cfg_driver_action:'+trip,pending=JSON.stringify({status:'Pending',id:'ORIGINAL',actor:'EMP'});
+  h.data.set(key,pending);
+  const error={responseJSON:{exc_type:'ValidationError',_server_messages:JSON.stringify([
+    JSON.stringify({message:'Operator session is not active; scan your operator QR again'})])}};
+  assert.equal(h.app.rejectSession(error,'TOKEN'),true);
+  assert.equal(h.app.state.token,null);assert.equal(h.app.state.operator,null);assert.equal(h.app.state.detail,null);
+  assert.equal(h.app.state.busy,false);assert.equal(h.data.has(SESSION),false);
+  assert.match(h.app.state.error,/scan your operator QR again/);assert.equal(h.data.get(key),pending);
+  await h.app.identify('credential');assert.equal(h.data.get(SESSION),'NEW');
+  assert.equal(h.app.state.detail.trip.name,trip);assert.equal(h.data.get(key),pending);
+});
+test('stale print-session errors never sign out a replacement operator or a hidden page', async () => {
+  const h=harness();await h.app.show(trip);const error=new Error('Operator session is not active');
+  h.data.set(SESSION,'NEW');assert.equal(h.app.rejectSession(error,'TOKEN'),false);
+  assert.equal(h.data.get(SESSION),'NEW');
+  await h.app.refresh();assert.equal(h.app.rejectSession(error,'TOKEN'),false);
+  assert.equal(h.app.state.token,'NEW');assert(h.app.state.detail);
+  h.app.hide();assert.equal(h.app.rejectSession(error,'NEW'),false);assert.equal(h.data.get(SESSION),'NEW');
+});
+test('print content validation and ordinary network errors do not expire the operator', async () => {
+  const h=harness();await h.app.show(trip);
+  for(const error of [new Error('Document or Print Format changed'),{exc_type:'PermissionError',message:'No longer assigned'},new Error('Network offline')]){
+    assert.equal(h.app.rejectSession(error,'TOKEN'),false);assert.equal(h.data.get(SESSION),'TOKEN');assert(h.app.state.detail);
+  }
+});
 test('background network failure marks a previous view stale without inventing freshness', async () => {
   const h=harness();await h.app.show(trip);h.respond(() => {throw new Error('Network offline');});
   await h.app.refresh(trip,false);assert.equal(h.app.state.stale,true);assert.equal(h.app.state.detail.refreshed_on,'2026-11-21');
@@ -200,6 +227,17 @@ test('inline action has its own host and pauses polling until page hide safely c
   h.events.get('click.cfg_driver .cfg-driver-start-route')();assert.equal(opened.trip,trip);assert.equal(opened.owner(),'EMP');
   const count=h.view.app.state.detail;h.events.get('tick')();await flush();assert.equal(h.view.app.state.detail,count);
   h.view.hide();assert.equal(closed,1);assert.equal(h.view.app.state.active,false);
+});
+test('print-panel session rejection closes stale print controls and restores operator-scanner focus', async () => {
+  const h=domHarness();await h.view.show(trip);let opened,closed=0,forgotten=0;
+  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{locks:{}}});
+  window.cfg_driver_mobile_print={forget(){forgotten++;},open(options){opened=options;return {focus(){},close(){closed++;options.onClose();}};}};
+  h.events.get('click.cfg_driver .cfg-driver-print-documents')();
+  assert.equal(opened.trip,trip);const focusCount=h.focuses.length;
+  assert.equal(opened.onSessionError(new Error('Operator session is not active; scan your operator QR again'),'TOKEN'),true);
+  assert.equal(closed,1);assert(forgotten>0);assert.equal(h.view.app.state.token,null);assert.equal(h.data.has(SESSION),false);
+  assert.match(h.nodes.get('.cfg-driver-notice').caption,/scan your operator QR again/);
+  assert(h.focuses.length>focusCount);assert.equal(h.focuses.at(-1),'focus');h.view.hide();
 });
 
 test('optional visit exposes one shared-pool sale and actual selected/delivered products',()=>{

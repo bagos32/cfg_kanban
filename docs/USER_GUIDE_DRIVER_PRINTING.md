@@ -186,10 +186,22 @@ Source printed ranges are provenance, not invented individual-unit assignments f
 - New invoices, labels, print jobs and print confirmations use the existing durable driver action
   identity. After a lost response, use **Retry original request** or **Read back result**. Do not
   create a new request to bypass uncertainty. Another operator cannot retry your retained request.
-- **Unfinished print jobs** can be resumed. If the source document or format changes, close the
+- If the server rejects a print action because the operator session is inactive or expired, the
+  panel closes its stale controls, clears the transient signing key and returns focus to operator
+  sign-in. Scan the original operator's QR again, reopen the Trip's documents and read back any
+  retained unresolved request before continuing. Existing jobs and segment history remain intact;
+  signing in does not automatically send a print. A normal permission or changed-print error does
+  not sign the operator out.
+- **Unfinished print jobs** can be resumed. If the source document version or rendered print content changes, close the
   unfinished job with a reason and prepare a new reviewed print. Closing a job preserves audit
   history and does not cancel or change the source document. A changed raster manifest also
   cannot silently replace previously prepared segments. Printer dimensions are frozen per job; changed device defaults apply to new jobs.
+- A Print Format save or migration that changes only its version can continue the original job
+  when the source document version and complete freshly rendered HTML/CSS still match its saved
+  review. The original job versions/hashes stay immutable; a segment handoff records the original
+  and revalidated format versions. Native read/print permission, format validity, signature policy
+  and any uncertain-segment retry reason still apply. A real mismatch identifies the exact job and
+  whether the source version, selected format or rendered content changed.
 - If preparing a print reports an unfinished job, return to **Documents / Print / Invoice**.
   **Unfinished print jobs** also lists jobs for the displayed documents that were prepared by
   another operator, at another stop, or on another Trip. It shows the original job, operator,
