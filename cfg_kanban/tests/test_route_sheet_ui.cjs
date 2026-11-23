@@ -94,7 +94,52 @@ function dialogFixture(mode='editor'){
  await test('new global commands route from both panels and have printable command labels',()=>{
   const base=path.resolve(__dirname,'..'),operator=fs.readFileSync(path.join(base,'api/operator.py'),'utf8'),prod=fs.readFileSync(path.join(base,'cfg_kanban/page/kanban_operator/kanban_operator.js'),'utf8'),panel=fs.readFileSync(path.join(base,'cfg_kanban/page/kanban_logistics/kanban_logistics.js'),'utf8');
   for(const name of ['VIEW_LORRY_ROUTE','EDIT_ROUTE_SEQUENCE']){assert(operator.includes('CFG:CMD:'+name));assert(prod.includes(name));assert(panel.includes('CFG:CMD:'+name));}
-  for(const name of ['ROUTE_TEMPLATE','ROUTE_MOVE_UP','ROUTE_MOVE_DOWN','ROUTE_APPROVE_SEQUENCE','ROUTE_SAVE_DRAFT','ROUTE_SHEET_CAMERA'])assert(operator.includes('CFG:CMD:'+name));
+  for(const name of ['ROUTE_TEMPLATE','ROUTE_MOVE_UP','ROUTE_MOVE_DOWN','ROUTE_APPROVE_SEQUENCE','ROUTE_SAVE_DRAFT','ROUTE_SHEET_CAMERA','ROUTE_REVIEW_PLANS','ROUTE_OPEN_DELIVERIES'])assert(operator.includes('CFG:CMD:'+name));
+  assert(panel.includes('if (active_delivery_action) return active_delivery_action.scan(raw)'));
+  assert(panel.includes('openReview:plan=>open_dispatch_review("begin",plan),openDelivery:name=>open_delivery_session(name)'));
+ });
+ function cancellationContext(f,state='Cancellation Pending'){
+  return {scope_key:'V:LORRY',sheet:{name:'OLD-SHEET',state,revision:7,can_start:false,can_cancel:state!=='Cancelled',stops:f.ctx().stops,
+   cancellation_reason:'End old route',cancellation:{ready:false,plans:[{name:'P1',state:'Loaded',review_state:'Reviewing',settled:false,open_deliveries:[{name:'KDS-OPEN',state:'Delivered'}]},
+    {name:'P2',state:'Reconciled',review_state:'Settled',settled:true,open_deliveries:[]}]}}};
+ }
+ await test('pending cancellation shows blockers, exact sheet ID and finish action without draft edits',async()=>{
+  const f=dialogFixture();f.context(cancellationContext(f));const call=f.frappe.call;f.frappe.call=async args=>args.method.endsWith('save_route_sheet')?{message:f.ctx()}:call(args);
+  const h=await api.open(f.options),d=f.dialog();assert(d.fields_dict.summary.html.includes('KDS-OPEN'));assert(d.fields_dict.controls.html.includes('Finish Route Cancellation'));assert(!d.fields_dict.controls.html.includes('Approve Sequence'));
+  await h.scan('CFG:CMD:ROUTE_SHEET_REASON');await h.scan('Supervisor ends trip');await h.scan('CFG:CMD:ROUTE_CANCEL_SHEET');await h.scan('CFG:CMD:CONFIRM');
+  assert(d.visible);assert.equal(h.controller.state.context.sheet.state,'Cancellation Pending');assert.equal(h.controller.state.action,'Cancel');assert(f.focus()>0);
+ });
+ await test('scanner finish-cancel submits frozen parent and revision, then closes after settlement',async()=>{
+  const f=dialogFixture();f.context(cancellationContext(f));let submitted;const call=f.frappe.call;
+  f.frappe.call=async request=>{if(request.method.endsWith('save_route_sheet')){submitted=request.args;return {message:{scope_key:'V:LORRY',sheet:{...f.ctx().sheet,state:'Cancelled'}}};}return call(request);};
+  const h=await api.open(f.options);await h.scan('CFG:CMD:ROUTE_SHEET_REASON');await h.scan('E5 settled');await h.scan('CFG:CMD:CONFIRM');
+  assert.equal(submitted.route_sheet,'OLD-SHEET');assert.equal(submitted.expected_revision,7);assert.equal(submitted.reason,'E5 settled');assert.equal(submitted.action,'Cancel');assert.equal(f.dialog().visible,false);
+ });
+ await test('touch and numbered scanner review handoff release parent before opening E5 once',async()=>{
+  const f=dialogFixture();f.context(cancellationContext(f));let closed=0,review=null;f.options.onClose=()=>closed++;f.options.openReview=async name=>{assert.equal(closed,1);review=name;};
+  const h=await api.open(f.options);f.handlers['.route-reviews'].click();await h.scan('CFG:SELECT:2');assert.equal(review,'P2');assert.equal(f.dialog().visible,false);
+  f.dialog().onhide();assert.equal(closed,1);
+ });
+ await test('open-delivery choice hands the original Session to its controlled workflow',async()=>{
+  const f=dialogFixture();f.context(cancellationContext(f));let delivery=null;f.options.openDelivery=async name=>delivery=name;const h=await api.open(f.options);
+  await h.scan('CFG:CMD:ROUTE_OPEN_DELIVERIES');await h.scan('CFG:SELECT:1');assert.equal(delivery,'KDS-OPEN');assert.equal(f.dialog().visible,false);
+ });
+ await test('stopped routes cannot start visits and terminal history has no cancellation buttons',async()=>{
+  const f=dialogFixture('driver');f.context(cancellationContext(f));const h=await api.open(f.options);await h.scan('CFG:SELECT:1');await h.scan('CFG:CMD:CONFIRM');
+  assert(!f.calls.some(row=>row.method.endsWith('start_route_sheet_stop')));assert(f.dialog().fields_dict.summary.html.includes('route is stopped'));
+  const old=dialogFixture();old.context(cancellationContext(old,'Cancelled'));await api.open(old.options);assert(!old.dialog().fields_dict.controls.html.includes('route-cancel'));
+ });
+ await test('lost cancellation reply read-back retains recovery state and refresh targets original sheet',async()=>{
+  const f=dialogFixture();const initial=cancellationContext(f,'In Progress');initial.sheet.can_start=true;f.context(initial);let receipt=false,refreshArgs;const call=f.frappe.call;
+  f.frappe.call=async request=>{
+   if(request.method.endsWith('save_route_sheet'))throw new Error('Lost reply');
+   if(request.method.endsWith('reconcile_route_sheet_action')){receipt=true;return {message:{status:'Recorded',sheet:cancellationContext(f).sheet}};}
+   if(receipt&&request.method.endsWith('get_route_context'))refreshArgs=request.args;
+   return call(request);
+  };
+  const h=await api.open(f.options);await h.scan('CFG:CMD:ROUTE_CANCEL_SHEET');await h.scan('CFG:CMD:CONFIRM');assert(h.controller.state.pending);
+  await h.scan('CFG:CMD:ROUTE_SHEET_REFRESH');assert.equal(h.controller.state.context.sheet.state,'Cancellation Pending');assert.equal(h.controller.state.action,'Cancel');assert(f.dialog().visible);
+  await h.scan('CFG:CMD:ROUTE_SHEET_REFRESH');assert.equal(refreshArgs.route_sheet,'OLD-SHEET');assert.equal(h.controller.state.pending,null);
  });
  console.log(`${ntests} route-sheet UI checks passed`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

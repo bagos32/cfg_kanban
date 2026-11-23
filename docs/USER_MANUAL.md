@@ -5921,6 +5921,18 @@ stop, scan its Site QR if required and Confirm. The existing Customer Delivery S
 Delivery Note and proof steps continue. Multi-day trips remain active until explicit E5 settlement;
 **Close Settled Trip** needs every Plan settled and a Supervisor reason.
 
+To stop an older Route Sheet, a Supervisor opens **Kanban Logistics → Plan / Approve Route
+Sequence**, scans its Sheet number and chooses **Stop / Cancel Route** with a reason and Confirm.
+Unstarted Sheets cancel immediately. Started Sheets enter **Cancellation Pending**, block further
+visits and list their original Plans and outstanding Delivery Sessions. **Open Deliveries** and
+**E5 Plan Reviews** open the existing controlled workflows using numbered choices. Finish/cancel
+open Sessions appropriately and settle every original Plan through E5/D3, then reopen/Refresh the
+Sheet and **Finish Route Cancellation** with a reason. Plans already **Reconciled / Settled** can
+finalize directly. Continue Same Plan Overnight does not settle a Plan. Posted customer documents,
+proof, stock movements and completed visits remain intact; newer lorry loads are not cancelled.
+An active office Delivery Trip uses its own stop-cancellation workflow before historical Sheet
+cleanup. See the [legacy Sheet recovery steps](USER_GUIDE_LORRY_ROUTES_AND_FLOOR.md).
+
 For **Kanban Floor**, create an active **CFG Kanban Dashboard Profile** with **View Type → Logistics
 and Delivery**, Company and optional source/lorry Warehouse. Leave Workstations empty. The read-only
 board shows Upcoming Preparation, Ready to Load and assigned lorries; Stock/Sales terminal roles

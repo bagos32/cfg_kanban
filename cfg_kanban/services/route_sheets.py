@@ -113,6 +113,51 @@ def _current_sheet(key):
     return frappe.get_doc(SHEET,name,for_update=True) if name else None
 
 
+def _sheet_scope(sheet):
+    return _scope_key(plan=sheet.dispatch_plan) if sheet.scope==PER_PLAN else _scope_key(warehouse=sheet.vehicle_warehouse)
+
+
+def _sheet_members(sheet,operator):
+    # Teardown belongs to the frozen itinerary, never today's candidate lorry loads.
+    names=sorted({row.dispatch_plan for row in sheet.stops})
+    if not names:frappe.throw('This Route Sheet has no member Plans; review its audit history')
+    # P: scopes already hold their Plan. Feedback locks Session -> Plan -> Route Stop,
+    # so never take Session locks from here. Current Plan mirrors detect prior starts;
+    # E5 Settled is mandatory for a started route and owns the no-open-delivery check.
+    plans=[frappe.get_doc('CFG Kanban Dispatch Plan',name,for_update=True) for name in names]
+    for plan in plans:
+        _plans()._assert_plan_authorized(plan,operator)
+        plan.check_permission('read')
+        if plan.company!=sheet.company:frappe.throw('Route Sheet member Plan belongs to another Company')
+        if plan.get('active_route_sheet') and plan.active_route_sheet!=sheet.name:
+            frappe.throw('A member Plan belongs to a newer Route Sheet; resolve that route first')
+    sessions=frappe.db.get_values('CFG Kanban Delivery Session',{'dispatch_plan':['in',names]},
+        ['name','dispatch_plan','state'],as_dict=True,order_by='name asc')
+    return plans,sessions
+
+
+def _closure_context(plans,sessions):
+    members=[]
+    for plan in plans:
+        opened=[dict(name=row.name,state=row.state) for row in sessions
+                if row.dispatch_plan==plan.name and row.state not in ('Closed','Cancelled')]
+        members.append(dict(name=plan.name,state=plan.state,review_state=plan.get('dispatch_review_state') or '',
+            settled=plan.state=='Reconciled' and plan.get('dispatch_review_state')=='Settled',
+            active_route_stop=plan.get('active_route_stop'),open_deliveries=opened,
+            office_delivery_trip=plan.get('office_delivery_trip')))
+    return dict(plans=members,ready=all(row['settled'] and not row['open_deliveries'] and not row['active_route_stop'] for row in members))
+
+
+def _assert_legacy_cancellation(plans):
+    # A live office Trip owns its frozen driver itinerary. Stop cancellation there must
+    # use its existing Supervisor workflow; changing its Sheet independently strands it.
+    for name in sorted({plan.get('office_delivery_trip') for plan in plans if plan.get('office_delivery_trip')}):
+        state=frappe.db.get_value('CFG Kanban Delivery Trip',name,'state')
+        if state not in ('Closed','Cancelled'):
+            frappe.throw('This route belongs to active Delivery Trip '+name+
+                '; use its customer-stop cancellation and E5 closure workflow first')
+
+
 def _members(key,operator,allow_unloaded=True):
     kind,name=key.split(':',1)
     if kind=='P':
@@ -175,16 +220,25 @@ def _status(row):
 
 
 def sheet_context(sheet,operator):
+    sheet.check_permission('read')
     frappe.get_doc('Company',sheet.company).check_permission('read')
     if sheet.vehicle_warehouse:frappe.get_doc('Warehouse',sheet.vehicle_warehouse).check_permission('read')
     members=sorted({row.dispatch_plan for row in sheet.stops})
-    for name in members:_plans()._assert_plan_authorized(frappe.get_doc('CFG Kanban Dispatch Plan',name),operator)
+    plans=[frappe.get_doc('CFG Kanban Dispatch Plan',name) for name in members]
+    for plan in plans:
+        _plans()._assert_plan_authorized(plan,operator)
+        plan.check_permission('read')
     result=sheet.as_dict()
     result['stops']=[dict(row.as_dict(),**_status(row)) for row in sheet.stops]
     if sheet.state in ('Approved','In Progress','Ready to Close') and all(row['state'] in TERMINAL for row in result['stops']):result['state']='Ready to Close'
     result['can_edit']=bool(sheet.state=='Draft' and operator.kanban_role in ('Supervisor','Development Proxy') and operator.get('can_override'))
     result['can_start']=bool(result['state'] in ('Approved','In Progress') and operator.get('can_start') and _delivery()._customer_delivery_allowed(operator))
     result['can_close']=bool(result['state']=='Ready to Close' and operator.get('can_override') and operator.kanban_role in ('Supervisor','Development Proxy'))
+    result['can_cancel']=bool(sheet.state not in ('Completed','Cancelled') and operator.get('can_start') and operator.get('can_override') and operator.kanban_role in ('Supervisor','Development Proxy'))
+    if sheet.state not in ('Completed','Cancelled'):
+        sessions=frappe.db.get_values('CFG Kanban Delivery Session',{'dispatch_plan':['in',members]},
+            ['name','dispatch_plan','state'],as_dict=True,order_by='name asc')
+        result['cancellation']=_closure_context(plans,sessions)
     return result
 
 
@@ -193,7 +247,7 @@ def get_route_context(operator_session_token,dispatch_plan=None,warehouse=None,r
     operator,_session=require_operator(operator_session_token)
     if route_sheet:
         sheet=frappe.get_doc(SHEET,route_sheet)
-        if sheet.state!='Draft' or any(frappe.db.get_value('CFG Kanban Dispatch Plan',row.dispatch_plan,'state') in ('Cancelled','Reconciled') for row in sheet.stops):return dict(sheet=sheet_context(sheet,operator),scope_key=sheet.active_scope_key)
+        if sheet.state!='Draft' or any(frappe.db.get_value('CFG Kanban Dispatch Plan',row.dispatch_plan,'state') in ('Cancelled','Reconciled') for row in sheet.stops):return dict(sheet=sheet_context(sheet,operator),scope_key=_sheet_scope(sheet))
         dispatch_plan=sheet.dispatch_plan if sheet.scope==PER_PLAN else None
         warehouse=sheet.vehicle_warehouse if sheet.scope==COMBINED else None
     if dispatch_plan:
@@ -319,42 +373,76 @@ def _approve(sheet,plans,operator):
 
 @frappe.whitelist()
 def save_route_sheet(scope_key,stops,expected_revision,event_token,operator_session_token,
-                     action='Save Draft',template=None,reason=None,template_hash=None):
+                     action='Save Draft',template=None,reason=None,template_hash=None,route_sheet=None):
     operator,session=require_operator(operator_session_token,'start')
     if action not in ('Save Draft','Approve','Cancel','Close'):frappe.throw('Select a valid route action')
     _lock(scope_key)
     key=_action_key(scope_key,operator,event_token)
     request=dict(scope_key=scope_key,stops=frappe.parse_json(stops) if isinstance(stops,str) else stops,
         expected_revision=cint(expected_revision),action=action,template=template or None,template_hash=template_hash or None,reason=(reason or '').strip())
+    # Old browser receipts have no parent ID. Keep their hash stable for read-back/retry.
+    if route_sheet:request['route_sheet']=route_sheet
     fingerprint=canonical_key('route-sheet-request',request)
     receipt=_receipt(key,fingerprint)
     if receipt:
         if receipt.get('voided'):frappe.throw('This unrecorded route action was voided',RouteSheetReplayError)
         return dict(sheet=sheet_context(frappe.get_doc(SHEET,receipt['route_sheet']),operator),scope_key=scope_key)
-    sheet=_current_sheet(scope_key)
-    plans=_members(scope_key,operator) if action!='Close' else [frappe.get_doc('CFG Kanban Dispatch Plan',name) for name in sorted({row.dispatch_plan for row in sheet.stops})] if sheet else []
+    current=_current_sheet(scope_key)
+    sheet=frappe.get_doc(SHEET,route_sheet,for_update=True) if route_sheet else current
+    if sheet and _sheet_scope(sheet)!=scope_key:frappe.throw('Route Sheet does not belong to this route scope')
+    if sheet:
+        sheet.check_permission('read')
+        frappe.get_doc('Company',sheet.company).check_permission('read')
+        if sheet.vehicle_warehouse:frappe.get_doc('Warehouse',sheet.vehicle_warehouse).check_permission('read')
+    teardown=action in ('Close','Cancel')
+    if not teardown and route_sheet and (not current or current.name!=sheet.name):
+        frappe.throw('Route changed; refresh before saving this revision')
+    plans,sessions=(_sheet_members(sheet,operator) if sheet else ([],[])) if teardown else (_members(scope_key,operator),[])
     for plan in plans:_plans()._assert_plan_authorized(plan,operator)
     if (cint(sheet.revision) if sheet else 0)!=cint(expected_revision):
         frappe.throw('Route changed; refresh before saving this revision')
-    if action in ('Close','Cancel'):
+    if teardown:
         _supervisor(operator)
         if not sheet or not request['reason']:frappe.throw('An existing route and decision reason are required')
+        if sheet.state in ('Completed','Cancelled'):frappe.throw('This Route Sheet is already closed; its history is retained')
+        if not isinstance(request['stops'],list) or any(not isinstance(row,dict) for row in request['stops']):
+            frappe.throw('Refresh the Route Sheet stops before cancelling or closing')
+        identities=lambda values:[(row.get('row_key'),row.get('dispatch_plan'),row.get('customer_scan_point')) for row in values]
+        if identities(request['stops'] or [])!=identities(sheet.stops):
+            frappe.throw('Route changed; refresh the exact Route Sheet before cancelling or closing')
         states=[_status(row)['state'] for row in sheet.stops]
         if action=='Cancel':
-            if any(state not in ('Planned','Skipped','Cancelled') for state in states):
-                frappe.throw('A started route cannot be cancelled; complete deliveries and E5 review first')
-            for row in sheet.stops:
-                if row.source_route_stop:
-                    stop=frappe.get_doc('CFG Kanban Route Stop',row.source_route_stop)
-                    if stop.state=='Planned':stop.db_set({'state':'Skipped','skip_reason':request['reason'],'skipped_by':operator.employee,'skipped_on':now_datetime()},update_modified=True)
-            sheet.state='Cancelled'
+            _assert_legacy_cancellation(plans)
+            started=bool(sessions or sheet.get('cancellation_requested_on') or sheet.state in ('In Progress','Cancellation Pending') or
+                any(plan.get('delivery_session') or plan.get('active_route_stop') or plan.get('dispatch_review_state') for plan in plans) or
+                any(row.get('delivery_session') or row.get('actual_sequence') for row in sheet.stops) or
+                any(state not in ('Planned','Skipped','Cancelled','Closed Incomplete') for state in states))
+            closure=_closure_context(plans,sessions)
+            if started and not closure['ready']:
+                if not current or current.name!=sheet.name:
+                    frappe.throw('This historical route is no longer active; settle its original Plans through E5 before cancelling it')
+                if not sheet.get('cancellation_requested_on'):
+                    sheet.cancellation_requested_on=now_datetime()
+                    sheet.cancellation_requested_by=operator.employee
+                    sheet.cancellation_reason=request['reason']
+                    sheet.cancellation_snapshot_json=frappe.as_json(closure)
+                sheet.state='Cancellation Pending'
+            else:
+                for row in sheet.stops:
+                    if row.source_route_stop:
+                        stop=_live_source_stop(row)
+                        if stop and stop.state=='Planned':stop.db_set({'state':'Skipped','skip_reason':request['reason'],'skipped_by':operator.employee,'skipped_on':now_datetime()},update_modified=True)
+                sheet.state='Cancelled'
         else:
+            if sheet.state=='Cancellation Pending':frappe.throw('Finish the pending Route Sheet cancellation after E5 settlement')
             if any(state not in TERMINAL for state in states) or any(plan.state!='Reconciled' or plan.dispatch_review_state!='Settled' for plan in plans):
                 frappe.throw('Complete/skip every visit and settle every Plan through E5 before closing the trip')
+            if not _closure_context(plans,sessions)['ready']:frappe.throw('Resolve open Delivery Sessions before closing the trip')
             sheet.state='Completed'
-        sheet.active_scope_key=None;sheet.closed_on=now_datetime();sheet.decision_notes=request['reason']
+        if sheet.state in ('Cancelled','Completed'):
+            sheet.active_scope_key=None;sheet.closed_on=now_datetime();sheet.decision_notes=request['reason']
     else:
-        if sheet and sheet.state!='Draft':frappe.throw('Approved route order is frozen; finish its visits or cancel an unstarted route with a reason')
+        if sheet and sheet.state!='Draft':frappe.throw('Approved route order is frozen; finish its visits or stop/cancel the route with a reason')
         _supervisor(operator)
         if any(not _route_ready(plan) for plan in plans):frappe.throw('Load every assigned Plan before saving its trip route')
         if any(plan.get('active_route_sheet') and (not sheet or plan.active_route_sheet!=sheet.name) for plan in plans):frappe.throw('Close or cancel the previous Route Sheet before planning another trip')
@@ -384,12 +472,14 @@ def save_route_sheet(scope_key,stops,expected_revision,event_token,operator_sess
     sheet.revision=cint(sheet.revision)+1
     sheet.save(ignore_permissions=True)
     for plan in plans:
-        plan.db_set('active_route_sheet',None if action in ('Close','Cancel') else sheet.name,update_modified=False)
+        if not teardown:plan.db_set('active_route_sheet',sheet.name,update_modified=False)
+        elif sheet.state in ('Cancelled','Completed') and plan.get('active_route_sheet')==sheet.name:
+            plan.db_set('active_route_sheet',None,update_modified=False)
     record('Customer Route Sheet '+action,reference_doctype=SHEET,reference_name=sheet.name,
         operator=operator.employee,operator_session=session.name,terminal_user=session.terminal_user,
         notes=request['reason'],idempotency_key=key,
         payload=dict(request_hash=fingerprint,route_sheet=sheet.name,revision=sheet.revision,
-            action=action,sequence=[dict(plan=row.dispatch_plan,site=row.customer_scan_point,row_key=row.row_key) for row in sheet.stops]))
+            action=action,state=sheet.state,sequence=[dict(plan=row.dispatch_plan,site=row.customer_scan_point,row_key=row.row_key) for row in sheet.stops]))
     return dict(sheet=sheet_context(sheet,operator),scope_key=scope_key)
 
 
@@ -438,6 +528,8 @@ def assert_visit_allowed(plan,site_name,route_stop=None):
         return None
     if sheet.company!=plan.company or sheet.vehicle_warehouse!=plan.vehicle_warehouse:
         frappe.throw('Route Sheet Company/lorry no longer matches this loaded Plan')
+    if sheet.state=='Cancellation Pending':
+        frappe.throw('Route cancellation is pending; resolve existing deliveries and settle its Plans through E5')
     if sheet.state not in ('Approved','In Progress','Ready to Close'):
         frappe.throw('Supervisor must approve this route before customer delivery can start')
     matches=[];pending=[];active=[]

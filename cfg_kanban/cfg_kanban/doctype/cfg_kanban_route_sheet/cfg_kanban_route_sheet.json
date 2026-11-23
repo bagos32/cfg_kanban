@@ -23,6 +23,10 @@
   "approved_on",
   "created_by_operator",
   "created_on",
+  "cancellation_requested_on",
+  "cancellation_requested_by",
+  "cancellation_reason",
+  "cancellation_snapshot_json",
   "closed_on",
   "decision_notes",
   "active_scope_key"
@@ -35,7 +39,7 @@
    "default": "Draft",
    "read_only": 1,
    "in_list_view": 1,
-   "options": "Draft\nApproved\nIn Progress\nReady to Close\nCompleted\nCancelled"
+   "options": "Draft\nApproved\nIn Progress\nReady to Close\nCancellation Pending\nCompleted\nCancelled"
   },
   {
    "fieldname": "scope",
@@ -154,6 +158,32 @@
    "fieldname": "created_on",
    "label": "Created On",
    "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancellation_requested_on",
+   "label": "Cancellation Requested On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancellation_requested_by",
+   "label": "Cancellation Requested By",
+   "fieldtype": "Link",
+   "options": "Employee",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancellation_reason",
+   "label": "Cancellation Request Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancellation_snapshot_json",
+   "label": "Cancellation Request Snapshot",
+   "fieldtype": "Long Text",
+   "hidden": 1,
    "read_only": 1
   },
   {

@@ -178,6 +178,8 @@ class TestTripSequence(unittest.TestCase):
                 return Row({k:row.get(k) for k in fields}) if row and isinstance(fields,list) else row.get(fields) if row else None
             return old_value(dt,name,fields,**kw)
         self.b.frappe.db.get_value=value
+        self.b.frappe.db.get_values=lambda dt,filters,fields,**kw:[Row({key:row.get(key) for key in fields})
+            for row in self.data.get(dt,{}).values() if self.b.matches(row,filters)]
         mod._plans=lambda:Row(_assert_plan_authorized=self.a.authorized,_require_event_token=lambda v:None)
         self.a.engine._customer_delivery_allowed=lambda op:True
         mod._delivery=lambda:self.a.engine;mod._fulfilment=lambda:self.a.prepared

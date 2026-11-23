@@ -316,6 +316,163 @@ class TestRouteSheets(unittest.TestCase):
         result=self.save(scope_key='P:P1',stops=self.rows[:1]);self.assertEqual(result['sheet']['scope'],'Per Dispatch Plan')
         self.assertEqual(result['sheet']['verification_policy'],'Require Customer Site QR')
 
+    def cancel(self,event='CANCEL',**changes):
+        args=dict(route_sheet=self.sheet().name,expected_revision=self.sheet().revision,event_token=event,reason='Stop old trip')
+        args.update(changes)
+        return self.save('Cancel',**args)
+
+    def settle(self):
+        for session in self.data.get('CFG Kanban Delivery Session',{}).values():session.state='Closed'
+        for plan in (self.p1,self.p2):
+            plan.update(state='Reconciled',dispatch_review_state='Settled',active_route_stop=None)
+
+    def test_unstarted_cancellation_still_skips_planned_visits_without_stock_changes(self):
+        self.save();original=copy.deepcopy(self.sheet().stops)
+        result=self.cancel()
+        self.assertEqual(result['sheet']['state'],'Cancelled')
+        self.assertIsNone(self.sheet().active_scope_key)
+        self.assertIsNone(self.p1.active_route_sheet);self.assertIsNone(self.p2.active_route_sheet)
+        self.assertEqual(self.p1.state,'Loaded');self.assertEqual(self.p2.state,'Loaded')
+        self.assertEqual(self.sheet().stops,original)
+        self.assertEqual(self.data['CFG Kanban Route Stop'][original[1].source_route_stop].state,'Skipped')
+
+    def test_started_cancellation_stops_new_visits_and_lists_exact_delivery_and_reviews(self):
+        self.save();delivery=self.start();before=copy.deepcopy(self.sheet().stops)
+        result=self.cancel();sheet=result['sheet']
+        self.assertEqual(sheet['state'],'Cancellation Pending')
+        self.assertEqual(self.sheet().active_scope_key,'V:LORRY')
+        self.assertEqual(self.p1.active_route_sheet,self.sheet().name)
+        self.assertEqual(self.p2.active_route_sheet,self.sheet().name)
+        self.assertEqual(self.sheet().stops,before)
+        self.assertEqual(sheet['cancellation_requested_by'],'EMP')
+        self.assertEqual(sheet['cancellation_reason'],'Stop old trip')
+        self.assertFalse(sheet['can_start']);self.assertFalse(sheet['cancellation']['ready'])
+        self.assertEqual(sheet['cancellation']['plans'][0]['open_deliveries'],[dict(name=delivery['name'],state='Allocating')])
+        with self.assertRaisesRegex(ValueError,'cancellation is pending'):
+            self.ns['assert_visit_allowed'](self.p2,'S2')
+        with self.assertRaisesRegex(ValueError,'cancellation is pending'):
+            self.start('R2','BLOCKED')
+        self.assertEqual(len(self.data['CFG Kanban Delivery Session']),1)
+        self.assertIsNone(self.sheet().closed_on)
+
+    def test_finish_cancellation_requires_all_member_plans_and_preserves_delivered_evidence(self):
+        self.save();delivery=self.start();self.cancel()
+        self.data['CFG Kanban Delivery Session'][delivery['name']].update(state='Closed',delivery_note='DN-POSTED')
+        self.p1.update(state='Reconciled',dispatch_review_state='Settled',fulfilment_status='Completed')
+        self.p2.update(dispatch_review_state='Overnight')
+        self.assertEqual(self.cancel('NOT-SETTLED')['sheet']['state'],'Cancellation Pending')
+        self.settle();self.p2.state='Reconciled'
+        result=self.cancel('FINISH')
+        self.assertEqual(result['sheet']['state'],'Cancelled')
+        self.assertEqual(result['sheet']['stops'][0]['state'],'Completed')
+        self.assertEqual(result['sheet']['stops'][0]['delivery_session'],delivery['name'])
+        self.assertEqual(self.data['CFG Kanban Delivery Session'][delivery['name']].delivery_note,'DN-POSTED')
+        self.assertEqual(self.sheet().cancellation_reason,'Stop old trip')
+        self.assertTrue(self.sheet().closed_on)
+        self.assertEqual(self.events[-1][1]['payload']['state'],'Cancelled')
+
+    def test_open_delivery_or_active_visit_blocks_final_cancellation_even_with_stale_settled_flags(self):
+        self.save();self.start();self.cancel()
+        for plan in (self.p1,self.p2):plan.update(state='Reconciled',dispatch_review_state='Settled')
+        for state in ('Allocating','Delivery Note Pending','Delivered','Exception'):
+            self.data['CFG Kanban Delivery Session']['KDS1'].state=state
+            with self.subTest(state=state):
+                self.assertEqual(self.cancel(state)['sheet']['state'],'Cancellation Pending')
+        self.data['CFG Kanban Delivery Session']['KDS1'].state='Closed';self.p1.active_route_stop='STALE'
+        self.assertEqual(self.cancel('ACTIVE')['sheet']['state'],'Cancellation Pending')
+        self.p1.active_route_stop=None
+        self.assertEqual(self.cancel('FINAL')['sheet']['state'],'Cancelled')
+
+    def test_settled_legacy_sheet_cancels_directly_without_reloading_current_lorry_candidates(self):
+        self.save();self.start();self.settle()
+        unrelated=self.plan('NEW-LOAD','Open Route Stock',active_route_sheet='NEW-SHEET',reserved_qty=8)
+        before=unrelated.as_dict()
+        result=self.cancel()
+        self.assertEqual(result['sheet']['state'],'Cancelled')
+        self.assertEqual(unrelated.as_dict(),before)
+        self.assertEqual(len(self.sheet().stops),2)
+
+    def test_cancel_of_old_unlinked_sheet_does_not_clear_newer_scope(self):
+        self.save();old=self.sheet();old.active_scope_key=None;self.settle()
+        newer=self.add(self.ns['SHEET'],'NEW-SHEET',active_scope_key='V:LORRY',state='Approved',revision=1,company='B',
+            scope='Combined Lorry Trip',vehicle_warehouse='LORRY',stops=[])
+        self.assertEqual(self.cancel()['sheet']['state'],'Cancelled')
+        self.assertEqual(newer.active_scope_key,'V:LORRY');self.assertEqual(newer.state,'Approved')
+
+    def test_member_link_to_new_sheet_is_never_cleared_by_old_cancellation(self):
+        self.save();self.settle();self.p1.active_route_sheet='NEW-SHEET'
+        with self.assertRaisesRegex(ValueError,'newer Route Sheet'):self.cancel()
+        self.assertEqual(self.p1.active_route_sheet,'NEW-SHEET')
+        self.assertEqual(self.sheet().state,'Approved')
+
+    def test_exact_sheet_scope_revision_and_rows_are_required_for_teardown(self):
+        self.save();before=self.sheet().as_dict()
+        for change in (dict(scope_key='P:P1'),dict(expected_revision=0),dict(stops={}),dict(stops=['invalid']),dict(stops=list(reversed(self.rows))),
+                       dict(stops=[dict(self.rows[0],row_key='OLD'),self.rows[1]])):
+            with self.subTest(change=change),self.assertRaises(ValueError):self.cancel(**change)
+        self.assertEqual(self.sheet().as_dict(),before)
+
+    def test_cancellation_requires_reason_supervisor_company_plan_and_sheet_read(self):
+        self.save()
+        with self.assertRaisesRegex(ValueError,'reason'):self.cancel(reason=' ')
+        self.operator.can_override=0
+        with self.assertRaises(ValueError):self.cancel()
+        self.operator.can_override=1
+        for target in (self.p1,self.sheet(),self.data['Company']['B'],self.data['Warehouse']['LORRY']):
+            target._denied=True
+            with self.subTest(target=target.name),self.assertRaises(PermissionError):self.cancel()
+            target._denied=False
+        self.allowed=False
+        with self.assertRaises(PermissionError):self.cancel()
+        self.allowed=True;self.p2.company='A'
+        with self.assertRaisesRegex(ValueError,'another Company'):self.cancel()
+        self.assertFalse(any(event[0]=='Customer Route Sheet Cancel' for event in self.events))
+
+    def test_pending_request_replay_is_stable_and_different_payload_rejected(self):
+        self.save();self.start();revision=self.sheet().revision
+        first=self.cancel(expected_revision=revision);events=len(self.events)
+        self.assertEqual(self.cancel(expected_revision=revision),first)
+        self.assertEqual(len(self.events),events)
+        with self.assertRaises(self.ns['RouteSheetReplayError']):self.cancel(expected_revision=revision,reason='Changed')
+        result=self.ns['reconcile_route_sheet_action']('V:LORRY','CANCEL','TOKEN')
+        self.assertEqual(result['status'],'Recorded');self.assertEqual(result['sheet']['state'],'Cancellation Pending')
+        snapshot=self.sheet().cancellation_snapshot_json;requested_on=self.sheet().cancellation_requested_on
+        self.cancel('STILL-PENDING',reason='Follow-up')
+        self.assertEqual(self.sheet().cancellation_reason,'Stop old trip')
+        self.assertEqual(self.sheet().cancellation_snapshot_json,snapshot)
+        self.assertEqual(self.sheet().cancellation_requested_on,requested_on)
+
+    def test_old_receipt_without_parent_id_can_still_replay_after_upgrade(self):
+        self.save();revision=self.sheet().revision
+        first=self.save('Cancel',expected_revision=revision,event_token='LEGACY',reason='Old browser')
+        self.assertEqual(self.save('Cancel',expected_revision=revision,event_token='LEGACY',reason='Old browser'),first)
+
+    def test_pending_cancellation_cannot_be_closed_as_completed_or_reapproved(self):
+        self.save();self.start();self.cancel();self.settle()
+        for action in ('Close','Approve','Save Draft'):
+            with self.subTest(action=action),self.assertRaises(ValueError):
+                self.save(action,route_sheet=self.sheet().name,expected_revision=self.sheet().revision,event_token=action,reason='Do not relabel history')
+
+    def test_active_office_trip_uses_existing_trip_cancellation_instead_of_mutating_its_snapshot(self):
+        self.save();self.start();self.p1.office_delivery_trip='OFFICE'
+        trip=self.add('CFG Kanban Delivery Trip','OFFICE',state='Planned')
+        with self.assertRaisesRegex(ValueError,'active Delivery Trip OFFICE'):self.cancel()
+        self.assertEqual(self.sheet().state,'In Progress')
+        trip.state='Closed';self.settle()
+        self.assertEqual(self.cancel()['sheet']['state'],'Cancelled')
+
+    def test_cancellation_never_locks_sessions_after_per_plan_scope_lock(self):
+        self.p1.route_sequence_scope='Per Dispatch Plan'
+        self.save(scope_key='P:P1',stops=self.rows[:1]);self.start()
+        original=self.frappe.db.get_values;reads=[]
+        def get_values(dt,*args,**kwargs):
+            if dt=='CFG Kanban Delivery Session':reads.append(kwargs)
+            return original(dt,*args,**kwargs)
+        self.frappe.db.get_values=get_values
+        result=self.cancel(scope_key='P:P1',stops=self.rows[:1])
+        self.assertEqual(result['sheet']['state'],'Cancellation Pending')
+        self.assertTrue(reads);self.assertTrue(all(not row.get('for_update') for row in reads))
+
 if __name__=='__main__':unittest.main()
 
 
@@ -351,3 +508,28 @@ class TestDeliveryRouteScopeLock(unittest.TestCase):
         self.exercise(False)
     def test_open_route_start_takes_scope_before_plan_and_rejects_changed_lorry(self):
         self.exercise(True)
+
+    def cancellation_gate(self,open_route):
+        from cfg_kanban.tests import test_dispatch_fulfilment as e4a
+        from cfg_kanban.tests import test_route_delivery as e4b
+        fixture=e4b.TestRouteDelivery() if open_route else e4a.TestDispatchFulfilment()
+        fixture.setUp();self.addCleanup(fixture.doCleanups)
+        base=fixture.b if open_route else fixture
+        base.plan.update(route_approval_required=1,route_sequence_scope='Combined Lorry Trip',active_route_sheet='STOPPED')
+        base.add('CFG Kanban Route Sheet','STOPPED',state='Cancellation Pending',company=base.plan.company,
+            vehicle_warehouse=base.plan.vehicle_warehouse)
+        helpers=types.ModuleType('cfg_kanban.services.route_sheets')
+        helpers.__dict__.update(frappe=base.frappe)
+        load('services/route_sheets.py',helpers.__dict__)
+        helpers._plans=lambda:base.planning
+        before=len(base.data.get(e4a.SESSION,{}))
+        with patch.dict(sys.modules,{helpers.__name__:helpers}):
+            with self.assertRaisesRegex(ValueError,'cancellation is pending'):
+                if open_route:fixture.route.start_route_stop(base.plan.name,'SITE-QR','BLOCKED','SESSION')
+                else:base.bridge.start_prepared_delivery(base.plan.name,'SITE-QR','BLOCKED','SESSION')
+        self.assertEqual(len(base.data.get(e4a.SESSION,{})),before)
+        self.assertFalse(base.data.get('Delivery Note'))
+    def test_pending_cancellation_blocks_new_known_customer_session_through_direct_api(self):
+        self.cancellation_gate(False)
+    def test_pending_cancellation_blocks_new_open_route_session_through_direct_api(self):
+        self.cancellation_gate(True)

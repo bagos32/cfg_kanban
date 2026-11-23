@@ -138,6 +138,33 @@ the Supervisor uses **Close Settled Trip** with a reason. Unvisited stops settle
 shown as **Closed Incomplete**; no customer delivery/proof is invented. Continue Same Plan Overnight
 keeps the trip active rather than releasing it for a new route.
 
+### Stop/cancel an older Route Sheet
+
+In **Kanban Logistics**, identify a Supervisor, open **Plan / Approve Route Sequence** and scan
+the existing Route Sheet number (or scan its lorry and choose that exact Sheet). This also works
+when its original Plans have already been settled; today's other loads are excluded.
+
+1. Choose **Stop / Cancel Route**, enter a decision reason and Confirm. A never-started Sheet
+   cancels immediately. A started Sheet enters **Cancellation Pending**, blocks new visits and
+   retains its original Plan links and all delivery history.
+2. The pending panel lists each original Plan, its E5 status and open Delivery Sessions. Choose
+   **Open Deliveries**, then the exact numbered Session. Finish its existing Delivery Note/proof
+   workflow, or use its controlled allocation release/cancellation if the delivery will not occur.
+   A submitted Delivery Note/Invoice is not reversed by Route Sheet cancellation.
+3. Reopen the same Sheet. Choose **E5 Plan Reviews**, then a numbered Plan. Complete the existing
+   E5/D3 review and any controlled leftover return/transfer for every original Plan. A closing
+   **Stock Remains on Lorry** decision can retain physical goods while settling commitments.
+   **Continue Same Plan Overnight** keeps commitments active and cannot finalize cancellation.
+4. Reopen/Refresh that Sheet. Once all original Plans are **Reconciled / Settled**, with no open
+   Delivery Sessions or active visits, enter the final reason and **Finish Route Cancellation →
+   Confirm**. It becomes **Cancelled** and releases only its own route links. If the original
+   Plans are already settled, step 1 can finalize directly.
+
+The Sheet's request actor/time/reason, request snapshot and final event remain auditable. Completed
+visits, Delivery Notes, proof and stock history remain intact. An active office **Delivery Trip**
+must use its existing stop-cancellation workflow; settle/close that Trip before historical Sheet
+cleanup. Do not edit statuses, unlink stock or delete audit records manually.
+
 ## 6. Kanban Floor setup
 
 Create **CFG Kanban Dashboard Profile**:
@@ -169,7 +196,10 @@ Print from **Kanban Operator → Scanner Command Labels**. Both Production and L
 Within the dialog: `ROUTE_TEMPLATE`, `ROUTE_ADD_STOP`, `ROUTE_ASSIGN_PLAN`, `ROUTE_STOPS`,
 `ROUTE_MOVE_UP`, `ROUTE_MOVE_DOWN`, `ROUTE_REMOVE_STOP`, `ROUTE_SAVE_DRAFT`,
 `ROUTE_APPROVE_SEQUENCE`, `ROUTE_CANCEL_SHEET`, `ROUTE_CLOSE_SHEET`, `ROUTE_SHEET_REASON`,
-`ROUTE_SHEET_REFRESH`, `ROUTE_SHEET_CAMERA`, `ROUTE_VOID_PENDING` all use `CFG:CMD:`.
+`ROUTE_SHEET_REFRESH`, `ROUTE_SHEET_CAMERA`, `ROUTE_VOID_PENDING`, `ROUTE_OPEN_DELIVERIES` and
+`ROUTE_REVIEW_PLANS` all use `CFG:CMD:`. `ROUTE_CANCEL_SHEET` chooses Stop/Cancel initially and
+Finish Route Cancellation after settlement; scan a reason and Confirm. Recovery choices use the
+same numbered 1–10 selection/paging and open the existing Session/E5 panel.
 Use standard `CFG:SELECT:1`–`10`, Next/Previous Material Choices, Confirm and Cancel. Tab/Enter
 suffixes and camera input are supported. Touch arrows provide the reordering alternative on tablets.
 

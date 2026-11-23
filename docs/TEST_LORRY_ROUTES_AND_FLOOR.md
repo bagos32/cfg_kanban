@@ -88,6 +88,38 @@ it must not be counted as passed or as a recorded site acceptance.
 
 ## Recorded acceptance
 
+### Legacy Route Sheet cancellation recovery — site checks pending
+
+Use isolated legacy Sheets with both per-Plan and combined lorry scopes. After deploying/migrating
+the correction, record actual IDs and the deployed Git revision below. All cases are **Not run on
+site**; local service/UI tests do not verify database locking/rollback, real scanners or live ERP.
+
+| Case | Required result | Site result |
+| --- | --- | --- |
+| Never started | Supervisor reason/Confirm cancels Sheet and skips planned visits; no stock movement/reservation release or fake delivery | Not run |
+| Started old Sheet | Stop/Cancel enters Cancellation Pending, retains links and request audit; new visits blocked through Sheet and direct known/Open Route APIs | Not run |
+| Open/draft/posted delivery | Open Deliveries opens the exact Session; resolve draft/allocation or complete posted delivery/proof through existing controls; no financial/ERP reversal from Sheet action | Not run |
+| E5 recovery | Numbered E5 Plan Reviews opens original Plan; actual D3 count/return/transfer or stock-stays disposition settles it; Overnight does not finalize | Not run |
+| Already settled | An older started Sheet cancels without active-candidate lookup; completed visits, documents and proof stay intact | Not run |
+| Mixed / stale state | Every original Plan must settle; open Session, proof, active visit or unsettled member keeps cancellation pending with visible blocker | Not run |
+| New lorry loads | Cancelling historical Sheet does not add newer Plans, clear newer scope/pointers, release their reservations or change their quantities | Not run |
+| Office Trip | Active Delivery Trip directs to existing customer-stop cancellation and Trip closure; terminal Trip permits historical Sheet cleanup | Not run |
+| Revision / permissions | Wrong parent/scope/row identities, changed revision, non-Supervisor, missing reason and Company/Plan/Sheet/Warehouse read denial reject without partial mutation | Not run |
+| Concurrent / lost response | Proof/E5 vs stop/finalize, concurrent new visits and a newer lorry Sheet retain correct ownership; no deadlocks/duplicates; original token replays and Refresh reads outcome | Not run |
+| Kiosk / tablet | Cancel command, reason, Confirm, numbered Session/Plan choice, E5 recovery and finalization work; camera/touch supported and focus restored after errors/cancel/handoff | Not run |
+
+Local verification on 23 November 2026, working changes above `8f44741`: **691 Python tests
+passed**, with 5 native Frappe naming tests skipped because Frappe is unavailable; **241 Node test
+entries passed**, including the Route Sheet adapter's 22 scanner/controller checks. The Python
+run includes 48 Route Sheet/scope tests and the existing E3/E4/E5/office-Trip/return/printing suites.
+Syntax/JSON and patch whitespace checks passed. These results use offline dependency/database/UI
+substitutes and do not establish site acceptance, native migration, transaction concurrency or
+physical scanner/tablet behaviour.
+
+- Local regression evidence: run `cfg_kanban.tests.test_route_sheets` and
+  `cfg_kanban/tests/test_route_sheet_ui.cjs`, plus dispatch/E5/office-trip/customer-delivery suites.
+- Deployed recovery revision, Sheet/Plan/Session/DN/proof/review/count/Stock Entry IDs and result:
+
 - Deployed Git revision:
 - Site / isolation / restore reference:
 - Test date, terminal user and operator/Supervisor:

@@ -370,6 +370,14 @@ Local development now includes:
 - one active combined sequence per Company-specific lorry Warehouse, strictest member verification/
   order policy, actual visit ordering, proof barriers, stable retries/read-back/void and E5 closure.
 
+Legacy Route Sheet recovery now adds Supervisor **Stop / Cancel Route → Cancellation Pending →
+Finish Route Cancellation**. It freezes further visits, exposes the original Plans' Session/E5
+blockers and finalizes after all original Plans are Reconciled/Settled. Never-started sheets retain
+immediate cancellation. Historical teardown uses frozen membership, not current lorry candidate
+loads, and preserves posted deliveries and stock history. Active office Delivery Trips retain
+their own stop-cancellation/closure authority. Offline coverage is separate from site acceptance;
+see the recovery checklist in `TEST_LORRY_ROUTES_AND_FLOOR.md`.
+
 This extends the existing E4A/E4B customer-delivery and E5 review engines; it does not merge several
 Plans into one Delivery Note, combine Company ownership, optimize routes, infer customers for old
 stock or reset two/three-day trips at midnight. Templates/approval may be used per Plan as well.
