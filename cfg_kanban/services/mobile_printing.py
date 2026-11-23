@@ -8,7 +8,7 @@ import json
 import math
 
 import frappe
-from frappe.utils import cint, flt, now_datetime
+from frappe.utils import cint, flt, get_datetime, now_datetime
 
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key
@@ -253,9 +253,29 @@ def get_mobile_print_context(trip_name, operator_session_token, stop_key=None):
         profile=profile.name, profile_version=str(profile.modified), defaults=dict(paper_width_mm=profile.paper_width_mm, printable_width=profile.printable_width,
             dpi=profile.dpi), documents=entries, invoice_sources=invoice_sources, invoice_mode=profile.invoice_mode,
         custody_lines=_custody_lines(trip, stop),
-        active_jobs=[r for r in frappe.get_list(JOB, filters={'delivery_trip': trip.name, 'operator': operator.employee,
-            'status': ['in', ['Prepared', 'Awaiting Confirmation']]},
-            fields=['name', 'document_type', 'document_name', 'status', 'stop_key'], order_by='creation desc', limit_page_length=0) if (r.stop_key or None) == (stop_key or None)])
+        active_jobs=_unfinished_jobs(trip, stop_key, operator, entries))
+
+
+def _unfinished_jobs(trip, stop_key, operator, entries):
+    """Expose document-wide blockers without granting another actor's print authority."""
+    fields = ['name', 'delivery_trip', 'company', 'operator', 'document_type',
+              'document_name', 'status', 'stop_key']
+    filters = {'company': trip.company, 'status': ['in', ['Prepared', 'Awaiting Confirmation']]}
+    own = frappe.get_list(JOB, filters={**filters, 'delivery_trip': trip.name,
+        'operator': operator.employee}, fields=fields, order_by='creation desc', limit_page_length=0)
+    result = {r.name: r for r in own if (r.stop_key or None) == (stop_key or None)}
+    sources = {(r['doctype'], r['name']) for r in entries}
+    if sources:
+        blockers = frappe.get_list(JOB, filters={**filters,
+            'document_type': ['in', sorted({dt for dt, name in sources})],
+            'document_name': ['in', sorted({name for dt, name in sources})]},
+            fields=fields, order_by='creation desc', limit_page_length=0)
+        for row in blockers:
+            if (row.document_type, row.document_name) in sources:
+                result[row.name] = row
+    for row in result.values():
+        row['can_resume'] = row.delivery_trip == trip.name and row.operator == operator.employee
+    return list(result.values())
 
 
 @frappe.whitelist()
@@ -302,7 +322,9 @@ def _prepare(trip, stop_key, values, operator, session, key):
         AND status IN ('Prepared', 'Awaiting Confirmation') LIMIT 1 FOR UPDATE''',
         (doc.doctype, doc.name), as_dict=True)
     if unfinished:
-        frappe.throw('This document has an unfinished print job. Resume it or close it with a reason before preparing another print')
+        frappe.throw('This document has an unfinished print job: ' + unfinished[0].name
+            + '. Open it under Unfinished print jobs in Documents / Print / Invoice. '
+            'Resume your own job, or ask the office to close it with a reason in CFG Kanban Mobile Print Job')
     raw_copies = flt(values.get('copies', 1))
     if not math.isfinite(raw_copies) or raw_copies != int(raw_copies):
         frappe.throw('Select a whole number of copies')
@@ -365,6 +387,55 @@ def _job(trip, name, operator, current=False):
     return doc
 
 
+def can_close_mobile_print_job(job):
+    from cfg_kanban.services.delivery_trips import EDITORS
+    return bool(set(frappe.get_roles()).intersection(EDITORS)
+        and frappe.has_permission(JOB, 'read', doc=job.name)
+        and frappe.has_permission(TRIP, 'read', doc=job.delivery_trip)
+        and frappe.has_permission(TRIP, 'write', doc=job.delivery_trip)
+        and frappe.has_permission('Company', 'read', doc=job.company))
+
+
+def _close_job(job, reason, operator=None, session=None):
+    reason = str(reason or '').strip()
+    if not reason:
+        frappe.throw('Give a reason to abandon an unfinished print job')
+    if job.status not in ('Prepared', 'Awaiting Confirmation'):
+        frappe.throw('This print job has ended; its closure and confirmations cannot be changed')
+    previous, previous_reason = job.status, job.reason
+    job.db_set(dict(status='Abandoned', reason=reason, closed_on=now_datetime(),
+                    closed_by=frappe.session.user), update_modified=True)
+    record('Mobile Print Job Closed', reference_doctype=JOB, reference_name=job.name,
+        previous_state=previous, new_state='Abandoned', notes=reason,
+        operator=operator.employee if operator else None,
+        operator_session=session.name if session else None,
+        payload=dict(delivery_trip=job.delivery_trip, stop_key=job.stop_key,
+            document_type=job.document_type, document_name=job.document_name,
+            prepared_by=job.operator, previous_reason=previous_reason,
+            closure_source='Driver' if operator else 'Office'))
+    return dict(print_job=job.name, job_status='Abandoned')
+
+
+@frappe.whitelist(methods=['POST'])
+def close_mobile_print_job(print_job, reason, expected_modified):
+    """Office recovery also works after reassignment or closure of the original Trip."""
+    from cfg_kanban.services.delivery_trips import EDITORS
+    frappe.only_for(EDITORS)
+    job = _read(JOB, print_job, current=True)
+    _read('Company', job.company)
+    trip = _read(TRIP, job.delivery_trip)
+    trip.check_permission('write')
+    if trip.company != job.company:
+        frappe.throw('Print job Company does not match its original Trip', frappe.PermissionError)
+    if not str(reason or '').strip():
+        frappe.throw('Give a reason to abandon an unfinished print job')
+    if job.status == 'Abandoned':
+        return dict(print_job=job.name, job_status=job.status, already_closed=True)
+    if not expected_modified or get_datetime(expected_modified) != get_datetime(job.modified):
+        frappe.throw('Print job changed; reload it and review its latest segment status before closing')
+    return _close_job(job, reason)
+
+
 @frappe.whitelist()
 def get_mobile_print_job(trip_name, print_job, operator_session_token):
     from cfg_kanban.services import driver_routes
@@ -380,7 +451,8 @@ def get_mobile_print_job(trip_name, print_job, operator_session_token):
         frappe.throw('Document or Print Format changed. Close this job with a reason, then review a new print')
     return dict(name=job.name, html=html, render_hash=digest, copies=job.copies, status=job.status,
                 segments=json.loads(job.segments_json or '{}'), print_format=job.print_format,
-                document_name=job.document_name, printer_settings=json.loads(job.printer_settings_json))
+                document_name=job.document_name, stop_key=job.stop_key or None,
+                printer_settings=json.loads(job.printer_settings_json))
 
 
 def _segment(trip, values, operator, session=None):
@@ -456,10 +528,7 @@ def action(trip, request, operator, session, token, key):
             frappe.throw('Print job belongs to another customer stop')
         if request['action'] == 'Record Print Segment':
             return _segment(trip, values, operator, session)
-        if not str(values.get('reason') or '').strip() or job.status == 'Operator Confirmed':
-            frappe.throw('Give a reason to abandon an unfinished print job')
-        job.db_set(dict(status='Abandoned', reason=values['reason']), update_modified=True)
-        return dict(print_job=job.name, job_status='Abandoned')
+        return _close_job(job, values.get('reason'), operator, session)
     if request['scope_hash'] != driver_route_actions._core(trip) or request['expected_revision'] != cint(trip.driver_route_revision):
         frappe.throw('Trip changed; refresh before preparing new document details')
     profile = get_profile(trip.company, current=request['action'] == 'Create Sales Invoice')

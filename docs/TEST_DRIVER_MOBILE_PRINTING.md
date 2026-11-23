@@ -62,6 +62,11 @@ ERPNext Desk, hooks and custom apps requires the database tests above; mocks can
 | Unknown output | App absent, Bluetooth off, paper out, device locked/backgrounded, app rejection: no automatic retry or false confirmation | Not run |
 | Retry reason | Same uncertain segment needs reason; confirmed segment cannot be resent within job | Not run |
 | Source/format changed | Cached preview cannot hand off changed document; close reason and new review required | Not run |
+| Hidden unfinished job | Same document's job from another operator/stop/Trip is listed with original identity and Office Recovery link; no foreign Resume authority; unrelated documents/Companies remain absent | Not run |
+| Office recovery | Native authorized office user closes original job with reason after Trip reassignment/closure; Closed By/On and event retained; segments/source stock/accounting unchanged | Not run |
+| Recovery permissions | Ordinary driver, denied job/Trip/Company, missing Trip write, wrong Company and GET request cannot perform office closure | Not run |
+| Closure concurrency | Changed job version requires reload; office close versus segment confirmation serializes; confirmed job stays confirmed; repeated close preserves first reason and one closure event | Not run |
+| Recovery refresh | Documents refreshes after office closure; a stale preview still allows reason entry/close and restores Scanner Ready; no automatic preparation/handoff | Not run |
 | Image/CSS limits | External image fails visibly, same-origin/private/data assets render; complex format uses native fallback | Not run |
 | Saved settings | Browser/Company isolation, printer alias/DPI/width/formats retained, signing key not persisted | Not run |
 | Tablet/scanner | Camera, touch, Enter/Tab, printable commands, required ERP tables, Cancel/error/success focus | Not run |
@@ -69,6 +74,27 @@ ERPNext Desk, hooks and custom apps requires the database tests above; mocks can
 | Two tabs | Device lock blocks simultaneous direct handoff; original pending driver identity retained | Not run |
 
 ## Offline evidence
+
+### Unfinished-job recovery verification — 23 November 2026
+
+Baseline HEAD `87eaee4`, plus this print-recovery change set:
+
+- Python delivery/returns/route/identity/naming regression: **740 run; 735 passed; 5 native
+  Frappe naming checks skipped**. Includes cross-operator/Trip/stop blocker discovery, exact
+  document-pair and Company filtering, original-stop ownership, office role/read/write gates,
+  stale-version rejection, reasoned closure after reassignment/Trip closure, preserved segment
+  history and idempotent office-close readback.
+- Related driver/printing JavaScript: **103 Node test-runner entries passed**. Includes escaped
+  blocker metadata, native office button authorization, segment-status display, exact job/version/
+  reason submission, and no reload after rejected closure.
+- Isolated Chrome fixture: **36 checks passed**, including visible office recovery for another
+  operator, Documents refresh, closing a non-renderable stale job with its original stop,
+  Scanner Ready restoration and no automatic preparation/handoff during recovery.
+- Existing source/format/dimension hashes, copy limits, physical-outcome confirmation and receipt
+  retry safeguards remain covered. No Frappe site, MariaDB concurrency, migration, Label Bridge
+  or physical printer acceptance was performed. All native acceptance rows above remain **Not run**.
+
+The service and UI checks below use doubles; these results do not establish native acceptance.
 
 `test_mobile_printing.py`, `test_mobile_invoicing.py` and `test_mobile_print_bridge.cjs` exercise
 actual application functions using explicit native/database doubles. Existing driver receipt,

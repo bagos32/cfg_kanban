@@ -24,6 +24,8 @@
   "segments_json",
   "created_on",
   "confirmed_on",
+  "closed_on",
+  "closed_by",
   "reason",
   "printer_settings_json"
  ],
@@ -167,6 +169,19 @@
    "fieldname": "confirmed_on",
    "label": "Operator confirmed On",
    "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closed_on",
+   "label": "Closed On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closed_by",
+   "label": "Closed By",
+   "fieldtype": "Link",
+   "options": "User",
    "read_only": 1
   },
   {

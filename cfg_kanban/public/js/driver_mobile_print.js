@@ -6,6 +6,10 @@
  function forget(){memoryKey?.signer.forget();memoryKey=null;}
  const commands=['MOBILE_PRINT','PRINT_NATIVE','PRINT_SEND','PRINT_OPEN','PRINT_CONFIRM','PRINT_UNKNOWN','PRINT_SETUP','PRINT_PAIR','PRINT_FORGET','CREATE_DRIVER_INVOICE','CREATE_RETURN_LABEL','MOBILE_PRINT_BACK'];
  function nativeLink(entry,format,noLetterhead){return '/printview?'+new URLSearchParams({doctype:entry.doctype,name:entry.name,format,no_letterhead:noLetterhead?'1':'0'});}
+ function unfinishedJobs(jobs,e){return jobs.map(row=>{
+  const label=[row.name,row.document_name,row.status,row.operator,row.delivery_trip,row.stop_key||'Trip documents'].filter(Boolean).map(e).join(' · ');
+  return row.can_resume===false?`<div class="mt-2">${label}<br><a class="btn btn-default" href="/app/cfg-kanban-mobile-print-job/${encodeURIComponent(row.name)}" target="_blank" rel="noopener">Open Print Job for Office Recovery</a><small>Another operator or Trip owns this job. Office closure requires authority and a reason.</small></div>`:`<button class="btn btn-default" data-mobile="resume" data-job="${e(row.name)}">Resume / Review · ${label}</button>`;
+ }).join('');}
  function copies(frames,count){if(!Number.isInteger(count)||count<1||count>5)throw new Error('Select one to five copies.');const out=[];for(let n=0;n<count;n++)out.push(...frames);if(out.length>1000)throw new Error('Too many print segments; use normal ERPNext printing.');return out;}
  function nextPage(job,frames){for(let n=1;n<=frames.length;n++)if(job.segments?.pages?.[String(n)]?.status!=='Operator Confirmed')return n;return null;}
  function open(options){
@@ -14,7 +18,7 @@
   const owner=options.owner(),token=options.token();let signer=bridge.signer();
   let closed=false,mode='choose',context=null,controls={},fields=[],scanner=null,camera=null,cameraVersion=0,version=0,
       prefs=null,prefStore=null,job=null,frames=[],prepared=null,handed=false,loading=false,message='',requirements=null,
-      jobName=null,releaseLease=null,leaseReady=false,selected=null,selectedLabel=null;
+      jobName=null,jobStop=options.stop||null,releaseLease=null,leaseReady=false,selected=null,selectedLabel=null;
   let tail=Promise.resolve();const inputLocks=new WeakMap();
   const valid=()=>!closed&&options.active()&&options.owner()===owner&&options.token()===token;
   const rpc=async(method,args)=>{const answer=(await f.call({method,args:{...args,operator_session_token:token}})).message;if(!valid())throw new Error('Operator or page changed.');return answer;};
@@ -55,7 +59,9 @@
    finally{loading=false;update();}
   }
   async function showJob(name){jobName=name;mode='job';prepared=null;handed=false;loading=true;if(job?.name!==name){job=null;frames=[];}draw();const ticket=++version;
+   const original=context.active_jobs.find(row=>row.name===name);jobStop=original?(original.stop_key||null):(options.stop||null);
    try{const next=await rpc(service+'get_mobile_print_job',{trip_name:options.trip,print_job:name});if(ticket!==version||!valid())return;
+    if(Object.prototype.hasOwnProperty.call(next,'stop_key'))jobStop=next.stop_key||null;
     const dimensions=prefStore.validate(next.printer_settings||prefs),settings=JSON.stringify(dimensions),old=job;job=next;
     if(!frames.length||old?.name!==next.name||old?.render_hash!==next.render_hash||old?.settings!==settings){const rendered=await bridge.render(next.html,dimensions);if(ticket!==version||!valid())return;frames=copies(rendered,Number(next.copies));}
     job.settings=settings;mode='job';draw();
@@ -106,7 +112,7 @@
     field({fieldname:'no_letterhead',label:'No letterhead',fieldtype:'Check',default:0,change:update});
     field({fieldname:'reason',label:'Reprint reason (required for an already printed tag)',fieldtype:'Small Text'});
     confirmButton.text('Prepare Direct Print');
-    if(context.active_jobs.length)body.append(`<div class="mt-3"><b>Unfinished print jobs</b>${context.active_jobs.map(row=>`<button class="btn btn-default" data-mobile="resume" data-job="${e(row.name)}">${e(row.name)} · ${e(row.document_name)} · ${e(row.status)}</button>`).join('')}</div>`);
+    if(context.active_jobs.length)body.append(`<div class="mt-3"><b>Unfinished print jobs</b><p>Resume your own job on this Trip here, keeping its original stop. For another operator or Trip, ask the office to review and close the original job with a reason. Check the paper first; closing does not confirm printing or cancel the document.</p>${unfinishedJobs(context.active_jobs,e)}</div>`);
    }else if(mode==='setup'){
     body.html(`<p>Saved settings belong to this browser and Company. Select/pair the Bluetooth printer inside Label Bridge. Its signing key stays in this tab’s memory.</p><a class="btn btn-default" href="/app/cfg-kanban-mobile-print-profile/${encodeURIComponent(context.profile)}">Open Office Print / Invoice Policy</a>`);
     field({fieldname:'alias',label:'Device printer name (reference only)',fieldtype:'Data',default:prefs.alias});
@@ -167,7 +173,7 @@
     return segment('Awaiting Confirmation');}
   }
   async function segment(outcome){const page=nextPage(job,frames);if(!page)throw new Error('All segments are already confirmed.');
-   return c.mutate({...context,stop_key:options.stop||null},'Record Print Segment',{print_job:job.name,page,frame_hashes:frames.map(row=>row.hash),outcome,reason:value('reason')||''});}
+   return c.mutate({...context,stop_key:jobStop},'Record Print Segment',{print_job:job.name,page,frame_hashes:frames.map(row=>row.hash),outcome,reason:value('reason')||''});}
   async function pair(){const text=String(value('signing_key')||'');controls.signing_key?.set_value('');await signer.pair(text);message='Signing key paired in memory for this tab.';update();}
   function startCamera(){stopCamera();if(!f.ui.Scanner)throw new Error('Camera scanner is unavailable. Use the Scanner field.');const ticket=cameraVersion;let accepted=false;
    camera=new f.ui.Scanner({dialog:true,multiple:false,on_scan:data=>{if(accepted||ticket!==cameraVersion||!valid())return;accepted=true;stopCamera();scan(data.decodedText);}});camera.dialog?.$wrapper?.on('hidden.bs.modal.cfg_mobile',focus);}
@@ -177,14 +183,14 @@
    prepared=null;handed=false;
    if(name==='confirm')return confirm();if(name==='pair')return pair();
    if(name==='forget'){signer.forget();message='Signing key forgotten.';update();return;}
-   if(name==='back'){mode='choose';draw();return;}
+   if(name==='back'){if(c.state.pending){mode='choose';draw();return;}return load();}
    if(name==='setup'){mode='setup';draw();return;}
    if(name==='reset'){prefStore.reset();prefs=prefStore.load(context.defaults);message='Device settings reset to office defaults.';draw();return;}
    if(name==='invoice'){if(!options.stop||!context.invoice_sources.length)throw new Error('Select a stop with a submitted Delivery Note and authorized Invoice policy.');mode='invoice';requirements=null;draw();if(value('delivery_note'))await invoiceFields();return;}
    if(name==='label'){if(!options.stop||!context.custody_lines.length)throw new Error('This stop has no unlabelled collected returns awaiting QC.');mode='label';draw();return;}
    if(name==='resume'){await lease();return showJob($(node).attr('data-job'));}
    if(name==='printed')return segment('Operator Confirmed');if(name==='unknown')return segment('Outcome Unknown');
-   if(name==='abandon'){if(!jobName)throw new Error('Select an unfinished job.');return c.mutate({...context,stop_key:options.stop||null},'Close Mobile Print',{print_job:jobName,reason:value('reason')||''});}
+   if(name==='abandon'){if(!jobName)throw new Error('Select an unfinished job.');return c.mutate({...context,stop_key:jobStop},'Close Mobile Print',{print_job:jobName,reason:value('reason')||''});}
   }
   function scan(raw){if(String(raw||'').trim().toUpperCase()==='CFG:CMD:PRINT_OPEN'){openBridge();return Promise.resolve();}return queue(async()=>{const text=String(raw||'').trim(),upper=text.toUpperCase();if(!text)return;
    const names={MOBILE_PRINT_BACK:'back',PRINT_SETUP:'setup',CREATE_DRIVER_INVOICE:'invoice',CREATE_RETURN_LABEL:'label',PRINT_PAIR:'pair',PRINT_FORGET:'forget',PRINT_CONFIRM:'printed',PRINT_UNKNOWN:'unknown',PRINT_SEND:'confirm',CONFIRM:'confirm',REFRESH:'readback',CANCEL:'close',DELIVERY_CAMERA:'camera'};
@@ -209,5 +215,5 @@
   c.restore(options.trip);draw();queue(load);
   return {close,focus,scan,controller:c,refresh:()=>queue(()=>c.state.pending?c.reconcile():load()),valid};
  }
- return {commands,nativeLink,copies,nextPage,open,forget};
+ return {commands,nativeLink,unfinishedJobs,copies,nextPage,open,forget};
 });

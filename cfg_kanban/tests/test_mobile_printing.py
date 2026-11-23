@@ -45,14 +45,17 @@ class TestMobilePrinting(unittest.TestCase):
         self.data = {}; self.inserts = []; self.queries = []; self.renders = []
         self.operator = Doc(employee='DRIVER', can_complete=1)
         self.session = Doc(name='SESSION', terminal_user='driver@example.com')
+        self.roles = {'Stock Manager'}
         self.frappe = Row(get_doc=self.get_doc, get_all=self.get_all, get_list=self.get_all,
             get_print=self.render, has_permission=self.has_permission, as_json=json.dumps,
             parse_json=json.loads, throw=self.throw, PermissionError=PermissionError,
+            session=Row(user='office@example.com'), get_roles=lambda:list(self.roles), only_for=self.only_for,
             local=Row(), db=Row(get_value=self.get_value, sql=self.sql))
         self.ns = load('services/mobile_printing.py', dict(frappe=self.frappe, math=math, json=json,
             hashlib=hashlib, canonical_key=canonical, cint=lambda x:int(x or 0),
             flt=lambda x, p=None: round(float(x or 0), p) if p is not None else float(x or 0),
-            now_datetime=lambda:datetime.datetime(2026, 11, 23, 12), record=Mock()))
+            now_datetime=lambda:datetime.datetime(2026, 11, 23, 12), record=Mock(),
+            get_datetime=lambda value:datetime.datetime.fromisoformat(str(value))))
         self.trip = self.add('CFG Kanban Delivery Trip', 'TRIP', company='A', driver_route_revision=3,
             dispatch_plans=[], stops=[Doc(stop_key='STOP', customer='C1', stop_purpose='Delivery')])
         self.add('Customer', 'C1'); self.add('Company', 'A')
@@ -74,9 +77,14 @@ class TestMobilePrinting(unittest.TestCase):
         views.trip_vehicle_warehouse=load('services/driver_routes.py',dict(frappe=self.frappe))['trip_vehicle_warehouse']
         actions = types.ModuleType('cfg_kanban.services.driver_route_actions'); actions._core = lambda doc:'SCOPE'
         auth = types.ModuleType('cfg_kanban.services.operator_auth'); auth.require_operator = self.auth
+        office = types.ModuleType('cfg_kanban.services.delivery_trips')
+        office.EDITORS = ('Stock Manager', 'Sales Manager', 'System Manager', 'CFG Kanban System Maintenance')
         self.auth_calls = []
         mod = types.ModuleType('cfg_kanban.services.mobile_printing'); mod.__dict__.update(self.ns)
-        p=patch.dict(sys.modules, {m.__name__:m for m in (views, actions, auth, mod)});p.start();self.addCleanup(p.stop)
+        p=patch.dict(sys.modules, {m.__name__:m for m in (views, actions, auth, office, mod)});p.start();self.addCleanup(p.stop)
+    def only_for(self, roles):
+        if not self.roles.intersection(roles):
+            raise PermissionError('Office authority')
     def auth(self, token, action=None):
         self.auth_calls.append((token,action))
         if not self.operator.can_complete and action=='complete':
@@ -185,6 +193,110 @@ class TestMobilePrinting(unittest.TestCase):
             with self.assertRaises(ValueError):self.prepare(copies=copies)
         self.prepare()
         with self.assertRaisesRegex(ValueError,'unfinished'):self.prepare()
+    def test_blocker_error_identifies_the_exact_original_job(self):
+        job=self.prepare();job.operator='OTHER'
+        with self.assertRaisesRegex(ValueError,job.name):self.prepare()
+    def test_context_exposes_blocker_from_another_operator_trip_and_stop(self):
+        job=self.prepare();job.operator='OTHER';job.delivery_trip='OLD';job.stop_key='OLD-STOP'
+        self.ns['_formats']=lambda dt:['CUSTOM'];self.ns['default_format']=lambda *a:'CUSTOM'
+        self.ns['_custody_lines']=lambda *a:[]
+        self.ns['_sessions']=lambda *a:[]
+        result=self.ns['get_mobile_print_context']('TRIP','TOKEN','STOP')
+        self.assertEqual(len(result['active_jobs']),1)
+        row=result['active_jobs'][0]
+        self.assertEqual((row.name,row.operator,row.delivery_trip,row.stop_key),(job.name,'OTHER','OLD','OLD-STOP'))
+        self.assertFalse(row.can_resume)
+        with self.assertRaises(PermissionError):self.ns['get_mobile_print_job']('TRIP',job.name,'TOKEN')
+    def test_blocker_discovery_keeps_company_document_pairs_and_native_list_permissions(self):
+        original=self.prepare();original.operator='OTHER';original.stop_key='OTHER-STOP'
+        for name,dt,source,company in [('UNRELATED','Sales Invoice','OTHER','A'),
+                ('PAIR1','Sales Invoice','TAG','A'),('PAIR2',self.ns['HU'],'INV','A'),
+                ('OTHERCO','Sales Invoice','INV','B')]:
+            self.add(self.ns['JOB'],name,company=company,delivery_trip='OLD',operator='OTHER',
+                stop_key='OLD',document_type=dt,document_name=source,status='Prepared')
+        entries=self.catalog+[dict(doctype=self.ns['HU'],name='TAG')]
+        jobs=self.ns['_unfinished_jobs'](self.trip,'STOP',self.operator,entries)
+        self.assertEqual([r.name for r in jobs],[original.name])
+        self.frappe.get_list=Mock(return_value=[])
+        self.assertEqual(self.ns['_unfinished_jobs'](self.trip,'STOP',self.operator,entries),[])
+        self.assertEqual(self.frappe.get_list.call_count,2)
+    def test_current_operator_jobs_survive_catalog_changes_but_other_jobs_do_not_leak(self):
+        own=self.prepare();self.catalog=[]
+        jobs=self.ns['_unfinished_jobs'](self.trip,'STOP',self.operator,[])
+        self.assertEqual([r.name for r in jobs],[own.name]);self.assertTrue(jobs[0].can_resume)
+        own.operator='OTHER'
+        self.assertEqual(self.ns['_unfinished_jobs'](self.trip,'STOP',self.operator,[]),[])
+    def test_same_operator_can_resume_another_stop_on_this_trip_using_original_scope(self):
+        job=self.prepare();job.stop_key='EARLIER'
+        self.trip.stops.append(Doc(stop_key='EARLIER',customer='C1',stop_purpose='Delivery'))
+        jobs=self.ns['_unfinished_jobs'](self.trip,'STOP',self.operator,self.catalog)
+        self.assertTrue(jobs[0].can_resume)
+        result=self.ns['get_mobile_print_job']('TRIP',job.name,'TOKEN')
+        self.assertEqual(result['stop_key'],'EARLIER')
+        self.ns['_catalog'].assert_called_with(self.trip,'EARLIER',self.operator)
+        p=patch.dict(sys.modules,{'cfg_kanban.services.mobile_invoicing':types.ModuleType('cfg_kanban.services.mobile_invoicing')});p.start();self.addCleanup(p.stop)
+        request=dict(action='Close Mobile Print',dispatch_plan=None,stop_key='STOP',payload=dict(print_job=job.name,reason='Checked'))
+        with self.assertRaisesRegex(ValueError,'another customer stop'):
+            self.ns['action'](self.trip,request,self.operator,self.session,'TOKEN','CLOSE')
+        self.assertEqual(job.status,'Prepared')
+        request['stop_key']='EARLIER';self.ns['action'](self.trip,request,self.operator,self.session,'TOKEN','CLOSE')
+        self.assertEqual(job.status,'Abandoned')
+    def test_office_can_close_reassigned_closed_trip_job_without_rendering_changed_source(self):
+        job=self.prepare();job.operator='PREVIOUS';self.trip.state='Closed'
+        self.source.modified='CHANGED';job.segments_json=json.dumps({'pages':{'1':{'status':'Operator Confirmed'},'2':{'status':'Outcome Unknown'}}})
+        segments=job.segments_json;renders=len(self.renders)
+        result=self.ns['close_mobile_print_job'](job.name,' Checked paper; prepare corrected format ',job.modified)
+        self.assertEqual(result,dict(print_job=job.name,job_status='Abandoned'))
+        self.assertEqual((job.reason,job.closed_by,job.operator),('Checked paper; prepare corrected format','office@example.com','PREVIOUS'))
+        self.assertTrue(job.closed_on);self.assertFalse(job.confirmed_on)
+        self.assertEqual(job.segments_json,segments);self.assertEqual(len(self.renders),renders)
+        self.assertEqual(self.source.modified,'CHANGED')
+        event=self.ns['record'].call_args
+        self.assertEqual(event.args,('Mobile Print Job Closed',))
+        self.assertEqual(event.kwargs['payload']['closure_source'],'Office')
+        self.assertEqual(event.kwargs['payload']['prepared_by'],'PREVIOUS')
+        self.assertIn((self.ns['JOB'],job.name,{'for_update':True}),self.queries)
+    def test_office_close_requires_native_authority_job_trip_and_company_permissions(self):
+        job=self.prepare()
+        self.roles={'Stock User'}
+        self.assertFalse(self.ns['can_close_mobile_print_job'](job))
+        with self.assertRaises(PermissionError):self.ns['close_mobile_print_job'](job.name,'Reviewed',job.modified)
+        self.roles={'Stock Manager'}
+        for doc,permission in [(job,'read'),(self.trip,'read'),(self.trip,'write'),(self.data['Company']['A'],'read')]:
+            doc.denied={permission}
+            self.assertFalse(self.ns['can_close_mobile_print_job'](job))
+            with self.assertRaises(PermissionError):self.ns['close_mobile_print_job'](job.name,'Reviewed',job.modified)
+            doc.denied=set()
+        self.assertTrue(self.ns['can_close_mobile_print_job'](job));self.assertEqual(job.status,'Prepared')
+        self.ns['record'].assert_not_called()
+    def test_office_close_rejects_company_mismatch_blank_reason_and_stale_version(self):
+        job=self.prepare();self.trip.company='B'
+        with self.assertRaises(PermissionError):self.ns['close_mobile_print_job'](job.name,'Reviewed',job.modified)
+        self.trip.company='A'
+        for reason,version,message in [(' ',job.modified,'reason'),('Reviewed',None,'changed'),
+                ('Reviewed','2026-11-22 12:00:00','changed')]:
+            with self.assertRaisesRegex(ValueError,message):self.ns['close_mobile_print_job'](job.name,reason,version)
+        self.assertEqual(job.status,'Prepared');self.ns['record'].assert_not_called()
+    def test_repeated_office_closure_preserves_first_reason_and_single_audit(self):
+        job=self.prepare();self.ns['close_mobile_print_job'](job.name,'First reason',job.modified)
+        result=self.ns['close_mobile_print_job'](job.name,'Different reason','2026-11-22 00:00:00')
+        self.assertTrue(result['already_closed']);self.assertEqual(job.reason,'First reason')
+        self.assertEqual(self.ns['record'].call_count,1)
+        new=self.prepare();self.assertNotEqual(new.name,job.name)
+    def test_operator_close_is_audited_and_does_not_grant_other_operator_job_ownership(self):
+        job=self.prepare();request=dict(action='Close Mobile Print',dispatch_plan=None,stop_key='STOP',payload=dict(print_job=job.name,reason='Checked physical receipt'))
+        p=patch.dict(sys.modules,{'cfg_kanban.services.mobile_invoicing':types.ModuleType('cfg_kanban.services.mobile_invoicing')});p.start();self.addCleanup(p.stop)
+        job.operator='OTHER'
+        with self.assertRaises(PermissionError):self.ns['action'](self.trip,request,self.operator,self.session,'TOKEN','CLOSE')
+        job.operator='DRIVER';self.ns['action'](self.trip,request,self.operator,self.session,'TOKEN','CLOSE')
+        event=self.ns['record'].call_args.kwargs
+        self.assertEqual((event['operator'],event['operator_session']),('DRIVER','SESSION'))
+        self.assertEqual(event['payload']['closure_source'],'Driver')
+    def test_confirmed_job_cannot_be_abandoned_or_overwritten(self):
+        job=self.prepare();job.status='Operator Confirmed';job.confirmed_on='CONFIRMED'
+        with self.assertRaisesRegex(ValueError,'ended'):self.ns['close_mobile_print_job'](job.name,'Reviewed',job.modified)
+        self.assertEqual((job.status,job.confirmed_on),('Operator Confirmed','CONFIRMED'))
+        self.ns['record'].assert_not_called()
     def test_document_or_format_change_blocks_resume_and_handoff(self):
         job=self.prepare();self.source.modified='CHANGED'
         with self.assertRaisesRegex(ValueError,'changed'):

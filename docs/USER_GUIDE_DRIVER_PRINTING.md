@@ -117,6 +117,25 @@ Source printed ranges are provenance, not invented individual-unit assignments f
   unfinished job with a reason and prepare a new reviewed print. Closing a job preserves audit
   history and does not cancel or change the source document. A changed raster manifest also
   cannot silently replace previously prepared segments. Printer dimensions are frozen per job; changed device defaults apply to new jobs.
+- If preparing a print reports an unfinished job, return to **Documents / Print / Invoice**.
+  **Unfinished print jobs** also lists jobs for the displayed documents that were prepared by
+  another operator, at another stop, or on another Trip. It shows the original job, operator,
+  Trip and stop. **Documents** refreshes this list after office recovery.
+- For your own job on the current Trip (including another stop), choose **Resume / Review**. Check the physical paper
+  before confirming any segment. If the preview cannot open because the source or format changed,
+  enter a reason and choose **Close Unfinished Job**; this remains available without a preview.
+- For another operator or Trip, use **Open Print Job for Office Recovery**. An office user
+  with a Trip-editing role (Stock Manager, Sales Manager, System Manager or CFG Kanban System
+  Maintenance), read access to the job/Company and read/write access to the original Trip can
+  open **CFG Kanban Mobile Print Job**, review it and choose **Close Unfinished Job** with a reason.
+  This works after Trip reassignment or closure. An ordinary driver cannot resume another
+  operator's job. If native permissions hide the job, the error identifies its job number for
+  the authorized office user to find.
+- Closing records **Closed By**, **Closed On**, the reason and an audit event. Original operator,
+  source/version hashes and segment confirmations remain intact. It does not confirm printing,
+  cancel the DN/Invoice, change stock, or automatically send another print. A changed job must
+  be reloaded and reviewed before office closure; retrying an already closed office request
+  preserves the first closure. Prepare a new print only after reviewing any physical output.
 - Direct print requires HTTPS, Web Crypto, browser storage and Web Locks. One printer panel owns
   the device handoff lock at a time. Pairing stays in memory across this operator’s stop panels; it is forgotten when leaving Driver Route, changing operator/Company or explicitly forgetting the key.
 - Native format HTML and raster remain transient. The database retains source/version hashes and

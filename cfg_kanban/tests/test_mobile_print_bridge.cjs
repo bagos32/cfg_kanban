@@ -1,5 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict'),crypto=require('node:crypto');
 const bridge=require('../public/js/mobile_print_bridge.js'),ui=require('../public/js/driver_mobile_print.js');
+const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 function unpack(payload){const data=JSON.parse(atob(payload)),raw=Uint8Array.from(Buffer.from(data.raster,'base64'));if(!data.packing)return {...data,bytes:raw};const out=[];for(let at=0;at<raw.length;){const code=raw[at++],n=(code&127)+1;if(code&128){const value=raw[at++];for(let k=0;k<n;k++)out.push(value);}else for(let k=0;k<n;k++)out.push(raw[at++]);}return {...data,bytes:new Uint8Array(out)};}
 test('raster uses alpha-on-white, luminance and MSB-first bytes',()=>{
  const rgba=new Uint8ClampedArray(8*4);for(let n=0;n<8;n++)rgba.set([255,255,255,255],n*4);
@@ -65,4 +66,45 @@ test('whole copies are collated as page1 page2 page1 page2 and unknown pages rem
 test('normal printing opens the exact native format and never invokes invoice or credit creation',()=>{
  const href=ui.nativeLink({doctype:'Sales Invoice',name:'INV & 1'},'Custom Format / 80',true),params=new URL(href,'https://erp.example').searchParams;
  assert.equal(params.get('name'),'INV & 1');assert.equal(params.get('format'),'Custom Format / 80');assert.equal(params.get('no_letterhead'),'1');
+});
+test('unfinished jobs separate resumable ownership from office recovery and escape metadata',()=>{
+ const escape=value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
+ const html=ui.unfinishedJobs([
+  {name:'OWN',document_name:'DN',status:'Prepared',operator:'DRIVER',delivery_trip:'TRIP',stop_key:'STOP',can_resume:true},
+  {name:'OLD / 1',document_name:'<script>bad</script>',operator:'OTHER',delivery_trip:'OLD',can_resume:false}
+ ],escape);
+ assert(html.includes('data-job="OWN"'));assert(html.includes('Resume / Review'));
+ assert(!html.includes('data-job="OLD / 1"'));assert(html.includes('/app/cfg-kanban-mobile-print-job/OLD%20%2F%201'));
+ assert(html.includes('Office Recovery'));assert(html.includes('OTHER'));assert(!html.includes('<script>'));
+ assert.equal(ui.unfinishedJobs([],escape),'');
+});
+function officeFixture(status='Prepared',allowed=true){
+ let handlers,button,prompt,intro,calls=[],reloaded=0,dirty=false;
+ const f={utils:{escape_html:value=>String(value).replaceAll('<','&lt;')},ui:{form:{on:(_name,value)=>handlers=value}},prompt:(fields,callback)=>{prompt={fields,callback};},
+  call:async value=>{calls.push(value);},msgprint:message=>calls.push(message)};
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../cfg_kanban/doctype/cfg_kanban_mobile_print_job/cfg_kanban_mobile_print_job.js'),'utf8'),{frappe:f,__:(s)=>s});
+ const frm={doc:{name:'JOB',status,modified:'VERSION',segments_json:JSON.stringify({pages:{1:{status:'Operator Confirmed'},2:{status:'Outcome Unknown <check>'}}}),__onload:{can_close_mobile_print_job:allowed}},
+  is_new:()=>false,is_dirty:()=>dirty,set_intro:value=>intro=value,add_custom_button:(label,callback)=>button={label,callback},
+  reload_doc:async()=>reloaded++};
+ handlers.refresh(frm);
+ return {button:()=>button,prompt:()=>prompt,intro:()=>intro,calls,dirty:()=>dirty=true,reloads:()=>reloaded,f};
+}
+test('normal print-job form limits closure controls to authorized unfinished jobs',()=>{
+ for(const state of ['Operator Confirmed','Abandoned'])assert.equal(officeFixture(state).button(),undefined);
+ assert.equal(officeFixture('Prepared',false).button(),undefined);
+ for(const state of ['Prepared','Awaiting Confirmation']){
+  const fixture=officeFixture(state);assert.equal(fixture.button().label,'Close Unfinished Job');
+  assert(fixture.intro().includes('Segment 1: Operator Confirmed'));
+  assert(fixture.intro().includes('Segment 2: Outcome Unknown &lt;check>'));
+  fixture.button().callback();assert.equal(fixture.prompt().fields[0].reqd,1);
+ }
+});
+test('office closure submits exact job version and reason, then reloads after success',async()=>{
+ const fixture=officeFixture();fixture.button().callback();await fixture.prompt().callback({reason:'Checked the physical receipt'});
+ assert.equal(fixture.calls[0].method,'cfg_kanban.services.mobile_printing.close_mobile_print_job');
+ assert.deepEqual(JSON.parse(JSON.stringify(fixture.calls[0].args)),{print_job:'JOB',reason:'Checked the physical receipt',expected_modified:'VERSION'});
+ assert.equal(fixture.reloads(),1);
+ const failed=officeFixture();failed.f.call=async()=>{throw new Error('Print job changed');};failed.button().callback();
+ await assert.rejects(()=>failed.prompt().callback({reason:'Reviewed'}),/changed/);assert.equal(failed.reloads(),0);
+ const dirty=officeFixture();dirty.dirty();dirty.button().callback();assert.equal(dirty.prompt(),undefined);
 });

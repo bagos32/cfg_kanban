@@ -6248,6 +6248,15 @@ open each bridge segment and confirm the physical paper. Unknown output is never
 automatically. A retry needs a reason. Unfinished jobs remain accessible for readback/resume or
 reasoned closure. Changed sources/formats cannot silently replace prepared segments.
 
+The **Unfinished print jobs** list includes blocking jobs for the displayed documents even if
+another operator, stop or Trip prepared them. **Resume / Review** is available for your own job
+on the current Trip, retaining its original stop. Otherwise **Open Print Job for Office Recovery** opens the normal
+**CFG Kanban Mobile Print Job** form. An authorized office user with read/write access to the
+original Trip and read access to its Company/job can use **Close Unfinished Job** with a reason,
+including after Trip closure or reassignment. The job retains the original operator and segment
+history, records Closed By/On and an audit event, and changes no ERP document or stock. It does
+not automatically print again. Choose **Documents** to refresh the list after office recovery.
+
 **Create Invoice** uses native Delivery Note billing and naming rules, without another stock
 issue or payment. Draft is the default. Office may disable it or explicitly allow Automatic
 Submission for named Employees with native Create/Submit and Kanban Complete permissions.
