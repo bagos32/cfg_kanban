@@ -1,0 +1,239 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Mobile Print Job",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "track_changes": 1,
+ "field_order": [
+  "delivery_trip",
+  "stop_key",
+  "company",
+  "operator",
+  "operator_session",
+  "idempotency_key",
+  "request_hash",
+  "document_type",
+  "document_name",
+  "print_format",
+  "no_letterhead",
+  "copies",
+  "status",
+  "source_modified",
+  "format_version",
+  "render_hash",
+  "segments_json",
+  "created_on",
+  "confirmed_on",
+  "reason",
+  "printer_settings_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "delivery_trip",
+   "label": "Delivery Trip",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Delivery Trip",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "stop_key",
+   "label": "Trip Stop",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "operator",
+   "label": "Operator",
+   "fieldtype": "Link",
+   "options": "Employee",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "operator_session",
+   "label": "Operator Session",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Operator Session",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "idempotency_key",
+   "label": "Request identity",
+   "fieldtype": "Data",
+   "unique": 1,
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "request_hash",
+   "label": "Request hash",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "document_type",
+   "label": "Document Type",
+   "fieldtype": "Link",
+   "options": "DocType",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "document_name",
+   "label": "Document",
+   "fieldtype": "Dynamic Link",
+   "options": "document_type",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "print_format",
+   "label": "ERPNext Print Format",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "no_letterhead",
+   "label": "No letterhead",
+   "fieldtype": "Check",
+   "read_only": 1
+  },
+  {
+   "fieldname": "copies",
+   "label": "Copies",
+   "fieldtype": "Int",
+   "default": "1",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "label": "Status",
+   "fieldtype": "Select",
+   "options": "Prepared\nAwaiting Confirmation\nOperator Confirmed\nAbandoned",
+   "default": "Prepared",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "source_modified",
+   "label": "Source version",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "format_version",
+   "label": "Format version",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "render_hash",
+   "label": "Render hash",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "segments_json",
+   "label": "Segment confirmation metadata",
+   "fieldtype": "Long Text",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "created_on",
+   "label": "Prepared On",
+   "fieldtype": "Datetime",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "confirmed_on",
+   "label": "Operator confirmed On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reason",
+   "label": "Reprint / abandonment reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "printer_settings_json",
+   "label": "Frozen printer dimensions",
+   "fieldtype": "Long Text",
+   "read_only": 1,
+   "hidden": 1
+  }
+ ],
+ "autoname": "KMP-.YYYY.-.#####",
+ "permissions": [
+  {
+   "role": "Stock User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Accounts Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Quality User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Quality Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "CFG Kanban System Maintenance",
+   "read": 1,
+   "print": 1
+  }
+ ]
+}

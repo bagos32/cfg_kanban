@@ -58,6 +58,8 @@ jinja = {
         "cfg_kanban.services.printing.get_card_route",
         "cfg_kanban.services.printing.get_card_print_context",
         "cfg_kanban.services.printing.get_qr_svg",
+        "cfg_kanban.services.mobile_printing.trip_stock_rows",
+        "cfg_kanban.services.mobile_printing.stock_tag_print_context",
         "cfg_kanban.services.printing.get_code128_svg",
         "cfg_kanban.services.media.get_print_media",
         "cfg_kanban.services.genealogy.get_genealogy_print_context",

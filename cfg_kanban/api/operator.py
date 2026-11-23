@@ -310,6 +310,20 @@ def _scanner_command_catalog(quantity_steps=None):
             (f"Material +{number:g}", f"CFG:QTY:MATERIAL:+{number:g}", "")
             for number in normalized_steps
         ]),
+        ("Driver Mobile Printing", [
+            ("Driver: Documents / Print", "CFG:CMD:MOBILE_PRINT", ""),
+            ("Driver: Printer Setup", "CFG:CMD:PRINT_SETUP", ""),
+            ("Driver: Normal ERPNext Print", "CFG:CMD:PRINT_NATIVE", ""),
+            ("Driver: Prepare Direct Print", "CFG:CMD:PRINT_SEND", ""),
+            ("Driver: Open Label Bridge", "CFG:CMD:PRINT_OPEN", ""),
+            ("Driver: Confirm Segment Printed", "CFG:CMD:PRINT_CONFIRM", ""),
+            ("Driver: Print Outcome Unknown", "CFG:CMD:PRINT_UNKNOWN", ""),
+            ("Driver: Pair Key for Tab", "CFG:CMD:PRINT_PAIR", ""),
+            ("Driver: Forget Signing Key", "CFG:CMD:PRINT_FORGET", ""),
+            ("Driver: Create Invoice", "CFG:CMD:CREATE_DRIVER_INVOICE", ""),
+            ("Driver: Create Return Custody Label", "CFG:CMD:CREATE_RETURN_LABEL", ""),
+            ("Driver: Back to Documents", "CFG:CMD:MOBILE_PRINT_BACK", ""),
+        ]),
         ("Customer Return QC", [
             ("QC: Open Return Worklist (Logistics)", "CFG:CMD:VIEW_RETURN_QC_MONITOR", ""),
             ("QC: Open Existing Inspection", "CFG:CMD:QC_INSPECT_RETURN", ""),

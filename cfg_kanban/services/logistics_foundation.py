@@ -98,6 +98,8 @@ def price_list_rate(price_list, item_code, uom, batch_no, mode, party):
 
 def validate_physical_code_namespace(code, identity_type, tag_family=None):
     """Prevent a visible code from resolving to unrelated physical identities."""
+    if str(code).upper().startswith("CFG:RETURN-CUSTODY:"):
+        frappe.throw("This prefix is reserved for Return Custody labels, not Stock Tags or containers")
     if identity_type != "Customer Scan Point" and frappe.db.exists(
         "CFG Kanban Customer Scan Point", {"site_code": code}
     ):
@@ -143,6 +145,7 @@ def resolve_logistics_scan(scan_value):
     _add_tag_identity_match(candidates, code, "opaque_token", "internal_uuid_alias")
     _add_customer_match(candidates, code, "site_code", "visible_code")
     _add_customer_match(candidates, code, "opaque_token", "internal_uuid_alias")
+    _add_custody_label_match(candidates, code)
     _add_return_case_match(candidates, code, "name", "visible_case_number")
     _add_return_case_match(candidates, code, "scan_token", "internal_uuid_alias")
 
@@ -453,3 +456,18 @@ def _calculate_updates(names, source, destination, deltas):
             "available_qty": float(available),
         }
     return updates
+
+
+def _add_custody_label_match(candidates, code):
+    if not frappe.db.table_exists("CFG Kanban Return Custody Label"):
+        return
+    label_code = code.split(":", 2)[2] if code.upper().startswith("CFG:RETURN-CUSTODY:") else code
+    label = frappe.db.get_value("CFG Kanban Return Custody Label", {"name": label_code},
+                               ["name", "return_case"], as_dict=True)
+    if not label:
+        return
+    _add_return_case_match(candidates, label.return_case, "name", "return_custody_label")
+    match = candidates.get(("Customer Return Case", label.return_case))
+    if match:
+        match["custody_label"] = label.name
+        match["visible_code"] = label.name

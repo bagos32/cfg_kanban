@@ -1,0 +1,19 @@
+{
+ "doctype": "Print Format",
+ "name": "CFG Trip Stock 80mm",
+ "module": "CFG Kanban",
+ "doc_type": "CFG Kanban Delivery Trip",
+ "standard": "Yes",
+ "custom_format": 1,
+ "print_format_type": "Jinja",
+ "print_format_builder": 0,
+ "disabled": 0,
+ "raw_printing": 0,
+ "margin_top": 3,
+ "margin_bottom": 3,
+ "margin_left": 3,
+ "margin_right": 3,
+ "default_print_language": "en",
+ "html": "<h3>CURRENT LORRY STOCK</h3><b>{{ (doc.name) | e }}</b><p>{{ (doc.company) | e }}<br>{{ (doc.vehicle_warehouse or 'Lorry not assigned') | e }}<br>{{ (doc.flags.cfg_mobile_print_on or frappe.utils.now_datetime()) | e }}</p><small>ERP ledger and Stock Tags describe the same goods. Do not add these balances together. This list includes all current lorry stock, including other commitments and QC holds; it is not a sale-availability list.</small>{% for row in trip_stock_rows(doc) %}<hr><b>{{ (row.item_code) | e }} \u00b7 {{ (row.item_name) | e }}</b><p>Batch: {{ (row.batch_no or '-') | e }}<br>Batch expiry: {{ (row.expiry_date or '-') | e }}<br>ERP: {{ (row.erp_qty if row.erp_qty is not none else 'Operational item') | e }} {{ (row.stock_uom) | e }}<br>Tagged: {{ (row.tag_qty) | e }} {{ (row.stock_uom) | e }}<br>Untagged: {{ (row.untagged_qty if row.untagged_qty is not none else '-') | e }}</p>{% if row.identity_variance %}<b>IDENTITY VARIANCE \u2014 REVIEW REQUIRED</b>{% endif %}{% for tag in row.tags %}<div>{{ (tag.handling_unit_id) | e }} \u00b7 {{ (tag.current_qty) | e }} {{ (tag.stock_uom) | e }}<br>{{ (tag.quality_state) | e }} \u00b7 {{ (tag.movement_state) | e }} \u00b7 Expiry {{ (tag.effective_expiry or '-') | e }}</div>{% endfor %}{% endfor %}",
+ "css": "@page{size:80mm auto;margin:3mm}.print-format{font-family:Arial,sans-serif;font-size:11px;line-height:1.4;width:80mm;max-width:100%;min-height:0;padding:3mm;box-sizing:border-box;color:#000}h3{font-size:15px;margin:4px 0}table{width:100%;border-collapse:collapse}th,td{vertical-align:top;padding:3px 1px;overflow-wrap:anywhere}th{border-bottom:1px solid #000}.right{text-align:right}.center{text-align:center}.warning{border:2px solid #000;padding:4px;font-weight:bold;margin:5px 0}.qr{display:block;width:38mm;height:38mm;margin:5px auto}p{margin:5px 0}hr{border:0;border-top:1px dashed #000;margin:7px 0}small{font-size:9px}"
+}

@@ -528,6 +528,9 @@ def get_return_case(return_case, operator_session_token):
     if not (_intake_allowed(profile) or _qc_allowed(profile)):
         frappe.throw(_("Operator is not assigned to Customer Return or Customer Return QC"),
                      frappe.PermissionError)
+    if str(return_case or '').upper().startswith(('CFG:RETURN-CUSTODY:', 'KRC-')):
+        from cfg_kanban.services.mobile_printing import custody_case_scan
+        return_case = custody_case_scan(return_case)
     case = frappe.get_doc("CFG Kanban Return Case", return_case)
     case.check_permission("read")
     if not _can_view_all(profile) and not (

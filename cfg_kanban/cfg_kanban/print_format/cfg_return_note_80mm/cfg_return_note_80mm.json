@@ -1,0 +1,19 @@
+{
+ "doctype": "Print Format",
+ "name": "CFG Return Note 80mm",
+ "module": "CFG Kanban",
+ "doc_type": "CFG Kanban Return Case",
+ "standard": "Yes",
+ "custom_format": 1,
+ "print_format_type": "Jinja",
+ "print_format_builder": 0,
+ "disabled": 0,
+ "raw_printing": 0,
+ "margin_top": 3,
+ "margin_bottom": 3,
+ "margin_left": 3,
+ "margin_right": 3,
+ "default_print_language": "en",
+ "html": "{% if letter_head %}{{ letter_head }}{% endif %}<h3>{{ ('COMPANY-OWNED REFUSAL QC NOTE' if doc.get('stock_already_owned') else 'TEMPORARY RETURN NOTE') | e }}</h3><b>{{ (doc.name) | e }}</b><div class=\"warning\">NOT A TAX CREDIT NOTE \u2014 NOT AN E-INVOICE<br>{{ ('Existing company stock on QC hold' if doc.get('stock_already_owned') else 'Pending QC \u2014 not available stock') | e }}</div><p>{{ (doc.selling_company) | e }}<br>{{ (doc.customer) | e }} \u00b7 {{ (doc.site_name or 'Direct Customer Return') | e }}<br>{{ (doc.claimed_on) | e }}<br>{{ (doc.state) | e }}</p><p>{{ (doc.customer_return_reason) | e }}</p><table><thead><tr><th>Item / Batch / Expiry</th><th class=\"right\">Returned Qty</th></tr></thead><tbody>{% for row in doc.lines %}<tr><td>{{ (row.item_code) | e }}<br>{{ (row.batch_no or 'No Batch') | e }} \u00b7 {{ (row.expiry_date or 'No expiry recorded') | e }}<br>{{ (row.condition) | e }}</td><td class=\"right\">{{ (row.get_formatted('claimed_qty')) | e }} {{ (row.stock_uom) | e }}</td></tr>{% endfor %}</tbody></table><img class=\"qr\" src=\"{{ (get_qr_svg(doc.name, 180)) | e }}\"><small>SCAN FOR LIVE QC STATUS</small><p>Customer acknowledgement: {{ (doc.customer_acknowledgement_name or '________________') | e }}<br>Collected by: {{ (doc.collected_by or doc.created_by_operator) | e }}<br>Custody: {{ (doc.inspection_location or 'Awaiting QC receipt') | e }}</p>",
+ "css": "@page{size:80mm auto;margin:3mm}.print-format{font-family:Arial,sans-serif;font-size:11px;line-height:1.4;width:80mm;max-width:100%;min-height:0;padding:3mm;box-sizing:border-box;color:#000}h3{font-size:15px;margin:4px 0}table{width:100%;border-collapse:collapse}th,td{vertical-align:top;padding:3px 1px;overflow-wrap:anywhere}th{border-bottom:1px solid #000}.right{text-align:right}.center{text-align:center}.warning{border:2px solid #000;padding:4px;font-weight:bold;margin:5px 0}.qr{display:block;width:38mm;height:38mm;margin:5px auto}p{margin:5px 0}hr{border:0;border-top:1px dashed #000;margin:7px 0}small{font-size:9px}"
+}

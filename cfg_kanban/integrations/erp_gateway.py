@@ -1765,3 +1765,9 @@ def create_stock_entry(command, payload):
                           "cfg_kanban_cycle": command.kanban_cycle,
                           "cfg_kanban_signal": command.source_signal}).insert(ignore_permissions=True)
     return doc
+
+
+@handler("Create Driver Sales Invoice")
+def create_driver_sales_invoice(command, payload):
+    from cfg_kanban.services.mobile_invoicing import execute
+    return execute(command, payload)

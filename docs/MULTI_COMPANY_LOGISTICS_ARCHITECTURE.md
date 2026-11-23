@@ -3,7 +3,7 @@
 **Architecture version:** 1.0  
 **Decision status:** Locked baseline  
 **Decision date:** 30 September 2026  
-**Implementation status:** Package A, Package B intercompany handover, Packages C1-C2B customer delivery, Package D1 proof/closure, Package D2A controlled return intake plus QC disposition, Package D2B accountant-controlled Draft Sales Invoice Return, Package D2C accepted-return ERP stock disposition, Package D3 end-of-route reconciliation, Package L1 same-Company Transfer Kanban, and Package L2 controlled Stock Withdrawal are implemented; customer invoicing and Package E remain approved future scope
+**Implementation status:** Package A, Package B intercompany handover, Packages C1-C2B customer delivery, Package D1 proof/closure, Package D2A controlled return intake plus QC disposition, Package D2B accountant-controlled Draft Sales Invoice Return, Package D2C accepted-return ERP stock disposition, Package D3 end-of-route reconciliation, Package L1 same-Company Transfer Kanban, and Package L2 controlled Stock Withdrawal are implemented; driver DN-based customer invoicing and native-format mobile printing are implemented as the Dispatch Baseline §26 extension; Package E remains approved future scope
 
 This document is the source of truth for CFG Kanban stock-tag logistics across sister companies,
 company-specific vehicle warehouses, customer-site delivery, and delayed intercompany billing. It
@@ -684,7 +684,7 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
   `USER_GUIDE_DISPATCH_E5B1.md` / `TEST_DISPATCH_E5B1_RECOVERY.md`; native acceptance is pending.
   Mixed dispositions/destinations, follow-on recovery Plans/reassignment and wider partial/refused
   known-customer fulfilment remain later increments.
-- Add optional customer Sales Invoice commands. The controlled Delivery Note command is implemented.
+- Driver DN-based Sales Invoice commands are implemented with Company policy (Draft default), named automatic-submit authority and native accounting/naming. See Dispatch Baseline §26 and `USER_GUIDE_DRIVER_PRINTING.md`. Payment collection remains outside this increment.
 
 ### Package D — Proof, returns, and reconciliation
 

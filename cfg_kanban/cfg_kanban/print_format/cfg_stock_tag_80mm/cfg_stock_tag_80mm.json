@@ -1,0 +1,19 @@
+{
+ "doctype": "Print Format",
+ "name": "CFG Stock Tag 80mm",
+ "module": "CFG Kanban",
+ "doc_type": "CFG Kanban Handling Unit",
+ "standard": "Yes",
+ "custom_format": 1,
+ "print_format_type": "Jinja",
+ "print_format_builder": 0,
+ "disabled": 0,
+ "raw_printing": 0,
+ "margin_top": 3,
+ "margin_bottom": 3,
+ "margin_left": 3,
+ "margin_right": 3,
+ "default_print_language": "en",
+ "html": "{% set identity = stock_tag_print_context(doc) %}<h3>{{ ('REUSABLE CONTAINER' if doc.tag_kind == 'Reusable Container' else 'EXISTING STOCK TAG') | e }}</h3><b>{{ (doc.handling_unit_id) | e }}</b><p>{{ (doc.item_code) | e }}<br>Batch: {{ (doc.batch_no or '-') | e }}<br>Expiry: {{ (identity.expiry_date or '-') | e }}<br>Current: {{ (doc.current_qty) | e }} {{ (doc.stock_uom) | e }}<br>{{ (doc.identity_state) | e }} \u00b7 {{ (doc.quality_state) | e }} \u00b7 {{ (doc.movement_state) | e }}<br>{{ (doc.current_warehouse or '') | e }}</p>{% if doc.process_certificate_set %}<p>Certificate set: {{ (doc.process_certificate_set) | e }}</p>{% endif %}{% if identity.serial_nos %}<p>ERP serials:<br>{% for serial in identity.serial_nos %}{{ (serial) | e }}<br>{% endfor %}</p>{% endif %}{% for run in identity.certificate_output_evidence or [] %}{% for part in [run] + (run.progress or []) %}{% if part.first_output_serial or part.last_output_serial %}<p>Source printed serial evidence:<br>{{ part.first_output_serial | e }} \u2014 {{ part.last_output_serial | e }}<br>Printed expiry: {{ (part.printed_expiry or '-') | e }}<br><small>Source range, not an individual-unit assignment.</small></p>{% endif %}{% endfor %}{% endfor %}<img class=\"qr\" src=\"{{ (get_qr_svg(doc.handling_unit_id,180)) | e }}\"><small>Reprint of the current identity. This label does not create or receive stock. Scan for live quantity and status.</small>",
+ "css": "@page{size:80mm auto;margin:3mm}.print-format{font-family:Arial,sans-serif;font-size:11px;line-height:1.4;width:80mm;max-width:100%;min-height:0;padding:3mm;box-sizing:border-box;color:#000}h3{font-size:15px;margin:4px 0}table{width:100%;border-collapse:collapse}th,td{vertical-align:top;padding:3px 1px;overflow-wrap:anywhere}th{border-bottom:1px solid #000}.right{text-align:right}.center{text-align:center}.warning{border:2px solid #000;padding:4px;font-weight:bold;margin:5px 0}.qr{display:block;width:38mm;height:38mm;margin:5px auto}p{margin:5px 0}hr{border:0;border-top:1px dashed #000;margin:7px 0}small{font-size:9px}"
+}

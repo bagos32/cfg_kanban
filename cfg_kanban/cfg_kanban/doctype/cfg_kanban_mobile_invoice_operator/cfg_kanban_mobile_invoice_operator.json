@@ -1,0 +1,21 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Mobile Invoice Operator",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "track_changes": 1,
+ "field_order": [
+  "employee"
+ ],
+ "fields": [
+  {
+   "fieldname": "employee",
+   "label": "Authorized Employee",
+   "fieldtype": "Link",
+   "options": "Employee",
+   "reqd": 1,
+   "in_list_view": 1
+  }
+ ],
+ "istable": 1
+}

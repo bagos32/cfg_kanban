@@ -720,6 +720,11 @@ def lookup_logistics_tag(scan_value, operator_session_token):
     if identity["identity_type"] == "Customer Return Case":
         from cfg_kanban.services.customer_returns import get_return_case
         result["return_case"] = get_return_case(identity["name"], operator_session_token)
+        if identity.get("custody_label"):
+            label = frappe.get_doc("CFG Kanban Return Custody Label", identity["custody_label"])
+            label.check_permission("read")
+            result["return_custody_label"] = {key: label.get(key) for key in
+                ("name", "return_case", "return_line", "item_code", "qty", "stock_uom", "batch_no", "expiry_date", "custody_notice")}
         return result
     if identity["identity_type"] != "Handling Unit":
         return result

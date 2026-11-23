@@ -8,9 +8,15 @@ from cfg_kanban.services.idempotency import canonical_key
 from cfg_kanban.services.operator_auth import require_operator
 
 TRIP = 'CFG Kanban Delivery Trip'
-ACTIONS = ('Request Stop Cancellation','Cancel Customer Stop','Release GPS','Start GPS', 'Start Route', 'Begin Delivery', 'Confirm Allocations', 'Create Delivery Note',
+MOBILE_ACTIONS = ('Create Sales Invoice', 'Create Custody Label', 'Prepare Mobile Print', 'Record Print Segment', 'Close Mobile Print')
+ACTIONS = MOBILE_ACTIONS + ('Request Stop Cancellation','Cancel Customer Stop','Release GPS','Start GPS', 'Start Route', 'Begin Delivery', 'Confirm Allocations', 'Create Delivery Note',
            'Open Proof', 'Submit Proof', 'Complete Stop', 'Collect Old Return', 'Release Refused Stock', 'Begin Open Sale', 'Add Assistant', 'Change Route Order', 'Request Route Change', 'Cancel Route Change', 'Decide Route Change')
 PAYLOAD_FIELDS = {
+    'Create Sales Invoice': {'delivery_note', 'required_erp_inputs', 'profile_version', 'invoice_mode'},
+    'Create Custody Label': {'return_case', 'return_line', 'qty'},
+    'Prepare Mobile Print': {'doctype', 'name', 'print_format', 'copies', 'reason', 'no_letterhead', 'printer_settings'},
+    'Record Print Segment': {'print_job', 'page', 'frame_hashes', 'outcome', 'reason'},
+    'Close Mobile Print': {'print_job', 'reason'},
     'Request Stop Cancellation': {'reason'},
     'Cancel Customer Stop': {'reason','goods_hash','stock_disposition'},
     'Release GPS': {'lease_id','reason'},
@@ -448,6 +454,10 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
             frappe.throw('This driver request was explicitly voided', DriverActionConflict)
         return receipt
     _owned(doc, operator)
+    if action in MOBILE_ACTIONS:
+        from cfg_kanban.services import mobile_printing
+        result = mobile_printing.action(doc, request, operator, session, operator_session_token, key)
+        return _record(doc, operator, session, key, request, result)
     if action in ('Request Stop Cancellation','Cancel Customer Stop'):
         require_operator(operator_session_token,'start' if action=='Request Stop Cancellation' else 'complete')
         if not stop_key or dispatch_plan or request['scope_hash']!=_core(doc) or request['expected_revision']!=cint(doc.driver_route_revision):

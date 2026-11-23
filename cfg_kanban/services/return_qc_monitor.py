@@ -179,6 +179,9 @@ def get_qc_worklist(operator_session_token, filters=None, start=0, page_length=1
 
 def _case(scan, companies, company=None):
     scan = _text(scan)
+    if scan.upper().startswith(('CFG:RETURN-CUSTODY:', 'KRC-')):
+        from cfg_kanban.services.mobile_printing import custody_case_scan
+        scan = custody_case_scan(scan)
     if not scan:frappe.throw('Scan a Temporary Return Note or select a Return Case')
     if company and company not in companies:frappe.throw('Company is not accessible',frappe.PermissionError)
     names = frappe.get_list(CASE, filters={'selling_company':['in',[company] if company else companies]},

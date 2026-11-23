@@ -253,7 +253,7 @@ Refresh to preserve entered fields. Background reads do not renew inactivity exp
 native permission/ownership rejection clears protected details; network failure marks **Not
 refreshed**. Returning to the page rereads authorized sources.
 
-Live vehicle tracking and Bluetooth printing remain later phases. Use [execution acceptance](TEST_DRIVER_ROUTE_EXECUTION.md)
+Supervisor GPS and native-format mobile printing are implemented in the later sections and the printing guide. Use [execution acceptance](TEST_DRIVER_ROUTE_EXECUTION.md)
 after manual deployment; [the original view checklist](TEST_DRIVER_ROUTE_VIEW.md) remains historical.
 
 Use [refusal/old-return acceptance](TEST_DRIVER_ROUTE_REFUSALS_RETURNS.md) for this extension;
@@ -404,7 +404,7 @@ road directions are supplied by the external map app.
 No Google Maps API key is used by these universal direction links. The implementation follows
 [Google Maps URLs](https://developers.google.com/maps/documentation/urls/guide) and
 [Waze Deep Links](https://developers.google.com/waze/deeplinks). Native Frappe v15 map assets and
-Kuala Lumpur defaults supply the in-page map. Supervisor GPS visibility is described below; route optimization and thermal printing remain separate later work.
+Kuala Lumpur defaults supply the in-page map. Supervisor GPS visibility is described below; route optimization remains future work; native-format thermal printing is described in the printing guide.
 
 Migrate/build manually, configure test pins, then run
 [pin and directions acceptance](TEST_DRIVER_ROUTE_MAPS.md). Native-site/device results are
@@ -562,3 +562,20 @@ Filter Driver Trip, customer or inspection location. Receipt is unconfirmed unti
 receives/starts inspection; the collection lorry reference is not live custody. Accounts/physical
 stock follow-ups remain independent and visible after inspection. Driver delivery/collection and
 native ERP posting controls are unchanged. See [the QC guide](USER_GUIDE_CUSTOMER_RETURN_QC.md).
+
+
+## Driver documents, invoices and 80mm printing
+
+On a selected stop choose **Documents / Print / Invoice**. Both normal ERPNext print and direct
+Label Bridge raster printing use a selectable **native ERPNext Print Format**. Office setup is on
+the normal **CFG Kanban Mobile Print Profile** form in CFG Dispatch Control. Device preferences
+are saved per browser/Company; companion signing keys are tab-memory only.
+
+New invoices are explicit actions over submitted Delivery Notes: Draft by default, or automatic
+submission under an explicit Company policy and named operator authorization. Existing office
+drafts are reused without automatic submission. Old customer return bundles can receive custody
+labels marked **Pending QC — not available stock**, without posting stock or credit.
+
+See [printing/invoice setup and recovery](USER_GUIDE_DRIVER_PRINTING.md) and
+[native/device acceptance](TEST_DRIVER_MOBILE_PRINTING.md). Implementation and offline/browser
+checks do not verify live ERPNext posting or Bluetooth printer output.

@@ -693,3 +693,33 @@ Rejected/investigation cases and pending financial/physical follow-up remain vis
 case closure or invented SLA is added. Camera/scanner, print labels, stale/identity/page lifecycle
 controls accompany the monitor. Native acceptance remains **Not run**. See
 [setup](USER_GUIDE_CUSTOMER_RETURN_QC.md) and [acceptance](TEST_CUSTOMER_RETURN_QC_MONITOR.md).
+
+
+## 26. Driver native-format mobile printing, invoices and custody labels
+
+Approved scope, 23 November 2026: native ERPNext printing and signed Label Bridge v1 raster
+handoff from Driver Route, normal Company profile configuration, browser/Company device
+preferences, selectable ERPNext Print Formats for both paths, six 80mm presets, current lorry stock
+list, and existing stock-tag reprints. The installed companion app controls Bluetooth pairing.
+No runtime CDN, mandatory custom Credit Note app or second print-layout engine is introduced.
+
+The driver may explicitly create a native non-stock Sales Invoice from a submitted DN at this
+exact Trip stop. Policy is configurable, **Draft by default**. Auto-submit requires named operator
+and native accounting authority. Existing drafts are reused without auto-submission; native
+billing quantity, taxes, naming rules and validations remain authoritative.
+
+Collected old-return bundles may receive quantity-bounded custody labels before QC receipt,
+marked **Pending QC — not available stock**, with a distinct QR namespace opening the existing
+Case/QC workflow. This does not create available stock, a Credit Note or a duplicate receipt.
+
+Prepared print jobs retain source/format hashes and operator statements, not binary content or
+signing keys. Explicit handoff and per-segment confirmation distinguish a prepared request from
+physical printing. No physical ACK exists in the supplied companion protocol. Lost responses use
+existing driver receipts; uncertain physical output needs an explicit reasoned retry. Native/custom
+format changes invalidate resumed jobs; all long-document segments and complete copies are kept.
+
+See `USER_GUIDE_DRIVER_PRINTING.md` / `TEST_DRIVER_MOBILE_PRINTING.md`. Development and local
+browser checks are separate from migration, native accounting/concurrency and device acceptance.
+Earlier historical references to printing/customer invoicing as future scope are superseded by
+this section only for this approved increment. Automatic route optimization, payment collection
+and other separately deferred reconciliation work remain outside this increment.

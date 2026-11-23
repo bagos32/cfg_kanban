@@ -1,0 +1,188 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Mobile Print Profile",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "track_changes": 1,
+ "field_order": [
+  "company",
+  "enabled",
+  "receipt_section",
+  "paper_width_mm",
+  "printable_width",
+  "dpi",
+  "formats_section",
+  "delivery_note_format",
+  "sales_invoice_format",
+  "credit_note_format",
+  "return_note_format",
+  "trip_stock_format",
+  "stock_tag_format",
+  "custody_label_format",
+  "invoice_section",
+  "invoice_mode",
+  "invoice_operators"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "enabled",
+   "label": "Enabled",
+   "fieldtype": "Check",
+   "default": "1"
+  },
+  {
+   "fieldname": "receipt_section",
+   "label": "Printer defaults",
+   "fieldtype": "Section Break",
+   "description": "Non-secret defaults. Bluetooth printer selection is handled in the installed Label Bridge companion app. Signing keys are never stored here."
+  },
+  {
+   "fieldname": "paper_width_mm",
+   "label": "Paper width (mm)",
+   "fieldtype": "Float",
+   "default": "80",
+   "reqd": 1
+  },
+  {
+   "fieldname": "printable_width",
+   "label": "Printable width (dots)",
+   "fieldtype": "Int",
+   "default": "576",
+   "reqd": 1
+  },
+  {
+   "fieldname": "dpi",
+   "label": "DPI",
+   "fieldtype": "Int",
+   "default": "203",
+   "reqd": 1
+  },
+  {
+   "fieldname": "formats_section",
+   "label": "ERPNext Print Formats",
+   "fieldtype": "Section Break",
+   "description": "Both normal and direct raster printing use these native formats. Duplicate a preset in ERPNext to customize it. Operators can select any enabled non-raw format of the same DocType."
+  },
+  {
+   "fieldname": "delivery_note_format",
+   "label": "Delivery Note",
+   "fieldtype": "Link",
+   "options": "Print Format",
+   "default": "CFG Delivery Note 80mm"
+  },
+  {
+   "fieldname": "sales_invoice_format",
+   "label": "Sales Invoice",
+   "fieldtype": "Link",
+   "options": "Print Format",
+   "default": "CFG Sales Invoice 80mm"
+  },
+  {
+   "fieldname": "credit_note_format",
+   "label": "Custom Credit Note",
+   "fieldtype": "Link",
+   "options": "Print Format"
+  },
+  {
+   "fieldname": "return_note_format",
+   "label": "Return Note",
+   "fieldtype": "Link",
+   "options": "Print Format",
+   "default": "CFG Return Note 80mm"
+  },
+  {
+   "fieldname": "trip_stock_format",
+   "label": "Trip stock list",
+   "fieldtype": "Link",
+   "options": "Print Format",
+   "default": "CFG Trip Stock 80mm"
+  },
+  {
+   "fieldname": "stock_tag_format",
+   "label": "Existing Stock Tag",
+   "fieldtype": "Link",
+   "options": "Print Format",
+   "default": "CFG Stock Tag 80mm"
+  },
+  {
+   "fieldname": "custody_label_format",
+   "label": "Return custody label",
+   "fieldtype": "Link",
+   "options": "Print Format",
+   "default": "CFG Return Custody 80mm"
+  },
+  {
+   "fieldname": "invoice_section",
+   "label": "Driver invoice policy",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "invoice_mode",
+   "label": "Invoice creation",
+   "fieldtype": "Select",
+   "options": "Disabled\nDraft\nAutomatic Submission",
+   "default": "Draft",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "invoice_operators",
+   "label": "Operators authorized for automatic submission",
+   "fieldtype": "Table",
+   "options": "CFG Kanban Mobile Invoice Operator",
+   "depends_on": "eval:doc.invoice_mode=='Automatic Submission'",
+   "description": "Named driver/assistant Employees must also have Complete authority and native Sales Invoice Create/Submit permissions. Existing office drafts are never auto-submitted."
+  }
+ ],
+ "autoname": "field:company",
+ "title_field": "company",
+ "permissions": [
+  {
+   "role": "Accounts Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "print": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1
+  },
+  {
+   "role": "Stock User",
+   "read": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1
+  },
+  {
+   "role": "CFG Kanban System Maintenance",
+   "read": 1
+  }
+ ]
+}

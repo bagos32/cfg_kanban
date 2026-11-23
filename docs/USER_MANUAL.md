@@ -5997,7 +5997,7 @@ camera/signature controls are available. Proof photos use the existing private S
 Driver completion remains separate from E5 reconciliation. For an unfinished trip, settle/cancel
 its linked Plans through existing controls, then an authorized office manager can close/cancel
 with a reason, record Closed Incomplete and release the lorry without fabricating stop delivery.
-Live route-order approvals now use the controlled workflow below. Customer maps/directions and Supervisor GPS visibility are described below; Bluetooth printing remains later scope. Refusal/old-return collection extends this flow as described below. See [setup and operator steps](USER_GUIDE_DRIVER_ROUTE.md) and
+Live route-order approvals now use the controlled workflow below. Customer maps/directions and Supervisor GPS visibility are described below; native-format mobile printing is described in the printing section below. Refusal/old-return collection extends this flow as described below. See [setup and operator steps](USER_GUIDE_DRIVER_ROUTE.md) and
 [native execution acceptance](TEST_DRIVER_ROUTE_EXECUTION.md). Offline tests do not verify live
 migration, ERP posting, concurrency or devices.
 
@@ -6207,3 +6207,43 @@ Scanner commands: **CFG:CMD:VIEW_RETURN_QC_MONITOR**, **CFG:SELECT:1–10**, **C
 **REFRESH/CANCEL/HELP** commands. Camera and Enter/Tab scans are supported. Print the monitor labels
 from the Customer Return QC section of Scanner Command Labels. See [setup and operation](USER_GUIDE_CUSTOMER_RETURN_QC.md)
 and [native acceptance](TEST_CUSTOMER_RETURN_QC_MONITOR.md); site acceptance remains **Not run**.
+
+
+## Driver mobile printing, invoicing and return custody labels
+
+Office Accounts Manager/System Manager: open **CFG Dispatch Control → Mobile Print Setup** and
+create an enabled Company profile. Select ERPNext Print Formats for each document type; both
+normal and direct print use these formats. Duplicate a supplied 80mm preset as a custom native
+format to change the outline, then select it in setup. Operators can choose several enabled formats
+of the matching DocType. Default printer settings are 80mm paper / 203 DPI / 576 printable dots;
+adjust them to the actual printer specification.
+
+On Driver Route, choose the customer stop's **Documents / Print / Invoice** button. **Normal
+ERPNext Print** opens the native print view. For direct printing, set up the installed Label Bridge
+printer in the companion app, pair its key for this tab, prepare and inspect the raster, explicitly
+open each bridge segment and confirm the physical paper. Unknown output is never resent
+automatically. A retry needs a reason. Unfinished jobs remain accessible for readback/resume or
+reasoned closure. Changed sources/formats cannot silently replace prepared segments.
+
+**Create Invoice** uses native Delivery Note billing and naming rules, without another stock
+issue or payment. Draft is the default. Office may disable it or explicitly allow Automatic
+Submission for named Employees with native Create/Submit and Kanban Complete permissions.
+An existing office draft is reused and is not auto-submitted. Printing never creates credit.
+
+For old goods already collected on this Trip, **Create Return Custody Label** identifies the exact
+Return Case Item row and bundle quantity, Batch and expiry. Label totals cannot exceed the
+collected quantity. The QR opens live QC status in Logistics / Customer Return QC. It remains
+**Pending QC — not available stock**, with no ERP stock or accounting posting.
+
+The panel supports camera/Enter/Tab scanning. Its commands are selectable under **Scanner Command
+Labels → Driver Mobile Printing** (`MOBILE_PRINT`, `PRINT_SETUP`, `PRINT_SEND`, `PRINT_OPEN`,
+`PRINT_CONFIRM`, `PRINT_UNKNOWN`, `PRINT_PAIR`, `PRINT_FORGET`, `PRINT_NATIVE`,
+`CREATE_DRIVER_INVOICE`, `CREATE_RETURN_LABEL`, `MOBILE_PRINT_BACK`). Standard numbered inputs,
+ERP table row commands and Confirm/Cancel/Refresh retain scanner focus and pending request identity.
+
+See [full printer/format setup](USER_GUIDE_DRIVER_PRINTING.md) and
+[native/device acceptance](TEST_DRIVER_MOBILE_PRINTING.md). Direct rendering requires HTTPS,
+Web Crypto, Web Locks and readable same-origin/private/data image assets. Complex formats may
+need normal print. Device settings are saved per browser/Company; signing keys and raster are
+not persisted. The paired key is reused across stop panels for this operator/Company and cleared
+on route departure, operator/Company change or Forget Key. No live-site or physical Bluetooth printer acceptance is claimed by offline tests.

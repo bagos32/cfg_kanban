@@ -45,3 +45,11 @@
 .cfg-driver-map-stop + .cfg-driver-map-stop { border-top: 1px solid #ddd; }
 .cfg-driver-map .leaflet-popup-content .btn { margin-top: 8px; min-height: 44px; }
 @media (max-width: 767px) { .cfg-driver-map-canvas { height: 280px; } .cfg-driver-navigation .btn { min-width: 42%; } }
+
+.cfg-mobile-panel{border:2px solid var(--primary);overflow-wrap:anywhere}
+.cfg-mobile-tools,.cfg-mobile-controls,.cfg-mobile-scan-row{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.cfg-mobile-panel button,.cfg-mobile-panel .btn{min-height:44px;white-space:normal}
+.cfg-mobile-scan-row input{flex:1;min-width:180px}
+.cfg-mobile-raster{display:block;max-width:100%;height:auto;border:1px solid #aaa;background:white;margin:12px 0;image-rendering:pixelated}
+.cfg-mobile-preview{max-height:55vh;overflow:auto}.cfg-mobile-message,.cfg-mobile-pending{white-space:pre-wrap;margin:10px 0}
+.cfg-mobile-native[aria-disabled=true]{pointer-events:none;opacity:.6}
