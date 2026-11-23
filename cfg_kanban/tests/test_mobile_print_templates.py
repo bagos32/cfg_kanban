@@ -27,6 +27,7 @@ class TestMobilePrintTemplates(unittest.TestCase):
                 expiry_date='2027-03-01',stock_uom='Nos',erp_qty=5,tag_qty=3,untagged_qty=2,
                 identity_variance=False,tags=[Doc(handling_unit_id='RM1',current_qty=3,stock_uom='Nos',
                 quality_state='Released',movement_state='Received',effective_expiry='2027-01-01')])],
+            trip_vehicle_warehouse=lambda trip:trip.vehicle_warehouse,
             frappe=types.SimpleNamespace(utils=types.SimpleNamespace(now_datetime=lambda:'2026-11-23 12:00:00')),
         )
     def qr(self, value):
@@ -91,6 +92,12 @@ class TestMobilePrintTemplates(unittest.TestCase):
         html=self.render('cfg_trip_stock_80mm',doc)
         for value in ('FROZEN PREPARATION TIME','ERP: 5','Tagged: 3','Untagged: 2','RM1','2027-01-01','Batch expiry: 2027-03-01'):
             self.assertIn(value,html)
+
+    def test_legacy_trip_stock_heading_uses_the_same_departure_lorry_as_rows(self):
+        self.environment.globals['trip_vehicle_warehouse']=lambda doc:'RECORDED-LORRY'
+        doc=self.document(name='TRIP',company='A',vehicle_warehouse=None)
+        html=self.render('cfg_trip_stock_80mm',doc)
+        self.assertIn('RECORDED-LORRY',html);self.assertNotIn('Lorry not assigned',html)
 
 
 if __name__=='__main__':unittest.main()

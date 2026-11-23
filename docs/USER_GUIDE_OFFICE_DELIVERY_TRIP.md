@@ -159,6 +159,17 @@ cannot be rewritten. Its source stage and allocation details can still refresh. 
 editable header lorry before execution if needed; linked Plan rows show subsequent actual lorry
 selection from the operational workflow.
 
+**Start Route** validates the single actual lorry from the loaded customer/shared Plans and saves
+it into the Trip's **Lorry Warehouse** together with the departure. It becomes read-only after
+departure. The driver trip list and current-stock print use the same recorded lorry.
+
+For an older started Trip whose header is blank, an office planner with write permission opens
+the saved Trip, reloads it and selects **Sync Lorry Assignment**. This restores only the lorry
+already recorded in its departure snapshot; no manual warehouse selection, new route or stock
+transfer is needed. The action retains the exact snapshot, execution revision and active-lorry
+key, so pending deliveries, route-order decisions and GPS can continue. Missing/inconsistent
+departure evidence requires Supervisor reconciliation. Do not change the field manually.
+
 ## 6. Close or cancel planning safely
 
 Enter **Closure / Cancellation Reason** in **Notes and History**, save any planning changes first,

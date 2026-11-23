@@ -134,6 +134,14 @@ Source printed ranges are provenance, not invented individual-unit assignments f
   selling every printed quantity. Existing delivery allocation/FEFO/QC controls still decide usage. Collected old customer goods
 are documented by their custody labels/Return Notes; they remain outside ERP stock until QC disposition.
 
+At departure, **Start Route** fills the Trip's **Lorry Warehouse** from the verified loading
+lorry. For older started Trips with a blank header, the stock-list rows and supplied format
+heading use the frozen departure lorry. Custom formats may use `trip_vehicle_warehouse(doc)`
+for the same heading. An office planner can reload the Trip and press **Sync Lorry Assignment**
+to restore its stored header, including for custom formats that still read
+`doc.vehicle_warehouse`. This does not change stock or the frozen route. Conflicting lorries,
+changed source scope and missing permissions require reconciliation; no substitute lorry is guessed.
+
 ## Scanner and tablet controls
 
 The panel has an Enter/Tab scanner input and a camera button. Scan an existing document/tag code

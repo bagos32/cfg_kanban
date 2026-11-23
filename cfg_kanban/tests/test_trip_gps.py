@@ -93,6 +93,17 @@ class TestTripGPS(unittest.TestCase):
         if action and not self.op.get('can_'+action):raise PermissionError('Action flag required')
         return self.op,self.session
     def context(self,operation='Start GPS'):return self.a.ns['driver_action_context'](self.trip.name,'TOKEN',operation=operation)
+    def test_legacy_lorry_sync_preserves_active_gps_binding(self):
+        self.trip.vehicle_warehouse=None
+        saved=json.loads(self.trip.driver_route_snapshot_json);saved['scope_hash']=self.a.ns['_core'](self.trip)
+        self.trip.driver_route_snapshot_json=json.dumps(saved)
+        result=self.ns['start'](self.trip,dict(device_id=self.device,publish_token=self.secret),self.op,self.session)
+        self.a.sync_lorry()
+        self.assertEqual(self.ns['_vehicle'](self.trip).name,'LORRY')
+        self.assertEqual(self.ns['summary'](self.trip)['vehicle_warehouse'],'LORRY')
+        self.assertEqual(result['vehicle_warehouse'],'LORRY')
+        self.lease=result['lease_id'];self.fix()
+
     def request(self,action='Start GPS',**payload):
         c=self.context(action);self.n+=1
         if action=='Start GPS':payload=dict(device_id=self.device,publish_token=self.secret,**payload)

@@ -57,11 +57,12 @@ class TestDriverRouteActions(unittest.TestCase):
             submit_delivery_proof=Mock(side_effect=self.submit_proof))
         self.ns = load('services/driver_route_actions.py', dict(frappe=self.b.frappe, json=json,
             cint=lambda v:int(v or 0), flt=lambda v:float(v or 0), canonical_key=canonical,
+            get_datetime=lambda v:datetime.datetime.fromisoformat(str(v)),
             now_datetime=lambda:datetime.datetime(2026,11,21,17), require_operator=self.auth, record=self.record))
         self.ns.update(_views=lambda:Row(**self.v.ns), _delivery=lambda:self.engine,
             _prepared=lambda:self.prepared, _sheets=lambda:self.sheets, _proof=lambda:self.proof,
             _planning=lambda:Row(_assert_plan_authorized=self.authorized,_vehicle_warehouse=self.vehicle_check),
-            _core=lambda doc:canonical('driver-trip-scope', self.b.ns['_business'](doc)))
+            _core=lambda doc:self.ns['_scope_hash'](doc,self.b.ns['_business'](doc)))
         self.v.ns['_delivery'] = lambda:self.engine
         for n in (1,2):self.data['CFG Kanban Customer Scan Point']['SITE'+str(n)].site_code='QR'+str(n)
         self.auto_submit = True; self.proof_policy = 'Required'; self.required_fields = []
@@ -145,6 +146,81 @@ class TestDriverRouteActions(unittest.TestCase):
         self.assertEqual(self.trip.driver_route_state,'In Progress');self.assertEqual(self.trip.driver_route_revision,1)
         self.assertEqual(self.calls,[]);self.assertFalse(self.data.get(views.SESSION));self.assertFalse(self.data.get(views.NOTE))
         self.assertEqual(self.context()['next_step'],'Begin Delivery');self.assertTrue(self.trip.driver_active_vehicle_key)
+
+    def legacy_departure(self,empty=None):
+        self.trip.vehicle_warehouse=empty;self.start()
+        saved=json.loads(self.trip.driver_route_snapshot_json)
+        # Model the previous release: real lorry saved, original empty planning scope.
+        self.trip.vehicle_warehouse=empty
+        saved['scope_hash']=self.ns['_core'](self.trip)
+        self.trip.driver_route_snapshot_json=json.dumps(saved)
+        return self.trip.driver_route_snapshot_json
+    def sync_lorry(self,**changes):
+        args=dict(trip_name=self.trip.name,expected_modified=self.trip.modified)
+        args.update(changes);return self.ns['sync_trip_lorry'](**args)
+
+    def test_departure_persists_late_selected_lorry_and_next_delivery_remains_valid(self):
+        self.trip.vehicle_warehouse=None;request=self.request('Start Route');self.perform(request)
+        self.assertEqual(self.trip.vehicle_warehouse,'LORRY')
+        self.assertEqual(json.loads(self.trip.driver_route_snapshot_json)['scope_hash'],self.ns['_core'](self.trip))
+        self.assertEqual(self.v.queue()['trips'][0]['vehicle_warehouse'],'LORRY')
+        self.begin_stop();self.assertEqual(len(self.calls),1)
+        self.assertEqual(self.perform(request)['result']['route_started'],True)
+
+    def test_failed_departure_does_not_fill_header_when_lorries_disagree(self):
+        self.b.add('Warehouse','OTHER',company='A',cfg_is_vehicle_warehouse=1,cfg_vehicle_reference='OTHER',is_group=0,disabled=0)
+        self.trip.vehicle_warehouse=None;self.v.p2.vehicle_warehouse='OTHER'
+        with self.assertRaises(ValueError):self.start()
+        self.assertIsNone(self.trip.vehicle_warehouse);self.assertEqual(self.trip.driver_route_state,'Not Started')
+        self.assertFalse(self.events)
+
+    def test_legacy_sync_preserves_exact_snapshot_revision_key_and_pending_delivery_scope(self):
+        frozen=self.legacy_departure();pending=self.request('Begin Delivery',customer_scan='QR1')
+        revision=self.trip.driver_route_revision;active=self.trip.driver_active_vehicle_key
+        result=self.sync_lorry()
+        self.assertTrue(result['changed']);self.assertEqual(self.trip.vehicle_warehouse,'LORRY')
+        self.assertEqual(self.trip.driver_route_snapshot_json,frozen)
+        self.assertEqual(self.trip.driver_route_revision,revision);self.assertEqual(self.trip.driver_active_vehicle_key,active)
+        self.assertEqual(self.ns['_core'](self.trip),json.loads(frozen)['scope_hash'])
+        self.perform(pending);self.assertEqual(len(self.calls),1)
+        self.assertEqual(len([e for e in self.events.values() if e['event']=='Delivery Trip Departure Lorry Linked']),1)
+        self.assertFalse(self.sync_lorry()['changed'])
+
+    def test_empty_string_legacy_header_and_completed_trip_can_be_synced(self):
+        frozen=self.legacy_departure('');self.trip.driver_route_state='Completed'
+        self.assertTrue(self.sync_lorry()['changed']);self.assertEqual(self.trip.driver_route_snapshot_json,frozen)
+        self.assertEqual(self.ns['_core'](self.trip),json.loads(frozen)['scope_hash'])
+
+    def test_legacy_hash_compatibility_does_not_accept_other_planning_changes(self):
+        self.legacy_departure();self.sync_lorry();saved=json.loads(self.trip.driver_route_snapshot_json)
+        self.trip.orders[0].planned_qty+=1
+        self.assertNotEqual(self.ns['_core'](self.trip),saved['scope_hash'])
+        with self.assertRaisesRegex(ValueError,'reconciliation'):self.sync_lorry()
+        self.trip.orders[0].planned_qty-=1;self.trip.vehicle_warehouse='WRONG'
+        self.assertNotEqual(self.ns['_core'](self.trip),saved['scope_hash'])
+        with self.assertRaises(ValueError):self.sync_lorry()
+
+    def test_sync_requires_office_write_company_lorry_permissions_and_current_revision(self):
+        self.legacy_departure();self.b.roles=[]
+        with self.assertRaises(PermissionError):self.sync_lorry()
+        self.b.roles=['Stock Manager']
+        with self.assertRaisesRegex(ValueError,'changed'):self.sync_lorry(expected_modified='2000-01-01 00:00:00')
+        for target in (self.trip,self.data['Company']['A'],self.data['Warehouse']['LORRY']):
+            target._denied=True
+            with self.subTest(target=target.name),self.assertRaises(PermissionError):self.sync_lorry()
+            target._denied=False
+        self.data['Warehouse']['LORRY'].company='B'
+        with self.assertRaises(ValueError):self.sync_lorry()
+        self.assertIsNone(self.trip.vehicle_warehouse)
+
+    def test_sync_never_guesses_from_current_dispatch_when_departure_is_missing_or_invalid(self):
+        self.trip.vehicle_warehouse=None
+        with self.assertRaisesRegex(ValueError,'Start the route'):self.sync_lorry()
+        self.legacy_departure()
+        for value in ('','[]','not JSON',json.dumps(dict(vehicle='LORRY',scope_hash='WRONG'))):
+            self.trip.driver_route_snapshot_json=value
+            with self.subTest(value=value),self.assertRaisesRegex(ValueError,'reconciliation'):self.sync_lorry()
+        self.assertIsNone(self.trip.vehicle_warehouse)
     def test_unplanned_or_unassigned_trip_and_native_permissions_reject_departure(self):
         req=self.request('Start Route');self.trip.state='Draft'
         with self.assertRaisesRegex(ValueError,'planning or execution'):self.perform(req)

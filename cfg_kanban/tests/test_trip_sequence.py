@@ -40,6 +40,11 @@ class TestTripSequence(unittest.TestCase):
         self.execute('Request Route Change',dict(order=list(reversed(self.keys)),reason='Customer closes early'))
         return self.data[REQUEST][self.trip.route_change_request]
     def supervisor(self):self.op.update(employee='SUP',kanban_role='Supervisor',view_all_responsibilities=1,can_override=1)
+    def test_pending_enforced_order_request_survives_legacy_lorry_header_sync(self):
+        self.a.legacy_departure();frozen=self.trip.driver_route_snapshot_json
+        row=self.submit();self.a.sync_lorry();self.supervisor();self.decide(row)
+        self.assertEqual(row.state,'Approved');self.assertEqual(self.trip.driver_route_snapshot_json,frozen)
+
     def decide(self,row,mode='Next Customer Only',decision='Approve'):
         return self.execute('Decide Route Change',dict(request_name=row.name,decision=decision,approval_mode=mode,reason='Reviewed customer availability'),self.context('Review Route Change',row.name))
     def test_flexible_order_changes_display_without_mutating_office_source_or_stock(self):

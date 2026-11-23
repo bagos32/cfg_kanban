@@ -128,6 +128,32 @@ test('normal form keeps Company filters and restores state after failed status s
   await buttons['Close Planning'](); assert.equal(frm.doc.state, 'Draft');
   frm.save = async () => {}; await buttons['Mark Planned'](); assert.equal(frm.doc.state, 'Planned');
 });
+test('legacy departure lorry sync uses the saved Trip and reloads without editing its itinerary', async () => {
+  const { frm, handlers, calls, buttons }=harness();let reloads=0;const fields=[];
+  frm.doc.driver_route_state='In Progress';frm.doc.driver_route_snapshot_json='{"vehicle":"LORRY"}';frm.doc.modified='2026-11-23 12:00:00';
+  frm.set_df_property=(...args)=>fields.push(args);frm.reload_doc=async()=>{reloads++;frm.doc.vehicle_warehouse='LORRY';};
+  vm.runInThisContext(fs.readFileSync(formPath,'utf8'));await handlers['CFG Kanban Delivery Trip'].refresh(frm);
+  assert(fields.some(row=>row[0]==='vehicle_warehouse'&&row[1]==='read_only'&&row[2]));
+  await buttons['Sync Lorry Assignment']();const request=calls.find(row=>row.method?.endsWith('sync_trip_lorry'));
+  assert.deepEqual(request.args,{trip_name:'TRIP',expected_modified:'2026-11-23 12:00:00'});
+  assert.equal(reloads,1);assert.equal(frm.changed,false);assert.equal(frm.doc.vehicle_warehouse,'LORRY');
+});
+test('lorry sync rejects dirty form and releases busy guard after server rejection', async () => {
+  const { frm, handlers, calls, buttons, headlines }=harness();frm.doc.driver_route_state='In Progress';frm.doc.driver_route_snapshot_json='{}';
+  vm.runInThisContext(fs.readFileSync(formPath,'utf8'));await handlers['CFG Kanban Delivery Trip'].refresh(frm);
+  frm.changed=true;await buttons['Sync Lorry Assignment']();assert(headlines.at(-1).includes('Reload'));
+  assert(!calls.some(row=>row.method?.endsWith('sync_trip_lorry')));frm.changed=false;
+  const original=frappe.call;frappe.call=async args=>{if(args.method.endsWith('sync_trip_lorry'))throw Error('Trip changed');return original(args);};
+  await assert.rejects(buttons['Sync Lorry Assignment'],/Trip changed/);assert.equal(frm.__cfg_lorry_sync_busy,false);
+});
+test('unstarted or already-bound Trips do not show legacy lorry sync', async () => {
+  for(const state of ['Not Started','In Progress']){
+    const { frm, handlers, buttons }=harness();frm.doc.driver_route_state=state;frm.doc.driver_route_snapshot_json='{}';
+    if(state==='In Progress')frm.doc.vehicle_warehouse='LORRY';
+    vm.runInThisContext(fs.readFileSync(formPath,'utf8'));await handlers['CFG Kanban Delivery Trip'].refresh(frm);
+    assert.equal(buttons['Sync Lorry Assignment'],undefined);
+  }
+});
 test('template and Sales Order open native Desk pages and retain demand actions', async () => {
   const { frm, handlers, calls, buttons, queries } = harness();
   vm.runInThisContext(fs.readFileSync(templatePath, 'utf8')); await handlers['CFG Kanban Route Template'].refresh(frm);

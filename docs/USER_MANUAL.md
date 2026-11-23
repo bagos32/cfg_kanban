@@ -6062,6 +6062,13 @@ If **Generate / Refresh Dispatch** was used on a saved Draft, reload it and sele
 Status → Mark Planned**. The unchanged generated links/timestamp remain valid across browser
 saves, and existing requests are reused. Keep the read-only generated fields intact.
 
+At **Start Route**, the Trip's **Lorry Warehouse** fills from the verified actual loading lorry.
+Older started Trips with a blank field can use **Sync Lorry Assignment** on the normal office
+Delivery Trip form, after reloading, with planner/write permission. It restores the recorded
+departure lorry and preserves the frozen route, pending deliveries, route-order decisions and
+GPS binding. Driver status and **Current Lorry Stock** also resolve that recorded lorry. The stock print uses current ERP/tag balances;
+historical loading quantities are not treated as current stock or added to the ERP balance.
+
 The Profile's normal approval/picking/loading controls remain mandatory. LIFO lists ordered stock
 last-stop-first and shared extra stock as an accessible common pool. With no extra goods, the pool
 uses eligible stock already on the actual lorry: **Ready for Fulfilment**, with no fabricated

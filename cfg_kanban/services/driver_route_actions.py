@@ -2,7 +2,7 @@
 import json
 
 import frappe
-from frappe.utils import cint, flt, now_datetime
+from frappe.utils import cint, flt, get_datetime, now_datetime
 from cfg_kanban.services.events import record
 from cfg_kanban.services.idempotency import canonical_key
 from cfg_kanban.services.operator_auth import require_operator
@@ -71,7 +71,48 @@ def _planning():
 
 def _core(doc):
     from cfg_kanban.services.delivery_trips import _business
-    return canonical_key('driver-trip-scope', _business(doc))
+    return _scope_hash(doc, _business(doc))
+
+
+def _scope_hash(doc, business):
+    current=canonical_key('driver-trip-scope',business)
+    # Older departures froze an empty planning header while recording the real
+    # lorry in their snapshot. Filling that exact lorry must not rewrite the snapshot
+    # or invalidate pending delivery/GPS/route-order actions. All other facts still match.
+    if doc.get('driver_route_state') in ('In Progress','Completed','Closed Incomplete') and doc.get('vehicle_warehouse'):
+        try:saved=json.loads(doc.driver_route_snapshot_json or '{}')
+        except (TypeError,ValueError):return current
+        if isinstance(saved,dict) and saved.get('vehicle')==doc.vehicle_warehouse:
+            for empty in (None,''):
+                prior=canonical_key('driver-trip-scope',dict(business,vehicle_warehouse=empty))
+                if prior==saved.get('scope_hash'):return prior
+    return current
+
+
+@frappe.whitelist()
+def sync_trip_lorry(trip_name,expected_modified):
+    """Repair an older blank header from its frozen departure, without moving stock."""
+    frappe.only_for(('Stock Manager','Sales Manager','System Manager','CFG Kanban System Maintenance'))
+    doc=_root(trip_name);doc.check_permission('write')
+    if not expected_modified or get_datetime(doc.modified)!=get_datetime(expected_modified):
+        frappe.throw('Trip changed; reload before syncing its departure lorry')
+    if doc.get('driver_route_state') not in ('In Progress','Completed','Closed Incomplete'):
+        frappe.throw('Start the route before syncing its departure lorry')
+    try:saved=json.loads(doc.driver_route_snapshot_json or '{}')
+    except (TypeError,ValueError):frappe.throw('The departure snapshot needs Supervisor reconciliation')
+    if not isinstance(saved,dict) or not saved.get('vehicle') or saved.get('scope_hash')!=_core(doc):
+        frappe.throw('The departure snapshot needs Supervisor reconciliation')
+    vehicle=_views().trip_vehicle_warehouse(doc)
+    _read('Warehouse',vehicle)
+    _planning()._vehicle_warehouse(vehicle,doc.company)
+    if doc.vehicle_warehouse:return dict(trip=doc.name,vehicle_warehouse=vehicle,changed=False)
+    key=canonical_key('trip-departure-lorry-linked',doc.name,vehicle,saved['scope_hash'])
+    doc.db_set('vehicle_warehouse',vehicle,update_modified=True)
+    record('Delivery Trip Departure Lorry Linked',reference_doctype=TRIP,reference_name=doc.name,
+        terminal_user=frappe.session.user,idempotency_key=key,
+        payload=dict(vehicle_warehouse=vehicle,departure_scope_hash=saved['scope_hash']),
+        notes='Restored the blank header from the frozen departure; no stock movement')
+    return dict(trip=doc.name,vehicle_warehouse=vehicle,changed=True)
 
 
 def _read(doctype, name, current=False):
@@ -524,10 +565,18 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
         active_key = canonical_key('driver-active-lorry', doc.company, snapshot['vehicle']) if snapshot['vehicle'] else None
         if active_key and frappe.db.exists(TRIP, {'driver_active_vehicle_key': active_key}):
             frappe.throw('This lorry already has an active driver route')
+        binding={}
+        if snapshot['vehicle']:
+            # Hash the final header before persisting the departure in one update.
+            previous=doc.vehicle_warehouse
+            try:
+                doc.vehicle_warehouse=snapshot['vehicle'];snapshot['scope_hash']=_core(doc)
+            finally:doc.vehicle_warehouse=previous
+            binding['vehicle_warehouse']=snapshot['vehicle']
         try:
             doc.db_set(dict(driver_route_state='In Progress', driver_route_started_on=now_datetime(),
                 driver_route_started_by=operator.employee, driver_route_snapshot_json=frappe.as_json(snapshot),
-                driver_active_vehicle_key=active_key), update_modified=True)
+                driver_active_vehicle_key=active_key,**binding), update_modified=True)
         except frappe.UniqueValidationError:
             frappe.throw('This lorry already has an active driver route')
         result['route_started'] = True

@@ -483,9 +483,15 @@ def trip_stock_rows(trip):
     from cfg_kanban.services.vehicle_overview import _stock
     trip.check_permission('read')
     _read('Company', trip.company)
-    if not trip.vehicle_warehouse:
+    from cfg_kanban.services.driver_routes import trip_vehicle_warehouse
+    name=trip_vehicle_warehouse(trip)
+    if trip.get('driver_route_snapshot_json') and trip.get('driver_route_state') in ('In Progress','Completed','Closed Incomplete'):
+        from cfg_kanban.services.driver_route_actions import _core
+        saved=json.loads(trip.driver_route_snapshot_json)
+        if saved.get('scope_hash')!=_core(trip):frappe.throw('Reconcile the Trip departure before printing its lorry stock')
+    if not name:
         return []
-    vehicle = _read('Warehouse', trip.vehicle_warehouse)
+    vehicle = _read('Warehouse', name)
     if vehicle.company != trip.company:
         frappe.throw('Lorry Warehouse belongs to another Company', frappe.PermissionError)
     stock = _stock(vehicle)

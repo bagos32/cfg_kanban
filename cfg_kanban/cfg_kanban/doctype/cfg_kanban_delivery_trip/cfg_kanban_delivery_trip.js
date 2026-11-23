@@ -17,12 +17,19 @@ frappe.ui.form.on('CFG Kanban Delivery Trip', {
     await frappe.require('/assets/cfg_kanban/js/office_delivery_trip.js');
     const ui = window.cfg_office_delivery_trip;
     frm.set_df_property?.('assistant_drivers','read_only',!ui.editable(frm)||['In Progress','Completed','Closed Incomplete'].includes(frm.doc.driver_route_state));
+    frm.set_df_property?.('vehicle_warehouse','read_only',['In Progress','Completed','Closed Incomplete'].includes(frm.doc.driver_route_state));
     if (!frm.is_new() && (frappe.user_roles||[]).some(role=>['Stock Manager','Manufacturing Manager','System Manager'].includes(role))) frm.add_custom_button(__('Supervisor Live Map'), () => frappe.set_route('kanban-trip-monitor', frm.doc.name));
     if (!frm.is_new()) frm.add_custom_button(__('Driver Route'), () => frappe.set_route('kanban-driver-route', frm.doc.name));
     frm.fields_dict.planning_help.$wrapper.html(`<p class="text-muted">${__('Assign orders and extra route stock here. Enable Generate Dispatch on Mark Planned to create linked warehouse work automatically. One shared Open Route pool serves optional-sale visits. Load the last delivery stop first.')}</p>`);
     if (ui.editable(frm)) frm.add_custom_button(__('Load Route Template'), () => ui.loadTemplate(frm));
     frm.add_custom_button(__('Refresh SO Inbox'), () => ui.inbox(frm, 'order_inbox', true));
     if (!frm.is_new()) frm.add_custom_button(__('Refresh Loading Details'), () => ui.loading(frm));
+    if (!frm.is_new() && frm.perm?.[0]?.write && !frm.doc.vehicle_warehouse && frm.doc.driver_route_snapshot_json && ['In Progress','Completed','Closed Incomplete'].includes(frm.doc.driver_route_state)) frm.add_custom_button(__('Sync Lorry Assignment'), async()=>{
+      if(frm.is_dirty()){ui.alert(frm,__('Reload the Trip before syncing its departure lorry.'));return;}
+      if(frm.__cfg_lorry_sync_busy)return;frm.__cfg_lorry_sync_busy=true;
+      try {await frappe.call({method:'cfg_kanban.services.driver_route_actions.sync_trip_lorry',args:{trip_name:frm.doc.name,expected_modified:frm.doc.modified},freeze:true,freeze_message:__('Syncing the departure lorry...')});await frm.reload_doc();}
+      finally {frm.__cfg_lorry_sync_busy=false;}
+    });
     if (ui.editable(frm) && !frm.is_new() && !['In Progress','Completed'].includes(frm.doc.driver_route_state)) frm.add_custom_button(__('Generate / Refresh Dispatch'), async()=>{
       if(frm.is_dirty()){ui.alert(frm,__('Save the Trip and its quantities before generating dispatch work.'));return;}
       if(frm.__cfg_dispatch_busy)return;frm.__cfg_dispatch_busy=true;

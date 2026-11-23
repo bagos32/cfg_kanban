@@ -71,6 +71,7 @@ class TestMobilePrinting(unittest.TestCase):
         views = types.ModuleType('cfg_kanban.services.driver_routes')
         views._access = lambda *a:(self.operator, self.session)
         views._trip = lambda *a:self.trip
+        views.trip_vehicle_warehouse=load('services/driver_routes.py',dict(frappe=self.frappe))['trip_vehicle_warehouse']
         actions = types.ModuleType('cfg_kanban.services.driver_route_actions'); actions._core = lambda doc:'SCOPE'
         auth = types.ModuleType('cfg_kanban.services.operator_auth'); auth.require_operator = self.auth
         self.auth_calls = []
@@ -298,6 +299,45 @@ class TestMobilePrinting(unittest.TestCase):
             before=getattr(job,field);setattr(job,field,value)
             with self.subTest(field=field),self.assertRaises(PermissionError):self.ns['_job'](self.trip,job.name,self.operator)
             setattr(job,field,before)
+
+
+    def stock_fixture(self):
+        self.add('Company','A');self.vehicle=self.add('Warehouse','LORRY',company='A')
+        self.trip.vehicle_warehouse=None;self.trip.driver_route_state='In Progress'
+        self.trip.driver_route_snapshot_json=json.dumps(dict(vehicle='LORRY',scope_hash='SCOPE'))
+        tag=self.add(self.ns['HU'],'TAG',current_qty=2)
+        self.stock=Mock(return_value=dict(stock=[dict(item_code='ITEM',erp_qty=6,tag_qty=2,untagged_qty=4,
+            tags=[Row(name=tag.name,current_qty=tag.current_qty)])]))
+        module=types.ModuleType('cfg_kanban.services.vehicle_overview');module._stock=self.stock
+        patcher=patch.dict(sys.modules,{module.__name__:module});patcher.start();self.addCleanup(patcher.stop)
+        self.ns['_stock_print_expiry']=lambda tag:'2027-01-01'
+
+    def test_stock_print_uses_frozen_departure_with_blank_header_and_current_stock(self):
+        self.stock_fixture();rows=self.ns['trip_stock_rows'](self.trip)
+        self.assertEqual(self.stock.call_args[0][0].name,'LORRY')
+        self.assertEqual((rows[0]['erp_qty'],rows[0]['tag_qty'],rows[0]['untagged_qty']),(6,2,4))
+        self.assertEqual(rows[0]['tags'][0].effective_expiry,'2027-01-01')
+        self.assertIsNone(self.trip.vehicle_warehouse)
+
+    def test_stock_print_keeps_native_warehouse_company_and_tag_permissions(self):
+        self.stock_fixture();self.vehicle.denied.add('read')
+        with self.assertRaises(PermissionError):self.ns['trip_stock_rows'](self.trip)
+        self.stock.assert_not_called();self.vehicle.denied.clear();self.vehicle.company='B'
+        with self.assertRaises(PermissionError):self.ns['trip_stock_rows'](self.trip)
+        self.stock.assert_not_called();self.vehicle.company='A'
+        self.data[self.ns['HU']]['TAG'].denied.add('read')
+        self.assertEqual(self.ns['trip_stock_rows'](self.trip)[0]['tags'],[])
+
+    def test_stock_print_rejects_changed_departure_scope_or_header_instead_of_guessing(self):
+        self.stock_fixture();self.trip.vehicle_warehouse='WRONG'
+        with self.assertRaisesRegex(ValueError,'frozen departure'):self.ns['trip_stock_rows'](self.trip)
+        self.trip.vehicle_warehouse=None;self.trip.driver_route_snapshot_json=json.dumps(dict(vehicle='LORRY',scope_hash='CHANGED'))
+        with self.assertRaisesRegex(ValueError,'Reconcile the Trip departure'):self.ns['trip_stock_rows'](self.trip)
+        self.stock.assert_not_called()
+
+    def test_unassigned_unstarted_trip_stock_print_does_not_invent_a_lorry(self):
+        self.stock_fixture();self.trip.driver_route_state='Not Started';self.trip.driver_route_snapshot_json=None
+        self.assertEqual(self.ns['trip_stock_rows'](self.trip),[]);self.stock.assert_not_called()
 
 
 class TestDriverMobileReceipts(unittest.TestCase):

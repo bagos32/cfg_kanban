@@ -59,9 +59,24 @@ def _header(doc):
                 expected_return_date=doc.expected_return_date, driver=doc.driver,
                 assistant_drivers=[dict(employee=r.employee,employee_name=r.employee_name) for r in doc.get('assistant_drivers') or []],
                 team_revision=cint(doc.get('team_revision')),
-                planning_state=doc.state, driver_route_state=doc.get('driver_route_state') or 'Not Started', vehicle_warehouse=doc.vehicle_warehouse,
+                planning_state=doc.state, driver_route_state=doc.get('driver_route_state') or 'Not Started', vehicle_warehouse=trip_vehicle_warehouse(doc),
                 region=doc.region, direction=doc.direction,
                 office_sequence_policy=doc.sequence_policy, planning_revision=doc.planning_revision)
+
+
+def trip_vehicle_warehouse(doc):
+    """Use the certified departure for older trips whose planning header stayed blank."""
+    name=doc.vehicle_warehouse
+    if doc.get('driver_route_state') not in ('In Progress','Completed','Closed Incomplete') or not doc.get('driver_route_snapshot_json'):
+        return name
+    import json
+    try:saved=json.loads(doc.driver_route_snapshot_json)
+    except (ValueError,TypeError):frappe.throw('Reconcile the Trip departure lorry snapshot')
+    if not isinstance(saved,dict) or (saved.get('vehicle') is not None and not isinstance(saved['vehicle'],str)):
+        frappe.throw('Reconcile the Trip departure lorry snapshot')
+    vehicle=saved.get('vehicle')
+    if name and name!=vehicle:frappe.throw('Trip Lorry Warehouse differs from its frozen departure; Supervisor review required')
+    return vehicle or name
 
 
 @frappe.whitelist()
@@ -391,8 +406,9 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
     if doc.get('open_route_plan'):
         shared=_cached(cache,'CFG Kanban Dispatch Plan',doc.open_route_plan)
         if shared.vehicle_warehouse:vehicles.add(shared.vehicle_warehouse)
-    if doc.vehicle_warehouse:
-        vehicles.add(doc.vehicle_warehouse)
+    departure_vehicle=trip_vehicle_warehouse(doc)
+    if departure_vehicle:
+        vehicles.add(departure_vehicle)
     if len(vehicles) > 1:
         warnings.append('Trip sources are assigned to different lorries; Supervisor review required')
     for stop in stops.values():

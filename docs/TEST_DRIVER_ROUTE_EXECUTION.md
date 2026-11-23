@@ -80,6 +80,30 @@ Existing E5/returns/recovery and the separate L1 acceptance gate remain open.
 
 ## Offline coverage
 
+### Departure lorry binding / legacy repair — 23 November 2026
+
+Working changes above `abb6e37`. The previous release was reproduced with a blank Trip header:
+Start Route saved `vehicle = LORRY` in the snapshot but left both the header and trip-list lorry
+empty. The stock helper returned no rows from that header. New departure now binds the header
+in the same departure update, after its loading/Company/single-lorry checks. Older trips display
+and print the frozen lorry; authorized **Sync Lorry Assignment** restores the blank header while
+retaining the exact snapshot, active key, execution revision and original action scopes.
+
+| Native-site case | Expected evidence | Result |
+| --- | --- | --- |
+| Last-minute lorry | Leave header blank, complete real E3 loading, Start Route; header/list/driver show the one verified Company lorry; next delivery succeeds | Not run |
+| Legacy started Trip | Office reload + Sync Lorry Assignment restores the snapshot lorry; repeat/late request cannot overwrite it or duplicate departure | Not run |
+| Pending work | A pending delivery, enforced-order approval and active GPS publisher continue after repair; frozen snapshot and active-lorry key remain identical | Not run |
+| Permissions/conflicts | Native Trip write + planner roles, Company and Warehouse reads, configured lorry and current modified timestamp enforced; wrong/missing snapshot or changed source cannot select a substitute | Not run |
+| Current-stock print | Normal ERPNext and direct 80mm paths use recorded lorry and current ERP/tag balances; current quantities, expiry, native tag read gates and QC labels stay intact | Not run |
+| Atomicity/concurrency | Real database failure/duplicate active-lorry races leave no partial assignment, departure or audit; native rollback and locking checked | Not run |
+
+Offline verification: **716 Python tests passed**, with 5 native Frappe naming tests skipped;
+**244 Node test entries passed**. Coverage includes 17 new Python regressions and three new
+office-form UI cases. Changed Python/JavaScript/JSON syntax and patch whitespace checks passed.
+These use framework/database/UI substitutes. Native migration, ERP stock/PDF/bridge output,
+database concurrency and live-site quantities remain unverified; the site table is **Not run**.
+
 `test_driver_route_actions.py` executes the actual orchestration functions over the existing
 Trip/view fixtures and native-service doubles: departure gates, receipts/void, source snapshots,
 strict/flexible sequence, native delegation, Draft holds, proof barriers, same-stop multiple Plans,

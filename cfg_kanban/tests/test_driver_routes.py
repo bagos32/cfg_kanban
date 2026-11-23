@@ -70,6 +70,25 @@ class TestDriverRoutes(unittest.TestCase):
         self.assertEqual(result['trips'][0]['planning_state'],'Draft')
         self.auth.assert_called_with('TOKEN',touch_activity=False)
         self.trip._hidden=True;self.assertEqual(self.queue()['trips'],[])
+
+    def test_legacy_departure_lorry_is_visible_without_mutating_blank_header(self):
+        self.trip.vehicle_warehouse=None;self.trip.driver_route_state='In Progress'
+        self.trip.driver_route_snapshot_json=json.dumps(dict(vehicle='LORRY',scope_hash='FROZEN'))
+        self.assertEqual(self.queue()['trips'][0]['vehicle_warehouse'],'LORRY')
+        view=self.read();self.assertEqual(view['trip']['vehicle_warehouse'],'LORRY');self.assertEqual(view['vehicle_warehouse'],'LORRY')
+        self.assertIsNone(self.trip.vehicle_warehouse)
+
+    def test_legacy_frozen_lorry_does_not_hide_conflicting_live_dispatch_sources(self):
+        self.trip.vehicle_warehouse=None;self.trip.driver_route_state='In Progress'
+        self.trip.driver_route_snapshot_json=json.dumps(dict(vehicle='OLD',scope_hash='FROZEN'))
+        self.b.add('Warehouse','OLD',company='A')
+        view=self.read();self.assertIsNone(view['vehicle_warehouse']);self.assertIsNone(view['next_stop_key'])
+        self.assertTrue(any('different lorries' in warning for warning in view['warnings']))
+
+    def test_header_lorry_conflicting_with_departure_requires_review(self):
+        self.trip.vehicle_warehouse='OTHER';self.trip.driver_route_state='In Progress'
+        self.trip.driver_route_snapshot_json=json.dumps(dict(vehicle='LORRY',scope_hash='FROZEN'))
+        with self.assertRaisesRegex(ValueError,'differs from its frozen departure'):self.queue()
     def test_unassigned_other_driver_and_native_company_denials_do_not_leak(self):
         self.trip.driver='OTHER';self.assertEqual(self.queue()['trips'],[])
         with self.assertRaises(PermissionError):self.read()
