@@ -52,3 +52,32 @@ Tester/date/devices/network/provider/evidence: _pending_
 Relevant platform behavior: [Geolocation getCurrentPosition](https://developer.mozilla.org/en-US/docs/Web/API/Geolocation/getCurrentPosition)
 and [Chrome page lifecycle](https://developer.chrome.com/docs/web-platform/page-lifecycle-api).
 Browser/OS suspension limits are real acceptance conditions, not implementation guarantees.
+
+## Status colours, GPS setup and driver identity — 23 November 2026
+
+Working changes above `1c05a9f`. GPS defaults remain 15 seconds/manual sharing. Route Template
+and Trip expose 15/30/60/120/300-second intervals and optional auto-start on the device confirming
+Start Route. The existing one-source/assigned-actor/browser-permission and 12-hour gates remain.
+Customer/Trip legends, selected-customer fit and Name (Employee ID) apply to Trip/route views and
+the Trip stock list. Delivery/Invoice/Return/Custody formats remain unchanged by owner decision.
+
+| Site/device check | Expected result | Result |
+| --- | --- | --- |
+| Customer legend | Driver and Supervisor table/map colours agree; labels stay readable; Loaded/Next blue, waiting/refusal amber, done green, review red, pending grey, cancelled history purple | Not run |
+| My Delivery Trips | Draft/Planned/In Progress/Completed/Closed Incomplete/Cancelled match the visible legend; selecting a card retains its status stripe | Not run |
+| Fit selected | Select a different customer, focus only its actual pin; missing pin disabled; first/subsequent GPS updates retain that focus; Fit Locations and KL still work | Not run |
+| GPS presets | Template policy copies to Trip; each allowed interval schedules the actual foreground source; invalid values rejected | Not run |
+| Live setting change | Office save after real DN/SO delivery preserves source/departure/quantities; source adopts interval at next publish/read-back; current role/Company/write/stale-save gates still apply | Not run |
+| Auto-start | Only the confirming assigned driver/assistant device attempts GPS after recorded departure and browser permission; merely opening/polling another Trip creates no source | Not run |
+| Stop/retry/ownership | Manual Stop prevents replay restart; unknown start keeps its original request; another device's source is retained; permission denial leaves delivery usable | Not run |
+| Freshness/foreground | Stale threshold is max(90 seconds, 3 intervals); exact age/accuracy visible; locked/background behavior and real battery measurements recorded | Not run |
+| Name and ID | New/old Trip forms, list, driver/assistant/publisher labels, Supervisor and Trip stock print show the assigned identity; selection races cannot leave another Employee's name | Not run |
+| Scope | Native/Company/actor permissions still reject foreign sources; no new GPS trail, coordinate storage, stock posting or proof bypass | Not run |
+
+Offline verification: **724 Python tests passed**, with 5 native Frappe naming tests skipped;
+**258 Node test entries passed**. Tests exercise actual services/controllers with database,
+framework, GPS and DOM substitutes. Syntax/schema/whitespace checks passed. Real device GPS,
+battery improvement, native migration, kiosk/map rendering and site acceptance remain unverified.
+
+Deployed revision, Company/Trip/Template IDs, users/devices, measured intervals/battery and results:
+_pending_.

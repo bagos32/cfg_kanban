@@ -18,7 +18,10 @@
   "stops",
   "notes",
   "inbox_section",
-  "order_inbox"
+  "order_inbox",
+  "gps_settings",
+  "gps_publish_interval_seconds",
+  "gps_auto_start"
  ],
  "fields": [
   {
@@ -109,6 +112,26 @@
    "label": "Shared Open Route Dispatch Profile",
    "fieldtype": "Link",
    "options": "CFG Kanban Dispatch Profile"
+  },
+  {
+   "fieldname": "gps_settings",
+   "label": "Driver GPS",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "gps_publish_interval_seconds",
+   "label": "GPS Publish Interval (seconds)",
+   "fieldtype": "Select",
+   "options": "15\n30\n60\n120\n300",
+   "default": "15",
+   "description": "Longer intervals request location less often. Applied at the next GPS publish or source refresh."
+  },
+  {
+   "fieldname": "gps_auto_start",
+   "label": "Auto-start GPS on Start Route",
+   "fieldtype": "Check",
+   "default": "0",
+   "description": "Starts on the assigned driver or assistant device that confirms Start Route, after browser location permission. Stop GPS remains available."
   }
  ],
  "autoname": "field:template_name",

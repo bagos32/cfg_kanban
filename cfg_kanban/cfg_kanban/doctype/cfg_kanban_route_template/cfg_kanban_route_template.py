@@ -8,6 +8,9 @@ from cfg_kanban.services.delivery_trips import _company, validate_stops
 class CFGKanbanRouteTemplate(Document):
     def validate(self):
         _company(self.company)
+        from cfg_kanban.services.trip_gps_math import publish_interval
+        try:self.gps_publish_interval_seconds=str(publish_interval(self.get('gps_publish_interval_seconds')))
+        except ValueError as exc:frappe.throw(str(exc))
         self.sequence_policy = self.get('sequence_policy') or 'Flexible Order'
         if self.sequence_policy not in ('Flexible Order', 'Planned Order'):
             frappe.throw('Select Flexible Order or Planned Order')
@@ -22,6 +25,7 @@ class CFGKanbanRouteTemplate(Document):
             return (doc.company, doc.active, doc.notes, doc.get('region'), doc.get('direction'),
                     doc.get('sequence_policy') or 'Flexible Order',cint(doc.get('auto_generate_dispatch')),
                     doc.get('dispatch_profile'),doc.get('open_route_profile'),
+                    cint(doc.get('gps_auto_start')),publish_interval(doc.get('gps_publish_interval_seconds')),
                     [(row.get('stop_purpose') or 'Delivery', row.customer_scan_point,
                       row.customer, row.customer_address, row.instructions) for row in doc.stops])
 

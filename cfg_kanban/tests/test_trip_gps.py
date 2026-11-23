@@ -45,6 +45,13 @@ class TestGPSMath(unittest.TestCase):
         self.assertEqual(math.sequence('42'),42)
         for value in [True,0,-1,1.2,'1.0',' 1','١',None,2147483648]:
             with self.assertRaises(ValueError):math.sequence(value)
+    def test_publish_presets_and_freshness_window_preserve_legacy_default(self):
+        for value in (None,'',0):self.assertEqual(math.publish_interval(value),15)
+        for value in (15,30,60,120,300):
+            self.assertEqual(math.publish_interval(str(value)),value)
+            self.assertEqual(math.stale_after(value),max(90,3*value))
+        for value in (True,False,1,-1,14,61,15.1,'60 seconds',[],float('inf')):
+            with self.subTest(value=value),self.assertRaises(ValueError):math.publish_interval(value)
 
 
 class TestTripGPS(unittest.TestCase):
@@ -117,6 +124,15 @@ class TestTripGPS(unittest.TestCase):
         value=dict(latitude=3.139,longitude=101.6869,accuracy=8,captured_ms=self.clock);value.update(extra)
         return self.ns['publish_position'](**self.args(),position_data=value,sequence_no=number)
     def summary(self):return self.ns['summary'](self.trip)
+    def test_saved_interval_controls_source_replies_and_does_not_prematurely_mark_stale(self):
+        self.trip.gps_publish_interval_seconds='60';self.data['Employee']['EMP'].employee_name='Ali'
+        result=self.share()['result'];self.assertEqual(result['publish_interval_seconds'],60)
+        self.assertEqual(result['publisher_name'],'Ali');self.fix();self.clock+=100000
+        summary=self.summary();self.assertEqual(summary['state'],'Live');self.assertEqual(summary['stale_after_seconds'],180)
+        self.clock+=81000;self.assertEqual(self.summary()['state'],'Stale')
+        self.trip.gps_publish_interval_seconds='300'
+        self.assertEqual(self.ns['source_status'](**self.args())['publish_interval_seconds'],300)
+        self.assertEqual(self.summary()['stale_after_seconds'],900)
     def supervisor(self):self.op.update(kanban_role='Supervisor',view_all_responsibilities=1,can_override=1)
     def test_start_receipt_survives_mutable_trip_end_and_never_changes_delivery_revision(self):
         revision=self.trip.driver_route_revision;result=self.share();row=self.row()

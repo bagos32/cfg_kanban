@@ -36,6 +36,39 @@ test('explicit Share persists scoped source before sampling; no position or toke
  const start=h.calls.find(row=>row.method.endsWith('perform_driver_action'));assert.equal(start.args.action,'Start GPS');assert.equal(start.args.payload.publish_token,binding.publish_token);
  assert(!JSON.stringify(h.c.state).includes(binding.publish_token));assert.equal(h.timers.size,1);assert.equal([...h.timers.values()][0].ms,15000);
 });
+const departure=(enabled=true)=>({status:'Recorded',action:'Start Route',trip_name:'TRIP',request_actor:'EMP',result:{gps_auto_start:enabled}});
+test('configured auto-start runs once on the confirming device and manual Stop defeats replay',async()=>{
+ const h=harness();await h.show();await h.c.autoStart(departure());await flush();assert.equal(h.fixes(),1);
+ const starts=()=>h.calls.filter(row=>row.method.endsWith('perform_driver_action')).length;
+ assert.equal(starts(),1);await h.c.autoStart(departure());assert.equal(starts(),1);
+ await h.c.stop();await h.c.autoStart(departure());await flush();assert.equal(starts(),1);assert.equal(h.binding(),null);
+});
+test('opening or refreshing an opted-in Trip does not start GPS without its recorded departure',async()=>{
+ const h=harness({respond:async method=>method.endsWith('driver_context')?{gps:{state:'Not Shared'},can_share:true,auto_start:true,publish_interval_seconds:60}:undefined});
+ await h.show();await h.c.context({active:true,token:'TOKEN',operator:{employee:'EMP'},selected:'TRIP',detail:{trip:{name:'TRIP',driver_route_state:'In Progress'},refreshed_on:'now'}});
+ assert.equal(h.fixes(),0);assert(!h.calls.some(row=>row.method.endsWith('perform_driver_action')));
+});
+test('auto-start rejects off policy, voided departure, different actor/trip and hidden page',async()=>{
+ const h=harness();await h.show();
+ for(const result of [departure(false),{...departure(),status:'Voided'},{...departure(),trip_name:'OTHER'},{...departure(),request_actor:'OTHER'}])await h.c.autoStart(result);
+ h.c.hide();await h.c.autoStart(departure());assert.equal(h.fixes(),0);assert(!h.binding());
+});
+test('auto-start retains an uncertain GPS request for exact retry instead of making another source',async()=>{
+ let fail=true;const h=harness({respond:async method=>{if(method.endsWith('perform_driver_action')&&fail)throw Error('Lost');}});
+ await h.show();await assert.rejects(()=>h.c.autoStart(departure()),/Lost/);const binding=h.binding();assert.equal(binding.state,'Starting');
+ await h.c.autoStart(departure());assert.equal(h.calls.filter(row=>row.method.endsWith('perform_driver_action')).length,1);
+ fail=false;await h.c.start();await flush();assert.equal(h.binding().publish_token,binding.publish_token);assert.equal(h.fixes(),1);
+});
+test('publisher adopts 60/300-second office intervals from source replies without storing coordinates',async()=>{
+ const h=harness();h.gps({publish_interval_seconds:60,stale_after_seconds:180});await h.start();
+ assert.equal([...h.timers.values()][0].ms,60000);assert.equal(h.c.state.binding.publish_interval_seconds,60);
+ h.gps({publish_interval_seconds:300,stale_after_seconds:900});await h.tick();assert.equal([...h.timers.values()][0].ms,300000);
+ assert(!JSON.stringify([...h.storage.data]).includes('latitude'));assert.equal(h.fixes(),2);
+});
+test('explicit source refresh reschedules a changed interval without sampling an extra fix',async()=>{
+ const h=harness();await h.start();h.gps({publish_interval_seconds:120});await h.c.recover();
+ assert.equal(h.fixes(),1);assert.equal([...h.timers.values()][0].ms,120000);assert.equal(h.timers.size,1);
+});
 test('HTTPS/geolocation/Web Locks/identity prerequisites block mutations and sampling',async()=>{
  for(const options of [{available:false},{locks:null}]){const h=harness(options);await h.show();await assert.rejects(h.c.start());assert.equal(h.fixes(),0);assert(!h.calls.some(row=>row.method.endsWith('perform_driver_action')));}
  const h=harness();h.token(null);await h.show();await assert.rejects(h.c.start(),/Identify/);assert.equal(h.calls.length,0);

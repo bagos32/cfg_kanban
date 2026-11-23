@@ -56,12 +56,19 @@ def _trip(name, operator):
 def _header(doc):
     return dict(name=doc.name, trip_title=doc.trip_title or doc.name, company=doc.company,
                 route_template=doc.route_template, trip_date=doc.trip_date,
-                expected_return_date=doc.expected_return_date, driver=doc.driver,
+                expected_return_date=doc.expected_return_date, driver=doc.driver,driver_display=trip_driver_display(doc),
+                gps_auto_start=bool(cint(doc.get('gps_auto_start'))),gps_publish_interval_seconds=doc.get('gps_publish_interval_seconds') or 15,
                 assistant_drivers=[dict(employee=r.employee,employee_name=r.employee_name) for r in doc.get('assistant_drivers') or []],
                 team_revision=cint(doc.get('team_revision')),
                 planning_state=doc.state, driver_route_state=doc.get('driver_route_state') or 'Not Started', vehicle_warehouse=trip_vehicle_warehouse(doc),
                 region=doc.region, direction=doc.direction,
                 office_sequence_policy=doc.sequence_policy, planning_revision=doc.planning_revision)
+
+
+def trip_driver_display(doc):
+    if not doc.driver:return ''
+    name=frappe.db.get_value('Employee',doc.driver,'employee_name')
+    return str(name)+' ('+doc.driver+')' if name and name!=doc.driver else doc.driver
 
 
 def trip_vehicle_warehouse(doc):

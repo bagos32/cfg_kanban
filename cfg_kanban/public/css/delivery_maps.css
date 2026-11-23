@@ -25,3 +25,23 @@
 .cfg-driver-map-legend .last-known:before { color: #777; }
 .cfg-driver-map-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .cfg-driver-map-controls .btn { min-height: 44px; }
+
+/* Shared customer and Trip status colours; state text remains visible. */
+.cfg-status-legend { display:flex; flex-wrap:wrap; gap:8px 14px; margin:10px 0; font-size:12px; }
+.cfg-status-color { --cfg-state:#606b78; }
+.cfg-status-color:before { content:'●'; color:var(--cfg-state); margin-right:5px; }
+.cfg-status-color.pending, .cfg-status-pending { --cfg-state:#606b78; }
+.cfg-status-color.next, .cfg-status-color.current, .cfg-status-next, .cfg-status-current { --cfg-state:#1365b5; }
+.cfg-status-color.attention, .cfg-status-attention { --cfg-state:#a65a00; }
+.cfg-status-color.completed, .cfg-status-completed { --cfg-state:#237b3b; }
+.cfg-status-color.danger, .cfg-status-danger { --cfg-state:#b42318; }
+.cfg-status-color.cancelled, .cfg-status-cancelled { --cfg-state:#7950a3; }
+.cfg-driver-list .cfg-driver-trip[class*="cfg-status-"], .cfg-monitor-list .cfg-monitor-trip[class*="cfg-status-"], .cfg-driver-stops .btn[class*="cfg-status-"], .cfg-monitor-stops .cfg-monitor-stop[class*="cfg-status-"] { border-left:6px solid var(--cfg-state); }
+.cfg-driver-map-pin.danger span { background:#b42318; }
+.cfg-driver-map-pin.cancelled span { background:#7950a3; }
+
+.cfg-driver-map-controls { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.cfg-driver-map-controls .btn { min-height:44px; white-space:normal; }
+.cfg-driver-trip span, .cfg-monitor-trip span { overflow-wrap:anywhere; }
+
+.cfg-cancelled-stop { border-left:6px solid var(--cfg-state); padding-left:10px; }

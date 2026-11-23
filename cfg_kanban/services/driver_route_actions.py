@@ -580,6 +580,7 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
         except frappe.UniqueValidationError:
             frappe.throw('This lorry already has an active driver route')
         result['route_started'] = True
+        result['gps_auto_start']=bool(cint(doc.get('gps_auto_start')))
     else:
         saved = json.loads(doc.driver_route_snapshot_json or '{}')
         if canonical_key('driver-snapshot', snapshot) != canonical_key('driver-snapshot', saved):

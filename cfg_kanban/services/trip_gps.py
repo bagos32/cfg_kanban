@@ -108,7 +108,19 @@ def start(doc,values,operator,session):
         lease_until=add_to_date(now_datetime(),hours=LEASE_HOURS),started_on=now_datetime(),stopped_on=None,stop_reason=None,
         last_sequence=0,last_payload_hash=None,pause_sequence=0),update_modified=True)
     return dict(lease_id=epoch,lease_until_ms=until,vehicle_warehouse=vehicle.name,vehicle_reference=vehicle.cfg_vehicle_reference,
-        publisher_employee=operator.employee,publish_interval_seconds=PUBLISH_SECONDS,stale_after_seconds=STALE_SECONDS)
+        publisher_employee=operator.employee,publisher_name=frappe.db.get_value('Employee',operator.employee,'employee_name'),
+        publish_interval_seconds=_publish_interval(doc),stale_after_seconds=_stale_after(doc))
+
+
+def _publish_interval(doc):
+    from cfg_kanban.services.trip_gps_math import publish_interval
+    try:return publish_interval(doc.get('gps_publish_interval_seconds'))
+    except ValueError as exc:frappe.throw(str(exc))
+
+
+def _stale_after(doc):
+    from cfg_kanban.services.trip_gps_math import stale_after
+    return stale_after(_publish_interval(doc))
 
 
 def summary(doc,row=None):
@@ -120,12 +132,13 @@ def summary(doc,row=None):
     active=doc.state=='Planned' and doc.driver_route_state=='In Progress'
     state=('Trip Ended' if not active else 'Stopped' if row.state=='Stopped' else 'Expired' if _now_ms()>=cint(row.lease_until_ms) else
         'Revoked' if not _lease_live(row,doc) else 'Paused' if row.state=='Paused' else
-        'Waiting for GPS' if not fix or fix.get('lease_id')!=row.lease_id else 'Stale' if age>STALE_SECONDS else
+        'Waiting for GPS' if not fix or fix.get('lease_id')!=row.lease_id else 'Stale' if age>_stale_after(doc) else
         'Low Accuracy' if fix['accuracy']>100 else 'Live')
     return dict(state=state,live=state in ('Live','Low Accuracy'),position=({key:fix[key] for key in ('latitude','longitude','accuracy','captured_ms')} if fix else None),
         age_seconds=age,received_on=row.last_received_on,vehicle_warehouse=row.vehicle_warehouse,vehicle_reference=row.vehicle_reference,
         publisher_employee=row.source_employee,lease_id=row.lease_id,lease_until_ms=row.lease_until_ms,last_sequence=cint(row.last_sequence),
-        stale_after_seconds=STALE_SECONDS,publish_interval_seconds=PUBLISH_SECONDS,stop_reason=row.stop_reason)
+        publisher_name=frappe.db.get_value('Employee',row.source_employee,'employee_name') if row.source_employee else None,
+        stale_after_seconds=_stale_after(doc),publish_interval_seconds=_publish_interval(doc),stop_reason=row.stop_reason)
 
 
 def _device(trip_name,lease_id,publish_token,current=True):
@@ -191,7 +204,8 @@ def stop_source(trip_name,lease_id,publish_token):
 def driver_context(trip_name,operator_session_token):
     operator,_session=require_operator(operator_session_token,touch_activity=False)
     _views()._delivery()._require_customer_delivery(operator);doc=_views()._trip(trip_name,operator)
-    return dict(gps=summary(doc),can_share=bool(_views().assigned(doc,operator) and operator.can_start and doc.state=='Planned' and doc.driver_route_state=='In Progress'))
+    return dict(gps=summary(doc),auto_start=bool(cint(doc.get('gps_auto_start'))),publish_interval_seconds=_publish_interval(doc),
+        can_share=bool(_views().assigned(doc,operator) and operator.can_start and doc.state=='Planned' and doc.driver_route_state=='In Progress'))
 
 
 def _supervisor(token,interactive=0,override=False):

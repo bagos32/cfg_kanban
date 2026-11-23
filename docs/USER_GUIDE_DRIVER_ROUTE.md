@@ -389,7 +389,7 @@ Company/Customer/Address remains governed by the existing identity checks.
 The map uses Frappe's existing Leaflet assets and configured tile provider; it keeps the viewport
 on ordinary refresh and groups repeated coordinates. If map assets/tiles are unavailable, use
 the directions buttons and existing delivery controls; **Retry Map** retries an asset failure.
-An empty map opens at Kuala Lumpur (3.139, 101.6869, zoom 13), without a fabricated customer or lorry pin. Saved customer pins and selected Trip locations focus their actual coordinates; **Kuala Lumpur** restores the default and **Fit Locations** fits the visible locations. Directions are disabled during refresh or a stale route
+An empty map opens at Kuala Lumpur (3.139, 101.6869, zoom 13), without a fabricated customer or lorry pin. Saved customer pins and selected Trip locations focus their actual coordinates; **Kuala Lumpur** restores the default and **Fit Locations** fits all visible locations. Select a customer and press **Fit Selected Customer** to focus only its saved pin; without a saved pin the button is disabled. GPS updates retain this selected-customer focus. Directions are disabled during refresh or a stale route
 read. Page hide/operator change clears map data; late loads cannot draw the previous driver's
 Trip. Returning from the external maps app triggers a passive route refresh without renewing the
 operator's inactivity timeout or recording delivery.
@@ -417,11 +417,11 @@ Use **Driver Route → select the started Trip → Share GPS** on one assigned d
 phone or tablet travelling with the lorry. Allow browser location permission over HTTPS. The
 Trip must be In Progress with its saved actual Company lorry and reconciled departure snapshot.
 The Employee/profile must remain active, assigned and authorized for Customer Delivery with Start.
-Use separate native ERP logins, or distinct configured terminal/station IDs when sharing a login; native operator-switch scope still applies. No location is requested merely by opening a Trip. Office/Supervisor devices should view the
+Use separate native ERP logins, or distinct configured terminal/station IDs when sharing a login; native operator-switch scope still applies. Opening/refreshing a Trip does not start a new GPS source; an authorized retained source resumes when its device page becomes visible again. Office/Supervisor devices should view the
 Supervisor map rather than publish an office position as the lorry.
 
 Keep Driver Route visible. The device requests a fresh high-accuracy position, with a 12-second
-request timeout, then schedules another request 15 seconds after that attempt finishes. Actual
+request timeout, then schedules another request after the saved Trip interval (15 seconds by default). Actual
 intervals depend on device/network response; they are not guaranteed. The source panel shows the
 Trip, lorry, publishing Employee and sharing state, with reported fix age and accuracy.
 
@@ -579,3 +579,37 @@ labels marked **Pending QC — not available stock**, without posting stock or c
 See [printing/invoice setup and recovery](USER_GUIDE_DRIVER_PRINTING.md) and
 [native/device acceptance](TEST_DRIVER_MOBILE_PRINTING.md). Implementation and offline/browser
 checks do not verify live ERPNext posting or Bluetooth printer output.
+
+
+## GPS interval and automatic departure sharing
+
+On the normal **Route Template / Delivery Trip → Driver GPS** section choose **GPS Publish
+Interval (seconds)**: **15, 30, 60, 120 or 300**. Loading a Template copies its defaults to the
+Trip. Choosing 60 or 120 requests location less often; 300 gives a five-minute interval. Battery
+benefit depends on the device and other apps. The interval is a delay after each attempt,
+not a guaranteed wall-clock schedule. An authorized office planner may change and save the Trip's
+interval while it is running, including after deliveries. The source adopts it at its next
+publish or **Check Saved GPS Source**. Its stale threshold is the greater of 90 seconds or three
+intervals. The map continues to show actual last-fix age and accuracy.
+
+**Auto-start GPS on Start Route** is optional and off by default. Enable it on the Template/Trip
+before departure. Only the assigned driver/assistant device that confirms **Start Route** attempts
+to share, using the same single-source authority and browser location permission as Share GPS.
+Opening another Trip, polling, a duplicated departure reply or replay after **Stop GPS** does not
+start another source. A retained/uncertain source keeps its existing retry/reconciliation path.
+If another phone is already sharing, it remains the source. A denied/unavailable GPS start leaves
+the route started and shows the GPS error; fix permission and use **Share GPS**. Foreground/browser
+limitations, manual Stop and the existing 12-hour sharing permission still apply.
+
+## Status colours and driver identity
+
+Driver Route and Supervisor Live Map share a visible customer legend: **grey** Planned/Pending,
+**blue** Ready/Next, **amber** In Progress/Waiting/Refusal, **green** Completed, **red** Review
+Required, **purple** Cancelled/Skipped. State text stays visible. Completed with refusal remains
+amber for attention. My Delivery Trips also has a legend: Draft grey, Planned blue, In Progress
+amber, Completed green, Closed Incomplete red and Cancelled/Closed purple. A completed closed
+Trip retains Completed green.
+
+Assigned drivers, assistants and GPS publishers display **Name (Employee ID)**. The same assigned
+driver identity appears on the normal Delivery Trip form/list and Trip stock list. Assignment
+still uses the Employee ID. Delivery/Invoice/Return/Custody print formats remain unchanged.

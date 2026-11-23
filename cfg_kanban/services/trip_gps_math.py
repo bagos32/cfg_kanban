@@ -4,6 +4,21 @@ import math
 PUBLISH_SECONDS=15
 STALE_SECONDS=90
 LEASE_HOURS=12
+PUBLISH_INTERVALS=(15,30,60,120,300)
+
+
+def publish_interval(value=None):
+    if isinstance(value,bool):raise ValueError('Select a GPS interval: 15, 30, 60, 120 or 300 seconds')
+    if value in (None,'',0,'0'):return PUBLISH_SECONDS
+    try:number=int(value)
+    except (ValueError,TypeError,OverflowError):raise ValueError('Select a valid GPS publish interval') from None
+    if number not in PUBLISH_INTERVALS or str(value) not in (str(number),str(float(number))):
+        raise ValueError('Select a GPS interval: 15, 30, 60, 120 or 300 seconds')
+    return number
+
+
+def stale_after(value=None):
+    return max(STALE_SECONDS,3*publish_interval(value))
 
 
 def finite_number(value,label):

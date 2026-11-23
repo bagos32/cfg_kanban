@@ -38,11 +38,13 @@ def _template(name, company=None, current=False):
 
 
 def _snapshot(template):
+    from cfg_kanban.services.trip_gps_math import publish_interval
     return dict(name=template.name, company=template.company, revision=cint(template.revision),
                 region=template.get('region'), direction=template.get('direction'),
                 sequence_policy=template.get('sequence_policy') or 'Flexible Order',
                 auto_generate_dispatch=cint(template.get('auto_generate_dispatch')),
                 dispatch_profile=template.get('dispatch_profile'),open_route_profile=template.get('open_route_profile'),
+                gps_auto_start=cint(template.get('gps_auto_start')),gps_publish_interval_seconds=publish_interval(template.get('gps_publish_interval_seconds')),
                 stops=[dict(template_row=row.name, stop_purpose=row.get('stop_purpose') or 'Delivery',
                             customer_scan_point=row.get('customer_scan_point'), customer=row.customer,
                             customer_address=row.get('customer_address'), instructions=row.instructions or '')
@@ -62,6 +64,7 @@ def get_route_template(route_template, company=None):
                 region=snapshot['region'], direction=snapshot['direction'],
                 sequence_policy=snapshot['sequence_policy'],auto_generate_dispatch=snapshot['auto_generate_dispatch'],
                 dispatch_profile=snapshot['dispatch_profile'],open_route_profile=snapshot['open_route_profile'],
+                gps_auto_start=snapshot['gps_auto_start'],gps_publish_interval_seconds=snapshot['gps_publish_interval_seconds'],
                 stops=[dict(row, stop_key=_key()) for row in snapshot['stops']])
 
 
@@ -449,6 +452,11 @@ def _protect_driver_execution(doc, before):
 def validate_trip(doc):
     frappe.only_for(EDITORS)
     doc.check_permission('create' if doc.is_new() else 'write')
+    from cfg_kanban.services.trip_gps_math import publish_interval
+    try:doc.gps_publish_interval_seconds=str(publish_interval(doc.get('gps_publish_interval_seconds')))
+    except ValueError as exc:frappe.throw(str(exc))
+    driver_name=frappe.db.get_value('Employee',doc.driver,'employee_name') if doc.driver else None
+    doc.driver_display=(str(driver_name)+' ('+doc.driver+')') if driver_name and driver_name!=doc.driver else doc.driver or None
     before = None if doc.is_new() else doc.get_doc_before_save()
     _protect_driver_execution(doc, before)
     doc.team_revision = cint(before.get('team_revision')) if before else 0
@@ -473,6 +481,15 @@ def validate_trip(doc):
     _locks('Sales Order', [r.sales_order for r in doc.orders] +
            ([r.sales_order for r in before.orders] if before else []))
     _company(doc.company)
+    if (before and before.get('driver_route_state')=='In Progress' and doc.state==before.state
+            and _business(doc)==_business(before)
+            and (publish_interval(doc.get('gps_publish_interval_seconds'))!=publish_interval(before.get('gps_publish_interval_seconds'))
+                 or cint(doc.get('gps_auto_start'))!=cint(before.get('gps_auto_start')))):
+        # Live GPS settings do not re-plan already delivered SO quantities or rewrite
+        # warehouse/source snapshots. Native role, write, Company and stale-save gates above still apply.
+        _preserve_derived(doc,before)
+        doc.dispatch_generated_on=before.get('dispatch_generated_on')
+        return
     if before and before.state in TERMINAL:
         if doc.state != before.state or _business(doc) != _business(before):
             frappe.throw('Closed/cancelled planning history cannot be reopened or rewritten')

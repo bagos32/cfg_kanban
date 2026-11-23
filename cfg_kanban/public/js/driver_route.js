@@ -6,7 +6,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   const SESSION = 'cfg_kanban_operator_session';
   const service = 'cfg_kanban.services.driver_routes.';
-  const maps=()=>typeof window!=='undefined'?window.cfg_delivery_maps:null;
+  const maps=()=>typeof window!=='undefined'&&window.cfg_delivery_maps?window.cfg_delivery_maps:typeof require==='function'?require('./delivery_maps.js'):null;
   const tr = value => typeof __ === 'function' ? __(value) : value;
   const escape = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
   function scan(value) {
@@ -116,10 +116,10 @@
     };
   }
   function tripList(state) {
-    return `<h3>${tr('My Delivery Trips')}</h3>${state.trips.map(row => `<button class="cfg-driver-trip btn btn-default${row.name === state.selected ? ' selected' : ''}" data-trip="${escape(row.name)}">
+    return `<h3>${tr('My Delivery Trips')}</h3>${maps()?.statusLegend?.(true)||''}${state.trips.map(row => `<button class="cfg-driver-trip btn btn-default cfg-status-${maps()?.tripKind?.(row)||'pending'}${row.name === state.selected ? ' selected' : ''}" data-trip="${escape(row.name)}">
       <strong>${escape(row.trip_title || row.name)}</strong><span>${escape(row.name)} · ${escape(row.company)}</span>
       <span>${escape(row.trip_date)}${row.expected_return_date ? ' → ' + escape(row.expected_return_date) : ''} · ${escape(row.planning_state)} · ${escape(row.driver_route_state || tr('Not Started'))}</span>
-      <span>${escape(row.vehicle_warehouse || tr('Lorry not yet assigned'))}</span></button>`).join('') || `<p class="text-muted">${tr('No trips on this page. The office must assign your Employee as the trip driver.')}</p>`}
+      <span>${escape(row.vehicle_warehouse || tr('Lorry not yet assigned'))}</span><span>${tr('Assigned Driver')}: ${escape(row.driver_display||row.driver||'—')}</span></button>`).join('') || `<p class="text-muted">${tr('No trips on this page. The office must assign your Employee as the trip driver.')}</p>`}
       <div class="cfg-driver-pages"><button class="btn btn-default" data-page="-1"${state.start <= 0 || state.busy ? ' disabled' : ''}>${tr('Previous')}</button>
       <button class="btn btn-default" data-page="1"${!state.has_more || state.busy ? ' disabled' : ''}>${tr('Next')}</button></div>`;
   }
@@ -137,13 +137,13 @@
       ${maps()?.navigationHTML(state)||''}
       ${data.trip.planning_state === 'Planned' && (data.trip.driver_route_state || 'Not Started') === 'Not Started' ? `<button class="btn btn-primary cfg-driver-start-route">${tr('Start Route')}</button>` : ''}
       ${data.trip.driver_route_state && data.trip.driver_route_state !== 'Not Started' ? `<button class="btn btn-default cfg-driver-resume-route">${tr('Continue / Check saved action')}</button>` : ''}
-      <p><strong>${tr('Assigned Driver')}:</strong> ${escape(data.trip.driver||'—')} · <strong>${tr('Assistant Drivers')}:</strong> ${(data.trip.assistant_drivers||[]).map(row=>escape(row.employee_name||row.employee)).join(', ')||'—'}</p>
+      <p><strong>${tr('Assigned Driver')}:</strong> ${escape(data.trip.driver_display||data.trip.driver||'—')} · <strong>${tr('Assistant Drivers')}:</strong> ${(data.trip.assistant_drivers||[]).map(row=>escape(maps()?.person?.(row.employee,row.employee_name)||row.employee)).join(', ')||'—'}</p>
       ${data.can_add_assistant?`<button class="btn btn-default cfg-driver-add-assistant">${tr('Add Assistant Driver')}</button>`:''}
       ${data.route_sequence?.can_change?`<button class="btn btn-default cfg-driver-order">${tr(data.route_sequence.enforced?'Request Stop Order Change':'Change Stop Order')}</button>`:''}
       ${data.route_sequence?.request?`<p class="alert alert-info">${tr(data.route_sequence.request.request_type||'Route change')}: ${escape(data.route_sequence.request.name)} · ${escape(data.route_sequence.request.state)} · ${escape(data.route_sequence.request.approval_mode||'')} ${escape(data.route_sequence.request.decision_reason||'')}${data.route_sequence.request.can_cancel?` <button class="btn btn-default cfg-driver-cancel-order">${tr(data.route_sequence.request.request_type==='Cancel Customer Stop'?'Withdraw Cancellation Request':'Cancel Route Request')}</button>`:''}</p>`:''}
       ${(data.warnings || []).map(warning => `<p class="alert alert-warning">${escape(warning)}</p>`).join('')}
-      <div class="cfg-driver-map-slot"></div>
-      <div class="cfg-driver-stops">${(data.stops || []).map(stop => `<button class="btn btn-default${selected?.stop_key === stop.stop_key ? ' selected' : ''}" data-stop="${escape(stop.stop_key)}"><strong>${escape(stop.sequence)}. ${escape(stop.site_name || stop.customer_name)}</strong><span>${escape(stop.state)}${stop.purpose === 'Visit Only' ? ' · ' + tr('Visit Only') : ''}</span></button>`).join('')}</div></section>
+      <p>${tr('GPS publish interval')}: ${escape(data.trip.gps_publish_interval_seconds||15)}s · ${tr(data.trip.gps_auto_start?'Auto-start on this device when Start Route is confirmed; allow browser location.':'Manual GPS sharing')}</p><div class="cfg-driver-map-slot"></div>
+      ${maps()?.statusLegend?.()||''}<div class="cfg-driver-stops">${(data.stops || []).map(stop => `<button class="btn btn-default cfg-status-${maps()?.stopKind?.(stop,data)||'pending'}${selected?.stop_key === stop.stop_key ? ' selected' : ''}" data-stop="${escape(stop.stop_key)}"><strong>${escape(stop.sequence)}. ${escape(stop.site_name || stop.customer_name)}</strong><span>${escape(stop.state)}${stop.purpose === 'Visit Only' ? ' · ' + tr('Visit Only') : ''}</span></button>`).join('')}</div></section>
       ${selected ? stopView(selected, data.trip) + cancellationControl(selected,data,state) + returnView(data,selected,state) : ''}${cancelledView(data)}`;
   }
   function cancellationControl(stop,data,state){
@@ -152,7 +152,7 @@
   }
   function cancelledView(data){
     if(!data.cancelled_stops?.length)return '';
-    return `<details class="frappe-card p-3 mt-3"><summary>${tr('Cancelled Customer Stops')} (${escape(data.cancelled_stops.length)})</summary>${data.cancelled_stops.map(row=>`<section class="mt-3"><strong>${escape(row.office_sequence)}. ${escape(row.site_name||row.customer_name)}</strong><p>${escape(row.cancelled_on)} · ${escape(row.cancelled_by)} · ${escape(row.cancellation_reason)}</p><p>${escape(row.stock_disposition)} · ${escape(row.cancellation_request)}</p>${(row.loaded_stock||[]).map(stock=>`<p>${escape(stock.visible_code||stock.item_code)} · ${escape(stock.qty)} ${escape(stock.stock_uom)} · ${escape(stock.stock_state)} · ${tr('Last recorded custody')}: ${escape(stock.current_warehouse)}</p>`).join('')}</section>`).join('')}</details>`;
+    return `<details class="frappe-card p-3 mt-3"><summary>${tr('Cancelled Customer Stops')} (${escape(data.cancelled_stops.length)})</summary>${data.cancelled_stops.map(row=>`<section class="mt-3 cfg-cancelled-stop cfg-status-cancelled"><strong>${escape(row.office_sequence)}. ${escape(row.site_name||row.customer_name)}</strong><p>${escape(row.cancelled_on)} · ${escape(row.cancelled_by)} · ${escape(row.cancellation_reason)}</p><p>${escape(row.stock_disposition)} · ${escape(row.cancellation_request)}</p>${(row.loaded_stock||[]).map(stock=>`<p>${escape(stock.visible_code||stock.item_code)} · ${escape(stock.qty)} ${escape(stock.stock_uom)} · ${escape(stock.stock_state)} · ${tr('Last recorded custody')}: ${escape(stock.current_warehouse)}</p>`).join('')}</section>`).join('')}</details>`;
   }
   function stopView(stop, trip) {
     return `<section class="frappe-card p-4 mt-3"><h3>${escape(stop.sequence)}. ${escape(stop.site_name || stop.customer_name)}</h3>
@@ -249,6 +249,8 @@
           trip:app.state.selected, stop:stop || null, operation, outcome, owner:()=>app.state.operator?.employee, token:()=>app.session(),
           active:()=>app.state.active && route(), detail:()=>app.state.detail,
           refresh:()=>app.refresh(app.state.selected, true), storage:localStorage, locks:navigator.locks,
+          // Run after the departure's Web Lock is released; GPS has its own durable action.
+          recorded:result=>{if(result.action==='Start Route'&&result.result?.gps_auto_start)setTimeout(()=>gps?.autoStart(result),0);},
           nonce:()=>crypto.randomUUID(), error:message, supervisor:()=>app.state.can_view_all && app.state.operator?.can_override && ['Supervisor','Development Proxy'].includes(app.state.operator?.kanban_role),
           onClose:()=>{action=null;focus();}});
       } catch(error) { $root.find('.cfg-driver-action-host').empty(); notice(message(error)); focus(); }

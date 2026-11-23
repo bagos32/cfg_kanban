@@ -28,6 +28,7 @@ class TestMobilePrintTemplates(unittest.TestCase):
                 identity_variance=False,tags=[Doc(handling_unit_id='RM1',current_qty=3,stock_uom='Nos',
                 quality_state='Released',movement_state='Received',effective_expiry='2027-01-01')])],
             trip_vehicle_warehouse=lambda trip:trip.vehicle_warehouse,
+            trip_driver_display=lambda trip:trip.get("driver_display") or trip.get("driver") or "",
             frappe=types.SimpleNamespace(utils=types.SimpleNamespace(now_datetime=lambda:'2026-11-23 12:00:00')),
         )
     def qr(self, value):
@@ -98,6 +99,12 @@ class TestMobilePrintTemplates(unittest.TestCase):
         doc=self.document(name='TRIP',company='A',vehicle_warehouse=None)
         html=self.render('cfg_trip_stock_80mm',doc)
         self.assertIn('RECORDED-LORRY',html);self.assertNotIn('Lorry not assigned',html)
+
+    def test_trip_stock_driver_name_and_id_are_escaped(self):
+        self.environment.globals['trip_driver_display']=lambda trip:'Ali <script> (EMP-1)'
+        html=self.render('cfg_trip_stock_80mm',self.document(name='TRIP',company='A',vehicle_warehouse='LORRY'))
+        self.assertIn('Ali &lt;script&gt; (EMP-1)',html);self.assertNotIn('Ali <script>',html)
+
 
 
 if __name__=='__main__':unittest.main()

@@ -95,7 +95,7 @@
     const data = await call('get_route_template', { route_template: route, company });
     if (frm.doc.route_template !== route || frm.doc.company !== company ||
         (frm.doc.orders || []).length || (frm.doc.dispatch_plans || []).length || !editable(frm)) return;
-    for (const field of ['company', 'template_revision', 'template_snapshot_json', 'region', 'direction', 'sequence_policy', 'auto_generate_dispatch', 'dispatch_profile', 'open_route_profile']) await frm.set_value(field, data[field]);
+    for (const field of ['company', 'template_revision', 'template_snapshot_json', 'region', 'direction', 'sequence_policy', 'auto_generate_dispatch', 'dispatch_profile', 'open_route_profile', 'gps_auto_start', 'gps_publish_interval_seconds']) await frm.set_value(field, data[field]);
     frm.clear_table('stops');
     for (const values of data.stops) Object.assign(frm.add_child('stops'), values);
     frm.refresh_field('stops'); frm.dirty(); await inbox(frm, 'order_inbox', true);

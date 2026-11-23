@@ -5,6 +5,10 @@ from cfg_kanban.services.delivery_trips import validate_trip
 
 
 class CFGKanbanDeliveryTrip(Document):
+    def onload(self):
+        from cfg_kanban.services.driver_routes import trip_driver_display
+        self.driver_display=trip_driver_display(self)
+
     def validate(self):
         validate_trip(self)
 

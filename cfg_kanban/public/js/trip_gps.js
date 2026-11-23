@@ -6,7 +6,8 @@
  function controller(env){
   let binding=null,action=null,visible=false,epoch=0,timer=null,busy=false,lastContext=null,contextTicket=0,inflightEpoch=null;
   const s={binding:null,gps:null,context:null,message:'',pending:false,busy:false};
-  function render(){s.action_message=action?.state.message||'';s.binding=binding?{trip:binding.trip,actor:binding.actor,vehicle:binding.vehicle,state:binding.state,lease_until_ms:binding.lease_until_ms}:null;s.pending=Boolean(action?.state.pending);s.busy=busy||Boolean(action?.state.busy);env.render(s);}
+  function render(){s.action_message=action?.state.message||'';s.binding=binding?{trip:binding.trip,actor:binding.actor,actor_name:binding.publisher_name,vehicle:binding.vehicle,state:binding.state,lease_until_ms:binding.lease_until_ms,publish_interval_seconds:binding.publish_interval_seconds||15}:null;s.pending=Boolean(action?.state.pending);s.busy=busy||Boolean(action?.state.busy);env.render(s);}
+  function tune(data){if(!binding)return;const interval=Number(data?.publish_interval_seconds);if([15,30,60,120,300].includes(interval))binding.publish_interval_seconds=interval;if(data?.publisher_name)binding.publisher_name=data.publisher_name;}
   function save(){if(binding)env.storage.setItem(KEY,JSON.stringify(binding));else env.storage.removeItem(KEY);render();}
   function halt(){epoch++;busy=false;if(timer)env.clearTimer(timer);timer=null;}
   function clear(){halt();contextTicket++;lastContext=null;binding=null;s.gps=null;s.context=null;action?.close();action=null;save();}
@@ -32,7 +33,9 @@
    if(!binding?.lease_id)return null;
    const id=binding.lease_id,result=await rpc('source_status',args());
    if(binding?.lease_id!==id||version!==epoch||!visible||!env.active())return null;
-   s.gps=root.cfg_delivery_maps?.observeGPS(result)||result;binding.sequence=Math.max(binding.sequence||0,result.last_sequence||0);save();
+   const previousInterval=binding.publish_interval_seconds;
+   s.gps=root.cfg_delivery_maps?.observeGPS(result)||result;binding.sequence=Math.max(binding.sequence||0,result.last_sequence||0);tune(result);save();
+   if(timer&&previousInterval!==binding.publish_interval_seconds&&valid(version)){env.clearTimer(timer);timer=env.setTimer(()=>sample(version),binding.publish_interval_seconds*1000);}
    env.position(binding.trip,s.gps||result);
    if(ended.has(result.state)){const label=result.state;clear();s.message='GPS sharing '+label.toLowerCase()+'. Identify the assigned driver and Share GPS to start again.';render();return null;}
    return result;
@@ -46,7 +49,7 @@
     binding.sequence=(binding.sequence||0)+1;save();const id=binding.lease_id;
     const result=await rpc('publish_position',{...args(),position_data:fix,sequence_no:binding.sequence});
     if(!valid(version)||binding.lease_id!==id)return;
-    s.gps=root.cfg_delivery_maps?.observeGPS(result.gps)||result.gps;s.message='GPS sharing active. Keep Driver Route visible on the device travelling with the lorry.';env.position(binding.trip,s.gps);render();
+    s.gps=root.cfg_delivery_maps?.observeGPS(result.gps)||result.gps;tune(result.gps);save();s.message='GPS sharing active. Keep Driver Route visible on the device travelling with the lorry.';env.position(binding.trip,s.gps);render();
    }catch(error){
     if(!valid(version))return;
     const type=error?.exc_type||error?.responseJSON?.exc_type;
@@ -61,7 +64,7 @@
    if(!visible||!env.active()||!binding?.intent||!binding.lease_id||busy)return;
    halt();const version=epoch;
    try{if(await refreshSource(version)){if(valid(version))sample(version);}}
-   catch(error){if(version===epoch){const type=error?.exc_type||error?.responseJSON?.exc_type;if(type==='GPSLeaseEnded'||type==='PermissionError')clear();fail(error);if(valid(version))timer=env.setTimer(()=>resume(),15000);}}
+   catch(error){if(version===epoch){const type=error?.exc_type||error?.responseJSON?.exc_type;if(type==='GPSLeaseEnded'||type==='PermissionError')clear();fail(error);if(valid(version))timer=env.setTimer(()=>resume(),(binding?.publish_interval_seconds||15)*1000);}}
   }
   async function start(){
    if(busy||action?.state.busy)return;
@@ -82,6 +85,14 @@
    binding={v:1,trip,actor,device_id:device,publish_token:env.nonce()+env.nonce(),sequence:0,intent:true,state:'Starting'};
    try{save();createAction();await action.mutate(context,'Start GPS',{device_id:device,publish_token:binding.publish_token});}
    catch(error){if(!action){binding=null;render();}else if(binding&&!action.state.pending&&!action.state.busy&&action.state.baseline){clear();}throw error;}
+  }
+  async function autoStart(result){
+   if(result?.status!=='Recorded'||result.action!=='Start Route'||!result.result?.gps_auto_start||!env.active()||!visible||result.trip_name!==env.trip()||result.request_actor!==env.owner())return;
+   const key='cfg_trip_gps_auto_v1:'+result.request_actor+':'+result.trip_name;
+   if(env.storage.getItem(key))return;
+   env.storage.setItem(key,'attempted');
+   if(binding){s.message=binding.trip===result.trip_name?'GPS source already retained for this Trip.':'Another GPS source is retained on this device. Stop it before sharing this Trip.';render();return;}
+   await start();
   }
   async function recover(reason){
    if(action?.state.pending)return action.reconcile(reason);
@@ -118,7 +129,7 @@
    if(value.v!==1||!value.trip||!value.actor||!value.publish_token||!['Starting','Sharing','Stopping'].includes(value.state))throw new Error('Stored GPS source is invalid; ask a Supervisor to release it.');
    binding=value;createAction();render();
   }
-  return {state:s,start,stop,recover,context,restore,
+  return {state:s,start,stop,recover,context,restore,autoStart,
    async show(){visible=true;if(binding?.state==='Stopping')await stop();else if(binding?.lease_id)await resume();render();},
    hide(){visible=false;halt();if(binding?.lease_id&&binding.state!=='Stopping'){const id=binding.lease_id,version=epoch;rpc('pause_source',{...args(),sequence_no:binding.sequence||0}).then(result=>{if(binding?.lease_id===id&&version===epoch&&!visible){s.gps=root.cfg_delivery_maps?.observeGPS(result)||result;env.position(binding.trip,s.gps||result);render();}}).catch(()=>{});}render();},
    async operatorChanged(){await stop();},
@@ -135,7 +146,7 @@
    setTimer:(fn,ms)=>root.setTimeout(fn,ms),clearTimer:id=>root.clearTimeout(id),
    render:s=>{
     const row=s.binding,gps=s.gps||s.context?.gps;
-    host.find('.cfg-gps-status').text(row?`${row.trip} · ${row.vehicle||''} · ${row.actor} · ${row.state}${gps?' · '+(root.cfg_delivery_maps?.gpsText(gps)||gps.state):''}${row.lease_until_ms?' · Until '+new Date(row.lease_until_ms).toLocaleString():''}`:gps?`Selected Trip GPS: ${gps.state}${gps.publisher_employee?' · '+gps.publisher_employee:''}`:'Select an active Trip and Share GPS on its lorry device.');
+    host.find('.cfg-gps-status').text(row?`${row.trip} · ${row.vehicle||''} · ${root.cfg_delivery_maps?.person?.(row.actor,row.actor_name)||row.actor} · ${row.state} · Every ${row.publish_interval_seconds}s${gps?' · '+(root.cfg_delivery_maps?.gpsText(gps)||gps.state):''}${row.lease_until_ms?' · Until '+new Date(row.lease_until_ms).toLocaleString():''}`:gps?`Selected Trip GPS: ${gps.state} · Every ${gps.publish_interval_seconds||s.context?.publish_interval_seconds||15}s${gps.publisher_employee?' · '+(root.cfg_delivery_maps?.person?.(gps.publisher_employee,gps.publisher_name)||gps.publisher_employee):''}`:'Select an active Trip and Share GPS on its lorry device. Office interval/auto-start settings are under Delivery Trip → Driver GPS.');
     host.find('.cfg-gps-message').text([s.message,s.action_message].filter(Boolean).join(' '));
     host.find('.cfg-gps-start').prop('disabled',s.busy||(!s.binding&&!s.context?.can_share));host.find('.cfg-gps-stop').prop('disabled',!row);
     host.find('.cfg-gps-void,.cfg-gps-void-reason').toggle(Boolean(s.pending)&&options.supervisor());
@@ -143,7 +154,7 @@
   host.on('click.cfg_gps','.cfg-gps-start',()=>queue(()=>app.start())).on('click.cfg_gps','.cfg-gps-stop',()=>app.stop().catch(error=>host.find('.cfg-gps-message').text(options.error(error))))
    .on('click.cfg_gps','.cfg-gps-read',()=>queue(()=>app.recover())).on('click.cfg_gps','.cfg-gps-void',()=>queue(()=>{const reason=String(host.find('.cfg-gps-void-reason').val()||'').trim();if(!reason)throw new Error('Enter the Supervisor reason.');return app.recover(reason);}));
   try{app.restore();}catch(error){host.find('.cfg-gps-message').text(options.error(error));}
-  return {context:state=>queue(()=>app.context(state)),show:()=>queue(()=>app.show()),hide:()=>app.hide(),operatorChanged:()=>app.operatorChanged(),
+  return {context:state=>queue(()=>app.context(state)),autoStart:result=>queue(()=>app.autoStart(result)),show:()=>queue(()=>app.show()),hide:()=>app.hide(),operatorChanged:()=>app.operatorChanged(),
    scan:value=>value==='CFG:CMD:GPS_STOP'?app.stop():queue(()=>value==='CFG:CMD:GPS_SHARE'?app.start():app.recover()),controller:app};
  }
  const api={controller,bind,bindingKey:KEY};if(typeof module!=='undefined'&&module.exports)module.exports=api;root.cfg_trip_gps=api;

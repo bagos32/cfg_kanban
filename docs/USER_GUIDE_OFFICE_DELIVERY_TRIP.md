@@ -170,6 +170,26 @@ transfer is needed. The action retains the exact snapshot, execution revision an
 key, so pending deliveries, route-order decisions and GPS can continue. Missing/inconsistent
 departure evidence requires Supervisor reconciliation. Do not change the field manually.
 
+## Driver GPS and identity settings
+
+The normal **Route Template / Delivery Trip** form includes **Driver GPS**. Choose an interval
+of 15/30/60/120/300 seconds and optionally enable **Auto-start GPS on Start Route** (default off).
+Template loading copies these defaults into the Trip. Start the route from the actual assigned
+driver/assistant phone if automatic sharing is wanted; browser location permission is still
+required, and another device's active source is never replaced automatically.
+
+An office planner with native write/Company access can change the interval on a running Trip and
+save it. A GPS-only change preserves the frozen departure and delivered quantities. It is applied
+at the next source publish/read-back. Other business edits retain their existing execution guards.
+Use **Driver Route → Check Saved GPS Source** on the source device to apply a changed interval
+without waiting for its next scheduled publish.
+
+**Assigned Driver — Name and ID** shows the selected Employee's name and ID together. It is
+server-derived and also populated when older records open. Driver/assistant labels, Supervisor
+views and the Trip stock list retain their IDs beside names. Customer/Trip status legends and
+**Fit Selected Customer** are available on Driver Route and Supervisor Live Map; KL remains the
+empty-map default and Fit Locations continues to fit all real points.
+
 ## 6. Close or cancel planning safely
 
 Enter **Closure / Cancellation Reason** in **Notes and History**, save any planning changes first,

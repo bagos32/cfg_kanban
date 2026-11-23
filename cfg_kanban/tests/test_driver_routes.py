@@ -70,6 +70,13 @@ class TestDriverRoutes(unittest.TestCase):
         self.assertEqual(result['trips'][0]['planning_state'],'Draft')
         self.auth.assert_called_with('TOKEN',touch_activity=False)
         self.trip._hidden=True;self.assertEqual(self.queue()['trips'],[])
+    def test_assigned_driver_name_and_id_are_exposed_as_operational_identity(self):
+        self.data['Employee']['EMP'].employee_name='Ali'
+        self.trip.gps_auto_start=1;self.trip.gps_publish_interval_seconds='120'
+        header=self.queue()['trips'][0]
+        self.assertEqual(header['driver'],'EMP');self.assertEqual(header['driver_display'],'Ali (EMP)')
+        self.assertTrue(header['gps_auto_start']);self.assertEqual(header['gps_publish_interval_seconds'],'120')
+        self.assertEqual(self.read()['trip']['driver_display'],'Ali (EMP)')
 
     def test_legacy_departure_lorry_is_visible_without_mutating_blank_header(self):
         self.trip.vehicle_warehouse=None;self.trip.driver_route_state='In Progress'

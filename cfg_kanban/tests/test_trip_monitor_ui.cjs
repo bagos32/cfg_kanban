@@ -23,6 +23,11 @@ test('fleet/default map never invents a position, selected Trip uses its exact s
  h.c.state.trips[0].gps={state:'Not Shared',position:null};assert.equal(maps.mapSpec(api.mapState(h.c.state).detail).vehicles.length,0);
  await h.c.select(trip.name);state=api.mapState(h.c.state);assert.equal(state.detail.stops[0].stop_key,'S1');assert.equal(state.detail.vehicle_locations.length,1);
 });
+test('Supervisor customer and fleet views share colour legends and Name (ID) labels',async()=>{
+ const h=harness();await h.c.show(trip.name);h.c.state.detail.trip.driver_display='Ali (EMP-1)';h.c.state.gps.publisher_name='Abu';h.c.state.gps.publisher_employee='EMP-2';
+ const html=api.detailHTML(h.c.state);assert(html.includes('Customer status colours'));assert(html.includes('cfg-monitor-stop cfg-status-'));assert(html.includes('Ali (EMP-1)'));assert(html.includes('Abu (EMP-2)'));
+ const fleetHTML=api.fleetHTML(h.c.state);assert(fleetHTML.includes('Trip status colours'));assert(fleetHTML.includes('cfg-monitor-trip cfg-status-attention'));
+});
 test('typed permission rejection clears cached fleet and customer details; network loss marks staleness',async()=>{
  let failure=null;const h=harness(()=>{if(failure)throw failure;});await h.c.show(trip.name);failure=new Error('Offline');await h.c.refresh();assert(h.c.state.detail);assert(h.c.state.stale);
  failure={exc_type:'PermissionError',message:'Company denied'};await h.c.refresh();assert.equal(h.c.state.detail,null);assert.equal(h.c.state.trips.length,0);assert.equal(h.c.state.operator,null);

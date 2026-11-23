@@ -4,6 +4,28 @@
  const defaults=f=>(root.cfg_kanban_map_defaults||(typeof require==='function'?require('./map_defaults.js'):null))?.apply(f)||{center:[3.139,101.6869],zoom:13};
  const tr=value=>typeof __==='function'?__(value):value;
  const escape=value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+ function person(employee,name){return name&&name!==employee?`${name} (${employee||'—'})`:employee||'—';}
+ function stopKind(stop,detail={}){
+  if(stop.cancelled||['Cancelled','Skipped'].includes(stop.state))return 'cancelled';
+  if(['Review required','Exception','Closed Incomplete'].includes(stop.state))return 'danger';
+  if(stop.state==='Completed with refusal')return 'attention';
+  if(stop.driver_completed_on||['Completed','Visit completed','Delivered'].includes(stop.state))return 'completed';
+  if(['In Progress','Awaiting proof','Delivery Note pending','Awaiting stop completion'].includes(stop.state))return 'attention';
+  if(stop.stop_key&&stop.stop_key===detail.current_stop_key)return 'current';
+  if((stop.stop_key&&stop.stop_key===detail.next_stop_key)||['Ready','Loaded','Ready to deliver','Ready for delivery'].includes(stop.state))return 'next';
+  return 'pending';
+ }
+ function tripKind(row){
+  if(row.planning_state==='Cancelled')return 'cancelled';
+  if(row.driver_route_state==='Closed Incomplete')return 'danger';
+  if(row.driver_route_state==='Completed')return 'completed';
+  if(row.driver_route_state==='In Progress')return 'attention';
+  return row.planning_state==='Planned'?'next':row.planning_state==='Closed'?'cancelled':'pending';
+ }
+ function statusLegend(trips=false){
+  const entries=trips?[['pending','Draft'],['next','Planned'],['attention','In Progress'],['completed','Completed'],['danger','Closed Incomplete'],['cancelled','Cancelled / Closed']]:[['pending','Planned / Pending'],['next','Ready / Next'],['attention','In Progress / Waiting / Refusal'],['completed','Completed'],['danger','Review Required'],['cancelled','Cancelled / Skipped']];
+  return `<div class="cfg-status-legend" aria-label="${tr(trips?'Trip status colours':'Customer status colours')}">${entries.map(([kind,label])=>`<span class="cfg-status-color ${kind}">${escape(tr(label))}</span>`).join('')}</div>`;
+ }
  function pin(value){
   if(!value||typeof value.latitude!=='number'||typeof value.longitude!=='number'||!Number.isFinite(value.latitude)||!Number.isFinite(value.longitude)||Math.abs(value.latitude)>90||Math.abs(value.longitude)>180)return null;
   return {latitude:value.latitude,longitude:value.longitude};
@@ -60,7 +82,7 @@
  }
  function vehicleHTML(row){
   const gps=row.gps,trip=row.trip||{};
-  return `<div><strong>${escape(gps.vehicle_reference||gps.vehicle_warehouse||trip.vehicle_warehouse||'Lorry')}</strong><div>${escape(trip.trip_title||trip.name||'')}</div><div>${escape(gpsText(gps))}</div>${gps.live?'':`<strong>${tr('Last known position; not a live fix')}</strong>`}<div>${tr('Publisher')}: ${escape(gps.publisher_employee||'—')}</div>${trip.name?`<button type="button" class="btn btn-default" data-map-trip="${escape(trip.name)}">${tr('View Trip')}</button>`:''}</div>`;
+  return `<div><strong>${escape(gps.vehicle_reference||gps.vehicle_warehouse||trip.vehicle_warehouse||'Lorry')}</strong><div>${escape(trip.trip_title||trip.name||'')}</div><div>${tr('Assigned Driver')}: ${escape(trip.driver_display||trip.driver||'—')}</div><div>${escape(gpsText(gps))}</div>${gps.live?'':`<strong>${tr('Last known position; not a live fix')}</strong>`}<div>${tr('Publisher')}: ${escape(person(gps.publisher_employee,gps.publisher_name))}</div>${trip.name?`<button type="button" class="btn btn-default" data-map-trip="${escape(trip.name)}">${tr('View Trip')}</button>`:''}</div>`;
  }
  function mapSpec(detail){
   const groups=new Map();let located=0;
@@ -71,10 +93,8 @@
    groups.get(key).stops.push(stop);
   }
   for(const group of groups.values()){
-   if(group.stops.some(row=>row.stop_key===detail.current_stop_key))group.kind='current';
-   else if(group.stops.some(row=>row.stop_key===detail.next_stop_key))group.kind='next';
-   else if(group.stops.every(row=>row.driver_completed_on||['Completed','Completed with refusal','Visit completed'].includes(row.state)))group.kind='completed';
-   else if(group.stops.some(row=>['Review required','Awaiting proof','Delivery Note pending','Awaiting stop completion'].includes(row.state)))group.kind='attention';
+   const kinds=group.stops.map(row=>stopKind(row,detail));
+   group.kind=['danger','attention','current','next'].find(kind=>kinds.includes(kind))||(kinds.every(kind=>kind==='completed')?'completed':kinds.every(kind=>kind==='cancelled')?'cancelled':'pending');
   }
   return {groups:[...groups.values()],located,total:detail?.stops?.length||0,vehicles:(detail?.vehicle_locations||[]).map(row=>({...row,gps:gpsDisplay(row.gps)})).filter(row=>row.gps.position)};
  }
@@ -94,19 +114,27 @@
  }
  function createRouteMap(options){
   const f=options.frappe,doc=options.document||root.document;
-  let node=null,map=null,markers=null,latest=null,ticket=0,owner=null,trip=null,signature=null,failed=false,tileError=false,locations=null,follow=false,hadPositions=false,hadVehicles=false;
+  let node=null,map=null,markers=null,latest=null,ticket=0,owner=null,trip=null,signature=null,failed=false,tileError=false,locations=null,follow=false,hadPositions=false,hadVehicles=false,selectedFit=false;
   const valid=()=>latest&&owner&&owner===options.identity();
   function detach(){if(node?.parentNode)node.parentNode.removeChild(node);}
-  function clear(){ticket++;try{map?.remove();}catch(_){}map=null;markers=null;detach();node=null;latest=null;owner=null;trip=null;signature=null;locations=null;failed=false;tileError=false;follow=false;hadPositions=false;hadVehicles=false;}
+  function clear(){ticket++;try{map?.remove();}catch(_){}map=null;markers=null;detach();node=null;latest=null;owner=null;trip=null;signature=null;locations=null;failed=false;tileError=false;follow=false;hadPositions=false;hadVehicles=false;selectedFit=false;}
   function fit(){if(map&&markers&&(markers._cfgCount||0))map.fitBounds(markers.getBounds(),{padding:[28,28],maxZoom:16});else if(map){const d=defaults(f);map.setView(d.center,d.zoom);}}
+  function selectedStop(){return latest?.detail?.stops?.find(row=>row.stop_key===(latest.stop||latest.detail.current_stop_key||latest.detail.next_stop_key));}
+  function fitSelected(){
+   if(!valid()||latest.stale||latest.busy)return;
+   const selected=selectedStop(),point=pin(selected?.delivery_pin);
+   if(!map||!point){message(tr('Select a customer with a saved delivery pin first.'));return;}
+   follow=false;selectedFit=true;map.setView([point.latitude,point.longitude],16);followLabel();
+  }
   function makeNode(){
    node=doc.createElement('section');node.className='cfg-driver-map';
-   node.innerHTML=`<h4>${tr('Trip locations')}</h4><p class="cfg-driver-map-info"></p><div class="cfg-driver-map-legend"><span class="next">${tr('Next / Current')}</span><span class="completed">${tr('Completed')}</span><span class="pending">${tr('Pending')}</span><span class="attention">${tr('Check')}</span><span class="vehicle">${tr('Lorry GPS')}</span><span class="last-known">${tr('Last known')}</span></div><div class="cfg-driver-map-canvas" role="region" aria-label="${tr('Customer stops and lorry locations')}"></div><div class="cfg-driver-map-controls"><button type="button" class="btn btn-default cfg-map-kl">Kuala Lumpur</button> <button type="button" class="btn btn-default cfg-map-fit">${tr('Fit Locations')}</button> <button type="button" class="btn btn-default cfg-map-follow" aria-pressed="false">${tr('Follow Lorry: Off')}</button></div><p class="cfg-driver-map-message" role="status"></p><button type="button" class="btn btn-default cfg-driver-map-retry" hidden>${tr('Retry Map')}</button>`;
+   node.innerHTML=`<h4>${tr('Trip locations')}</h4><p class="cfg-driver-map-info"></p>${statusLegend()}<div class="cfg-driver-map-legend"><span class="vehicle">${tr('Lorry GPS')}</span><span class="last-known">${tr('Last known')}</span></div><div class="cfg-driver-map-canvas" role="region" aria-label="${tr('Customer stops and lorry locations')}"></div><div class="cfg-driver-map-controls"><button type="button" class="btn btn-default cfg-map-kl">Kuala Lumpur</button> <button type="button" class="btn btn-default cfg-map-fit">${tr('Fit Locations')}</button> <button type="button" class="btn btn-default cfg-map-fit-selected">${tr('Fit Selected Customer')}</button> <button type="button" class="btn btn-default cfg-map-follow" aria-pressed="false">${tr('Follow Lorry: Off')}</button></div><p class="cfg-driver-map-message" role="status"></p><button type="button" class="btn btn-default cfg-driver-map-retry" hidden>${tr('Retry Map')}</button>`;
    node.addEventListener('click',event=>{
     if(!valid())return;
-    if(event.target.closest?.('.cfg-map-kl')){follow=false;const d=defaults(f);map?.setView(d.center,d.zoom);followLabel();return;}
-    if(event.target.closest?.('.cfg-map-fit')){follow=false;fit();followLabel();return;}
-    if(event.target.closest?.('.cfg-map-follow')){follow=!follow;followLabel();signature=null;update(latest,node.parentNode);return;}
+    if(event.target.closest?.('.cfg-map-kl')){follow=false;selectedFit=false;const d=defaults(f);map?.setView(d.center,d.zoom);followLabel();return;}
+    if(event.target.closest?.('.cfg-map-fit-selected')){fitSelected();return;}
+    if(event.target.closest?.('.cfg-map-fit')){follow=false;selectedFit=false;fit();followLabel();return;}
+    if(event.target.closest?.('.cfg-map-follow')){follow=!follow;selectedFit=false;followLabel();signature=null;update(latest,node.parentNode);return;}
     if(latest.stale||latest.busy)return;
     const selected=event.target.closest?.('[data-map-stop]'),vehicle=event.target.closest?.('[data-map-trip]');
     if(selected){const key=selected.getAttribute('data-map-stop');if(latest.detail.stops.some(row=>row.stop_key===key))options.pick?.(key);return;}
@@ -125,6 +153,8 @@
    if(!slot||!state.detail||!state.active||!identity){clear();return;}
    if(owner!==identity||trip!==state.detail.trip.name){clear();owner=identity;trip=state.detail.trip.name;}
    latest=state;if(!node)makeNode();slot.appendChild(node);
+   const selectedButton=node.querySelector('.cfg-map-fit-selected');
+   if(selectedButton)selectedButton.disabled=Boolean(state.stale||state.busy||!pin(selectedStop()?.delivery_pin));
    const spec=mapSpec(state.detail);
    node.querySelector('.cfg-driver-map-info').textContent=`${spec.located} / ${spec.total} ${tr('stops have a delivery pin. Numbered pins follow the current stop sequence.')} ${spec.vehicles.length} ${tr('lorry positions. Grey positions are last known, not live.')}`;
    node.querySelector('.cfg-map-follow').hidden=spec.vehicles.length!==1;
@@ -154,7 +184,7 @@
     markers.addTo(map);
     // GPS motion/status refresh must not override a manually chosen map viewport.
     const nextLocations=JSON.stringify(spec.groups.map(group=>group.point));
-    if(first||locations!==nextLocations||(!hadVehicles&&spec.vehicles.length)||(hadPositions&&!spec.groups.length&&!spec.vehicles.length))fit();
+    if(first||(!selectedFit&&(locations!==nextLocations||(!hadVehicles&&spec.vehicles.length)||(hadPositions&&!spec.groups.length&&!spec.vehicles.length))))fit();
     hadVehicles=Boolean(spec.vehicles.length);
     hadPositions=Boolean(spec.groups.length||spec.vehicles.length);
     locations=nextLocations;
@@ -162,7 +192,7 @@
     map.invalidateSize();followLabel();status();
    }).catch(()=>{if(valid()&&version===ticket){failed=true;status();}});
   }
-  return {update,detach,clear};
+  return {update,detach,clear,fitSelected};
  }
  function pinTools(frm,f){
   const field=frm.fields_dict.delivery_pin_tools;if(!field)return;
@@ -173,6 +203,6 @@
    if(!write)return;try{await frm.set_value('delivery_location',pointJSON(host.find('.cfg-site-latitude').val(),host.find('.cfg-site-longitude').val()));host.find('.cfg-site-pin-status').text(tr('Pin updated. Save the Customer Site.'));}catch(error){host.find('.cfg-site-pin-status').text(error.message);}
   }).on('click.cfg_delivery_pin','.cfg-site-clear-pin',async()=>{if(!write)return;await frm.set_value('delivery_location',null);host.find('.cfg-site-pin-status').text(tr('Pin cleared. Save the Customer Site.'));});
  }
- const api={pin,readPoint,pointJSON,urls,navigationHTML,mapSpec,popupHTML,createRouteMap,pinTools,observeGPS,gpsDisplay,gpsText,vehicleHTML};
+ const api={pin,readPoint,pointJSON,urls,navigationHTML,mapSpec,popupHTML,createRouteMap,pinTools,observeGPS,gpsDisplay,gpsText,vehicleHTML,person,stopKind,tripKind,statusLegend};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;root.cfg_delivery_maps=api;
 })(typeof window==='undefined'?globalThis:window);

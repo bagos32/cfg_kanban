@@ -128,6 +128,17 @@ test('normal form keeps Company filters and restores state after failed status s
   await buttons['Close Planning'](); assert.equal(frm.doc.state, 'Draft');
   frm.save = async () => {}; await buttons['Mark Planned'](); assert.equal(frm.doc.state, 'Planned');
 });
+test('office driver selection fetches its name and retains the Employee ID',async()=>{
+ const {frm,handlers}=harness();vm.runInThisContext(fs.readFileSync(formPath,'utf8'));
+ frappe.db.get_value=async()=>({message:{employee_name:'Ali'}});frm.doc.driver='EMP-1';
+ await handlers['CFG Kanban Delivery Trip'].driver(frm);assert.equal(frm.doc.driver_display,'Ali (EMP-1)');
+  let finish;frappe.db.get_value=()=>new Promise(resolve=>finish=resolve);const waiting=handlers['CFG Kanban Delivery Trip'].driver(frm);await Promise.resolve();
+ frm.doc.driver='EMP-2';finish({message:{employee_name:'OLD'}});await waiting;assert.notEqual(frm.doc.driver_display,'OLD (EMP-1)');
+});
+test('loading a route template copies GPS policy into the normal Trip form',async()=>{
+ const {frm,response}=harness();response.company='A';response.stops=[];response.gps_auto_start=1;response.gps_publish_interval_seconds=120;
+ await ui.loadTemplate(frm);assert.equal(frm.doc.gps_auto_start,1);assert.equal(frm.doc.gps_publish_interval_seconds,120);
+});
 test('legacy departure lorry sync uses the saved Trip and reloads without editing its itinerary', async () => {
   const { frm, handlers, calls, buttons }=harness();let reloads=0;const fields=[];
   frm.doc.driver_route_state='In Progress';frm.doc.driver_route_snapshot_json='{"vehicle":"LORRY"}';frm.doc.modified='2026-11-23 12:00:00';

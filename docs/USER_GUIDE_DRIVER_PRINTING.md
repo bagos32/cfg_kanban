@@ -142,6 +142,13 @@ to restore its stored header, including for custom formats that still read
 `doc.vehicle_warehouse`. This does not change stock or the frozen route. Conflicting lorries,
 changed source scope and missing permissions require reconciliation; no substitute lorry is guessed.
 
+## Assigned Trip driver name and Employee ID
+
+The supplied 80mm Trip stock format shows the assigned **Name (Employee ID)**. Trip forms,
+driver/assistant labels, route views and Supervisor/GPS views retain the Employee IDs beside
+names. Delivery Note, Invoice, Credit Note, Return Note and custody-label formats keep their
+existing content. For a cloned Trip stock format use `{{ trip_driver_display(doc) | e }}`.
+
 ## Scanner and tablet controls
 
 The panel has an Enter/Tab scanner input and a camera button. Scan an existing document/tag code

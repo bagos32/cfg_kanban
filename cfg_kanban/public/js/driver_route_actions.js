@@ -86,6 +86,7 @@
   async function recorded(result){
    if(result.action==='Begin Delivery'){quantityReview=null;}
    if(!valid())return;await options.refresh();if(!valid())return;
+   options.recorded?.(result);
    if(['Request Stop Cancellation','Cancel Customer Stop','Start Route','Collect Old Return','Release Refused Stock','Add Assistant','Change Route Order','Request Route Change','Cancel Route Change','Decide Route Change'].includes(result.action)){close();return;}
    await load();if(!valid())return;
    if(context?.next_step==='Done'){close();return;}

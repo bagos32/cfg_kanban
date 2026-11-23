@@ -13,6 +13,7 @@
   "trip_date",
   "expected_return_date",
   "driver",
+  "driver_display",
   "assistant_drivers",
   "team_revision",
   "vehicle_warehouse",
@@ -58,7 +59,10 @@
   "driver_stop_order_json",
   "route_sequence_revision",
   "route_order_source",
-  "route_change_request"
+  "route_change_request",
+  "gps_settings",
+  "gps_publish_interval_seconds",
+  "gps_auto_start"
  ],
  "fields": [
   {
@@ -114,6 +118,14 @@
    "label": "Assigned Driver",
    "fieldtype": "Link",
    "options": "Employee"
+  },
+  {
+   "fieldname": "driver_display",
+   "label": "Assigned Driver \u2014 Name and ID",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "in_list_view": 1,
+   "length": 300
   },
   {
    "fieldname": "vehicle_warehouse",
@@ -405,6 +417,26 @@
    "fieldtype": "Link",
    "options": "CFG Kanban Route Change Request",
    "read_only": 1
+  },
+  {
+   "fieldname": "gps_settings",
+   "label": "Driver GPS",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "gps_publish_interval_seconds",
+   "label": "GPS Publish Interval (seconds)",
+   "fieldtype": "Select",
+   "options": "15\n30\n60\n120\n300",
+   "default": "15",
+   "description": "Longer intervals request location less often. Applied at the next GPS publish or source refresh."
+  },
+  {
+   "fieldname": "gps_auto_start",
+   "label": "Auto-start GPS on Start Route",
+   "fieldtype": "Check",
+   "default": "0",
+   "description": "Starts on the assigned driver or assistant device that confirms Start Route, after browser location permission. Stop GPS remains available."
   }
  ],
  "autoname": "KTRIP-.YYYY.-.#####",

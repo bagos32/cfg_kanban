@@ -257,6 +257,17 @@ test('Driver Route keeps scoped GPS controls separate from delivery login and ro
  document.hidden=true;h.events.get('document:visibilitychange')();assert.equal(hides,1);document.hidden=false;h.events.get('document:visibilitychange')();await flush();assert.equal(shows,2);
  await h.events.get('click.cfg_driver .cfg-driver-change')();assert.equal(changes,1);assert.equal(h.view.app.state.token,null);assert(opts.active());h.view.hide();assert.equal(hides,2);
 });
+test('My Trips and customer rows show status colours, legends and driver name with ID',()=>{
+ const tripData={name:'T',planning_state:'Planned',driver_route_state:'In Progress',driver:'EMP-1',driver_display:'Ali (EMP-1)'};
+ const list=ui.tripList({trips:[tripData],start:0});assert(list.includes('cfg-status-attention'));assert(list.includes('Ali (EMP-1)'));assert(list.includes('Trip status colours'));
+ const data=structuredClone(detail);data.trip.driver_display='Ali (EMP-1)';data.trip.assistant_drivers=[{employee:'EMP-2',employee_name:'Abu'}];
+ const html=ui.detailView({detail:data});assert(html.includes('Ali (EMP-1)'));assert(html.includes('Abu (EMP-2)'));assert(html.includes('Customer status colours'));
+});
+test('departure auto-GPS callback is deferred beyond the delivery action Web Lock',async()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../public/js/driver_route.js'),'utf8');
+ assert(source.includes('setTimeout(()=>gps?.autoStart(result),0)'));
+ assert(!source.includes('await gps?.autoStart(result)'));
+});
 
 test('cancelled customers have separate history and no delivery/cancel-again controls',()=>{
  const data=structuredClone(detail);data.stops[0].state='Ready for delivery';data.stops[0].plans.forEach(p=>p.delivery_session=null);data.can_request_stop_cancellation=true;let html=ui.detailView({detail:data});assert(html.includes('Request Stop Cancellation'));

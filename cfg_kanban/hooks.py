@@ -60,6 +60,7 @@ jinja = {
         "cfg_kanban.services.printing.get_qr_svg",
         "cfg_kanban.services.mobile_printing.trip_stock_rows",
         "cfg_kanban.services.driver_routes.trip_vehicle_warehouse",
+        "cfg_kanban.services.driver_routes.trip_driver_display",
         "cfg_kanban.services.mobile_printing.stock_tag_print_context",
         "cfg_kanban.services.printing.get_code128_svg",
         "cfg_kanban.services.media.get_print_media",

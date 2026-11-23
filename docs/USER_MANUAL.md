@@ -6270,3 +6270,29 @@ Web Crypto, Web Locks and readable same-origin/private/data image assets. Comple
 need normal print. Device settings are saved per browser/Company; signing keys and raster are
 not persisted. The paired key is reused across stop panels for this operator/Company and cleared
 on route departure, operator/Company change or Forget Key. No live-site or physical Bluetooth printer acceptance is claimed by offline tests.
+
+## Route status colours, GPS choices and driver Name/ID
+
+Driver Route and Supervisor Live Map include a customer-status legend: grey Pending, blue
+Ready/Next, amber In Progress/Waiting/Refusal, green Completed, red Review Required and purple
+Cancelled/Skipped. My Delivery Trips uses the same palette for Draft, Planned, In Progress,
+Completed, Closed Incomplete and Cancelled respectively. State labels remain visible.
+
+**Fit Locations** fits all points. Select a customer and use **Fit Selected Customer** to focus
+only that saved pin; a missing pin leaves the button disabled. GPS refresh does not reset that
+selected-customer focus. Empty maps keep the Kuala Lumpur default.
+
+On **Route Template / Delivery Trip → Driver GPS**, select **GPS Publish Interval (seconds)**:
+15/30/60/120/300. Longer intervals request location less often. Template loading copies its
+settings. Office planners may save a new interval during an active Trip; the source adopts it at
+its next publish or **Check Saved GPS Source**. Actual battery benefit depends on the device.
+
+Enable **Auto-start GPS on Start Route** before departure to start on the assigned driver or
+assistant device confirming Start Route. Default is off. Browser permission and foreground use
+remain required; opening a Trip does not create a source. Manual Stop, one-source ownership,
+uncertain-request recovery and the existing 12-hour permission remain in effect.
+
+Driver, assistant and publisher labels use **Name (Employee ID)**. **Assigned Driver — Name and
+ID** on the Trip form/list also supports older records. The Trip stock format includes this
+identity; custom Trip stock formats can use `{{ trip_driver_display(doc) | e }}`. Delivery Note,
+Invoice, Credit Note, Return Note and custody-label formats keep their existing content.

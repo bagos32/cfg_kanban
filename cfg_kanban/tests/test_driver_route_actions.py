@@ -146,6 +146,11 @@ class TestDriverRouteActions(unittest.TestCase):
         self.assertEqual(self.trip.driver_route_state,'In Progress');self.assertEqual(self.trip.driver_route_revision,1)
         self.assertEqual(self.calls,[]);self.assertFalse(self.data.get(views.SESSION));self.assertFalse(self.data.get(views.NOTE))
         self.assertEqual(self.context()['next_step'],'Begin Delivery');self.assertTrue(self.trip.driver_active_vehicle_key)
+    def test_opted_in_departure_records_auto_gps_intent_without_creating_a_source_on_server(self):
+        self.trip.gps_auto_start=1;result=self.start()
+        self.assertTrue(result['result']['gps_auto_start'])
+        self.assertFalse(self.data.get('CFG Kanban Trip GPS'))
+        self.assertEqual(self.trip.driver_route_state,'In Progress')
 
     def legacy_departure(self,empty=None):
         self.trip.vehicle_warehouse=empty;self.start()

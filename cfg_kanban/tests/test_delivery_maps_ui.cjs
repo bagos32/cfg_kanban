@@ -52,12 +52,12 @@ test('coincident/repeated customer visits share a pin with exact independent sto
 });
 test('map state colors reflect current/completed/attention and all popup data is escaped',()=>{
  const rows=[stop('K1',{delivery_pin:point(1,1),driver_completed_on:'2026-11-22'}),stop('K2',{sequence:2,delivery_pin:point(2,2),state:'Review required'}),stop('K3',{sequence:3,delivery_pin:point(3,3)})];
- const spec=api.mapSpec({stops:rows,current_stop_key:'K3'});assert.deepEqual(spec.groups.map(g=>g.kind),['completed','attention','current']);
+ const spec=api.mapSpec({stops:rows,current_stop_key:'K3'});assert.deepEqual(spec.groups.map(g=>g.kind),['completed','danger','current']);
  const html=api.popupHTML([stop('K1',{site_name:'<img src=x onerror=alert(1)>',address:'<script>'})]);assert(html.includes('&lt;img'));assert(!html.includes('<img'));assert(!html.includes('<script>'));
 });
 class Element{
  constructor(){this.children=[];this.parentNode=null;this.nodes=new Map();this.listeners={};this.textContent='';this.hidden=false;}
- set innerHTML(value){this.html=value;for(const name of ['cfg-driver-map-info','cfg-driver-map-canvas','cfg-driver-map-message','cfg-driver-map-retry','cfg-map-follow'])this.nodes.set('.'+name,new Element());}
+ set innerHTML(value){this.html=value;for(const name of ['cfg-driver-map-info','cfg-driver-map-canvas','cfg-driver-map-message','cfg-driver-map-retry','cfg-map-follow','cfg-map-fit-selected'])this.nodes.set('.'+name,new Element());}
  querySelector(name){return this.nodes.get(name);}
  appendChild(node){if(node.parentNode)node.parentNode.removeChild(node);this.children.push(node);node.parentNode=this;return node;}
  removeChild(node){this.children=this.children.filter(n=>n!==node);node.parentNode=null;}
@@ -84,9 +84,27 @@ test('map uses configured native tiles and does not request a GPS position',asyn
 test('empty map opens at KL without inventing a customer or vehicle pin',async()=>{
  const h=mapHarness();await h.update(state({stops:[stop('K1',{delivery_pin:null})]}));assert.equal(h.loads(),1);assert.deepEqual(h.maps[0].center,[3.139,101.6869]);assert.equal(h.maps[0].zoom,13);assert.equal(h.markers.length,0);assert(h.node().querySelector('.cfg-driver-map-message').textContent.includes('No saved locations'));
 });
+test('Fit Selected Customer centres only the chosen pin and disables lorry follow',async()=>{
+ const h=mapHarness(),data=state({stops:[stop('K1',{delivery_pin:point(3,101)}),stop('K2',{delivery_pin:point(5,103)})]});data.stop='K2';
+ await h.update(data);const fit=h.maps[0].fit;h.map.fitSelected();assert.deepEqual(h.maps[0].center,[5,103]);assert.equal(h.maps[0].zoom,16);assert.equal(h.maps[0].fit,fit);
+ assert(h.node().html.includes('Fit Selected Customer'));assert(h.node().html.includes('Customer status colours'));
+ data.detail.vehicle_locations=[{trip:{name:'TRIP'},gps:api.observeGPS({state:'Live',position:{latitude:9,longitude:109,accuracy:5},age_seconds:0})}];
+ await h.update(data);assert.deepEqual(h.maps[0].center,[5,103]);assert.equal(h.maps[0].fit,fit);
+});
+test('selected-customer fit refuses missing pins, stale views and changed identity',async()=>{
+ const h=mapHarness(),data=state({stops:[stop('K1',{delivery_pin:null})]});data.stop='K1';await h.update(data);
+ assert(h.node().querySelector('.cfg-map-fit-selected').disabled);h.map.fitSelected();assert.match(h.node().querySelector('.cfg-driver-map-message').textContent,/saved delivery pin/);
+ const other=state();other.stale=true;await h.update(other);h.maps[0].center=[9,99];h.map.fitSelected();assert.deepEqual(h.maps[0].center,[9,99]);
+ h.identity.value='OTHER';h.map.fitSelected();assert.deepEqual(h.maps[0].center,[9,99]);
+});
+test('customer and Trip colours preserve state distinctions and visible legend text',()=>{
+ for(const [state,kind] of [['Loaded','next'],['Awaiting loading','pending'],['In Progress','attention'],['Completed','completed'],['Completed with refusal','attention'],['Review required','danger'],['Cancelled','cancelled']])assert.equal(api.stopKind({state}),kind);
+ for(const [state,kind] of [['Not Started','next'],['In Progress','attention'],['Completed','completed'],['Closed Incomplete','danger']])assert.equal(api.tripKind({planning_state:'Planned',driver_route_state:state}),kind);
+ assert(api.statusLegend().includes('Review Required'));assert(api.statusLegend(true).includes('Closed Incomplete'));assert.equal(api.person('EMP-1','Ali'),'Ali (EMP-1)');
+});
 test('refresh keeps map and viewport; changed status updates markers and changed pin recenters',async()=>{
  const h=mapHarness();await h.update();const map=h.maps[0];h.map.detach();assert.equal(h.slot.children.length,0);await h.update();assert.equal(h.maps.length,1);assert.equal(map.fit,1);
- const changed=state();changed.detail.stops[0].state='Review required';changed.detail.next_stop_key=null;await h.update(changed);assert.equal(map.fit,1);assert.equal(h.groups.at(-1).markers[0].options.icon.className,'cfg-driver-map-pin attention');
+ const changed=state();changed.detail.stops[0].state='Review required';changed.detail.next_stop_key=null;await h.update(changed);assert.equal(map.fit,1);assert.equal(h.groups.at(-1).markers[0].options.icon.className,'cfg-driver-map-pin danger');
  changed.detail.stops[0].delivery_pin=point(4,102);await h.update(changed);assert.equal(map.fit,2);
 });
 test('map popup opens only the exact selected visit details and cannot complete a delivery',async()=>{

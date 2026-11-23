@@ -116,6 +116,29 @@ class TestOfficeDeliveryTrip(unittest.TestCase):
         self.assertEqual(snap['template_revision'],1);self.assertEqual(snap['region'],'North')
         self.assertNotEqual(snap['stops'][0]['stop_key'],snap['stops'][1]['stop_key'])
         self.assertEqual(json.loads(snap['template_snapshot_json'])['name'],'ROUTE')
+
+    def test_route_template_publishes_gps_defaults_and_allowed_interval(self):
+        self.template.gps_auto_start=1;self.template.gps_publish_interval_seconds='120'
+        snap=self.ns['get_route_template']('ROUTE','A')
+        self.assertEqual(snap['gps_auto_start'],1);self.assertEqual(snap['gps_publish_interval_seconds'],120)
+
+    def test_trip_gps_interval_is_validated_and_driver_display_is_server_derived(self):
+        self.add('Employee','EMP',status='Active',employee_name='Ali');self.doc.driver='EMP';self.doc.driver_display='Forged'
+        self.doc.gps_publish_interval_seconds='60';self.validate()
+        self.assertEqual(self.doc.gps_publish_interval_seconds,'60');self.assertEqual(self.doc.driver_display,'Ali (EMP)')
+        self.doc.gps_publish_interval_seconds='61'
+        with self.assertRaisesRegex(ValueError,'GPS interval'):self.validate()
+
+    def test_live_gps_change_preserves_departure_even_after_so_was_fully_delivered(self):
+        self.assign(qty=10);self.doc.state='Planned';self.persist()
+        self.doc.driver_route_state='In Progress';self.doc.driver_route_snapshot_json='FROZEN'
+        self.doc.gps_publish_interval_seconds='15';self.data['Sales Order']['SO1']['items'][0].delivered_qty=10
+        before=document(self.doc.as_dict());self.doc._before=before;self.doc.gps_publish_interval_seconds='120'
+        business=self.ns['_business'](self.doc);self.validate()
+        self.assertEqual(self.doc.driver_route_snapshot_json,'FROZEN');self.assertEqual(self.ns['_business'](self.doc),business)
+        self.assertEqual(self.doc.gps_publish_interval_seconds,'120')
+        self.doc.orders[0].planned_qty=1;self.doc.gps_publish_interval_seconds='300'
+        with self.assertRaisesRegex(ValueError,'retain their itinerary'):self.validate()
     def test_inbox_company_permissions_drafts_and_customer_po(self):
         self.data['Sales Order']['SO2'].docstatus=0
         rows=self.ns['get_route_order_inbox']('ROUTE','A')['rows']
