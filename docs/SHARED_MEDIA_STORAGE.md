@@ -14,6 +14,13 @@ Kanban-specific mapping and does not redefine that contract.
 - TrackQMS and other apps are not runtime dependencies. Cross-app exchange uses `media_id` and
   approved metadata, never another app's key or URL.
 
+DN acknowledgement printing uses stable, versioned same-origin signature references. On access,
+the endpoint rechecks native DN read/print, Company, submitted proof and owning Delivery Session,
+then returns a non-cacheable redirect to an ephemeral S3 view. It never proxies/stores binary bytes.
+Direct-print browsers fetch the image from S3 and rasterize a transient data image; native print/PDF
+consumers resolve the same authorized reference. Media IDs/version hashes, not signed S3 URLs or
+signature bytes, are persisted in the print control plane. Native/PDF/CORS acceptance remains required.
+
 ## Registered V1 media classes
 
 | Media class | Allowed owning records |

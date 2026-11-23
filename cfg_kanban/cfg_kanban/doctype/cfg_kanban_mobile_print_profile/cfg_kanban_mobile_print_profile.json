@@ -11,6 +11,8 @@
   "paper_width_mm",
   "printable_width",
   "dpi",
+  "delivery_note_copies",
+  "require_dn_print_signature",
   "formats_section",
   "delivery_note_format",
   "sales_invoice_format",
@@ -65,6 +67,20 @@
    "fieldtype": "Int",
    "default": "203",
    "reqd": 1
+  },
+  {
+   "fieldname": "delivery_note_copies",
+   "label": "Delivery Note copies",
+   "fieldtype": "Int",
+   "default": "2",
+   "description": "Copies are separate handoffs. Tear off the recipient copy before opening the office copy."
+  },
+  {
+   "fieldname": "require_dn_print_signature",
+   "label": "Require signature for direct DN printing",
+   "fieldtype": "Check",
+   "default": "1",
+   "description": "For a non-return Delivery Note, require submitted proof and include its signature in the selected format before direct printing. Native ERPNext print remains available."
   },
   {
    "fieldname": "formats_section",

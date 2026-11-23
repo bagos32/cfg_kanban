@@ -303,6 +303,43 @@ class TestMobilePrinting(unittest.TestCase):
             self.ns['get_mobile_print_job']('TRIP',job.name,'TOKEN')
         with self.assertRaisesRegex(ValueError,'changed'):self.segment(job)
         self.assertEqual(job.status,'Prepared')
+    def test_print_profile_delivery_note_copy_count_is_bounded_and_defaults_to_two(self):
+        self.assertEqual(self.ns['delivery_note_copies'](self.profile),2)
+        for value in (1,2,5):
+            self.profile.delivery_note_copies=value
+            self.assertEqual(self.ns['delivery_note_copies'](self.profile),value)
+        for value in (0,6,1.5,float('nan')):
+            self.profile.delivery_note_copies=value
+            with self.assertRaisesRegex(ValueError,'copies'):self.ns['delivery_note_copies'](self.profile)
+    def test_direct_dn_requires_submitted_signature_unless_office_disables_policy(self):
+        note=self.add('Delivery Note','DN',company='A',customer='C1',docstatus=1,is_return=0)
+        self.catalog=[dict(doctype='Delivery Note',name='DN')]
+        helper=types.ModuleType('cfg_kanban.services.delivery_note_printing')
+        helper.delivery_note_acknowledgement=Mock(return_value=None)
+        p=patch.dict(sys.modules,{helper.__name__:helper});p.start();self.addCleanup(p.stop)
+        args=dict(doctype='Delivery Note',name='DN',print_format='Standard',copies=2)
+        with self.assertRaisesRegex(ValueError,'Capture and submit'):self.ns['_prepare'](self.trip,'STOP',args,self.operator,self.session,'KEY')
+        self.assertFalse(self.inserts)
+        helper.delivery_note_acknowledgement.return_value=dict(signatures=[dict(media_id='SIG',src='/signature?media=SIG&version=V')])
+        with self.assertRaisesRegex(ValueError,'omits the captured signature'):self.ns['_prepare'](self.trip,'STOP',args,self.operator,self.session,'KEY')
+        self.frappe.get_print=lambda *a,**kw:'<img src="/signature?media=SIG&amp;version=V">'
+        result=self.ns['_prepare'](self.trip,'STOP',args,self.operator,self.session,'KEY')
+        self.assertEqual(self.data[self.ns['JOB']][result['print_job']].copies,2)
+        self.data[self.ns['JOB']].clear();helper.delivery_note_acknowledgement.return_value=None
+        self.profile.require_dn_print_signature=0
+        result=self.ns['_prepare'](self.trip,'STOP',args,self.operator,self.session,'OTHER')
+        self.assertTrue(result['print_job'])
+        self.data[self.ns['JOB']].clear();self.profile.require_dn_print_signature=1
+        note.is_return=1;helper.delivery_note_acknowledgement.reset_mock()
+        self.ns['_prepare'](self.trip,'STOP',args,self.operator,self.session,'RETURN')
+        helper.delivery_note_acknowledgement.assert_not_called()
+    def test_changed_proof_image_reference_invalidates_unsigned_render_hash_even_if_dn_unchanged(self):
+        self.frappe.get_print=lambda *a,**kw:'<img src="/signature?version=FIRST">'
+        job=self.prepare();original=self.source.modified
+        self.frappe.get_print=lambda *a,**kw:'<img src="/signature?version=SECOND">'
+        with self.assertRaisesRegex(ValueError,'changed'):self.ns['get_mobile_print_job']('TRIP',job.name,'TOKEN')
+        with self.assertRaisesRegex(ValueError,'changed'):self.segment(job)
+        self.assertEqual(self.source.modified,original);self.assertEqual(job.status,'Prepared')
     def test_handoff_is_not_confirmation_and_unknown_never_advances(self):
         job=self.prepare();self.segment(job)
         self.assertEqual(job.status,'Awaiting Confirmation');self.assertFalse(job.confirmed_on)

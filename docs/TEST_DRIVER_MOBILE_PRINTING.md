@@ -69,6 +69,14 @@ ERPNext Desk, hooks and custom apps requires the database tests above; mocks can
 | Recovery refresh | Documents refreshes after office closure; a stale preview still allows reason entry/close and restores Scanner Ready; no automatic preparation/handoff | Not run |
 | Mac Chrome Prepare | Touch/click Prepare saves one job and displays preview; button action survives an event target being cleared/reused after dispatch; no automatic Label Bridge launch | Not run |
 | Preview errors and stalls | Job number and actual error are visible; stalled rendering times out, removes its sandbox, retains Recorded preparation, enables closure and restores Scanner Ready without a duplicate job/handoff | Not run |
+| Combined prepare | Prepare Print + paired key stages first part after the prior action lock releases; no separate segment-prepare click, duplicate mutation or automatic app launch | Not run |
+| Separate recipient/office copies | Requested total 2; each handoff payload copies=1; first paper can be torn before second Print click; copy/part labels stay correct; no later copy before earlier parts confirmed | Not run |
+| Signed DN policy | Profile defaults 2 copies/signature required; submitted proof required; selected format must contain its signature images; office can configure copies 1–5 and explicitly permit unsigned prints | Not run |
+| Native/PDF signature | Preset/custom footer prints recipient, capture time and signature at bottom in normal ERPNext and direct 80mm; both copies show the same reviewed proof | Not run |
+| Private signature access | Wrong Company/DN/Customer/session/proof/media/version/native permissions rejected; S3 GET CORS from exact origin; archived/missing/oversize evidence fails; arbitrary external image remains blocked | Not run |
+| Changed proof | Updated proof/image reference invalidates old preview/segment even when DN modified timestamp is unchanged; closure/new review required | Not run |
+| Chrome key autofill | Setup and preview use masked non-password inputs; saved-site credentials are not silently imported; unnoticed/replaced values rejected and cleared, no handoff; deliberately entered current app key still works | Not run |
+| Key entry routes | Physical/virtual keyboard, paste and scanner key entry works; raw key cleared after attempts/Forget/redraw/close, absent from generic form snapshots, browser storage, receipts and errors | Not run |
 | Image/CSS limits | External image fails visibly, same-origin/private/data assets render; complex format uses native fallback | Not run |
 | Saved settings | Browser/Company isolation, printer alias/DPI/width/formats retained, signing key not persisted | Not run |
 | Tablet/scanner | Camera, touch, Enter/Tab, printable commands, required ERP tables, Cancel/error/success focus | Not run |
@@ -76,6 +84,39 @@ ERPNext Desk, hooks and custom apps requires the database tests above; mocks can
 | Two tabs | Device lock blocks simultaneous direct handoff; original pending driver identity retained | Not run |
 
 ## Offline evidence
+
+### Pairing input autofill mitigation — 23 November 2026
+
+Built on `97a20c9` plus the pending separate-copy/DN-signature work, which remains preserved.
+**110 related Node entries passed**, covering non-login attributes/masking, unnoticed autofill,
+replacement after deliberate entry, keyboard/paste/mobile-composition/scanner entry, stale edit
+intent, consumption and clearing. **65 isolated Chrome checks passed**, including both Setup
+and job fields, simulated valid-shaped unnoticed fills, rejection with no segment request/handoff,
+scanner selection/pairing, transient key clearing and existing separate-copy/signature regressions.
+The fixture uses a fresh temporary profile. No real saved Chrome credentials or actual password
+manager were accessed, and real-profile/Android keyboard/printer acceptance remains **Not run**.
+
+### Separate copies and signed DN verification — 23 November 2026
+
+Baseline `97a20c9` plus this change set:
+
+- Delivery/returns/route/identity/naming and signature scope regression: **756 Python tests run;
+  751 passed; 5 native Frappe naming tests skipped**. Includes required-signature policy and
+  omission rejection, unsigned-policy opt-out, return-DN compatibility, native Company/read/print,
+  exact proof/session/media/version linkage, archived/missing/oversize evidence, non-cacheable
+  redirects and an acknowledgement footer rendered from native-format Jinja with escaped text.
+- Related JavaScript: **105 Node entries passed**, including complete copy boundaries and
+  recipient/office labels while an unknown part still blocks progress.
+- Isolated Chrome: **57 checks passed**, including authorized synthetic signature rendering,
+  rejection of a denied signature response, combined first-part preparation, independent recipient
+  and office clicks, copies=1 in each Bridge payload and completion of the same original job.
+  Click events are cleared after handlers return to retain the prior responsiveness regression.
+- No real S3, ERPNext site, PDF engine, Android app or physical printer was contacted by these
+  tests. CORS, cookies/native PDF, database concurrency and signed-paper/copy acceptance remain
+  **Not run**. The Android 0.3.0 source/APK was inspected read-only and was not modified.
+
+The image endpoint uses [Frappe v15's native Response passthrough](https://github.com/frappe/frappe/blob/version-15/frappe/handler.py)
+for an authorized, non-cacheable redirect. No application binary proxy was introduced.
 
 ### Prepare Direct Print responsiveness — 23 November 2026
 

@@ -53,7 +53,15 @@
   if(parsed.querySelector('.print-format script'))throw new Error('Direct print requires a static ERPNext Print Format; use normal print for script-rendered content.');
   parsed.querySelectorAll('script,iframe,object,embed,base,meta,form,input,button').forEach(node=>node.remove());
   if(parsed.querySelector('canvas,video'))throw new Error('Use a static ERPNext Print Format for direct printing.');
-  for(const img of parsed.querySelectorAll('img')){img.setAttribute('src',resource(img.getAttribute('src')||'',origin));img.removeAttribute('srcset');img.removeAttribute('loading');}
+  for(const img of parsed.querySelectorAll('img')){let src=resource(img.getAttribute('src')||'',origin);
+   if(!src.startsWith('data:')&&new URL(src).pathname==='/api/method/cfg_kanban.services.delivery_note_printing.signature_image'){
+    const response=await wait((env.fetch||root.fetch)(src,{credentials:'same-origin',cache:'no-store',redirect:'follow',referrerPolicy:'no-referrer'}));
+    const type=(response.headers.get('content-type')||'').split(';')[0].trim().toLowerCase(),length=Number(response.headers.get('content-length')||0);
+    if(!response.ok||!['image/png','image/jpeg','image/webp'].includes(type)||length>512*1024)throw new Error('The authorized delivery signature image could not be read.');
+    const bytes=new Uint8Array(await wait(response.arrayBuffer()));if(!bytes.length||bytes.length>512*1024)throw new Error('Delivery signature image exceeds its print size limit.');
+    src='data:'+type+';base64,'+bytes64(bytes);
+   }
+   img.setAttribute('src',src);img.removeAttribute('srcset');img.removeAttribute('loading');}
   for(const node of parsed.querySelectorAll('*'))for(const attr of Array.from(node.attributes))if(attr.name.toLowerCase().startsWith('on'))node.removeAttribute(attr.name);
   for(const node of parsed.querySelectorAll('link')){if(node.rel!=='stylesheet'){node.remove();continue;}node.href=resource(node.getAttribute('href'),origin);}
   // CSS background and font assets must obey the same no-proxy, same-origin contract.

@@ -1,6 +1,31 @@
 const test=require('node:test'),assert=require('node:assert/strict'),crypto=require('node:crypto');
 const bridge=require('../public/js/mobile_print_bridge.js'),ui=require('../public/js/driver_mobile_print.js');
 const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+function keyFixture(){const handlers={},attributes={};const input={value:'AUTOFILLED',type:'password',style:{},setAttribute:(k,v)=>attributes[k]=v,addEventListener:(type,fn)=>handlers[type]=fn};const entry=ui.pairingEntry();entry.bind(input,'TEST');return {input,entry,attributes,fire:(type,event={})=>handlers[type]?.(event)};}
+test('pairing input is non-login, masked, initially empty and marked against autofill',()=>{
+ const f=keyFixture();assert.equal(f.input.type,'text');assert.equal(f.input.style.webkitTextSecurity,'disc');assert.equal(f.input.value,'');
+ assert.equal(f.attributes.autocomplete,'off');assert.equal(f.attributes.spellcheck,'false');assert.equal(f.attributes.autocapitalize,'none');assert.equal(f.attributes['data-lpignore'],'true');assert(f.attributes.name.startsWith('cfg_bridge_entry_'));
+});
+test('unnoticed valid-shaped autofill is rejected and cleared without returning the key',()=>{
+ const f=keyFixture();f.input.value='a'.repeat(32);f.fire('input',{isTrusted:true,inputType:'insertReplacementText'});
+ assert.throws(()=>f.entry.take(),/autofill/);assert.equal(f.input.value,'');
+ f.fire('keydown',{isTrusted:false,key:'a'});f.input.value='a'.repeat(32);f.fire('input');assert.throws(()=>f.entry.take(),/autofill/);
+});
+test('manual paste typing mobile composition and scanner routes approve only the entered value',()=>{
+ for(const kind of ['paste','keydown','beforeinput','scanner']){
+  const f=keyFixture(),key='0'.repeat(32);
+  f.fire(kind,{isTrusted:true,key:'0',inputType:'insertCompositionText'});f.input.value=' '+key+' ';f.fire('input');if(kind==='scanner')f.entry.scanned();
+  assert.equal(f.entry.take(),key);assert.equal(f.input.value,'');assert.throws(()=>f.entry.take(),/autofill/);
+ }
+});
+test('autofill replacement after manual entry and stale keyboard intent cannot authorize pairing',()=>{
+ const f=keyFixture();f.fire('paste',{isTrusted:true});f.input.value='0'.repeat(32);f.fire('input');f.input.value='1'.repeat(32);f.fire('input');assert.throws(()=>f.entry.take(),/autofill/);
+ for(const type of ['keyup','blur']){f.fire('keydown',{isTrusted:true,key:'a'});f.fire(type);f.input.value='1'.repeat(32);f.fire('input');assert.throws(()=>f.entry.take(),/autofill/);}
+ f.fire('keydown',{isTrusted:true,key:'c',ctrlKey:true});f.input.value='1'.repeat(32);f.fire('input');assert.throws(()=>f.entry.take(),/autofill/);
+});
+test('redraw and explicit clearing discard any pending raw pairing key',()=>{
+ const f=keyFixture();f.input.value='0'.repeat(32);f.entry.scanned();f.entry.clear();assert.equal(f.input.value,'');assert.throws(()=>f.entry.take(),/autofill/);
+});
 test('queued print clicks retain their action when the browser event target changes',async()=>{
  const source=fs.readFileSync(path.join(__dirname,'../public/js/driver_mobile_print.js'),'utf8');
  const binding=source.split('\n').find(line=>line.includes("host.on('click.cfg_mobile','[data-mobile]'"));
@@ -74,6 +99,20 @@ test('whole copies are collated as page1 page2 page1 page2 and unknown pages rem
  const pages=[{hash:'a'},{hash:'b'}],frames=ui.copies(pages,2);assert.deepEqual(frames.map(f=>f.hash),['a','b','a','b']);
  assert.equal(ui.nextPage({segments:{pages:{1:{status:'Outcome Unknown'}}}},frames),1);
  assert.equal(ui.nextPage({segments:{pages:{1:{status:'Operator Confirmed'}}}},frames),2);
+});
+test('recipient and office progress respect complete copy boundaries',()=>{
+ const frames=ui.copies([{hash:'a'},{hash:'b'}],2),job={copies:2,document_type:'Delivery Note',segments:{pages:{}}};
+ assert.deepEqual(ui.copyProgress(job,frames),{page:1,copy:1,part:1,parts:2,count:2,label:'Recipient copy'});
+ job.segments.pages[1]={status:'Operator Confirmed'};
+ assert.equal(ui.copyProgress(job,frames).part,2);
+ job.segments.pages[2]={status:'Outcome Unknown'};
+ assert.equal(ui.copyProgress(job,frames).copy,1);
+ job.segments.pages[2]={status:'Operator Confirmed'};
+ assert.deepEqual(ui.copyProgress(job,frames),{page:3,copy:2,part:1,parts:2,count:2,label:'Office copy'});
+ for(const n of [3,4])job.segments.pages[n]={status:'Operator Confirmed'};
+ assert.equal(ui.copyProgress(job,frames),null);
+ assert.throws(()=>ui.copyProgress({copies:3,segments:{}},frames),/invalid/);
+ assert.equal(ui.copyProgress({copies:2,document_type:'CFG Kanban Handling Unit',segments:{}},frames).label,'Copy 1');
 });
 test('normal printing opens the exact native format and never invokes invoice or credit creation',()=>{
  const href=ui.nativeLink({doctype:'Sales Invoice',name:'INV & 1'},'Custom Format / 80',true),params=new URL(href,'https://erp.example').searchParams;

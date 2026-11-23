@@ -45,6 +45,7 @@ def no_delete():
 
 def validate_profile(doc):
     validate_dimensions(doc.printable_width, doc.dpi, doc.paper_width_mm)
+    delivery_note_copies(doc)
     if doc.invoice_mode not in ('Disabled', 'Draft', 'Automatic Submission'):
         frappe.throw('Select a supported driver Invoice policy')
     employees = [r.employee for r in doc.get('invoice_operators') or []]
@@ -74,6 +75,14 @@ def get_profile(company, current=False):
     if doc.company != company or not cint(doc.enabled):
         frappe.throw('The Company Mobile Print Profile is no longer enabled')
     return doc
+
+
+def delivery_note_copies(profile):
+    raw = profile.get('delivery_note_copies')
+    value = flt(2 if raw in (None, '') else raw)
+    if not math.isfinite(value) or value != int(value) or not 1 <= value <= 5:
+        frappe.throw('Delivery Note copies must be a whole number from 1 to 5')
+    return int(value)
 
 
 def format_doc(doctype, name):
@@ -239,6 +248,7 @@ def get_mobile_print_context(trip_name, operator_session_token, stop_key=None):
     entries = _catalog(trip, stop_key, operator)
     for entry in entries:
         entry['formats'] = _formats(entry['doctype'])
+        entry['default_copies'] = delivery_note_copies(profile) if entry['doctype'] == 'Delivery Note' else 1
         chosen = default_format(entry['doctype'], profile)
         entry['default_format'] = chosen if chosen in entry['formats'] else 'Standard'
     invoice_sources = []
@@ -304,13 +314,38 @@ def _source_scope(trip, stop_key, doc):
 
 
 def _render(doc, format_name, no_letterhead, prepared_on=None):
+    acknowledgement = None
+    if (doc.doctype == 'Delivery Note' and not cint(doc.get('is_return'))
+            and get_profile(doc.company).get('require_dn_print_signature') not in (0, '0')):
+        from cfg_kanban.services.delivery_note_printing import delivery_note_acknowledgement
+        acknowledgement = delivery_note_acknowledgement(doc)
+        if not acknowledgement or not acknowledgement['signatures']:
+            frappe.throw('Capture and submit the customer signature before printing the signed Delivery Note copies')
     fmt = format_doc(doc.doctype, format_name)
     doc.flags.cfg_mobile_print_on = prepared_on
     html = frappe.get_print(doc.doctype, doc.name, print_format=format_name, doc=doc,
                             as_pdf=False, no_letterhead=cint(no_letterhead))
+    if acknowledgement:
+        _assert_printed_signatures(html, acknowledgement)
     version = canonical_key('native-print-format', str(fmt.modified) if fmt else 'Standard',
         doc.doctype)
     return html, version, hashlib.sha256(html.encode()).hexdigest()
+
+
+def _assert_printed_signatures(html, acknowledgement):
+    from html.parser import HTMLParser
+    class Images(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.sources = set()
+        def handle_starttag(self, tag, attrs):
+            if tag.lower() == 'img':
+                self.sources.add(dict(attrs).get('src'))
+    parser = Images()
+    parser.feed(html)
+    if any(row['src'] not in parser.sources for row in acknowledgement['signatures']):
+        frappe.throw('Selected Delivery Note Print Format omits the captured signature. '
+            'Select CFG Delivery Note 80mm or add its delivery_note_acknowledgement footer to the custom format')
 
 
 def _prepare(trip, stop_key, values, operator, session, key):
@@ -451,7 +486,7 @@ def get_mobile_print_job(trip_name, print_job, operator_session_token):
         frappe.throw('Document or Print Format changed. Close this job with a reason, then review a new print')
     return dict(name=job.name, html=html, render_hash=digest, copies=job.copies, status=job.status,
                 segments=json.loads(job.segments_json or '{}'), print_format=job.print_format,
-                document_name=job.document_name, stop_key=job.stop_key or None,
+                document_name=job.document_name, document_type=job.document_type, stop_key=job.stop_key or None,
                 printer_settings=json.loads(job.printer_settings_json))
 
 

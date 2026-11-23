@@ -29,6 +29,7 @@ class TestMobilePrintTemplates(unittest.TestCase):
                 quality_state='Released',movement_state='Received',effective_expiry='2027-01-01')])],
             trip_vehicle_warehouse=lambda trip:trip.vehicle_warehouse,
             trip_driver_display=lambda trip:trip.get("driver_display") or trip.get("driver") or "",
+            delivery_note_acknowledgement=lambda doc:None,
             frappe=types.SimpleNamespace(utils=types.SimpleNamespace(now_datetime=lambda:'2026-11-23 12:00:00')),
         )
     def qr(self, value):
@@ -66,6 +67,15 @@ class TestMobilePrintTemplates(unittest.TestCase):
     def test_native_delivery_without_amounts_does_not_leak_financial_columns(self):
         html=self.render('cfg_delivery_note_80mm',self.invoice(doctype='Delivery Note',print_without_amount=1))
         self.assertIn('BAG',html);self.assertNotIn('RM 10.60',html);self.assertNotIn('RM 2.00',html)
+    def test_delivery_acknowledgement_renders_signature_below_terms_and_escapes_recipient(self):
+        self.environment.globals['delivery_note_acknowledgement']=lambda doc:dict(
+            proof_name='PROOF',recipient_name='<script>Recipient</script>',captured_on='2026-11-23 12:00:00',
+            signatures=[dict(src='/api/method/signature?media=IMAGE&version=V')])
+        html=self.render('cfg_delivery_note_80mm',self.invoice(doctype='Delivery Note'))
+        self.assertIn('Delivery Acknowledgement',html);self.assertIn('&lt;script&gt;Recipient&lt;/script&gt;',html)
+        self.assertNotIn('<script>Recipient',html);self.assertIn('media=IMAGE&amp;version=V',html)
+        self.assertGreater(html.index('Delivery Acknowledgement'),html.index('PAYMENT TERMS'))
+        self.assertIn('cfg-delivery-signature',html)
     def test_return_note_is_custody_only_and_escapes_operator_text(self):
         line=self.document(item_code='BAG',batch_no=None,expiry_date=None,condition='Unknown',claimed_qty=2,stock_uom='Nos')
         doc=self.document(name='CASE',selling_company='A',customer='CUSTOMER',state='Awaiting QC Receipt',

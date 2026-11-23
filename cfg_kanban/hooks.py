@@ -62,6 +62,7 @@ jinja = {
         "cfg_kanban.services.driver_routes.trip_vehicle_warehouse",
         "cfg_kanban.services.driver_routes.trip_driver_display",
         "cfg_kanban.services.mobile_printing.stock_tag_print_context",
+        "cfg_kanban.services.delivery_note_printing.delivery_note_acknowledgement",
         "cfg_kanban.services.printing.get_code128_svg",
         "cfg_kanban.services.media.get_print_media",
         "cfg_kanban.services.genealogy.get_genealogy_print_context",

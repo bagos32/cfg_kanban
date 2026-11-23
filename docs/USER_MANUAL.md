@@ -6248,10 +6248,31 @@ open each bridge segment and confirm the physical paper. Unknown output is never
 automatically. A retry needs a reason. Unfinished jobs remain accessible for readback/resume or
 reasoned closure. Changed sources/formats cannot silently replace prepared segments.
 
+**Prepare Print** now combines job preparation, preview and first-part preparation after key
+pairing. Review the image, then use the ready **Print … · Open Label Bridge** button. After
+checking the paper, confirm that copy/part printed; the next waits for its own Print click.
+For two receipt copies the panel identifies **Recipient copy** and **Office copy**. Tear off the
+first before opening the second. Each Bridge payload requests one copy; long receipts may have
+several parts per copy. The existing 0.3.0 companion opens visibly and has no silent background path.
+
+In **CFG Kanban Mobile Print Profile**, **Delivery Note copies** defaults to 2 and **Require
+signature for direct DN printing** defaults to enabled. Submit the customer's proof/signature
+before preparing both copies. **CFG Delivery Note 80mm** includes its recipient/time/proof/signature
+footer. Custom formats can use `delivery_note_acknowledgement(doc)`; an enabled direct-signature
+policy rejects formats that omit the captured images. Private images use authorized, versioned
+references and transient browser downloads from S3. No stock, billing, signature or source record
+is created by printing. Use the printer guide for permissions, CORS and native-PDF acceptance.
+
 Preparation shows its current stage and the preview's job number. A rendering error displays
 the actual reason; a stalled preview stops after 60 seconds of browser execution. The recorded
 job remains recoverable and is never automatically recreated or sent. Choose **Documents** to
 use normal printing or resume/review the job; reasoned closure remains available without a preview.
+
+**Browser key from Label Bridge** uses masked non-login inputs in Printer Setup and the preview,
+with autocomplete/capitalization/spellcheck disabled. Paste, type or scan the current app key before
+**Pair Key**. Unnoticed fills and replacements are rejected and cleared; key values stay outside
+generic form/scanner snapshots and are cleared after attempts, Forget Key and redraw/closure.
+Password-manager hints are best effort; verify the behavior with the actual saved Chrome profile.
 
 The **Unfinished print jobs** list includes blocking jobs for the displayed documents even if
 another operator, stop or Trip prepared them. **Resume / Review** is available for your own job

@@ -53,17 +53,81 @@ show **DRAFT — NOT POSTED** on drafts.
    **Pair Key for This Tab**. The alias is a reference name; Bluetooth printer selection stays
    inside the companion app. The signing key is held in memory, never saved in browser storage,
    the ERP database or the print URI. The key can be reused for the same operator and Company while Driver Route stays open; pair again after leaving the route, changing operator/Company, refreshing the browser or choosing Forget Key.
-6. Choose **Prepare Direct Print**. Inspect the raster preview generated from the selected native
-   format. Choose **Prepare This Segment for Handoff**, then **Open Label Bridge for This Segment**.
-   A fresh click/scan is required; CFG does not silently launch or resend a prepared print.
-7. Check the physical receipt, then **Confirm This Segment Printed**. If uncertain, select
-   **Outcome Unknown**. An explicit retry needs a reason. Confirmed segments cannot be resent
-   within the same job. A deliberate complete reprint is a new reviewed job.
+   Both key fields are non-login text controls, visually masked in Chrome, with autocomplete,
+   capitalization and spelling suggestions disabled and fresh non-credential input names.
+   Paste/type the current app Browser key or select the key field with the numbered scanner
+   command and scan it, then choose **Pair Key**. Values filled without observed deliberate
+   entry, or replaced after entry, are rejected and cleared before import. Browser/password-manager
+   hints are best effort; this check also protects against unnoticed fills. Keys are excluded
+   from generic form/scanner snapshots and cleared after each pairing attempt, Forget Key and
+   panel redraw/closure. A syntactically valid key still must match the app's actual Browser key.
+6. Choose **Prepare Print**. It saves and previews the job, then prepares the first part when the
+   key is paired. On first use, **Pair Key** also prepares that part. There is no separate normal
+   "prepare segment" click. Inspect the image and click **Print Recipient copy · Open Label Bridge**
+   (or the displayed copy/part button). It opens the companion only on this fresh click/scan.
+7. Check the paper and choose **Recipient copy printed** / **Confirm This Part Printed**. CFG
+   prepares the next part or office copy, but waits for its own Print button. Tear off the complete
+   recipient copy before clicking **Print Office copy · Open Label Bridge**. Confirm the office
+   copy after checking it. **Complete copies** is the total number for this job; every Bridge
+   payload requests one physical copy. Select 1 for a single copy. No second copy prints by itself.
+8. If uncertain, select **Outcome Unknown**. An explicit retry needs a reason. Confirmed parts
+   cannot be resent within the same job. Lost responses keep the original request; after readback
+   or reopening, the recovery path may require explicit preparation instead of the normal shortcut.
+   A deliberate complete reprint is a new reviewed job.
 
 Long receipts are split to the existing bridge’s **4096-row / 48,000-character URI limits**.
 Every segment needs a separate handoff and paper confirmation. Multiple copies are collated as
 all segments of copy 1, then all segments of copy 2. No receipt tail is silently truncated.
 The companion protocol has no physical-print acknowledgement or automatic cut/receipt commands.
+
+Label Bridge **0.3.0** supports the signed links used here. The supplied 0.3.0 APK and its source
+were inspected; the owner reported successful basic handoff after updating from 0.2.1. This does
+not establish signature, multi-copy or device acceptance. Version 0.3.0 opens a visible Android
+Activity. It has no silent background-print path or automatic return after sending; those require
+a separate companion-app change. Kanban never interprets a Bluetooth write as paper confirmation.
+
+## Signed Delivery Note copies
+
+For future deliveries, set the site's **CFG Kanban Customer Scan Point → Proof Policy** to
+**Required** and enable **Require Signature**. Complete the existing proof-capture/submission
+workflow before printing. Existing Delivery Sessions retain their saved proof policy; printing
+does not add a retrospective acknowledgement to an old session that recorded no proof.
+
+In **CFG Kanban Mobile Print Profile**, **Delivery Note copies** defaults to 2. It supplies the
+initial total; the driver can choose 1–5 for an individual job. **Require signature for direct DN
+printing** defaults to enabled. Capture and submit the customer proof before preparing either
+copy. The signature requirement is checked again on preview/resume and segment recording.
+Both copies use the same frozen render; changing a proof or format requires closing the old job
+with a reason and reviewing a new one.
+
+Select **CFG Delivery Note 80mm** as the profile's DN Print Format. Its acknowledgement footer
+prints recipient name, capture time, proof number and available submitted signature images below
+the document terms. Missing recorded evidence fails visibly. A draft, return DN or document without
+submitted proof does not invent an acknowledgement. Native ERPNext print remains available under
+its own permissions/settings; turning off the direct-signature policy permits unsigned direct prints.
+
+Custom DN formats stay editable in ERPNext. Include the footer when duplicating the preset. The
+Jinja helper below supplies only authorized metadata and stable image references; an enabled
+signature policy rejects a direct format that omits its images:
+
+```jinja
+{% set acknowledgement = delivery_note_acknowledgement(doc) %}
+{% if acknowledgement %}
+<p>{{ acknowledgement.recipient_name | e }} · {{ acknowledgement.captured_on | e }}</p>
+{% for image in acknowledgement.signatures %}
+<img src="{{ image.src | e }}" alt="Recipient signature" style="max-width:100%;max-height:35mm">
+{% endfor %}
+{% endif %}
+```
+
+Signature references are scoped to the submitted DN, Company, Customer, exact closed Delivery
+Session/proof and available signature media version, with native read/print permissions rechecked
+at image access. The image endpoint redirects to an ephemeral private S3 view; it does not proxy
+or store bytes. The browser downloads PNG/JPEG/WebP images up to 512 KB into transient data images
+for rasterization. No presigned URL is stored in jobs or embedded as a durable format value.
+The existing S3 CORS policy must permit GET from the exact ERPNext origin. Other external format
+images remain rejected. Native ERPNext HTML/PDF printing follows the same authorized image reference;
+verify cookies, S3 access and PDF output on the actual site.
 
 ## Create an Invoice
 
@@ -110,7 +174,7 @@ Source printed ranges are provenance, not invented individual-unit assignments f
 
 ## Recovery and format limits
 
-- **Prepare Direct Print** first saves the print job and renders its 80mm preview. It does not
+- **Prepare Print** first saves the print job and renders its 80mm preview. It does not
   open Label Bridge. The panel shows checking, preparation, rendering and preview-ready messages.
   If preview generation fails, it shows the job number and actual error, retains the recorded
   preparation and permits reasoned closure. Rendering has a 60-second elapsed-time limit while
@@ -149,7 +213,8 @@ Source printed ranges are provenance, not invented individual-unit assignments f
   the device handoff lock at a time. Pairing stays in memory across this operator’s stop panels; it is forgotten when leaving Driver Route, changing operator/Company or explicitly forgetting the key.
 - Native format HTML and raster remain transient. The database retains source/version hashes and
   operator confirmation metadata, not images, signing keys, print URIs or durable presigned URLs.
-- Direct rendering supports static HTML/CSS and same-origin/private/data image assets. An external
+- Direct rendering supports static HTML/CSS and same-origin/private/data image assets, plus the
+  exact authorized delivery-signature endpoint described above. An arbitrary external
   QR/letterhead image is rejected rather than silently omitted. Use normal ERPNext print or adapt
   the format asset. Complex CSS, script-rendered widgets and very large documents may need normal
   print. Always inspect the raster, especially an e-Invoice QR. A signed bridge handoff is not proof
