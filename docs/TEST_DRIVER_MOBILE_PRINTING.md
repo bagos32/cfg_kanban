@@ -77,6 +77,7 @@ ERPNext Desk, hooks and custom apps requires the database tests above; mocks can
 | Changed proof | Updated proof/image reference invalidates old preview/segment even when DN modified timestamp is unchanged; closure/new review required | Not run |
 | Chrome key autofill | Setup and preview use masked non-password inputs; saved-site credentials are not silently imported; unnoticed/replaced values rejected and cleared, no handoff; deliberately entered current app key still works | Not run |
 | Key entry routes | Physical/virtual keyboard, paste and scanner key entry works; raw key cleared after attempts/Forget/redraw/close, absent from generic form snapshots, browser storage, receipts and errors | Not run |
+| Firefox native print assets | Same-site native stylesheet/font/letterhead loads in sandbox and renderer clone; BMP decodes and visible ink is rasterized; script/external-origin restrictions remain intact | Not run |
 | Image/CSS limits | External image fails visibly, same-origin/private/data assets render; complex format uses native fallback | Not run |
 | Saved settings | Browser/Company isolation, printer alias/DPI/width/formats retained, signing key not persisted | Not run |
 | Tablet/scanner | Camera, touch, Enter/Tab, printable commands, required ERP tables, Cancel/error/success focus | Not run |
@@ -84,6 +85,29 @@ ERPNext Desk, hooks and custom apps requires the database tests above; mocks can
 | Two tabs | Device lock blocks simultaneous direct handoff; original pending driver identity retained | Not run |
 
 ## Offline evidence
+
+### Firefox same-origin CSP correction — 24 November 2026
+
+Baseline `a5b3b0c`. The owner's Firefox 153.5.0 ESR log showed CSP blocking the same-site native
+print stylesheet and BMP letterhead. The earlier fixture had inline styles/data images and passed
+65 checks in default Firefox; it did not cover these network resources. Adding a same-site stylesheet
+and synthetic BMP reproduced an unavailable-image failure in Firefox while Chrome passed. Explicitly
+allowing the normalized ERP site origin in the existing sandbox CSP corrected that reproduction.
+
+- **112 related Node entries passed**, including origin normalization, rejection of non-web origins,
+  and retention of script/frame/connection/form restrictions and external-resource rejection.
+- **69 isolated Firefox checks and 69 Chrome checks passed**, including computed external CSS,
+  decoded BMP, native resources retained in the renderer clone and visible raster ink. Existing
+  pairing, private-signature, separate-copy, unknown-result and scanner checks remain included.
+- Uses disposable profiles, synthetic localhost resources and native/backend doubles. No live ERPNext,
+  actual site CSS/letterhead, S3, installed companion handoff or physical printer acceptance was run.
+  The native acceptance rows above remain **Not run**. No browser privacy setting or server header
+  change is required by this fix.
+
+Run the shared fixture with Node 22+: `node cfg_kanban/tests/run_mobile_print_browser.mjs` for Chrome,
+or `CFG_BROWSER=firefox node cfg_kanban/tests/run_mobile_print_browser.mjs` for Firefox. Set `CFG_CHROME`
+or `CFG_FIREFOX` for another executable. Both runners use the same fixture and local resource routes;
+Firefox posts its result to the localhost runner, while Chrome uses its existing CDP harness.
 
 ### Pairing input autofill mitigation — 23 November 2026
 

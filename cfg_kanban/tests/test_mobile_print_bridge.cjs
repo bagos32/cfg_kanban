@@ -1,6 +1,17 @@
 const test=require('node:test'),assert=require('node:assert/strict'),crypto=require('node:crypto');
 const bridge=require('../public/js/mobile_print_bridge.js'),ui=require('../public/js/driver_mobile_print.js');
 const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+test('sandbox policy explicitly allows only the current site for native print resources',()=>{
+ const policy=bridge.framePolicy('https://erp.example:8443/path?ignored=value');
+ for(const kind of ['img-src','style-src','font-src'])assert(policy.includes(kind+" 'self' https://erp.example:8443"));
+ for(const kind of ['script-src','frame-src','connect-src','form-action'])assert(policy.includes(kind+" 'none'"));
+ assert(policy.includes("default-src 'none'"));assert(!policy.includes('ignored'));assert(!policy.includes('*'));
+ assert(policy.includes(' data:'));assert.throws(()=>bridge.resource('https://elsewhere.example/logo.bmp','https://erp.example:8443'));
+});
+test('sandbox policy rejects non-web origins and never exposes URL credentials',()=>{
+ for(const origin of ['data:text/html,hello','about:blank','javascript:alert(1)','file:///tmp/page.html'])assert.throws(()=>bridge.framePolicy(origin));
+ const policy=bridge.framePolicy('https://username:secret@erp.example');assert(!policy.includes('username'));assert(!policy.includes('secret'));
+});
 function keyFixture(){const handlers={},attributes={};const input={value:'AUTOFILLED',type:'password',style:{},setAttribute:(k,v)=>attributes[k]=v,addEventListener:(type,fn)=>handlers[type]=fn};const entry=ui.pairingEntry();entry.bind(input,'TEST');return {input,entry,attributes,fire:(type,event={})=>handlers[type]?.(event)};}
 test('pairing input is non-login, masked, initially empty and marked against autofill',()=>{
  const f=keyFixture();assert.equal(f.input.type,'text');assert.equal(f.input.style.webkitTextSecurity,'disc');assert.equal(f.input.value,'');

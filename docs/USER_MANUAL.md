@@ -6268,6 +6268,10 @@ the actual reason; a stalled preview stops after 60 seconds of browser execution
 job remains recoverable and is never automatically recreated or sent. Choose **Documents** to
 use normal printing or resume/review the job; reasoned closure remains available without a preview.
 
+Firefox previews explicitly allow the current ERP site origin for native print styles, fonts and
+letterhead images inside the sandbox, including BMP files. Scripts and unrelated external assets
+remain blocked. After updating print assets, reload without cache before resuming an existing job.
+
 **Browser key from Label Bridge** uses masked non-login inputs in Printer Setup and the preview,
 with autocomplete/capitalization/spellcheck disabled. Paste, type or scan the current app key before
 **Pair Key**. Unnoticed fills and replacements are rejected and cleared; key values stay outside

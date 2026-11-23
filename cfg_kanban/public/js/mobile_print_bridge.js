@@ -44,6 +44,10 @@
  }
  function resource(value,origin){if(/^data:image\/(png|jpeg|gif|webp|svg\+xml)[;,]/i.test(value))return value;
   const url=new URL(value,origin);if(url.origin!==new URL(origin).origin||!['http:','https:'].includes(url.protocol))throw new Error('Direct print cannot read an external image/font. Use normal ERPNext print or a same-origin Print Format asset.');return url.href;}
+ function framePolicy(origin){const site=new URL(origin);if(!['http:','https:'].includes(site.protocol)||site.origin==='null')throw new Error('Print preview requires an HTTP(S) site origin.');
+  // srcdoc/about:blank clones do not resolve CSP 'self' consistently across engines.
+  // The explicit origin is the same origin already enforced by resource(), not an external allowlist.
+  return `default-src 'none'; img-src 'self' ${site.origin} data:; style-src 'self' ${site.origin} 'unsafe-inline'; font-src 'self' ${site.origin} data:; script-src 'none'; frame-src 'none'; connect-src 'none'; form-action 'none'`;}
  async function render(html,settings,env={}){
   const expires=Date.now()+(env.timeoutMs||60000);
   async function wait(promise){let timer;try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Direct-print preview timed out. Use Normal ERPNext Print or review the saved job before retrying.')),Math.max(1,expires-Date.now()));})]);}finally{clearTimeout(timer);}}
@@ -69,7 +73,7 @@
   const iframe=document.createElement('iframe');iframe.setAttribute('sandbox','allow-same-origin');iframe.setAttribute('aria-hidden','true');
   const scale=settings.dpi/96,cssWidth=settings.printable_width/scale;
   iframe.style.cssText=`position:fixed;left:-20000px;top:0;width:${cssWidth}px;height:900px;border:0;visibility:hidden;`;
-  const security=`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'none'; frame-src 'none'; connect-src 'none'; form-action 'none'">`;
+  const security=`<meta http-equiv="Content-Security-Policy" content="${framePolicy(origin)}">`;
   const sizing=`<style>html,body{margin:0!important;width:${cssWidth}px!important;min-width:0!important;background:white!important}.print-format{max-width:100%!important;min-height:0!important;box-sizing:border-box}.print-format-gutter{padding:0!important;margin:0!important;background:white!important}.print-toolbar,.action-banner{display:none!important}@media screen{.print-format{margin:0!important;box-shadow:none!important}}</style>`;
   document.body.appendChild(iframe);
   try{
@@ -100,5 +104,5 @@
    return frames;
   }finally{iframe.remove();}
  }
- return {MAX_URI,bytes64,rle,raster,encode,link,fits,chunks,digest,signer,preferences,resource,render};
+ return {MAX_URI,bytes64,rle,raster,encode,link,fits,chunks,digest,signer,preferences,resource,framePolicy,render};
 });

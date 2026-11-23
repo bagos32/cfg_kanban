@@ -22,6 +22,13 @@ const nativeHTML=(rows=5)=>`<!doctype html><style>.print-format{width:80mm;box-s
 window.runMobileTests=async()=>{
  try{
   const bridge=window.cfg_mobile_print_bridge,settings={dpi:203,printable_width:576,paper_width_mm:80};
+  const nativeAssets='<link rel="stylesheet" href="/cfg-fixture/print.css"><div class="print-format"><div class="csp-print-marker"></div><img class="csp-print-logo" src="/cfg-fixture/letterhead.bmp"></div>';
+  const nativeFrames=await bridge.render(nativeAssets,settings,{html2canvas:async(element,options)=>{
+   const view=element.ownerDocument.defaultView;check(view.getComputedStyle(element.querySelector('.csp-print-marker')).width==='37px','Loaded same-origin native print stylesheet inside sandbox');
+   check(element.querySelector('img').naturalWidth===2,'Decoded same-origin BMP letterhead inside sandbox');
+   return window.html2canvas(element,{...options,onclone:(doc,clone)=>{check(doc.defaultView.getComputedStyle(clone.querySelector('.csp-print-marker')).width==='37px'&&clone.querySelector('img').naturalWidth===2,'Retained native CSS and BMP in renderer clone');}});
+  }});
+  check(nativeFrames.length>0&&nativeFrames.some(frame=>frame.bytes.some(value=>value!==0)),'Rasterized visible ink from same-origin native print assets');
   const signatureCanvas=document.createElement('canvas');signatureCanvas.width=64;signatureCanvas.height=20;const signatureInk=signatureCanvas.getContext('2d');signatureInk.fillStyle='white';signatureInk.fillRect(0,0,64,20);signatureInk.fillStyle='black';signatureInk.fillRect(5,8,50,2);
   const signatureBytes=await(await(await fetch(signatureCanvas.toDataURL('image/png'))).blob()).arrayBuffer();let signatureFetch=0;
   const signatureHTML='<div class="print-format"><p>Signed DN</p><img src="/api/method/cfg_kanban.services.delivery_note_printing.signature_image?delivery_note=DN&amp;proof_name=PROOF&amp;media_id=IMAGE&amp;version=V"></div>';
@@ -116,6 +123,6 @@ window.runMobileTests=async()=>{
   click('printed');await until(()=>!!control('document')&&!panel.controller.state.busy);check(!context.active_jobs.length,'Both confirmed copies finish the same original print job');
   lead='OTHER';panel.close();check(!document.querySelector('.cfg-mobile-panel'),'Operator/page closure removes print content');
   document.querySelector('#result').textContent=JSON.stringify({passed:results.length,results});return {passed:results.length,results};
- }catch(error){document.querySelector('#result').textContent=error.stack;throw error;}
+ }catch(error){document.querySelector('#result').textContent=String(error.message||error)+'\n'+(error.stack||'');throw error;}
 };
 </script>

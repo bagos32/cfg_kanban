@@ -219,6 +219,13 @@ Source printed ranges are provenance, not invented individual-unit assignments f
   the format asset. Complex CSS, script-rendered widgets and very large documents may need normal
   print. Always inspect the raster, especially an e-Invoice QR. A signed bridge handoff is not proof
   that the companion app version, Bluetooth model, cutter, fonts or printed QR are accepted.
+- The sandbox CSP explicitly permits the current ERP site origin for stylesheets, images and
+  fonts, as well as the existing inline/data assets. This avoids Firefox's blocked same-site
+  resources in `srcdoc`/renderer clones, including native print CSS and BMP letterheads. Scripts,
+  nested frames, connections and unrelated external origins remain blocked. No global Firefox
+  privacy setting or server CSP is disabled. After deployment, reload Firefox without cache and
+  resume the existing unfinished job; if a prepared raster manifest changes, use reasoned closure
+  and a reviewed new job rather than bypassing the duplicate-print safeguards.
 - Keep format values stable during a job. For an optional prepared timestamp in your format use
   `doc.flags.cfg_mobile_print_on or frappe.utils.now_datetime()`; source posting dates/times are
   preferable to a fresh current timestamp. Dynamic content can invalidate a resumed render.
