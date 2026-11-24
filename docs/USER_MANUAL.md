@@ -6274,17 +6274,33 @@ adjust them to the actual printer specification.
 
 On Driver Route, choose the customer stop's **Documents / Print / Invoice** button. **Normal
 ERPNext Print** opens the native print view. For direct printing, set up the installed Label Bridge
-printer in the companion app, pair its key for this tab, prepare and inspect the raster, explicitly
+printer in the companion app, approve this browser or select its legacy key, prepare and inspect the raster, explicitly
 open each bridge segment and confirm the physical paper. Unknown output is never resent
 automatically. A retry needs a reason. Unfinished jobs remain accessible for readback/resume or
 reasoned closure. Changed sources/formats cannot silently replace prepared segments.
 
-**Prepare Print** now combines job preparation, preview and first-part preparation after key
-pairing. Review the image, then use the ready **Print … · Open Label Bridge** button. After
+**Prepare Print** now combines job preparation, preview and first-part preparation after browser
+approval or legacy key pairing. Review the image, then use the ready **Print … · Open Label Bridge** button. After
 checking the paper, confirm that copy/part printed; the next waits for its own Print click.
 For two receipt copies the panel identifies **Recipient copy** and **Office copy**. Tear off the
 first before opening the second. Each Bridge payload requests one copy; long receipts may have
-several parts per copy. The existing 0.3.0 companion opens visibly and has no silent background path.
+several parts per copy. The companion opens explicitly; no silent background path is added here.
+
+**Label Bridge 0.4.0+ browser approval:** In **Printer Setup**, copy the displayed **ERPNext pairing
+endpoint** into the companion's trusted-endpoint setting. Choose **Pair Browser**, then
+**Open Label Bridge to Approve**. Compare the six-digit code on both sides and approve in the
+companion. Return to ERPNext; Confirm/Refresh can check approval if visible-page polling has not
+updated it. Pairing does not print anything. The non-exportable P-256 key is saved in IndexedDB
+for the ERP origin/user and may be restored in the initiating ERP session after a reload. A new
+ERP login/session requires fresh approval. Check the first actual print; interrupted native
+approval can require pairing again. No browser password or copied app key is needed for this path.
+
+**Forget Browser Pairing / PRINT_FORGET** removes the local private key and revokes its own server
+registration. Also use **Remove approved browsers** in Label Bridge to remove the device's saved
+trust: the companion does not implement automatic remote revocation. Older 0.3.0+ apps remain
+available through **Use Legacy Browser Key / PRINT_PAIR_LEGACY**, followed by deliberate key entry
+and **Pair Key**. The legacy key remains tab-memory-only. Neither path changes the existing
+Job/segment audit, separate recipient/office copies, physical confirmation or uncertain-retry rules.
 
 In **CFG Kanban Mobile Print Profile**, **Delivery Note copies** defaults to 2 and **Require
 signature for direct DN printing** defaults to enabled. Submit the customer's proof/signature
@@ -6315,7 +6331,7 @@ Firefox previews explicitly allow the current ERP site origin for native print s
 letterhead images inside the sandbox, including BMP files. Scripts and unrelated external assets
 remain blocked. After updating print assets, reload without cache before resuming an existing job.
 
-**Browser key from Label Bridge** uses masked non-login inputs in Printer Setup and the preview,
+The legacy **Browser key from Label Bridge** uses masked non-login inputs in Printer Setup and the preview,
 with autocomplete/capitalization/spellcheck disabled. Paste, type or scan the current app key before
 **Pair Key**. Unnoticed fills and replacements are rejected and cleared; key values stay outside
 generic form/scanner snapshots and are cleared after attempts, Forget Key and redraw/closure.
@@ -6342,16 +6358,21 @@ collected quantity. The QR opens live QC status in Logistics / Customer Return Q
 
 The panel supports camera/Enter/Tab scanning. Its commands are selectable under **Scanner Command
 Labels → Driver Mobile Printing** (`MOBILE_PRINT`, `PRINT_SETUP`, `PRINT_SEND`, `PRINT_OPEN`,
-`PRINT_CONFIRM`, `PRINT_UNKNOWN`, `PRINT_PAIR`, `PRINT_FORGET`, `PRINT_NATIVE`,
+`PRINT_CONFIRM`, `PRINT_UNKNOWN`, `PRINT_PAIR`, `PRINT_PAIR_BROWSER`, `PRINT_PAIR_LEGACY`, `PRINT_FORGET`, `PRINT_NATIVE`,
 `CREATE_DRIVER_INVOICE`, `CREATE_RETURN_LABEL`, `MOBILE_PRINT_BACK`). Standard numbered inputs,
 ERP table row commands and Confirm/Cancel/Refresh retain scanner focus and pending request identity.
+In pairing mode `PRINT_OPEN` opens approval and Confirm/Refresh checks its status; in print mode
+`PRINT_OPEN` opens only the ready print part.
 
 See [full printer/format setup](USER_GUIDE_DRIVER_PRINTING.md) and
 [native/device acceptance](TEST_DRIVER_MOBILE_PRINTING.md). Direct rendering requires HTTPS,
 Web Crypto, Web Locks and readable same-origin/private/data image assets. Complex formats may
-need normal print. Device settings are saved per browser/Company; signing keys and raster are
-not persisted. The paired key is reused across stop panels for this operator/Company and cleared
-on route departure, operator/Company change or Forget Key. No live-site or physical Bluetooth printer acceptance is claimed by offline tests.
+need normal print. Device settings are saved per browser/Company; raster is transient. V2 keeps
+only a non-exportable private CryptoKey in origin/user-scoped IndexedDB. The server keeps its public
+key, hashed ticket/session and approval history, with no private/legacy key or print URI. Legacy
+keys remain memory-only. In-memory signing authority and prepared links are invalidated on panel
+departure, operator/Company/ERP-user change or forgetting; the same ERP user/session may restore
+an approved browser key. No live-site or physical Bluetooth printer acceptance is claimed by offline tests.
 
 ## Route status colours, GPS choices and driver Name/ID
 

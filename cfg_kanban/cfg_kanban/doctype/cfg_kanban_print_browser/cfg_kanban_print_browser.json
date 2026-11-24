@@ -1,0 +1,123 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Print Browser",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "track_changes": 1,
+ "field_order": [
+  "initiating_user",
+  "session_hash",
+  "ticket_hash",
+  "public_key",
+  "verification_code",
+  "status",
+  "created_on",
+  "expires_on",
+  "approved_on",
+  "revoked_on",
+  "document_type",
+  "document_name"
+ ],
+ "fields": [
+  {
+   "fieldname": "initiating_user",
+   "label": "Initiating ERP User",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "print_hide": 1,
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "session_hash",
+   "label": "Initiating Session Hash",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "print_hide": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "ticket_hash",
+   "label": "Pairing Ticket Hash",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "print_hide": 1,
+   "hidden": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "public_key",
+   "label": "Browser Public Key",
+   "fieldtype": "Small Text",
+   "read_only": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "verification_code",
+   "label": "Verification Code",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "print_hide": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "status",
+   "label": "Approval Status",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "print_hide": 1,
+   "options": "Pending\nApproved\nRevoked",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "created_on",
+   "label": "Requested On",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "expires_on",
+   "label": "Ticket Expires On",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "approved_on",
+   "label": "Approved On",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "revoked_on",
+   "label": "Revoked On",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "document_type",
+   "label": "Initial Print Document Type",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "document_name",
+   "label": "Initial Print Document",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "print_hide": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC"
+}

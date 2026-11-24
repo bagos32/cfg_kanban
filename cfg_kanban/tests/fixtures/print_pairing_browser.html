@@ -1,0 +1,87 @@
+<!doctype html><meta charset="utf-8"><title>Offline browser pairing checks</title>
+<style>body{font:15px Arial;margin:20px}.btn{display:inline-block;padding:10px;margin:4px;border:1px solid #888}input,select{display:block;width:100%;padding:8px}label{display:block}code{overflow-wrap:anywhere}</style>
+<h2>Offline Label Bridge pairing fixture</h2><p>Demo identities only. No ERPNext site, companion app or printer is connected.</p><pre id="result">Running…</pre><div id="host"></div>
+<script src="../../public/js/mobile_print_bridge.js"></script>
+<script src="../../public/js/label_bridge_pairing.js"></script>
+<script src="../../public/js/driver_route_actions.js"></script>
+<script src="../../public/js/delivery_action_scanner.js"></script>
+<script src="../../public/js/dispatch_recovery.js"></script><script>
+class Wrap{constructor(nodes){this.nodes=nodes;nodes.forEach((n,i)=>this[i]=n);this.length=nodes.length;}
+ find(s){return new Wrap(this.nodes.flatMap(n=>[...n.querySelectorAll(s.replaceAll(':input',':is(input,textarea,select,button)'))]));}html(v){if(v===undefined)return this.nodes[0]?.innerHTML;this.nodes.forEach(n=>n.innerHTML=v);return this;}text(v){if(v===undefined)return this.nodes[0]?.textContent;this.nodes.forEach(n=>n.textContent=v);return this;}
+ append(v){this.nodes.forEach(n=>typeof v==='string'?n.insertAdjacentHTML('beforeend',v):n.append(...(v instanceof Wrap?v.nodes:[v])));return this;}appendTo(v){$(v).append(this);return this;}
+ val(v){if(v===undefined)return this.nodes[0]?.value;this.nodes.forEach(n=>n.value=v);return this;}attr(k,v){if(v===undefined)return this.nodes[0]?.getAttribute(k);this.nodes.forEach(n=>n.setAttribute(k,v));return this;}removeAttr(k){this.nodes.forEach(n=>n.removeAttribute(k));return this;}
+ prop(k,v){this.nodes.forEach(n=>n[k]=v);return this;}toggle(v){this.nodes.forEach(n=>n.style.display=v?'':'none');return this;}hide(){return this.toggle(false);}show(){return this.toggle(true);}empty(){return this.html('');}
+ trigger(k){this.nodes.forEach(n=>k==='focus'?n.focus():n.dispatchEvent(new Event(k,{bubbles:true})));return this;}
+ on(type,selector,fn){if(typeof selector==='function'){fn=selector;selector=null;}const event=type.split('.')[0];this.nodes.forEach(n=>{const f=e=>{const target=selector?e.target.closest(selector):n;if(target&&n.contains(target)){const eventView={currentTarget:target,key:e.key,shiftKey:e.shiftKey,ctrlKey:e.ctrlKey,altKey:e.altKey,metaKey:e.metaKey,preventDefault:()=>e.preventDefault(),stopPropagation:()=>e.stopPropagation()};fn(eventView);eventView.currentTarget=null;}};(n.handlers??=[]).push([event,f]);n.addEventListener(event,f);});return this;}
+ off(){this.nodes.forEach(n=>(n.handlers||[]).forEach(([event,f])=>n.removeEventListener(event,f)));return this;}}
+window.$=value=>{if(value instanceof Wrap)return value;if(typeof value==='string'&&value.startsWith('<')){const t=document.createElement('template');t.innerHTML=value;return new Wrap([...t.content.children]);}return new Wrap(typeof value==='string'?[...document.querySelectorAll(value)]:[value]);};
+const results=[];function check(value,text){if(!value)throw new Error(text);results.push(text);}const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function until(predicate){for(let n=0;n<200;n++){if(predicate())return;await pause(25);}throw new Error('Timed out: '+predicate.toString());}
+window.runPairingTests=async()=>{
+ let panel;
+ try{
+  const bridge=window.cfg_mobile_print_bridge,keys=window.cfg_label_bridge_pairing;
+  const rawStore=keys.keyStore(),account=JSON.stringify(['https://erp.example','stock@example.com']);
+  const storage=new Map(),store={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
+  const calls=[],opened=[],registrations=new Map(),receipts=new Map();let operator='DRIVER',token='TOKEN',job=null,createCount=0,changes=0;
+  const context={trip:'TRIP',stop_key:'STOP',company:'A',revision:1,scope_hash:'SCOPE',profile:'PROFILE',profile_version:'P1',defaults:{dpi:203,printable_width:576,paper_width_mm:80},invoice_mode:'Disabled',invoice_sources:[],custody_lines:[],active_jobs:[],documents:[{doctype:'Delivery Note',name:'DN',label:'Delivery Note',docstatus:1,formats:['Standard'],default_format:'Standard',scan_code:'DN'}]};
+  const f={session:{user:'stock@example.com'},utils:{escape_html:value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;')},ui:{form:{make_control({parent,df}){
+   const label=document.createElement('label');label.textContent=df.label;const el=document.createElement(df.fieldtype==='Select'?'select':df.fieldtype==='Small Text'?'textarea':'input');el.dataset.field=df.fieldname;if(df.fieldtype==='Check')el.type='checkbox';$(parent).append(label).append(el);
+   function refresh(){if(df.fieldtype==='Select'){el.innerHTML='';for(const entry of df.options||[]){const option=document.createElement('option');option.value=typeof entry==='string'?entry:entry.value;option.textContent=typeof entry==='string'?entry:entry.label;el.append(option);}}}refresh();el.addEventListener('change',()=>df.change?.());
+   return {df,$input:$(el),refresh,get_value:()=>df.fieldtype==='Check'?Number(el.checked):el.value,set_value(value){const old=el.value;if(df.fieldtype==='Check')el.checked=!!value;else el.value=value??'';if(old!==el.value)df.change?.();return Promise.resolve();}};
+  }}},async call({method,args}){calls.push({method,args});const name=method.split('.').at(-1);
+   if(name==='pairing'){
+    if(args.action==='create'){createCount++;const kid=crypto.randomUUID().replaceAll('-',''),ticket=crypto.randomUUID().replaceAll('-','')+crypto.randomUUID().replaceAll('-','');registrations.set(kid,{publicKey:args.publicKey,status:'pending',ticket});return {message:{kid,ticket,code:'000012',expiresIn:120,status:'pending'}};}
+    const row=registrations.get(args.kid);if(!row)throw new Error('Unknown approval');if(args.action==='revoke')row.status='revoked';return {message:{kid:args.kid,status:row.status}};
+   }
+   if(name==='get_mobile_print_context')return {message:structuredClone(context)};
+   if(name==='get_mobile_print_job')return {message:structuredClone(job)};
+   if(name==='reconcile_driver_action')return {message:receipts.get(args.event_token)||{status:'Not Recorded'}};
+   if(name!=='perform_driver_action')throw new Error('Unexpected '+name);
+   if(receipts.has(args.event_token))return {message:receipts.get(args.event_token)};
+   const result={},payload=args.payload;
+   if(args.action==='Prepare Mobile Print'){job={name:'JOB',document_type:'Delivery Note',document_name:'DN',print_format:'Standard',html:'<div class="print-format">Demo DN</div>',render_hash:'HASH',copies:1,segments:{},status:'Prepared',stop_key:'STOP'};context.active_jobs=[{name:'JOB',document_name:'DN',status:'Prepared',stop_key:'STOP'}];result.print_job='JOB';}
+   if(args.action==='Record Print Segment'){changes++;job.segments.pages??={};job.segments.pages[payload.page]={status:payload.outcome};job.status=payload.outcome;Object.assign(result,{print_job:'JOB',job_status:payload.outcome,page:payload.page,outcome:payload.outcome});}
+   const receipt={status:'Recorded',action:args.action,result};receipts.set(args.event_token,receipt);return {message:receipt};
+  }};
+  const fakeRoot={crypto,document,location:{origin:'https://erp.example',get href(){return opened.at(-1);},set href(uri){opened.push(uri);}},cfg_mobile_print_bridge:{...bridge,async render(){const payload=bridge.encode(new Uint8Array([128]),8,1);return [{width:8,height:1,payload,bytes:new Uint8Array([128]),hash:await bridge.digest(new TextEncoder().encode(payload))}];}},cfg_label_bridge_pairing:keys,cfg_driver_route_actions:window.cfg_driver_route_actions,cfg_delivery_action_scanner:window.cfg_delivery_action_scanner,cfg_dispatch_recovery:window.cfg_dispatch_recovery,addEventListener:window.addEventListener.bind(window),removeEventListener:window.removeEventListener.bind(window)};
+  const code=await(await fetch('../../public/js/driver_mobile_print.js')).text();new Function('window','module',code)(fakeRoot,undefined);
+  const start=()=>panel=fakeRoot.cfg_driver_mobile_print.open({frappe:f,host:$('#host'),trip:'TRIP',stop:'STOP',owner:()=>operator,token:()=>token,active:()=>true,storage:store,locks:navigator.locks,nonce:()=>crypto.randomUUID(),error:error=>error.message,refresh:async()=>{},onClose(){}});
+  const field=name=>document.querySelector('[data-field="'+name+'"]');
+  start();await until(()=>field('document'));await panel.scan('CFG:CMD:PRINT_SETUP');
+  check(!field('signing_key'),'New pairing avoids the password/autofill-prone copied key input');
+  check(document.querySelector('.cfg-mobile-body').textContent.includes('https://erp.example/api/method/'+keys.METHOD),'Displayed exact HTTPS endpoint for the companion settings');
+  await panel.scan('CFG:SELECT:1');await panel.scan('Tablet Printer 77');
+  await panel.scan('CFG:CMD:PRINT_PAIR');await until(()=>document.querySelector('.cfg-mobile-pair-code')?.textContent.includes('000012'));
+  check(createCount===1&&opened.length===0&&changes===0,'Pair preparation creates no print handoff or paper-audit mutation');
+  const saved=await rawStore.get(account);check(saved.privateKey.extractable===false&&saved.privateKey.algorithm.namedCurve==='P-256','Stored non-exportable CryptoKey using real browser IndexedDB');
+  let denied=false;try{await crypto.subtle.exportKey('pkcs8',saved.privateKey);}catch(_){denied=true;}check(denied,'Cannot export the saved private key');
+  check(!('ticket' in saved)&&!JSON.stringify([...storage.values()]).includes('privateKey'),'Kept pairing bearer out of IndexedDB and generic printer/action storage');
+  await panel.scan('CFG:CMD:PRINT_OPEN');check(opened.length===1&&new URL(opened[0]).host==='pair','Scanner explicitly opens approval link without printing');
+  registrations.get(saved.kid).status='approved';await panel.scan('CFG:CMD:CONFIRM');await until(()=>document.querySelector('.cfg-mobile-body')?.textContent.includes('Browser approval is ready'));
+  check(field('alias').value==='Tablet Printer 77'&&![...storage.keys()].some(key=>key.startsWith('cfg_mobile_printer:')),'Preserved unsaved printer setup across browser approval without auto-saving it');
+  check(opened.length===1&&changes===0,'Approval is not a physical print or print confirmation');
+  panel.close();await pause(25);start();await until(()=>field('document'));await panel.scan('DN');await panel.scan('CFG:CMD:PRINT_SEND');
+  await until(()=>!!document.querySelector('.cfg-mobile-open-bridge'));
+  check(createCount===1&&opened.length===1,'Reused approved IndexedDB key after panel reload without copying key or launching app automatically');
+  check(changes===1&&job.segments.pages[1].status==='Awaiting Confirmation','Kept original segment workflow and truthful unknown paper outcome');
+  await panel.scan('CFG:CMD:PRINT_OPEN');const printURL=new URL(opened.at(-1));check(printURL.host==='print'&&printURL.searchParams.get('v')==='2'&&printURL.searchParams.size===6,'Driver sends exact native v2 signed print link');
+  const publicKey=await crypto.subtle.importKey('raw',Uint8Array.from(atob(saved.publicKey),value=>value.charCodeAt(0)),{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+  const signature=Uint8Array.from(atob(printURL.searchParams.get('sig')),value=>value.charCodeAt(0)),canonical=['v2',printURL.searchParams.get('kid'),printURL.searchParams.get('ts'),printURL.searchParams.get('nonce'),printURL.searchParams.get('job')].join('\n');
+  check(signature.length===64&&await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},publicKey,signature,new TextEncoder().encode(canonical)),'Actual browser signature verifies against companion raw R/S contract');
+  const prior=JSON.stringify(job.segments),handoffs=opened.length;await panel.scan('CFG:CMD:PRINT_FORGET');
+  check(await rawStore.get(account)===null&&registrations.get(saved.kid).status==='revoked','Forget removes local key and requests own server registration revocation');
+  check(document.querySelector('.cfg-mobile-message').textContent.includes('Remove approved browsers'),'Explained companion-side removal instead of claiming remote device revocation');
+  await panel.scan('CFG:CMD:PRINT_OPEN');check(opened.length===handoffs&&JSON.stringify(job.segments)===prior,'Unpair cannot resend or falsely confirm uncertain print');
+  await panel.scan('CFG:CMD:PRINT_PAIR_LEGACY');check(!!field('signing_key'),'Legacy Browser key fallback remains explicit and scanner-selectable');
+  const index=[...document.querySelectorAll('.cfg-mobile-fields [data-field]')].findIndex(el=>el.dataset.field==='signing_key');await panel.scan('CFG:SELECT:'+(index+1));await panel.scan('0'.repeat(32));await panel.scan('CFG:CMD:PRINT_PAIR');
+  check(!field('signing_key').value&&createCount===1,'Legacy scanner pairing clears key without creating a v2 registration');
+  check(document.activeElement===document.querySelector('.cfg-mobile-scan'),'Restored scanner focus after approval, error, unpair and legacy selection');
+  await panel.scan('CFG:CMD:PRINT_PAIR_BROWSER');await until(()=>!!document.querySelector('.cfg-mobile-open-pair'));await panel.scan('CFG:CMD:CANCEL');
+  check(!document.querySelector('.cfg-mobile-panel')&&opened.length===handoffs&&JSON.stringify(job.segments)===prior,'Explicit browser-mode scanner command and safe Cancel preserve the uncertain print');
+  await pause(25);f.session.user='other@example.com';start();await until(()=>field('document'));await panel.scan('CFG:CMD:PRINT_SETUP');
+  check(document.querySelector('[data-mobile="pair"]').textContent==='Pair Browser','A different ERP user receives no approved signing authority from prior account');
+  panel.close();document.querySelector('#result').textContent=JSON.stringify({passed:results.length,results,userAgent:navigator.userAgent});return {passed:results.length,results,userAgent:navigator.userAgent};
+ }catch(error){panel?.close?.();document.querySelector('#result').textContent=String(error.message||error)+'\n'+(error.stack||'');throw error;}
+};
+</script>

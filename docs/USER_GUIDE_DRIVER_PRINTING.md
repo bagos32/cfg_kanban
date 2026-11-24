@@ -19,6 +19,13 @@ printer acceptance remain pending. This guide does not declare production readin
    does not confer accounting permissions. Normal native Company/User Permissions still apply.
 5. In the already installed **Label Bridge companion app**, pair/select the physical Bluetooth
    printer. CFG does not select a Bluetooth MAC address or install a Bluetooth driver.
+6. For no-copy browser approval, use **Label Bridge 0.4.0 or newer** (Android build 6 or newer
+   for 0.4.0). In **Driver Route → Printer Setup**, copy the displayed **ERPNext pairing
+   endpoint** into the companion's setting of that name. It is the current HTTPS site followed by
+   `/api/method/cfg_kanban.services.label_bridge_pairing.pairing`. Use the exact URL: the native
+   app rejects redirects. Enable **Accept browser jobs**, and print the companion's own test first.
+   Each device trusts one pairing endpoint at a time. Changing it removes its previous browser
+   approvals, so pair again when switching between development and production sites.
 
 **Print Format is the layout source for BOTH print paths.** The app ships `CFG Delivery Note 80mm`,
 `CFG Sales Invoice 80mm`, `CFG Return Note 80mm`, `CFG Trip Stock 80mm`, `CFG Stock Tag 80mm` and
@@ -49,20 +56,18 @@ show **DRAFT — NOT POSTED** on drafts.
 4. **Normal ERPNext Print** opens the native print view with that format. Use the browser/system
    printer dialog as usual. Opening it does not certify that paper was printed.
 5. For direct printing, use **Printer Setup** to save this device’s printer alias, paper width,
-   printable dots and DPI. Enter the companion app’s 32-character lowercase signing key and
-   **Pair Key for This Tab**. The alias is a reference name; Bluetooth printer selection stays
-   inside the companion app. The signing key is held in memory, never saved in browser storage,
-   the ERP database or the print URI. The key can be reused for the same operator and Company while Driver Route stays open; pair again after leaving the route, changing operator/Company, refreshing the browser or choosing Forget Key.
-   Both key fields are non-login text controls, visually masked in Chrome, with autocomplete,
-   capitalization and spelling suggestions disabled and fresh non-credential input names.
-   Paste/type the current app Browser key or select the key field with the numbered scanner
-   command and scan it, then choose **Pair Key**. Values filled without observed deliberate
-   entry, or replaced after entry, are rejected and cleared before import. Browser/password-manager
-   hints are best effort; this check also protects against unnoticed fills. Keys are excluded
-   from generic form/scanner snapshots and cleared after each pairing attempt, Forget Key and
-   panel redraw/closure. A syntactically valid key still must match the app's actual Browser key.
+   printable dots and DPI. Choose **Pair Browser**, then **Open Label Bridge to Approve**.
+   Compare the six-digit code in both apps and approve it in Label Bridge. Return to ERPNext;
+   **Check Approval** / Confirm / Refresh can read the result if automatic visible-page polling
+   has not done so. This is approval only: no receipt is printed by pairing. Bluetooth printer
+   selection stays inside the companion app.
+   The non-exportable signing key is kept in this browser's IndexedDB for the current ERPNext
+   origin and ERP user. It can be restored after a refresh or panel reopening in the initiating
+   ERP session, without copying the app's Browser key. A new ERP login/session requires fresh
+   approval. Other ERP users do not inherit it. Check the first actual print in Label Bridge;
+   interrupted native approval can require a fresh pairing even if the server recorded approval.
 6. Choose **Prepare Print**. It saves and previews the job, then prepares the first part when the
-   key is paired. On first use, **Pair Key** also prepares that part. There is no separate normal
+   browser is approved. On first use, approval or legacy **Pair Key** also prepares that part. There is no separate normal
    "prepare segment" click. Inspect the image and click **Print Recipient copy · Open Label Bridge**
    (or the displayed copy/part button). It opens the companion only on this fresh click/scan.
 7. Check the paper and choose **Recipient copy printed** / **Confirm This Part Printed**. CFG
@@ -80,11 +85,39 @@ Every segment needs a separate handoff and paper confirmation. Multiple copies a
 all segments of copy 1, then all segments of copy 2. No receipt tail is silently truncated.
 The companion protocol has no physical-print acknowledgement or automatic cut/receipt commands.
 
-Label Bridge **0.3.0** supports the signed links used here. The supplied 0.3.0 APK and its source
-were inspected; the owner reported successful basic handoff after updating from 0.2.1. This does
-not establish signature, multi-copy or device acceptance. Version 0.3.0 opens a visible Android
-Activity. It has no silent background-print path or automatic return after sending; those require
-a separate companion-app change. Kanban never interprets a Bluetooth write as paper confirmation.
+### Older companion: legacy Browser key
+
+Label Bridge **0.3.0+** remains supported through **Use Legacy Browser Key**. Deliberately type,
+paste or scan its 32-character lowercase hexadecimal Browser key, then **Pair Key for This Tab**.
+The legacy key remains only in tab memory; it is not put into IndexedDB, the ERP database, generic
+form snapshots or the print URI. Existing masked non-password controls and autofill rejection
+remain in place. The key input is cleared after each attempt/redraw/close. Pair it again after
+route departure, operator/Company/ERP-user change, browser refresh or explicit forgetting.
+
+The owner previously reported basic 0.3.0 handoff after updating from 0.2.1. That report does not
+accept the new v2 pairing. Both paths still require an explicit app launch and truthful paper
+confirmation. No silent background printing or automatic return-to-browser is added here.
+
+### Forgetting approval and interrupted pairing
+
+**Forget Browser Pairing / PRINT_FORGET** invalidates prepared handoffs, removes this ERP user's
+local private key and requests revocation of its own server registration. It also clears a legacy
+memory key. To remove the device's saved trust, separately choose **Remove approved browsers** in
+Label Bridge. The current companion has no automatic remote revocation; deleting an ERP record
+cannot make a device forget a public key it already approved. Other same-origin scripts share the
+browser security context, so use only the trusted ERP site and verify the endpoint host and code.
+
+Pairing tickets expire after two minutes. Their raw bearer stays only in the active pairing link;
+the server stores a SHA-256 hash. Interrupted/lost creation, expired requests, mismatched codes,
+invalid saved keys or a new ERP session require a fresh **Pair Browser** request. They never
+automatically resend a receipt or mark paper printed. The server's approval retry is idempotent
+within the original ticket window. Ordinary native printing remains available independently.
+
+New receipts reserve URL space for v2 signatures. When resuming an older job, CFG accepts only a
+render that matches its recorded frame hashes, trying the original v1 split layout if needed.
+No saved segment history is replaced. If an old segment cannot fit a v2 link, select the legacy
+key for that job; if neither render matches, review/close the original job with a reason and
+prepare a new print after checking the paper. Native format/source/signature checks still apply.
 
 ## Signed Delivery Note copies
 
@@ -222,9 +255,15 @@ Source printed ranges are provenance, not invented individual-unit assignments f
   be reloaded and reviewed before office closure; retrying an already closed office request
   preserves the first closure. Prepare a new print only after reviewing any physical output.
 - Direct print requires HTTPS, Web Crypto, browser storage and Web Locks. One printer panel owns
-  the device handoff lock at a time. Pairing stays in memory across this operator’s stop panels; it is forgotten when leaving Driver Route, changing operator/Company or explicitly forgetting the key.
+  the device handoff lock at a time. V2 also requires IndexedDB and browser tab messaging; its private key is non-exportable
+  and isolated by origin/ERP user. In-memory signing authority is invalidated when leaving the
+  panel or changing operator/ERP user; the same ERP user/session may restore an approved key.
+  Legacy keys remain memory-only. Prepared app links are never restored or automatically opened.
 - Native format HTML and raster remain transient. The database retains source/version hashes and
-  operator confirmation metadata, not images, signing keys, print URIs or durable presigned URLs.
+  operator confirmation metadata, not images, private/legacy signing keys, print URIs or durable
+  presigned URLs. The separate **CFG Kanban Print Browser** record retains a public key,
+  verification code, ticket/session hashes, initiating user, authorization reference, expiry and approval/revocation
+  times. System Managers may inspect it; browser/device state changes use the controlled endpoint.
 - Direct rendering supports static HTML/CSS and same-origin/private/data image assets, plus the
   exact authorized delivery-signature endpoint described above. An arbitrary external
   QR/letterhead image is rejected rather than silently omitted. Use normal ERPNext print or adapt
@@ -276,13 +315,16 @@ Printable labels are in **Kanban Operator → Scanner Command Labels → Driver 
 | `CFG:CMD:PRINT_SETUP` | Device printer setup |
 | `CFG:CMD:PRINT_NATIVE` | Open native ERPNext print |
 | `CFG:CMD:PRINT_SEND` | Prepare the direct job / current segment (never automatically resend) |
-| `CFG:CMD:PRINT_OPEN` | Explicitly hand the freshly prepared segment to Label Bridge |
+| `CFG:CMD:PRINT_OPEN` | Open the approval link in pairing mode, or the fresh segment in print mode |
 | `CFG:CMD:PRINT_CONFIRM` | Operator confirms physical output of the current segment |
 | `CFG:CMD:PRINT_UNKNOWN` | Record an uncertain physical result |
-| `CFG:CMD:PRINT_PAIR` / `PRINT_FORGET` | Pair the entered key / erase it from memory |
+| `CFG:CMD:PRINT_PAIR` | Start browser approval, or pair a deliberately selected legacy key |
+| `CFG:CMD:PRINT_PAIR_BROWSER` | Explicitly select browser approval from either pairing mode |
+| `CFG:CMD:PRINT_PAIR_LEGACY` | Show the legacy key input for older companion builds |
+| `CFG:CMD:PRINT_FORGET` | Remove this user's local approval/key and revoke own server registration; remove device trust in the companion too |
 | `CFG:CMD:CREATE_DRIVER_INVOICE` | Open the separate Invoice action |
 | `CFG:CMD:CREATE_RETURN_LABEL` | Open the custody-label action |
 | `CFG:CMD:MOBILE_PRINT_BACK` | Return to document choices |
-| `CFG:CMD:CONFIRM` / `CANCEL` / `REFRESH` | Confirm current action / close safely / read back pending result |
+| `CFG:CMD:CONFIRM` / `CANCEL` / `REFRESH` | Confirm/check approval / close safely / read back result or check approval |
 
 See [native/device acceptance](TEST_DRIVER_MOBILE_PRINTING.md) before accepting this phase.

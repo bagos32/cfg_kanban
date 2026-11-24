@@ -17,7 +17,7 @@ submission. Do not send real accounting/e-Invoice integrations during an isolate
 
 | Test | Required result | Evidence |
 |---|---|---|
-| Migrate/build | Four new DocTypes, six Print Formats, workspace/setup links and assets load | Not run |
+| Migrate/build | Five print-related DocTypes including Print Browser, six Print Formats, workspace/setup links and assets load | Not run |
 | Company profile | One per Company; Accounts Manager/System Manager policy; formats filtered by matching DocType | Not run |
 | Company/User Permissions | Other Trip/Company/customer/documents cannot be enumerated, printed or invoiced | Not run |
 | Native read AND print | Denial removes document / prevents preparation; Draft/Cancelled native Print Settings apply | Not run |
@@ -54,7 +54,7 @@ ERPNext Desk, hooks and custom apps requires the database tests above; mocks can
 | Test | Required result | Evidence |
 |---|---|---|
 | Normal print | Configured ERPNext format/letterhead/80mm paper works using the installed system printer | Not run |
-| Direct protocol | Installed companion accepts signed v1 UTF-8-key HMAC job; correct printer receives it | Not run |
+| Direct protocol | Installed 0.4.0+ companion accepts v2 P-256/raw-signature jobs; explicit 0.3.0+ fallback still accepts signed v1 UTF-8-key HMAC; correct printer receives it | Not run |
 | Short documents | DN, Draft/submitted SI, SI return/custom Credit Note and Temporary Return Note match native values | Not run |
 | QR/expiry | e-Invoice QR and custody/Stock Tag QR scan on paper; Batch/expiry/UOM/serial text legible | Not run |
 | Long documents | All rows/totals/terms/QR printed across segments; no missing tail or duplicate section | Not run |
@@ -81,12 +81,77 @@ ERPNext Desk, hooks and custom apps requires the database tests above; mocks can
 | Key entry routes | Physical/virtual keyboard, paste and scanner key entry works; raw key cleared after attempts/Forget/redraw/close, absent from generic form snapshots, browser storage, receipts and errors | Not run |
 | Firefox native print assets | Same-site native stylesheet/font/letterhead loads in sandbox and renderer clone; BMP decodes and visible ink is rasterized; script/external-origin restrictions remain intact | Not run |
 | Image/CSS limits | External image fails visibly, same-origin/private/data assets render; complex format uses native fallback | Not run |
-| Saved settings | Browser/Company isolation, printer alias/DPI/width/formats retained, signing key not persisted | Not run |
+| Saved settings | Browser/Company printer preferences retained; legacy key never persisted; v2 non-exportable CryptoKey isolated by ERP origin/user in IndexedDB, restored only after initiating-session/print checks | Not run |
 | Tablet/scanner | Camera, touch, Enter/Tab, printable commands, required ERP tables, Cancel/error/success focus | Not run |
 | Page/operator change | Keys/preview removed, late callbacks ignored, active native app handoff not replayed | Not run |
 | Two tabs | Device lock blocks simultaneous direct handoff; original pending driver identity retained | Not run |
 
 ## Offline evidence
+
+### Label Bridge v2 browser approval — 24 November 2026
+
+Baseline `f08f7b4`. The companion ERPNext README and Android `BrowserPairing.java` / macOS
+`PrintJob.swift` sources were read as protocol references only. The companion workspace was not
+modified, rebuilt, installed or connected to an ERP site/printer by this work.
+
+Implemented a POST-only guest-capable endpoint at
+`cfg_kanban.services.label_bridge_pairing.pairing`, with explicit authenticated browser actions
+and ticket-only guest preview/approve. Creation requires native Read and Print. Status/revoke
+require the initiating ERP user and cookie-session hash, and native Read/Print again. A guest
+cannot request ERP documents or enumerate registrations through this method. The raw 256-bit
+ticket is never stored in the registry; it expires in 120 seconds. Registry identities/public
+keys are immutable, native validation rejects invalid/off-curve P-256 points, and approval/revoke
+use row locks plus current document reads. Redis rate buckets use atomic increment/expiry and
+the site's key prefix. These are implementation details, not real Redis/MariaDB acceptance.
+
+The driver UI displays the exact endpoint and six-digit code, launches approval only from an
+explicit click/scan, polls while visible and can check on return or Confirm/Refresh. It keeps
+v2 private keys non-exportable in IndexedDB by origin/ERP user, signs the native raw 64-byte
+ECDSA/SHA-256 contract, and retains explicit legacy pairing. Browser/account change, cross-tab
+replacement and Forget invalidate prepared links. Approval never claims paper output. Device
+trust removal remains a separate companion action because the native build has no remote
+revocation. A new ERP cookie session requires a new approval.
+
+New raster segmentation reserves room for v2 signatures. Existing jobs may resume only a
+render matching their saved frame hashes, including the exact previous v1 split if necessary;
+the code never replaces their recorded manifest or confirmations. An old over-limit v2 segment
+can use the explicit legacy signer, or reasoned closure/new review if no safe layout reproduces.
+
+New checks are in `test_label_bridge_pairing.py`, `test_label_bridge_pairing.cjs`, and the
+`run_print_pairing_browser.mjs` / `print_pairing_browser.html` offline fixture. Existing printing,
+signature, invoice and scanner checks remain required. Do not copy the fixture URL into an
+ERPNext page: it uses demo data only.
+
+- **216 Python checks passed, 10 skipped** (226 total), covering pairing endpoint authorization,
+  real P-256 point validation, metadata, existing printing/signatures/invoicing, driver actions
+  and installer/schema contracts. Frappe/database/Redis behavior uses explicit doubles.
+- **137 JavaScript tests passed**, including actual Web Crypto signature verification, legacy
+  HMAC, private-key isolation/restore, cross-tab races, rejection of cached approval after failed
+  session/permission revalidation, blocked browser capabilities, old frame manifests and existing
+  driver actions/printing controls.
+- The new pairing fixture passed **21 checks in Chrome 158 and 21 in Firefox 153**, with actual
+  IndexedDB CryptoKey persistence, non-exportability, P-256 signatures and the driver scanner UI.
+  The existing print fixture passed **79 checks in each browser**, including rendering/private
+  signature handling, uncertain retry/recovery, session errors and separate recipient/office copies.
+- Browser fixtures run with demo accounts and simulated RPC/companion responses. They connect
+  to no ERPNext site, native companion app or printer. No real migration, CSRF/session-cookie
+  integration, MariaDB/Redis concurrency or Android/macOS Bluetooth acceptance was performed.
+
+| Live acceptance still required | Expected result | Evidence |
+|---|---|---|
+| Native schema migration | New CFG Kanban Print Browser table/index syncs; registry offers no Guest/driver CRUD; no hidden-mandatory metadata error | Not run |
+| Real endpoint, both companion platforms | Exact HTTPS/no-redirect endpoint; native guest JSON POST receives HTTP 200 with only matching kid/publicKey/six-digit code; body below 8 KiB | Not run |
+| Browser authentication/CSRF | Guest create/status/revoke, missing/expired ERP session, wrong user/session and denied native Read/Print fail; normal authenticated `frappe.call` works with standard CSRF handling | Not run |
+| Expiry/rate/concurrency | Expired/revoked/unknown tickets fail; Redis rate limits work; two native approvals serialize and retain first approval time; revoke racing approve cannot resurrect trust | Not run |
+| Approval interrupted/lost response | Native retry within ticket window returns same approval; browser never auto-prints; incomplete native trust requires fresh pairing/first-print verification | Not run |
+| Android/macOS hardware handoff | Both native builds verify v2 job signature, timestamp and replay nonce, use saved Bluetooth printer, and print a scanned/readable receipt | Not run |
+| Reload/operator/account | Same ERP user/session restores approval; fresh ERP session or another account requires approval; changed operator invalidates old handoff and retains print request identity | Not run |
+| Key loss/unpair/device removal | Clear local IndexedDB/Forget/server revoke behavior is truthful; old prepared links cannot be launched by the panel; separately removing native approvals disables saved native trust | Not run |
+| Legacy and old print jobs | Older app can still use deliberate non-autofilled v1 key; saved frame manifests/history are preserved; no hidden reprint, auto-confirmation, duplicate segment or receipt tail loss | Not run |
+| Tablet/scanner | Touch, camera, Enter/Tab, PRINT_PAIR/PRINT_OPEN/PRINT_PAIR_BROWSER/PRINT_PAIR_LEGACY/PRINT_FORGET, Confirm/Refresh and safe Cancel/error all restore Scanner Ready | Not run |
+
+Normal delivery, QC, accounting and stock permissions remain consumer-owned; pairing does not
+create a DN/Invoice/Credit Note, stock movement, print confirmation or delivery completion.
 
 ### Identical-output format revalidation and session recovery — 24 November 2026
 

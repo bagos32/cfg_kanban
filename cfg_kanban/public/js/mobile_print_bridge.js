@@ -1,4 +1,4 @@
-/* Label Bridge v1 compatibility. No key persistence, printer ACK, or automatic resend. */
+/* Label Bridge v1/v2 signing. No printer ACK or automatic resend. */
 (function(root,factory){const api=factory(root);if(typeof module==='object'&&module.exports)module.exports=api;else root.cfg_mobile_print_bridge=api;})(typeof window==='undefined'?globalThis:window,function(root){
  'use strict';
  const MAX_URI=48000;
@@ -11,9 +11,9 @@
  function encode(bytes,width,height){dimensions(width,height);if(bytes.length!==width/8*height)throw new Error('Invalid raster length.');const packed=rle(bytes),use=packed.length<bytes.length;
   return root.btoa(JSON.stringify({v:1,width,height,copies:1,raster:bytes64(use?packed:bytes),...(use?{packing:'rle'}:{})}));}
  function link(fields){const uri='labelbridge://print?'+new URLSearchParams(fields);if(uri.length>MAX_URI)throw new Error('This segment is larger than Label Bridge permits.');return uri;}
- function fits(payload){try{return link({job:payload,ts:'9999999999',nonce:'f'.repeat(32),sig:'/+'.repeat(22)+'=='}).length<=MAX_URI-80;}catch(_){return false;}}
- function chunks(bytes,width,height,breaks=[]){if(width%8||bytes.length!==width/8*height)throw new Error('Invalid receipt raster.');const stride=width/8,out=[];let start=0;
-  while(start<height){let low=1,high=Math.min(4096,height-start),best=0;while(low<=high){const n=Math.floor((low+high)/2);if(fits(encode(bytes.subarray(start*stride,(start+n)*stride),width,n))){best=n;low=n+1;}else high=n-1;}
+ function fits(payload,legacy=false){try{return link(legacy?{job:payload,ts:'9999999999',nonce:'f'.repeat(32),sig:'/+'.repeat(22)+'=='}:{v:'2',kid:'f'.repeat(32),job:payload,ts:'9999999999',nonce:'f'.repeat(32),sig:'/'.repeat(86)+'=='}).length<=MAX_URI-80;}catch(_){return false;}}
+ function chunks(bytes,width,height,breaks=[],legacy=false){if(width%8||bytes.length!==width/8*height)throw new Error('Invalid receipt raster.');const stride=width/8,out=[];let start=0;
+  while(start<height){let low=1,high=Math.min(4096,height-start),best=0;while(low<=high){const n=Math.floor((low+high)/2);if(fits(encode(bytes.subarray(start*stride,(start+n)*stride),width,n),legacy)){best=n;low=n+1;}else high=n-1;}
    if(!best)throw new Error('One raster row exceeds the bridge limit.');
    if(start+best<height){const safe=breaks.filter(y=>y>start+best*.7&&y<=start+best);if(safe.length)best=Math.max(...safe)-start;}
    const raw=bytes.slice(start*stride,(start+best)*stride);out.push({width,height:best,payload:encode(raw,width,best),bytes:raw,start});start+=best;
@@ -21,17 +21,23 @@
  }
  async function digest(bytes,crypto=root.crypto){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(v=>v.toString(16).padStart(2,'0')).join('');}
  function signer(crypto=root.crypto,now=()=>Date.now()){
-  let key=null,generation=0;
-  return {forget(){generation++;key=null;},paired:()=>!!key,
-   async pair(text){const current=++generation;key=null;if(!/^[0-9a-f]{32}$/.test(text))throw new Error('Enter the companion app’s 32-character lowercase hexadecimal signing key.');
+  let key=null,generation=0,kid=null,active=()=>true;
+  return {forget(){generation++;key=null;kid=null;active=()=>true;},paired:()=>!!key&&active(),version:()=>key?(kid?2:1):null,
+   pairBrowser(id,privateKey,isActive){generation++;key=null;kid=null;
+    if(!/^[0-9a-f]{32}$/.test(id)||privateKey?.type!=='private'||privateKey.extractable||privateKey.algorithm?.name!=='ECDSA'||privateKey.algorithm?.namedCurve!=='P-256'||typeof isActive!=='function')throw new Error('Invalid approved browser key. Pair again.');
+    key=privateKey;kid=id;active=isActive;},
+   async pair(text){const current=++generation;key=null;kid=null;active=()=>true;if(!/^[0-9a-f]{32}$/.test(text))throw new Error('Enter the companion app’s 32-character lowercase hexadecimal signing key.');
     if(!crypto?.subtle)throw new Error('Direct printing requires HTTPS and Web Crypto.');
     // Protocol uses the UTF-8 text of the hex key, not decoded hex bytes.
     const imported=await crypto.subtle.importKey('raw',new TextEncoder().encode(text),{name:'HMAC',hash:'SHA-256'},false,['sign']);
     if(current!==generation)throw new Error('Printer pairing was cleared.');key=imported;},
-   async prepare(payload){if(!key)throw new Error('Pair the signing key for this tab first.');const current=generation,ts=String(Math.floor(now()/1000)),nonce=Array.from(crypto.getRandomValues(new Uint8Array(16))).map(v=>v.toString(16).padStart(2,'0')).join('');
-    const signature=await crypto.subtle.sign('HMAC',key,new TextEncoder().encode('v1\n'+ts+'\n'+nonce+'\n'+payload));
-    if(current!==generation)throw new Error('Printer pairing changed.');return {uri:link({job:payload,ts,nonce,sig:bytes64(new Uint8Array(signature))}),created:now(),generation:current};},
-   current(prepared){if(!key||!prepared||prepared.generation!==generation||now()-prepared.created<0||now()-prepared.created>80000)throw new Error('Prepare a fresh Label Bridge handoff.');return prepared.uri;},
+   async prepare(payload){if(!key||!active())throw new Error('Pair the signing key for this browser first.');const current=generation,ts=String(Math.floor(now()/1000)),nonce=Array.from(crypto.getRandomValues(new Uint8Array(16))).map(v=>v.toString(16).padStart(2,'0')).join('');
+    const message=kid?'v2\n'+kid+'\n'+ts+'\n'+nonce+'\n'+payload:'v1\n'+ts+'\n'+nonce+'\n'+payload;
+    const signature=await crypto.subtle.sign(kid?{name:'ECDSA',hash:'SHA-256'}:'HMAC',key,new TextEncoder().encode(message));
+    if(current!==generation||!active())throw new Error('Printer pairing changed.');
+    const bytes=new Uint8Array(signature);if(kid&&bytes.length!==64)throw new Error('This browser did not produce a supported ECDSA signature. Use the legacy key.');
+    return {uri:link({...(kid?{v:'2',kid}:{}),job:payload,ts,nonce,sig:bytes64(bytes)}),created:now(),generation:current};},
+   current(prepared){if(!key||!active()||!prepared||prepared.generation!==generation||now()-prepared.created<0||now()-prepared.created>80000)throw new Error('Prepare a fresh Label Bridge handoff.');return prepared.uri;},
   };
  }
  function preferences(storage,site,company){const key='cfg_mobile_printer:'+site+':'+company;
@@ -97,7 +103,7 @@
     const canvas=await wait(canvasRenderer(element,{canvas:capture,backgroundColor:'#ffffff',scale,width:cssWidth,height:(end-start)/scale,x:0,y:start/scale,windowWidth:cssWidth,windowHeight:900,scrollX:0,scrollY:0,useCORS:false,allowTaint:false,logging:false,imageTimeout:10000,removeContainer:true}));
     if(canvas.width!==settings.printable_width||canvas.height!==end-start)throw new Error('Renderer dimensions do not match the printer setup.');
     const pixels=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
-    frames.push(...chunks(raster(pixels,canvas.width,canvas.height),canvas.width,canvas.height,boundaries.filter(y=>y>start&&y<=end).map(y=>y-start)));
+    frames.push(...chunks(raster(pixels,canvas.width,canvas.height),canvas.width,canvas.height,boundaries.filter(y=>y>start&&y<=end).map(y=>y-start),!!env.legacyBudget));
     start=end;if(frames.length>1000)throw new Error('Too many print segments. Use normal ERPNext print.');
    }
    for(const frame of frames)frame.hash=await wait(digest(new TextEncoder().encode(frame.width+'\n'+frame.height+'\n'+frame.payload)));

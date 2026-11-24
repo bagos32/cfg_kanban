@@ -8,6 +8,7 @@ frappe.pages['kanban-driver-route'].on_page_load = function (wrapper) {
     '/assets/cfg_kanban/js/driver_route_actions.js',
     '/assets/cfg_kanban/js/vendor/html2canvas-1.4.1.min.js',
     '/assets/cfg_kanban/js/mobile_print_bridge.js',
+    '/assets/cfg_kanban/js/label_bridge_pairing.js',
     '/assets/cfg_kanban/js/driver_mobile_print.js',
     '/assets/cfg_kanban/js/delivery_action_scanner.js',
     '/assets/cfg_kanban/js/dispatch_recovery.js',
