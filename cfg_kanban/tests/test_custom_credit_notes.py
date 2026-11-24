@@ -295,6 +295,7 @@ class TestCustomCreditNotes(unittest.TestCase):
         fields_module.create_custom_fields=lambda fields,**kwargs:captured.append(fields)
         install=load('install.py',dict(frappe=self.frappe))
         install._ensure_responsibilities=Mock();install._ensure_process_certificate_inventory_dimension=Mock()
+        install._ensure_logistics_audit_user_permissions=Mock()
         original=self.frappe.db.exists
         for installed in (False,True):
             self.frappe.db.exists=lambda dt,name: installed if dt=='DocType' and name=='Credit Note' else True

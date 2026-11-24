@@ -342,6 +342,37 @@ Refresh and live updates retain an explicitly scanned context.
 ERPNext permissions still apply. A Kanban role does not automatically grant permission to Items,
 BOMs, Work Orders, Job Cards, Stock Entries, Warehouses, or Batches.
 
+### ERPNext logistics audit fields and User Permissions
+
+**Requested by Kanban Operator** (`cfg_requested_operator`) on **Delivery Note** and
+**Purchase Receipt** records the Employee who requested the controlled transaction. It remains an
+optional, read-only Employee Link. Normal ERPNext documents may leave it blank. This field has
+**Ignore User Permissions** enabled so Employee self-access restrictions do not prevent an
+otherwise authorized ERPNext user from creating or opening these documents, including when strict
+User Permissions are enabled. Kanban documents retain their actual operator identity.
+
+**Counterpart Company** (`cfg_counterpart_company`) on the same documents is optional,
+read-only intercompany trace information. It also has **Ignore User Permissions** enabled.
+Otherwise, native Company User Permissions add a second Company filter to the Delivery Note /
+Purchase Receipt list: normal documents with no counterpart disappear under strict permissions,
+and intercompany documents can disappear when the counterpart is outside the user's Company list.
+Access remains governed by the document's standard **Company** field, together with its other
+native permission checks. Do not enable Ignore User Permissions on the standard Company field or
+grant another Company merely to make this audit field pass.
+
+Installation and migration apply these properties to both audit Links on both document types.
+Migration also repairs a field-specific Property Setter that would otherwise disable an audit
+exemption. Neither audit Link grants access to its referenced Employee or Company record. ERPNext
+role, owning Company, Customer, Supplier, Warehouse, Item, Batch, document-specific and controller
+checks, as well as other business Company/Employee fields, retain their existing behavior.
+
+Before deploying the code, an Administrator can apply the same immediate correction through
+**Customize Form → Delivery Note / Purchase Receipt → Requested by Kanban Operator → Ignore User
+Permissions**, and repeat for **Counterpart Company**, then **Update**. Keep both fields read-only
+and leave the standard Company field unchanged. Reload the affected user's ERPNext session and
+retry the list and document. See `docs/TEST_OPERATOR_AUDIT_PERMISSIONS.md` for regression checks,
+the related-field risk review and the site acceptance record.
+
 ### Workforce competency foundation (P01)
 
 **CFG Kanban Skill** defines reusable, skill-specific capability identities and whether certification

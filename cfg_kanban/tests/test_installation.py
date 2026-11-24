@@ -24,11 +24,13 @@ class TestInstallation(unittest.TestCase):
         self.local = Row(app_modules=copy.deepcopy(self.stale), module_app={'manufacturing': 'erpnext'})
         self.doctypes = set()
         self.fields = {('Sales Invoice', 'unrelated_field'): {'options': 'UNCHANGED'}}
+        self.property_setters = {}
         self.calls = []
         self.frappe = Row(local=self.local, cache=Row(delete_value=self.delete_cache),
             setup_module_map=self.setup_module_map, get_module_list=lambda app:self.modules,
             scrub=lambda value:value.lower().replace(' ', '_'), throw=self.throw,
             db=Row(exists=self.exists), flags=Row(in_migrate=False),
+            get_meta=self.get_meta,
             get_doc=Mock(side_effect=AssertionError('Unexpected insert')))
         self.install = load('install.py', dict(frappe=self.frappe))
         self.ensure_dimension = self.install['_ensure_process_certificate_inventory_dimension']
@@ -36,7 +38,10 @@ class TestInstallation(unittest.TestCase):
         self.install['_ensure_process_certificate_inventory_dimension'] = Mock()
         native_fields = types.ModuleType('frappe.custom.doctype.custom_field.custom_field')
         native_fields.create_custom_fields = self.create_fields
-        patcher = patch.dict(sys.modules, {native_fields.__name__:native_fields})
+        native_properties = types.ModuleType('frappe.custom.doctype.property_setter.property_setter')
+        native_properties.make_property_setter = self.make_property_setter
+        patcher = patch.dict(sys.modules, {
+            native_fields.__name__:native_fields, native_properties.__name__:native_properties})
         patcher.start(); self.addCleanup(patcher.stop)
 
     @staticmethod
@@ -76,6 +81,22 @@ class TestInstallation(unittest.TestCase):
                     if row['options'] not in self.doctypes:
                         raise ValueError(doctype + ': Options must be a valid DocType for field ' + row['label'])
                 self.fields[(doctype, row['fieldname'])] = copy.deepcopy(row)
+
+    def get_meta(self, doctype):
+        def get_field(fieldname):
+            values = self.fields.get((doctype, fieldname))
+            if values is None:
+                return None
+            field = Row(copy.deepcopy(values))
+            for (dt, name, prop), value in self.property_setters.items():
+                if (dt, name) == (doctype, fieldname):
+                    field[prop] = value
+            return field
+        return Row(get_field=get_field)
+
+    def make_property_setter(self, doctype, fieldname, prop, value, property_type):
+        self.calls.append(('make_property_setter', doctype, fieldname, prop, value, property_type))
+        self.property_setters[(doctype, fieldname, prop)] = value
 
     def test_stale_module_map_reproduces_no_schema_discovery(self):
         self.sync_app_schema()
@@ -117,6 +138,77 @@ class TestInstallation(unittest.TestCase):
         self.install['before_install'](); self.sync_app_schema(); self.install['after_migrate']()
         self.assertEqual(self.fields, original)
         self.assertTrue(all(row[1] == {'update': True} for row in self.calls if row[0] == 'create_custom_fields'))
+
+    def test_new_install_exempts_only_the_four_logistics_audit_fields(self):
+        self.install['before_install'](); self.sync_app_schema(); self.install['after_install']()
+        ignored = {key for key, field in self.fields.items() if field.get('ignore_user_permissions')}
+        self.assertEqual(ignored, {
+            (doctype, fieldname) for doctype in ('Delivery Note', 'Purchase Receipt')
+            for fieldname in ('cfg_requested_operator', 'cfg_counterpart_company')})
+        for doctype, fieldname in ignored:
+            field = self.fields[(doctype, fieldname)]
+            target = 'Employee' if fieldname == 'cfg_requested_operator' else 'Company'
+            self.assertEqual((field['fieldtype'], field['options'], field['read_only']), ('Link', target, 1))
+        self.assertFalse(self.property_setters)
+
+    def test_migration_updates_existing_logistics_audit_fields_without_changing_other_fields(self):
+        self.install['before_install'](); self.sync_app_schema(); self.install['after_install']()
+        original = copy.deepcopy(self.fields)
+        for doctype in ('Delivery Note', 'Purchase Receipt'):
+            for fieldname in ('cfg_requested_operator', 'cfg_counterpart_company'):
+                self.fields[(doctype, fieldname)]['ignore_user_permissions'] = 0
+        self.install['after_migrate']()
+        self.assertEqual(self.fields, original)
+        self.install['after_migrate']()
+        self.assertEqual(self.fields, original)
+
+    def test_shadowing_property_setter_is_repaired_only_for_logistics_audit_permissions(self):
+        self.install['before_install'](); self.sync_app_schema()
+        for doctype in ('Delivery Note', 'Purchase Receipt'):
+            for fieldname in ('cfg_requested_operator', 'cfg_counterpart_company'):
+                self.property_setters[(doctype, fieldname, 'ignore_user_permissions')] = 0
+                self.property_setters[(doctype, fieldname, 'label')] = 'Office audit label'
+            self.property_setters[(doctype, 'company', 'ignore_user_permissions')] = 0
+        before = copy.deepcopy(self.property_setters)
+        self.install['after_migrate']()
+        expected = copy.deepcopy(before)
+        for doctype in ('Delivery Note', 'Purchase Receipt'):
+            for fieldname in ('cfg_requested_operator', 'cfg_counterpart_company'):
+                expected[(doctype, fieldname, 'ignore_user_permissions')] = 1
+                self.assertEqual(self.get_meta(doctype).get_field(fieldname).ignore_user_permissions, 1)
+        self.assertEqual(self.property_setters, expected)
+        writes = [row for row in self.calls if row[0] == 'make_property_setter']
+        self.assertEqual({row[1:] for row in writes}, {
+            (doctype, fieldname, 'ignore_user_permissions', 1, 'Check')
+            for doctype in ('Delivery Note', 'Purchase Receipt')
+            for fieldname in ('cfg_requested_operator', 'cfg_counterpart_company')})
+        self.install['after_migrate']()
+        self.assertEqual([row for row in self.calls if row[0] == 'make_property_setter'], writes)
+
+    def test_existing_manual_field_exemption_and_customizations_are_preserved(self):
+        self.install['before_install'](); self.sync_app_schema()
+        for doctype in ('Delivery Note', 'Purchase Receipt'):
+            for fieldname in ('cfg_requested_operator', 'cfg_counterpart_company'):
+                self.property_setters[(doctype, fieldname, 'ignore_user_permissions')] = 1
+        original = copy.deepcopy(self.property_setters)
+        self.install['after_install'](); self.install['after_migrate']()
+        self.assertEqual(self.property_setters, original)
+        self.assertFalse(any(row[0] == 'make_property_setter' for row in self.calls))
+
+    def test_audit_repair_rejects_missing_or_mistyped_field_without_broad_exemption(self):
+        self.install['before_install'](); self.sync_app_schema(); self.install['after_install']()
+        for fieldname in ('cfg_requested_operator', 'cfg_counterpart_company'):
+            original = copy.deepcopy(self.fields[('Delivery Note', fieldname)])
+            for changed in (None, dict(original, fieldtype='Data'), dict(original, options='Customer')):
+                with self.subTest(fieldname=fieldname, field=changed):
+                    if changed is None:
+                        del self.fields[('Delivery Note', fieldname)]
+                    else:
+                        self.fields[('Delivery Note', fieldname)] = changed
+                    with self.assertRaisesRegex(ValueError, 'must remain a Link to'):
+                        self.install['_ensure_logistics_audit_user_permissions']()
+                    self.fields[('Delivery Note', fieldname)] = copy.deepcopy(original)
+        self.assertFalse(self.property_setters)
 
     def test_preflight_requires_custom_field_sources_and_certificate_schema(self):
         self.install['before_install'](); self.sync_app_schema()

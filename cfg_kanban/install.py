@@ -33,6 +33,7 @@ def after_install():
         for field in fields:
             field.setdefault("module", "CFG Kanban")
     create_custom_fields(fields_by_doctype, update=True)
+    _ensure_logistics_audit_user_permissions()
     _ensure_responsibilities()
 
 
@@ -54,6 +55,24 @@ def _require_custom_field_schema(fields_by_doctype):
     if missing:
         frappe.throw("CFG Kanban schema is incomplete. Missing DocTypes: " + ", ".join(missing)
             + ". Complete native CFG Kanban schema installation before creating ERP custom fields")
+
+
+def _ensure_logistics_audit_user_permissions():
+    """Keep attribution/counterparty Links from becoming extra ownership filters."""
+    from frappe.custom.doctype.property_setter.property_setter import make_property_setter
+
+    for doctype in ("Delivery Note", "Purchase Receipt"):
+        meta = frappe.get_meta(doctype)
+        for fieldname, target in (("cfg_requested_operator", "Employee"),
+                                  ("cfg_counterpart_company", "Company")):
+            field = meta.get_field(fieldname)
+            if not field or field.fieldtype != "Link" or field.options != target:
+                frappe.throw(f"{doctype}: {fieldname} must remain a Link to {target}")
+            if field.ignore_user_permissions:
+                continue
+            # A site's Property Setter can shadow the Custom Field definition.
+            # Native Company/party/warehouse permissions remain unchanged.
+            make_property_setter(doctype, field.fieldname, "ignore_user_permissions", 1, "Check")
 
 
 def _ensure_process_certificate_inventory_dimension():
@@ -190,11 +209,13 @@ def _custom_fields():
          "insert_after": "cfg_delivery_session"},
         {"fieldname": "cfg_counterpart_company", "label": "Counterpart Company",
          "fieldtype": "Link", "options": "Company", "read_only": 1,
+         "ignore_user_permissions": 1,
          "insert_after": "cfg_return_case"},
         {"fieldname": "cfg_counterpart_document", "label": "Counterpart ERP Document",
          "fieldtype": "Data", "read_only": 1, "insert_after": "cfg_counterpart_company"},
         {"fieldname": "cfg_requested_operator", "label": "Requested by Kanban Operator",
          "fieldtype": "Link", "options": "Employee", "read_only": 1,
+         "ignore_user_permissions": 1,
          "insert_after": "cfg_counterpart_document"},
         {"fieldname": "cfg_scan_event", "label": "Kanban Scan Event Identity",
          "fieldtype": "Data", "read_only": 1, "insert_after": "cfg_requested_operator"},
