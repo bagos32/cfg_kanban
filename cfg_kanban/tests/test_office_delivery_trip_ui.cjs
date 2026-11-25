@@ -30,7 +30,7 @@ function harness() {
   const response = { rows: [source], page_length: 30, has_more: false };
   global.__ = message => message;
   global.locals = { STOP: { ROW: { customer_scan_point: 'SITE1' } } };
-  global.window = { cfg_office_delivery_trip: ui };
+  global.window = { cfg_office_delivery_trip: ui, cfg_trip_continuation:{mount:()=>({hide(){},open:async()=>calls.push({follow_on:frm.doc.name})})} };
   global.frappe = { utils: { escape_html: value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'), get_random: () => '0123456789abcdefghij' },
     async call(args) { calls.push(args); return { message: response }; }, async require() {},
     ui: { form: { on(doctype, callbacks) { handlers[doctype] = callbacks; } } },
@@ -201,4 +201,11 @@ test('office assistant presets become read only after driver departure',async()=
  vm.runInThisContext(fs.readFileSync(formPath,'utf8'));const form=handlers['CFG Kanban Delivery Trip'];await form.setup(frm);await form.refresh(frm);
  assert.equal(properties['assistant_drivers:read_only'],false);frm.doc.driver_route_state='In Progress';await form.refresh(frm);
  assert.equal(properties['assistant_drivers:read_only'],true);
+});
+
+// The detailed mounted editor is exercised by the standalone browser fixture.
+test('follow-on setup opens on the saved native Trip form and keeps existing load generation hidden',async()=>{
+ const {frm,handlers,buttons,calls}=harness();frm.doc.follow_on_of='ORIGINAL';
+ vm.runInThisContext(fs.readFileSync(formPath,'utf8'));await handlers['CFG Kanban Delivery Trip'].refresh(frm);
+ assert.equal(buttons['Generate / Refresh Dispatch'],undefined);await buttons['Plan Follow-on Trip']();assert.deepEqual(calls.at(-1),{follow_on:'TRIP'});
 });

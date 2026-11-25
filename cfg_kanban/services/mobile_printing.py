@@ -176,6 +176,12 @@ def _catalog(trip, stop_key, operator):
                                        docstatus=cint(doc.get('docstatus')),
                                        scan_code=('CFG:RETURN-CUSTODY:'+doc.name) if doctype == LABEL else (doc.get('handling_unit_id') or doc.name))
     add(TRIP, trip.name, 'Current lorry stock list')
+    if not stop_key and trip.get('follow_on_of'):
+        from cfg_kanban.services.return_custody import cases
+        for case in cases(trip,history=False):
+            add(CASE,case.name,'Carried customer return / pending QC')
+            for label in frappe.get_list(LABEL,filters={'return_case':case.name},pluck='name',limit_page_length=0):
+                add(LABEL,label,'Original return custody label')
     stops = [saved_stop(trip, stop_key)] if stop_key else [saved_stop(trip, r.stop_key) for r in trip.stops]
     for stop in stops:
         notes = []

@@ -63,6 +63,14 @@
   "gps_settings",
   "gps_publish_interval_seconds",
   "gps_auto_start"
+ ,
+  "follow_on_section",
+  "follow_on_of",
+  "follow_on_trip",
+  "follow_on_setup",
+  "follow_on_key",
+  "follow_on_request_key",
+  "follow_on_snapshot_json"
  ],
  "fields": [
   {
@@ -438,6 +446,14 @@
    "default": "0",
    "description": "Starts on the assigned driver or assistant device that confirms Start Route, after browser location permission. Stop GPS remains available."
   }
+ ,
+  {"fieldname":"follow_on_section","fieldtype":"Tab Break","label":"Follow-on Trip"},
+  {"fieldname":"follow_on_of","fieldtype":"Link","options":"CFG Kanban Delivery Trip","label":"Continued From Trip","read_only":1},
+  {"fieldname":"follow_on_trip","fieldtype":"Link","options":"CFG Kanban Delivery Trip","label":"Follow-on Trip","read_only":1},
+  {"fieldname":"follow_on_setup","fieldtype":"HTML","label":"Follow-on Setup"},
+  {"fieldname":"follow_on_key","fieldtype":"Data","label":"Follow-on Source Key","read_only":1,"hidden":1,"unique":1},
+  {"fieldname":"follow_on_request_key","fieldtype":"Data","label":"Follow-on Request Key","read_only":1,"hidden":1,"unique":1},
+  {"fieldname":"follow_on_snapshot_json","fieldtype":"Code","options":"JSON","label":"Confirmed Follow-on Receipt","read_only":1}
  ],
  "autoname": "KTRIP-.YYYY.-.#####",
  "title_field": "trip_title",

@@ -142,5 +142,9 @@ numbered Item/Batch/Qty column and scanned values; **DELIVERY_INPUTS** returns t
 inputs, then Confirm. **DELIVERY_CAMERA** opens the input dialog's camera. These controls reuse
 the existing server count/variance rules; they do not post a quantity correction.
 
-See [acceptance record](TEST_DISPATCH_E5B2_RECOVERY.md). Follow-on Trips/vehicle reassignment remain
-the next separate increment. No commit, deployment or live ERP acceptance is implied by this guide.
+See [acceptance record](TEST_DISPATCH_E5B2_RECOVERY.md). Follow-on Trips/vehicle reassignment are now covered by
+E5B3. No commit, deployment or live ERP acceptance is implied by this guide.
+
+E5B3's [follow-on guide](USER_GUIDE_DISPATCH_E5B3.md) includes confirmed old-return custody takeover.
+The [combined E5 acceptance procedure](TEST_DISPATCH_E5_COMBINED.md) covers E5B2, follow-on stock
+and returns, and recovery before departure; site acceptance remains unrun.

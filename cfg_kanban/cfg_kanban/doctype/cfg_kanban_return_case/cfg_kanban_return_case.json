@@ -12,6 +12,10 @@
 "collected_on",
 "collection_key",
 "owned_stock_issue"
+ ,
+  "custody_trip",
+  "custody_vehicle_warehouse",
+  "custody_handover_json"
  ],
  "fields":[
   {"fieldname":"state","label":"Return State","fieldtype":"Select","options":"Awaiting QC Receipt\nQC In Progress\nQC Completed - Accounting Pending\nQC Rejected\nDelivery Correction Pending\nDelivery Correction Draft\nDelivery Correction Posted\nAccounting Completed\nClosed\nCancelled\nException\nQC Completed - Stock Pending","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
@@ -89,6 +93,10 @@
 {"fieldname": "collected_on", "label": "Collected On", "fieldtype": "Datetime", "read_only": 1},
 {"fieldname": "collection_key", "label": "Collection Request", "fieldtype": "Data", "read_only": 1, "hidden": 1},
 {"fieldname": "owned_stock_issue", "label": "Confirmed Owned Stock Disposal", "fieldtype": "Link", "read_only": 1, "options": "Stock Entry", "unique": 1}
+ ,
+  {"fieldname":"custody_trip","fieldtype":"Link","options":"CFG Kanban Delivery Trip","label":"Current Custody Trip","read_only":1},
+  {"fieldname":"custody_vehicle_warehouse","fieldtype":"Link","options":"Warehouse","label":"Current Custody Lorry","read_only":1},
+  {"fieldname":"custody_handover_json","fieldtype":"Code","options":"JSON","label":"Transport Custody Handover History","read_only":1}
  ],
  "permissions":[
   {"role":"Stock User","read":1,"print":1},{"role":"Stock Manager","read":1,"print":1},{"role":"Sales User","read":1,"print":1},{"role":"Sales Manager","read":1,"print":1},{"role":"Quality User","read":1,"print":1},{"role":"Quality Manager","read":1,"print":1},{"role":"Accounts User","read":1,"print":1},{"role":"Accounts Manager","read":1,"print":1},{"role":"System Manager","read":1,"print":1}

@@ -1,12 +1,26 @@
 import frappe
 from frappe.model.document import Document
-from frappe.utils import flt
+from frappe.utils import flt, get_datetime
 
 
 class CFGKanbanDispatchAllocation(Document):
     """Immutable reservation audit created only by the controlled E2 service."""
 
     def validate(self):
+        before=None if self.is_new() else self.get_doc_before_save()
+        controlled=('state','allocation_kind','dispatch_plan','dispatch_plan_line','handling_unit','visible_code',
+            'item_code','batch_no','stock_uom','allocated_qty','source_company','source_warehouse',
+            'movement_manifest','manifest_line','load_confirmed','loaded_by_operator','loaded_operator_session',
+            'loaded_on','load_key','reserved_by_operator','operator_session','reserved_on','reservation_key',
+            'active_handling_unit_key','reservation_ledger','movement_state_before_reservation',
+            'released_by_operator','released_operator_session','released_on','release_reason','release_ledger','release_key')
+        def normal(field,value):
+            if value in (None,''):return None
+            if field in ('loaded_on','reserved_on','released_on'):return get_datetime(value)
+            if field=='allocated_qty':return flt(value)
+            return value
+        if before and any(normal(f,self.get(f))!=normal(f,before.get(f)) for f in controlled):
+            frappe.throw('Dispatch allocations retain their controlled reservation/loading audit; use the existing actions')
         if self.state not in {"Reserved", "Loaded", "Released", "Cancelled", "Exception", "In Fulfilment", "Fulfilled"}:
             frappe.throw(f"Unsupported Dispatch Allocation state {self.state}")
         if self.allocation_kind not in {"Tagged Stock", "Untagged ERP Stock"}:
@@ -42,5 +56,6 @@ class CFGKanbanDispatchAllocation(Document):
             if manifest_plan and manifest_plan != self.dispatch_plan:
                 frappe.throw("Loading Manifest belongs to a different Dispatch Plan")
         if self.load_confirmed and not self.movement_manifest:
-            frappe.throw("Loading confirmation requires a Movement Manifest")
+            from cfg_kanban.services.trip_carry_in import validate_allocation
+            validate_allocation(self)
 

@@ -39,6 +39,9 @@ class CFGKanbanReturnCase(Document):
         elif self.return_flow == "Customer Return for QC" and not self.inspection_location:
             frappe.throw("Customer Return for QC requires an Inspection Custody Location")
         before = None if self.is_new() else self.get_doc_before_save()
+        for field in ('custody_trip','custody_vehicle_warehouse','custody_handover_json'):
+            if (self.get(field) or None)!=((before.get(field) or None) if before else None):
+                frappe.throw('Return transport custody is controlled by confirmed Trip handover')
         if not before:
             if self.get('stock_already_owned') and not self.flags.get('cfg_driver_return'):
                 frappe.throw('Company-owned refusal cases are created only through the controlled driver outcome')

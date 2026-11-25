@@ -689,7 +689,13 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
   count. Whole-tag/held-source constraints and native permissions remain. Old customer returns
   stay separate QC custody, with physical receipt required before office Trip closure; no duplicate
   receipt/credit is created for owned refusals. See `USER_GUIDE_DISPATCH_E5B2.md` and
-  `TEST_DISPATCH_E5B2_RECOVERY.md`. Follow-on Plans/vehicle reassignment and native acceptance remain pending.
+  `TEST_DISPATCH_E5B2_RECOVERY.md`. Follow-on takeover is implemented by E5B3 below; native acceptance remains pending.
+- **Development implemented in E5B3 and recovery hardening:** reviewed linked follow-on Trips
+  reuse existing receiving-lorry stock and whole old-return Cases, retaining original collection,
+  DN/proof and movement history. Settled confirmed children can be replaced before departure.
+  Current stock/metadata/receipt reads, allocation audit guards, caught-failure rollback and
+  browser actor/retry protection are included. See `USER_GUIDE_DISPATCH_E5B3.md` and
+  `TEST_DISPATCH_E5_COMBINED.md`; combined native acceptance remains deferred/unrun.
 - Driver DN-based Sales Invoice commands are implemented with Company policy (Draft default), named automatic-submit authority and native accounting/naming. See Dispatch Baseline §26 and `USER_GUIDE_DRIVER_PRINTING.md`. Payment collection remains outside this increment.
 
 ### Package D — Proof, returns, and reconciliation

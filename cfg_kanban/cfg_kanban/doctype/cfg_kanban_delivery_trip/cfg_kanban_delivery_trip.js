@@ -16,6 +16,13 @@ frappe.ui.form.on('CFG Kanban Delivery Trip', {
   async refresh(frm) {
     await frappe.require('/assets/cfg_kanban/js/office_delivery_trip.js');
     const ui = window.cfg_office_delivery_trip;
+    if(!frm.is_new() && frm.perm?.[0]?.write){
+      await frappe.require('/assets/cfg_kanban/js/trip_continuation.js');
+      frm.__cfg_follow_on?.hide();
+      frm.__cfg_follow_on=window.cfg_trip_continuation.mount(frm);
+      frm.add_custom_button(__('Plan Follow-on Trip'),()=>frm.__cfg_follow_on.open());
+      if(frappe.route_options?.cfg_follow_on){delete frappe.route_options.cfg_follow_on;await frm.__cfg_follow_on.open();}
+    }
     frm.set_df_property?.('assistant_drivers','read_only',!ui.editable(frm)||['In Progress','Completed','Closed Incomplete'].includes(frm.doc.driver_route_state));
     frm.set_df_property?.('vehicle_warehouse','read_only',['In Progress','Completed','Closed Incomplete'].includes(frm.doc.driver_route_state));
     frm.set_df_property?.('driver','read_only',['In Progress','Completed','Closed Incomplete'].includes(frm.doc.driver_route_state));
@@ -32,7 +39,7 @@ frappe.ui.form.on('CFG Kanban Delivery Trip', {
       try {await frappe.call({method:'cfg_kanban.services.driver_route_actions.sync_trip_lorry',args:{trip_name:frm.doc.name,expected_modified:frm.doc.modified},freeze:true,freeze_message:__('Syncing the departure lorry...')});await frm.reload_doc();}
       finally {frm.__cfg_lorry_sync_busy=false;}
     });
-    if (ui.editable(frm) && !frm.is_new() && !['In Progress','Completed'].includes(frm.doc.driver_route_state)) frm.add_custom_button(__('Generate / Refresh Dispatch'), async()=>{
+    if (ui.editable(frm) && !frm.doc.follow_on_of && !frm.is_new() && !['In Progress','Completed'].includes(frm.doc.driver_route_state)) frm.add_custom_button(__('Generate / Refresh Dispatch'), async()=>{
       if(frm.is_dirty()){ui.alert(frm,__('Save the Trip and its quantities before generating dispatch work.'));return;}
       if(frm.__cfg_dispatch_busy)return;frm.__cfg_dispatch_busy=true;
       try {await frappe.call({method:'cfg_kanban.services.trip_dispatch.generate_dispatch_for_trip',args:{trip_name:frm.doc.name,expected_modified:frm.doc.modified},freeze:true,freeze_message:__('Generating linked dispatch work...')});await frm.reload_doc();}

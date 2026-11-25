@@ -2,7 +2,7 @@
 
 **Baseline identifier:** `CFG-DISPATCH-E3`
 **Decision status:** Locked
-**Current status:** E1–E3 implemented; E4A/E4B/E4C, E5A, E5B1 and E5B2 development implemented; follow-on recovery Plans/reassignment and wider native hardening remain pending
+**Current status:** E1–E3 implemented; E4A/E4B/E4C, E5A, E5B1/E5B2/E5B3 development implemented; combined native acceptance and wider hardening remain pending
 **Implementation status:** Dispatch Profiles, permanent Dispatch Operations cards, the read-only
 operator launcher, Dispatch Plans, approval/cancellation, controlled tagged/untagged reservation,
 late lorry claim, physical loading confirmation, Manifest generation and controlled direct Material
@@ -13,8 +13,9 @@ origins, partial quantity containers and persisted action reconciliation. E4C ad
 fulfilment/pickup with reservation handoff and configurable attended acknowledgement. E4A/E4B/E4C
 live acceptance is pending; E3 loading remains a separate lifecycle. E5A adds guarded Plan reviews,
 D3 count/evidence linkage and both overnight choices. E5B1 adds whole-remainder recovery and E5B2 adds per-item destinations/retention and Trip Handover
-(see later extensions). Follow-on recovery Plans/reassignment and wider native hardening remain
-pending; implementation is not acceptance of the whole E5 roadmap.
+(see later extensions). E5B3 adds linked follow-on Trips and confirmed existing-lorry stock / return
+custody handover. Combined native acceptance and wider hardening remain pending; implementation
+is not acceptance of the whole E5 roadmap.
 
 ## 1. Objective
 
@@ -331,8 +332,8 @@ mandatory ERP-input controls are included. See [E5B1 guide](USER_GUIDE_DISPATCH_
 [acceptance checklist](TEST_DISPATCH_E5B1_RECOVERY.md). Native/live acceptance is pending.
 
 **E5B2** below implements mixed per-line/multiple-destination leftover dispositions. Driver partial/
-refused fulfilment is covered by the later Driver Route extension. **Remaining E5B:** follow-on
-recovery Plans/vehicle reassignment and native operational hardening. E5B1 creates no quantity correction, write-off, credit or replacement delivery engine.
+refused fulfilment is covered by the later Driver Route extension. **E5B3** below adds follow-on
+Trips/confirmed existing-lorry stock and return custody. Native operational hardening remains pending. E5B1 creates no quantity correction, write-off, credit or replacement delivery engine.
 
 ### Optional E6 — Destination selected at receipt
 
@@ -764,4 +765,53 @@ the existing shared scanner controller; count/variance server rules are unchange
 
 See [guide](USER_GUIDE_DISPATCH_E5B2.md) and [acceptance](TEST_DISPATCH_E5B2_RECOVERY.md). Offline
 checks do not establish native posting, database concurrency, warehouse/kiosk or device acceptance.
-Follow-on Trips/vehicle reassignment remain separate scope.
+Follow-on Trips and existing-stock/return custody takeover are implemented by E5B3 below; live acceptance remains separate.
+
+
+## 28. E5B3 — Follow-on Trip and transport custody takeover
+
+Prepared 25 November 2026 above `3c9cc99`. The owner explicitly deferred live E5B2 acceptance
+until the complete section can be tested together; proceeding with development is not a test pass.
+
+The original normal office Delivery Trip provides a follow-on setup section, not a planning popup.
+An authorized native office editor / reconciliation Supervisor selects exact still-required SO
+quantities, unfinished optional-sale visits, a receiving lorry/card, driver/assistants and stock
+physically available there. Source Plans must first settle through E5. Replacement-lorry movements
+remain E5B2; E5B3 uses existing E2 reservation/loaded commitments and the existing DN/proof engines
+without a second warehouse withdrawal, loading Stock Entry or replay of completed deliveries.
+
+The atomic action closes the original Trip and its settled operational sheets, creates one linked
+Draft child and records an immutable request/source/allocation receipt. New route approval and
+Mark Planned remain normal office actions. Selected whole old-return Cases transfer current
+transport custody while retaining original collection facts and pending QC; others must first be
+physically received. Current custody blocks closure even for hidden Cases. Original and middle
+Trip history remains visible. Return-only transport creates no fabricated customer delivery.
+
+Original payload/nonce persistence, serialized source creation/readback/void, native permissions,
+Company/expiry/certificate/whole-tag/UOM/availability checks and scanner-first controls apply.
+One source creates one child; later takeovers start from the latest child.
+
+See [E5B3 setup/scanner guide](USER_GUIDE_DISPATCH_E5B3.md) and
+[combined acceptance evidence](TEST_DISPATCH_E5B3_FOLLOW_ON.md).
+
+
+## 29. E5 operational recovery hardening
+
+Prepared 25 November 2026 above pending E5B3, for the same owner-managed commit. Confirmed
+carry-in children can be recovered before departure after E5 settlement, without faking a start.
+Normal office cancellation still requires custody receipt; an explicit further takeover can pass
+pending Cases onward and close the unused child atomically. SO availability follows the normal
+closed/cancelled Trip and settled Plan rules; lineage is never cleared to create a second child.
+
+Reservation entry points use POST, current locked Plan lines/availability, Bin-before-tag locking,
+prepared-load commitments and exact replay quantities. Finite, precision, whole-UOM, Company,
+expiry and serial rules remain. Follow-on review detects current certificate ancestry, Batch,
+serial, Repack and printed-boundary versions after waiting. The native Allocation validator accepts
+real carry-in receipts and rejects ordinary audit rewrites. Source-locked Create/void checks use
+current receipts, and a savepoint/full-rollback fallback prevents a caught partial failure being
+committed. Browser operator/session changes discard late replies and preserve original pending
+requests; storage errors after recording keep their receipt available for readback.
+
+See [combined E5 acceptance](TEST_DISPATCH_E5_COMBINED.md). Native concurrency/rollback, actual
+posting and kiosk/tablet acceptance remain unrun; the owner's live-test deferral is unchanged.
+Optional E6 remains after E1–E5 end-to-end acceptance.

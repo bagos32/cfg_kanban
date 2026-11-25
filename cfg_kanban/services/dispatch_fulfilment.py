@@ -75,6 +75,9 @@ def prepared_delivery_context(scan_value, operator_session_token):
 
 def validate_prepared_loading(plan):
     """Shared read-only loading gate for departure and native prepared-delivery entry."""
+    if plan.get('follow_on_trip') and not plan.get('existing_lorry_stock_only'):
+        from cfg_kanban.services.trip_carry_in import validate_loading
+        return validate_loading(plan)
     manifest = frappe.get_doc('CFG Kanban Movement Manifest', plan.movement_manifest)
     if (manifest.dispatch_plan != plan.name or manifest.state != 'Received' or
             manifest.source_company != plan.company or manifest.source_warehouse != plan.source_warehouse or
@@ -465,8 +468,26 @@ def _same_currency_context(key, left, right):
     return (left or '') == (right or '')
 
 
-def assert_prepared_tag_scope(handling_unit, delivery):
-    rows=frappe.db.sql("""
+def assert_prepared_tag_scope(handling_unit, delivery,current=False):
+    if current:
+        rows=[]
+        allocations=frappe.db.get_values('CFG Kanban Dispatch Allocation',
+            {'handling_unit':handling_unit,'state':'Loaded'},['name','dispatch_plan','allocated_qty'],
+            as_dict=True,for_update=True,order_by='name')
+        for allocation in allocations:
+            plan=frappe.db.get_value('CFG Kanban Dispatch Plan',allocation.dispatch_plan,
+                ['state','plan_type','fulfilment_mode','prepared_stock_commitment','route_stock_commitment','fulfilment_status'],
+                as_dict=True,for_update=True)
+            if not plan or plan.state!='Loaded' or plan.fulfilment_mode!='Vehicle Delivery':continue
+            waiting=(plan.plan_type=='Customer Order' and plan.prepared_stock_commitment and plan.fulfilment_status not in ('Completed','Delivered')) or (plan.plan_type=='Open Route Stock' and plan.route_stock_commitment)
+            if not waiting:continue
+            picked=frappe.db.get_values('CFG Kanban Delivery Allocation',{'dispatch_allocation':allocation.name,
+                'state':['in',['Reserved','Delivery Pending','Exception','Delivered']]},['allocated_qty'],
+                as_dict=True,for_update=True,order_by='name')
+            if flt(allocation.allocated_qty)>sum(flt(row.allocated_qty) for row in picked)+0.000001:
+                rows.append((allocation.dispatch_plan,plan.plan_type))
+    else:
+        rows=frappe.db.sql("""
         select allocation.dispatch_plan, plan.plan_type
         from `tabCFG Kanban Dispatch Allocation` allocation
         inner join `tabCFG Kanban Dispatch Plan` plan on plan.name=allocation.dispatch_plan
@@ -531,8 +552,8 @@ def waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclu
               'excluded':exclude_plan})[0][0]) + held_refused_untagged_qty(company,warehouse,item_code,batch_no,exclude_outcome=exclude_refusal_outcome)
 
 
-def _assert_untagged_batch_expiry(batch_no):
-    expiry=frappe.db.get_value('Batch',batch_no,'expiry_date') if batch_no else None
+def _assert_untagged_batch_expiry(batch_no,current=False):
+    expiry=frappe.db.get_value('Batch',batch_no,'expiry_date',**({'for_update':True} if current else {})) if batch_no else None
     if expiry and getdate(expiry)<getdate(today()):
         frappe.throw(f'Batch {batch_no} is expired and cannot be delivered')
 

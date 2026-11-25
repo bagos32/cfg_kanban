@@ -83,6 +83,8 @@ def validate_setup(doc, before=None):
 
 
 def _specs(trip):
+    if trip.get('follow_on_of'):
+        frappe.throw('Follow-on stock was already confirmed; do not generate another warehouse withdrawal')
     groups = {}
     stops = {r.stop_key: r for r in trip.stops}
     stock = [r for r in trip.orders if cint(r.is_stock_item) and not stops[r.stop_key].get('cancellation_request')]

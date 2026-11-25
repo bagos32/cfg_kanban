@@ -374,3 +374,14 @@ Review settlement still apply. Whole tags/held sources stay together; old return
 QC receipt, with no duplicate receipt/credit. Office closure now requires old-return physical receipt,
 while inspection/accounting may continue. See [E5B2 setup and scanner guide](USER_GUIDE_DISPATCH_E5B2.md)
 and [acceptance checklist](TEST_DISPATCH_E5B2_RECOVERY.md). Implementation does not establish live acceptance.
+
+
+## Follow-on takeover — E5B3
+
+Use **Plan Follow-on Trip** on the original normal Delivery Trip form after E5 settlement.
+The embedded section selects still-required deliveries/visits, a receiving lorry and team,
+confirmed existing stock and complete pending customer-return Cases. Original deliveries/proof
+remain intact; no duplicate warehouse withdrawal/loading Stock Entry is created. The new linked
+Trip remains Draft for normal office sign-off and required route approval. See
+[E5B3 setup/scanner guide](USER_GUIDE_DISPATCH_E5B3.md) and
+[combined acceptance checklist](TEST_DISPATCH_E5B3_FOLLOW_ON.md). Live testing is deferred, not passed.

@@ -178,7 +178,11 @@ def _record(doc, operator, session, key, request, result=None, void_reason=None,
 
 def _build_snapshot(doc, context, operator):
     """Validate exact execution links; do not publish or approve an operational Route Sheet."""
-    if not any(not r.get('cancellation_request') for r in doc.stops):
+    return_only=False
+    if doc.get('follow_on_of') and not doc.stops:
+        from cfg_kanban.services.return_custody import cases,pending
+        return_only=any(pending(case) for case in cases(doc,history=False,native=False))
+    if not return_only and not any(not r.get('cancellation_request') for r in doc.stops):
         frappe.throw('Add at least one saved customer stop before departure')
     by_stop = {row.stop_key: row for row in doc.stops}
     cancelled={r.stop_key for r in doc.stops if r.get('cancellation_request')}

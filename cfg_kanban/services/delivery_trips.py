@@ -114,7 +114,7 @@ def validate_stops(doc, assign_keys=True):
         if customer.get('disabled'):
             frappe.throw('Customer is disabled')
         row.address_display = _address(row.get('customer_address'), row.customer)
-    if not doc.stops:
+    if not doc.stops and not doc.get('follow_on_of'):
         frappe.throw('Add customer stops or load a Standard Route / Template')
     return {row.stop_key: row for row in doc.stops} if assign_keys else None
 
@@ -451,6 +451,9 @@ def _protect_driver_execution(doc, before):
 
 def _assert_return_custody_received(trip):
     """Closing ends transport custody; QC/accounting may continue after physical receipt."""
+    if trip.get('follow_on_of') or trip.get('follow_on_trip'):
+        from cfg_kanban.services.return_custody import assert_received
+        return assert_received(trip)
     names=frappe.db.get_values('CFG Kanban Return Case',dict(driver_trip=trip.name,return_flow='Customer Return for QC',
         state=['not in',['Cancelled','Closed']],received_on=['is','not set']),
         ['name','stock_already_owned'],as_dict=True,for_update=True)
@@ -468,6 +471,9 @@ def validate_trip(doc):
     driver_name=frappe.db.get_value('Employee',doc.driver,'employee_name') if doc.driver else None
     doc.driver_display=(str(driver_name)+' ('+doc.driver+')') if driver_name and driver_name!=doc.driver else doc.driver or None
     before = None if doc.is_new() else doc.get_doc_before_save()
+    if any(doc.get(f) or (before and before.get(f)) for f in ('follow_on_of','follow_on_trip','follow_on_key','follow_on_request_key','follow_on_snapshot_json')):
+        from cfg_kanban.services.trip_continuation import protect_trip
+        protect_trip(doc,before)
     _protect_driver_execution(doc, before)
     doc.team_revision = cint(before.get('team_revision')) if before else 0
     if doc.get('assistant_drivers') or (before and before.get('assistant_drivers')):
@@ -518,7 +524,7 @@ def validate_trip(doc):
         if before.get('driver_route_state') == 'In Progress':
             # Only the existing office close/cancel path, after all linked Plans are settled,
             # may release a route with undelivered stops. Never invent stop/DN/proof completion.
-            doc.driver_route_state = 'Closed Incomplete'
+            doc.driver_route_state = 'Completed' if doc.get('follow_on_of') and not doc.stops else 'Closed Incomplete'
             doc.driver_route_completed_on = now_datetime()
             doc.driver_active_vehicle_key = doc.driver_active_stop_key = None
         doc.closed_by, doc.closed_on = frappe.session.user, now_datetime()

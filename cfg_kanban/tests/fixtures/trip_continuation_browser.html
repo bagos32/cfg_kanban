@@ -1,0 +1,50 @@
+<!doctype html><meta charset="utf-8"><title>Offline Follow-on Trip checks</title>
+<style>body{font:15px Arial;margin:20px}.btn{cursor:pointer;padding:10px;border:1px solid #aaa;margin:4px}.btn-block,.form-control{display:block;width:100%;box-sizing:border-box}label{display:block;margin-top:8px}button:disabled{opacity:.4}pre{white-space:pre-wrap}</style>
+<h2>Offline Follow-on Trip fixture</h2><p>Demo records and simulated RPC/camera only. No ERPNext site, stock transfer, delivery or QC receipt.</p><pre id="result">Running…</pre><div id="host"></div>
+<script src="../../public/js/trip_continuation.js"></script><script>
+class Wrap{constructor(nodes){this.nodes=nodes;nodes.forEach((n,i)=>this[i]=n);this.length=nodes.length;}
+ find(s){return new Wrap(this.nodes.flatMap(n=>[...n.querySelectorAll(s.replaceAll(':input',':is(input,textarea,select,button)'))]));}html(v){if(v===undefined)return this.nodes[0]?.innerHTML;this.nodes.forEach(n=>n.innerHTML=v);return this;}text(v){if(v===undefined)return this.nodes[0]?.textContent;this.nodes.forEach(n=>n.textContent=v);return this;}
+ append(v){this.nodes.forEach(n=>typeof v==='string'?n.insertAdjacentHTML('beforeend',v):n.append(...(v instanceof Wrap?v.nodes:[v])));return this;}appendTo(v){$(v).append(this);return this;}
+ val(v){if(v===undefined)return this.nodes[0]?.value;this.nodes.forEach(n=>n.value=v);return this;}attr(k,v){if(v===undefined)return this.nodes[0]?.getAttribute(k);this.nodes.forEach(n=>n.setAttribute(k,v));return this;}removeAttr(k){this.nodes.forEach(n=>n.removeAttribute(k));return this;}
+ prop(k,v){this.nodes.forEach(n=>n[k]=v);return this;}toggle(v){this.nodes.forEach(n=>n.style.display=v?'':'none');return this;}hide(){return this.toggle(false);}show(){return this.toggle(true);}empty(){return this.html('');}
+ trigger(k){this.nodes.forEach(n=>k==='focus'?n.focus():n.dispatchEvent(new Event(k,{bubbles:true})));return this;}
+ on(type,selector,fn){if(typeof selector==='function'){fn=selector;selector=null;}const event=type.split('.')[0];this.nodes.forEach(n=>{const f=e=>{const target=selector?e.target.closest(selector):n;if(target&&n.contains(target)){const eventView={currentTarget:target,key:e.key,shiftKey:e.shiftKey,ctrlKey:e.ctrlKey,altKey:e.altKey,metaKey:e.metaKey,preventDefault:()=>e.preventDefault(),stopPropagation:()=>e.stopPropagation()};fn(eventView);eventView.currentTarget=null;}};(n.handlers??=[]).push([event,f]);n.addEventListener(event,f);});return this;}
+ hasClass(k){return !!this.nodes[0]?.classList.contains(k);}
+ off(){this.nodes.forEach(n=>(n.handlers||[]).forEach(([event,f])=>n.removeEventListener(event,f)));return this;}}
+window.$=value=>{if(value instanceof Wrap)return value;if(typeof value==='string'&&value.startsWith('<')){const t=document.createElement('template');t.innerHTML=value;return new Wrap([...t.content.children]);}return new Wrap(typeof value==='string'?[...document.querySelectorAll(value)]:[value]);};
+const results=[];const check=(ok,text)=>{if(!ok)throw new Error(text);results.push(text);},pause=ms=>new Promise(r=>setTimeout(r,ms));
+async function until(work){for(let i=0;i<200;i++){if(work())return;await pause(20);}throw new Error('Timed out: '+work);}
+window.runFollowOnTests=async()=>{
+ localStorage.clear();localStorage.setItem('cfg_kanban_operator_session','TOKEN');
+ const calls=[],context={operator:{employee:'SUP'},context_hash:'HASH',blockers:[],notice:'Review exact custody',lines:[{source_row:'ROW',sales_order:'SO1',customer_po:'PO123',item_code:'ITEM1',max_qty:2,stock_uom:'Nos',is_stock_item:1}],visits:[],returns:[{name:'CASE',customer:'Shop',state:'Awaiting QC Receipt'}]};
+ let camera=null,fail=true;
+ const f={session:{user:'demo@example.com'},datetime:{get_today:()=> '2026-11-25'},get_route:()=>['Form','CFG Kanban Delivery Trip','TRIP'],utils:{escape_html:value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;')},ui:{form:{make_control({parent,df}){const label=document.createElement('label');label.textContent=df.label;const el=document.createElement(df.fieldtype==='Small Text'?'textarea':df.fieldtype==='Select'?'select':'input');if(df.fieldtype==='Select')for(const value of df.options.split('\n')){const option=document.createElement('option');option.value=option.textContent=value;el.append(option);}el.dataset.field=df.fieldname;$(parent).append(label).append(el);el.addEventListener('change',()=>df.onchange?.());return {df,$input:$(el),get_value:()=>el.value,set_value(v){el.value=v??'';df.onchange?.();return Promise.resolve();}};}},Scanner:class{constructor(options){this.options=options;camera=this;}hide_dialog(){}}},async call({method,args}){calls.push({method,args:structuredClone(args)});const name=method.split('.').at(-1);if(name==='get_follow_on_context')return {message:structuredClone(context)};if(name==='preview_follow_on_stock')return {message:{kind:'Tagged Stock',scan_value:'TAG',handling_unit:'HU',item_code:'ITEM1',batch_no:'B1',stock_uom:'Nos',available_qty:2,source_hash:'PHYSICAL'}};if(name==='resolve_follow_on_return')return {message:{name:'CASE'}};if(name==='create_follow_on_trip'){if(fail){fail=false;throw new Error('Lost response');}return {message:{recorded:true,trip:'CHILD'}};}if(name==='reconcile_follow_on')return {message:{recorded:true,trip:'CHILD'}};throw new Error('Unexpected '+name);}};
+ window.frappe=f;window.jQuery=$;const frm={doc:{name:'TRIP',vehicle_warehouse:'LORRY'},fields_dict:{follow_on_setup:{$wrapper:$('#host')}},is_dirty:()=>false};window.cur_frm=frm;
+ let view=cfg_trip_continuation.mount(frm);await view.open();
+ const input=()=>document.querySelector('.follow-on-scan');async function scan(text,key='Enter'){input().value=text;input().dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}));await pause(35);}
+ check(document.activeElement===input(),'Opening the normal form section restores Scanner Ready focus');
+ check(view.app.state.orders.length===0&&view.app.state.returns.length===0,'No delivery or return is automatically selected');
+ frm.is_dirty=()=>true;await view.open();check(document.querySelector('.follow-on-notice').textContent.includes('Save or reload'),'Dirty native form shows a visible instruction instead of an unhandled button error');frm.is_dirty=()=>false;
+ check(document.querySelector('[data-follow="FOLLOW_ON_ORDERS"]'),'Touch buttons are mounted on the form without a planning popup');
+ await scan('CFG:CMD:FOLLOW_ON_INPUTS');await scan('CFG:SELECT:2');await scan('LORRY-CARD','Tab');await scan('CFG:SELECT:3');await scan('RELIEF');await scan('CFG:SELECT:7');await scan('Vehicle relief');
+ check(view.app.state.inputs.driver==='RELIEF'&&view.app.state.inputs.lorry_scan==='LORRY-CARD','Numbered scanner inputs set receiving driver, physical lorry Card and reason');
+ document.querySelector('[data-follow="FOLLOW_ON_ORDERS"]').click();await pause(40);document.querySelector('[data-follow-choice="1"]').click();await pause(40);
+ check(view.app.state.orders.length===1,'Deferred click handlers retain their exact numbered choice');
+ await scan('CFG:CMD:FOLLOW_ON_SOURCES');await scan('CFG:SELECT:1');await scan('TAG','Tab');
+ check(document.querySelector('.follow-on-notice').textContent.includes('available 2'),'Physical tag preview shows item, Batch, availability and quantity before adding');
+ await scan('CFG:CMD:FOLLOW_ON_ADD');await scan('CFG:CMD:FOLLOW_ON_RETURNS');await scan('CFG:SELECT:1');await scan('CFG:RETURN-CUSTODY:LABEL');
+ check(view.app.state.stock.length===1&&view.app.state.confirmed_returns[0]==='CASE','Scanner confirms exact stock and existing customer-return bundle');
+ await scan('CFG:CMD:FOLLOW_ON_REVIEW');check(document.querySelector('.follow-on-review').textContent.includes('PHYSICAL'),'Review exposes exact frozen stock receipt and custody details');
+ await scan('CFG:CMD:CONFIRM');await until(()=>!view.app.state.busy);check(!!view.app.state.pending,'An unknown Create result is retained in real localStorage');
+ const first=calls.find(row=>row.method.endsWith('create_follow_on_trip'));await scan('CFG:CMD:CANCEL');
+ view.hide();view=cfg_trip_continuation.mount(frm);await view.open();check(view.app.state.pending?.event===first.args.event_token,'Reopening recovers the original action identity instead of generating a new Trip');
+ await scan('CFG:CMD:FOLLOW_ON_READBACK');await until(()=>!view.app.state.busy);check(view.app.state.result.trip==='CHILD'&&!view.app.state.pending,'Readback resolves an already-recorded handover without posting again');
+ check(calls.filter(row=>row.method.endsWith('create_follow_on_trip')).length===1,'Readback never repeats stock confirmation or return collection');
+ check(document.querySelector('.follow-on-review a').textContent.includes('CHILD'),'The generated Trip opens from an ordinary office-form link for sign-off');
+ await scan('CFG:CMD:FOLLOW_ON_CAMERA');const old=camera;old.options.on_scan({decodedText:'CFG:CMD:HELP'});await pause(50);
+ check(document.activeElement===input()&&view.app.state.message.includes('READBACK'),'Camera routes commands through the same controller and restores focus');
+ await scan('CFG:CMD:CHANGE_OPERATOR');check(!view.app.state.operator&&!view.app.state.token,'Scanner Change Operator safely removes the active operator');check(!document.querySelector('.follow-on-review').textContent.includes('CHILD')&&!document.querySelector('.follow-on-options').textContent.includes('CASE'),'Operator change removes prior receipt and customer-return details from the DOM');
+ view.hide();old.options.on_scan({decodedText:'CFG:CMD:CONFIRM'});await pause(30);check(calls.filter(row=>row.method.endsWith('create_follow_on_trip')).length===1,'Late camera callbacks cannot submit a handover after leaving');
+ const result={passed:results.length,checks:results,userAgent:navigator.userAgent,scope:'Offline simulated RPC/camera; no native transaction, ERP, kiosk or physical acceptance'};document.querySelector('#result').textContent=JSON.stringify(result,null,2);return result;
+};
+</script>

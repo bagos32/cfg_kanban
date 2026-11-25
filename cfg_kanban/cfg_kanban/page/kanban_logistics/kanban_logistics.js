@@ -3035,6 +3035,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
         if(countCommand==='CFG:CMD:ROUTE_COUNT_LOOSE')return loose_count_dialog();
         if(countCommand==='CFG:CMD:ROUTE_COUNT_EVALUATE')return evaluate_reconciliation();
         if(countCommand==='CFG:CMD:ROUTE_COUNT_CLOSE')return close_reconciliation_dialog();
+		if(raw.toUpperCase() === 'CFG:CMD:PLAN_FOLLOW_ON_TRIP'){frappe.route_options={cfg_follow_on:true};return frappe.set_route('kanban-trip-handover');}
 		if (raw.toUpperCase() === "CFG:CMD:TRIP_HANDOVER") return frappe.set_route("kanban-trip-handover");
 		if (raw.toUpperCase() === "CFG:CMD:HELP") return repack_scanner_help();
 		if (["CFG:CMD:VIEW_LORRY_ROUTE","CFG:CMD:EDIT_ROUTE_SEQUENCE"].includes(raw.toUpperCase())) return open_lorry_route(raw.toUpperCase().includes("EDIT_")?"editor":"driver",state.lookup?.dispatch_plan?{plan:state.lookup.dispatch_plan.name}:{});

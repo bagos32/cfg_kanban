@@ -54,7 +54,7 @@ def _trip(name, operator):
 
 
 def _header(doc):
-    return dict(name=doc.name, trip_title=doc.trip_title or doc.name, company=doc.company,
+    return dict(name=doc.name, follow_on_of=doc.get('follow_on_of'),follow_on_trip=doc.get('follow_on_trip'),return_only=bool(doc.get('follow_on_of') and not doc.stops),trip_title=doc.trip_title or doc.name, company=doc.company,
                 route_template=doc.route_template, trip_date=doc.trip_date,
                 expected_return_date=doc.expected_return_date, driver=doc.driver,driver_display=trip_driver_display(doc),
                 gps_auto_start=bool(cint(doc.get('gps_auto_start'))),gps_publish_interval_seconds=doc.get('gps_publish_interval_seconds') or 15,
@@ -208,6 +208,10 @@ def _session(plan, operator, cache):
 
 
 def _posted_load(plan, cache):
+    if plan.get('follow_on_trip'):
+        from cfg_kanban.services.trip_carry_in import validate_loading
+        validate_loading(plan)
+        return True
     if not plan.movement_manifest:
         return False
     manifest = _cached(cache, 'CFG Kanban Movement Manifest', plan.movement_manifest)
@@ -254,6 +258,7 @@ def _plan(doc, link, stop, operator, cache):
     result = dict(name=plan.name, state=plan.state, visit_state=_plan_state(plan, session),
         sales_order=plan.sales_order, vehicle_warehouse=plan.vehicle_warehouse,
         fulfilment_status=plan.fulfilment_status or 'Not Started', load_posted=posted,
+        loading_evidence='Confirmed existing lorry stock' if plan.get('follow_on_trip') else 'Loading Stock Entry',
         delivery_session=session['name'], delivery_note=session['posted_note'],
         session_accessible=session['accessible'], session_state=session['state'])
     if plan.state == 'Loaded' and not posted:

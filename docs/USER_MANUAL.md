@@ -6432,3 +6432,47 @@ opening, counting and closure scanner-operable. Print these from Scanner Command
 
 See [the E5B2 guide](USER_GUIDE_DISPATCH_E5B2.md) for responsibilities, destinations, QR/tablet/scanner
 steps and recovery limits. Follow-on Trips/reassignment and native/site acceptance remain pending.
+
+
+## Follow-on Trip: unfinished deliveries and collected returns
+
+Open the original **CFG Kanban Delivery Trip → Plan Follow-on Trip** / **Follow-on Trip** tab.
+The setup lives on the normal DocType form. Settle all original Plans through E5 first; physically
+transfer replacement-lorry stock through E5B2 before confirming it. Select only still-required
+SO rows / unfinished visits, receiving lorry/card, active driver/assistants, exact whole tags or
+loose Item/Batch quantities, and the complete still-unreceived customer-return Cases. Check every
+return line/bundle, then scan the selected Case or its custody label. Nothing is auto-selected.
+
+Review and Confirm creates one linked Draft Trip using existing lorry stock without another
+loading Stock Entry. Mark Planned and obtain the normal route approval before Start Route.
+Original deliveries/proof remain on the source; old-return Cases retain their collection facts
+and QC state, with separate current custody and handover history. QC Monitor distinguishes
+Original Driver Trip from Current Custody Trip. Return-only transport is also supported.
+
+Scanner entry is `CFG:CMD:PLAN_FOLLOW_ON_TRIP`. In Operator/Logistics, select an exact Trip in
+Trip Handover first. Follow-on Help lists numbered inputs, SO/visit/return/source selection, stock
+quantity, preview/add/review/Create, camera and paging. Use Read Back after an unknown response;
+keep the original request or reason/void only an unrecorded action before correcting it. Cancel
+preserves pending details. See [full setup and scanner guide](USER_GUIDE_DISPATCH_E5B3.md).
+
+Live E5B2/E5B3 acceptance is deferred at the owner's request until combined flow testing; offline
+checks do not verify actual ERP stock posting, permission behavior, concurrency or physical custody.
+
+
+## E5: recovery before departure and reliable retries
+
+A confirmed follow-on Trip that never departed can be replaced after its Plans settle through
+normal E5 recovery/counting. Use its Plan Follow-on Trip section and explicitly review the next
+load/team and pending Cases. Custody transfer and closure happen together; no fake Start Route
+is required. For standalone Cancel Planning / Close Planning, first physically receive outstanding
+old returns. Original collection and stock/delivery history remains linked.
+
+Dispatch reservation retries retain their original quantities. Release through the existing action
+before changing quantity; prepared lorry stock cannot be reserved for another load. A source or
+metadata change while waiting for a lock requires a new physical review. An expired operator
+session clears prior details and prompts sign-in. Late replies after operator changes stay hidden;
+unknown requests remain available to their original owner for Read Back/void. Recorded responses
+that cannot clear browser storage retain their original request, avoiding a new stock/custody action.
+
+See [one combined E5 acceptance procedure](TEST_DISPATCH_E5_COMBINED.md). Live testing remains
+deferred; native transaction tests require an explicitly authorized isolated test fixture.

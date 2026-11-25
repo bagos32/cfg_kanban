@@ -286,15 +286,19 @@ def _validate_loaded_route(plan):
         if not existing_pool(plan) or not _route_ready(plan):frappe.throw('Existing lorry stock pool is not ready')
         _engine()._vehicle_warehouse(plan.vehicle_warehouse,plan.company)
         return
-    manifest = frappe.get_doc('CFG Kanban Movement Manifest', plan.movement_manifest)
-    if (manifest.dispatch_plan != plan.name or manifest.state != 'Received' or
-            manifest.source_company != plan.company or manifest.source_warehouse != plan.source_warehouse or
-            manifest.destination_company != plan.company or manifest.destination_warehouse != plan.vehicle_warehouse):
-        frappe.throw('Open Route requires the completed loading Manifest for this lorry')
-    posted = frappe.db.get_value('Stock Entry', manifest.dispatch_stock_entry,
-                                ['docstatus','company'], as_dict=True) if manifest.dispatch_stock_entry else None
-    if not posted or posted.docstatus != 1 or posted.company != plan.company:
-        frappe.throw('Open Route lorry loading must have a submitted Stock Entry')
+    if plan.get('follow_on_trip'):
+        from cfg_kanban.services.trip_carry_in import validate_loading
+        validate_loading(plan)
+    else:
+        manifest = frappe.get_doc('CFG Kanban Movement Manifest', plan.movement_manifest)
+        if (manifest.dispatch_plan != plan.name or manifest.state != 'Received' or
+                manifest.source_company != plan.company or manifest.source_warehouse != plan.source_warehouse or
+                manifest.destination_company != plan.company or manifest.destination_warehouse != plan.vehicle_warehouse):
+            frappe.throw('Open Route requires the completed loading Manifest for this lorry')
+        posted = frappe.db.get_value('Stock Entry', manifest.dispatch_stock_entry,
+                                    ['docstatus','company'], as_dict=True) if manifest.dispatch_stock_entry else None
+        if not posted or posted.docstatus != 1 or posted.company != plan.company:
+            frappe.throw('Open Route lorry loading must have a submitted Stock Entry')
     _engine()._vehicle_warehouse(plan.vehicle_warehouse, plan.company)
     sources = _route_sources(plan)
     for item in sorted({row.item_code for row in sources}):

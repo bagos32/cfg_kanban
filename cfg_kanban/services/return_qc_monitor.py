@@ -16,8 +16,8 @@ HEADER = ('name', 'state', 'return_flow', 'intake_method', 'selling_company', 'c
           'accepted_total_qty', 'accounting_status', 'disposition_status',
           'credit_document_status', 'accounting_sales_invoice_status', 'correction_document_status',
           'stock_disposition_entry_status', 'stock_already_owned', 'driver_trip',
-          'collection_vehicle_warehouse', 'collected_on')
-FILTERS = {'view', 'company', 'customer', 'location', 'trip', 'state', 'flow',
+          'collection_vehicle_warehouse', 'collected_on','custody_trip','custody_vehicle_warehouse')
+FILTERS = {'view', 'company', 'customer', 'location', 'trip','custody_trip', 'state', 'flow',
            'from_date', 'to_date', 'search', 'sort'}
 LINE_FIELDS = ('name', 'item_code', 'batch_no', 'expiry_date', 'stock_uom', 'original_visible_code',
                'claimed_qty', 'received_qty', 'accepted_qty', 'rejected_qty', 'condition',
@@ -76,7 +76,7 @@ def _filters(raw, companies):
     query = [['selling_company', 'in', [values['company']] if values.get('company') else companies]]
     if values['view'] != 'All Returns':
         query.append(['state', 'not in' if values['view']==VIEWS[0] else 'in', sorted(TERMINAL)])
-    for key,field in (('customer','customer'),('location','inspection_location'),('trip','driver_trip'),('state','state'),('flow','return_flow')):
+    for key,field in (('customer','customer'),('location','inspection_location'),('trip','driver_trip'),('custody_trip','custody_trip'),('state','state'),('flow','return_flow')):
         if values.get(key):query.append([field,'=',values[key]])
     for key in ('from_date','to_date'):
         if values.get(key):
@@ -197,7 +197,7 @@ def _case(scan, companies, company=None):
 
 def _links(case):
     result = []
-    candidates = [('CFG Kanban Delivery Trip',case.driver_trip,'Driver Trip'),
+    candidates = [('CFG Kanban Delivery Trip',case.get('custody_trip'),'Current Custody Trip'),('CFG Kanban Delivery Trip',case.driver_trip,'Original Driver Trip'),
         ('CFG Kanban Delivery Outcome',case.driver_delivery_outcome,'Refusal / Current Held Stock'),
         ('Delivery Note',case.original_delivery_note,'Original Delivery Note'),
         ('Delivery Note',case.correction_return_delivery_note,'Return Delivery Note'),

@@ -1,5 +1,6 @@
 import hashlib
 import json
+from math import isfinite
 
 import frappe
 from frappe import _
@@ -209,36 +210,45 @@ def approve_dispatch_plan(dispatch_plan, event_token=None, operator_session_toke
     return get_dispatch_plan(plan.name, operator_session_token)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=['POST'])
 def reserve_dispatch_tag(dispatch_plan, dispatch_plan_line, scan_value, qty=0,
                          event_token=None, operator_session_token=None):
     _require_event_token(event_token)
     operator, session = require_operator(operator_session_token, "start")
     plan = _locked_authorized_plan(dispatch_plan, operator)
     _assert_reservable(plan, "Tagged")
+    _current_reservation_lines(plan)
     line = _plan_line(plan, dispatch_plan_line)
+    qty = _reservation_qty(qty,allow_auto=True)
     identity = resolve_logistics_scan(scan_value)
     if not identity or identity.get("identity_type") != "Handling Unit":
         frappe.throw("Scan an active Stock Tag Handling Unit")
-    unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"])
+    _lock_erp_bin(line.item_code,plan.source_warehouse)
+    unit = frappe.get_doc("CFG Kanban Handling Unit", identity["name"],for_update=True)
     key = canonical_key(
         "dispatch-plan-tag-reserve", plan.name, line.name, unit.name, event_token or ""
     )
     existing = frappe.db.get_value(
-        "CFG Kanban Dispatch Allocation", {"reservation_key": key}, "name"
+        "CFG Kanban Dispatch Allocation", {"reservation_key": key}, "name",for_update=True
     )
     if existing:
+        _reservation_replay(existing,plan,line,"Tagged Stock",qty,unit.name,unit.batch_no)
         return get_dispatch_plan(plan.name, operator_session_token)
     active = frappe.db.get_value(
         "CFG Kanban Dispatch Allocation",
         {"active_handling_unit_key": unit.name, "state": "Reserved"},
-        ["dispatch_plan", "dispatch_plan_line"], as_dict=True,
+        ["name","dispatch_plan", "dispatch_plan_line"], as_dict=True,for_update=True,
     )
     if active and active.dispatch_plan == plan.name and active.dispatch_plan_line == line.name:
+        _reservation_replay(active.name,plan,line,"Tagged Stock",qty,unit.name,unit.batch_no)
         return get_dispatch_plan(plan.name, operator_session_token)
     _validate_tag_for_plan(unit, plan, line)
-    remaining = flt(line.requested_qty) - _active_line_reserved(line.name)
-    requested = flt(qty) or min(flt(unit.available_qty), remaining)
+    from cfg_kanban.services.dispatch_fulfilment import assert_prepared_tag_scope,assert_delivery_tag_expiry
+    assert_prepared_tag_scope(unit.name,frappe._dict(dispatch_plan=None),current=True)
+    assert_delivery_tag_expiry(unit)
+    remaining = flt(line.requested_qty) - _active_line_reserved(line.name,current=True)
+    requested = qty or min(flt(unit.available_qty), remaining)
+    _reservation_uom(requested,line.stock_uom)
     if requested <= 0 or requested > remaining + 0.000001:
         frappe.throw(f"Tagged reservation must be between 0 and remaining quantity {remaining}")
     if requested > flt(unit.available_qty) + 0.000001:
@@ -304,15 +314,17 @@ def reserve_dispatch_tag(dispatch_plan, dispatch_plan_line, scan_value, qty=0,
     return get_dispatch_plan(plan.name, operator_session_token)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=['POST'])
 def reserve_dispatch_untagged(dispatch_plan, dispatch_plan_line, qty, batch_no=None,
                               event_token=None, operator_session_token=None):
     _require_event_token(event_token)
     operator, session = require_operator(operator_session_token, "start")
     plan = _locked_authorized_plan(dispatch_plan, operator)
     _assert_reservable(plan, "Untagged")
+    _current_reservation_lines(plan)
     line = _plan_line(plan, dispatch_plan_line)
-    qty = flt(qty)
+    qty = _reservation_qty(qty)
+    _reservation_uom(qty,line.stock_uom)
     if qty <= 0:
         frappe.throw("Untagged reservation quantity must be positive")
     inventory = frappe.db.get_value(
@@ -338,17 +350,20 @@ def reserve_dispatch_untagged(dispatch_plan, dispatch_plan_line, qty, batch_no=N
         event_token or "",
     )
     existing = frappe.db.get_value(
-        "CFG Kanban Dispatch Allocation", {"reservation_key": key}, "name"
+        "CFG Kanban Dispatch Allocation", {"reservation_key": key}, "name",for_update=True
     )
     if existing:
+        _reservation_replay(existing,plan,line,"Untagged ERP Stock",qty,None,batch_no)
         return get_dispatch_plan(plan.name, operator_session_token)
     _validate_batch(line.item_code, batch_no)
+    from cfg_kanban.services.dispatch_fulfilment import _assert_untagged_batch_expiry
     _lock_erp_bin(line.item_code, plan.source_warehouse)
-    remaining = flt(line.requested_qty) - _active_line_reserved(line.name)
+    _assert_untagged_batch_expiry(batch_no,current=True)
+    remaining = flt(line.requested_qty) - _active_line_reserved(line.name,current=True)
     if qty > remaining + 0.000001:
         frappe.throw(f"Untagged reservation exceeds remaining quantity {remaining}")
     available = _untagged_available(
-        plan.company, plan.source_warehouse, line.item_code, batch_no
+        plan.company, plan.source_warehouse, line.item_code, batch_no,current=True
     )
     if qty > available + 0.000001:
         frappe.throw(
@@ -466,6 +481,8 @@ def claim_dispatch_vehicle(dispatch_plan, scan_value, event_token=None,
     _require_event_token(event_token)
     operator, session = require_operator(operator_session_token, "start")
     plan = _locked_authorized_plan(dispatch_plan, operator)
+    if plan.get('follow_on_trip'):
+        frappe.throw('Existing lorry stock is already confirmed; use Trip Handover for another vehicle change')
     vehicle_warehouse = _vehicle_warehouse_from_scan(scan_value, plan.company)
     if plan.state in VEHICLE_LOADING_STATES | {"Loaded"}:
         if plan.vehicle_warehouse != vehicle_warehouse.name:
@@ -1368,11 +1385,11 @@ def _authorized_profile(name, operator):
     return policy
 
 
-def _validate_profile_card(policy):
+def _validate_profile_card(policy,current=False):
     card = frappe.db.get_value(
         "CFG Kanban Card", policy.dispatch_point,
         ["active", "blocked", "card_type", "location_purpose", "company",
-         "current_warehouse"], as_dict=True,
+         "current_warehouse"], as_dict=True, **({'for_update':True} if current else {}),
     )
     if (not card or not card.active or card.blocked or card.card_type != "Location Card"
             or card.location_purpose != "Dispatch Operations"):
@@ -1484,7 +1501,46 @@ def _assert_not_in_open_manifest(handling_unit):
         frappe.throw(f"Stock Tag is already assigned to open Manifest {row[0][0]}")
 
 
-def _active_line_reserved(line_name):
+def _current_reservation_lines(plan):
+    rows=frappe.db.get_values('CFG Kanban Dispatch Plan Line',
+        {'parent':plan.name,'parenttype':'CFG Kanban Dispatch Plan','parentfield':'lines'},
+        ['name','item_code','item_name','batch_no','stock_uom','sales_order_item','requested_qty','reserved_qty','loaded_qty','line_state'],
+        as_dict=True,for_update=True,order_by='idx')
+    if not rows:frappe.throw('Dispatch Plan has no current Item lines to reserve')
+    plan.set('lines',rows)
+
+
+def _reservation_replay(name,plan,line,kind,qty,handling_unit=None,batch_no=None):
+    original=frappe.get_doc('CFG Kanban Dispatch Allocation',name,for_update=True)
+    if (original.dispatch_plan!=plan.name or original.dispatch_plan_line!=line.name or
+            original.allocation_kind!=kind or (original.handling_unit or None)!=(handling_unit or None) or
+            (original.batch_no or None)!=(batch_no or None) or original.item_code!=line.item_code or
+            original.stock_uom!=line.stock_uom or original.source_company!=plan.company or
+            original.source_warehouse!=plan.source_warehouse or (qty and abs(qty-flt(original.allocated_qty))>0.000001)):
+        frappe.throw('Reservation token or active tag belongs to different original details; release it before changing quantity')
+
+
+def _reservation_qty(value,allow_auto=False):
+    try:
+        if isinstance(value,bool):raise ValueError()
+        qty=float(0 if value in (None,'') and allow_auto else value)
+    except (ValueError,TypeError,OverflowError):frappe.throw('Reservation quantity must be a positive finite number')
+    if not isfinite(qty) or qty<0 or (qty==0 and not allow_auto):
+        frappe.throw('Reservation quantity must be a positive finite number')
+    return qty
+
+
+def _reservation_uom(qty,uom):
+    if frappe.db.get_value('UOM',uom,'must_be_whole_number') and abs(qty-round(qty))>0.000000001:
+        frappe.throw('Reservation quantity must respect the whole-number stock UOM')
+    if abs(qty-round(qty,6))>0.000000001:frappe.throw('Reservation quantity supports at most six decimal places')
+
+
+def _active_line_reserved(line_name,current=False):
+    if current:
+        rows=frappe.db.get_values('CFG Kanban Dispatch Allocation',
+            {'dispatch_plan_line':line_name,'state':'Reserved'},['allocated_qty'],as_dict=True,for_update=True)
+        return sum(flt(row.allocated_qty) for row in rows)
     result = frappe.db.sql(
         """
         select coalesce(sum(allocated_qty), 0)
@@ -1497,12 +1553,13 @@ def _active_line_reserved(line_name):
 
 
 def _refresh_plan_totals(plan_name):
-    plan = frappe.get_doc("CFG Kanban Dispatch Plan", plan_name)
+    plan = frappe.get_doc("CFG Kanban Dispatch Plan", plan_name,for_update=True)
     if plan.get("existing_lorry_stock_only"):return
+    _current_reservation_lines(plan)
     total = 0
     complete = True
     for line in plan.lines:
-        reserved = _active_line_reserved(line.name)
+        reserved = _active_line_reserved(line.name,current=True)
         total += reserved
         if reserved <= 0.000001:
             state = "Open"

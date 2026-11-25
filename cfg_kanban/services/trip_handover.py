@@ -41,10 +41,14 @@ def _returns(trip,start=0):
         return [],False
     names=frappe.get_list(CASE,filters=dict(driver_trip=trip.name,selling_company=trip.company),
         pluck='name',order_by='creation asc, name asc',limit_start=start,limit_page_length=21)
+    if trip.get('follow_on_of') or trip.get('follow_on_trip'):
+        from cfg_kanban.services.return_custody import cases
+        names=[case.name for case in cases(trip)][start:start+21]
     result=[]
     for name in names[:20]:
         case=_read(CASE,name)
         result.append(dict(name=case.name,customer=case.customer,state=case.state,
+            origin_trip=case.driver_trip,custody_trip=case.get('custody_trip') or case.driver_trip,current_vehicle=case.get('custody_vehicle_warehouse') or case.collection_vehicle_warehouse,
             received_on=case.received_on,inspection_location=case.inspection_location,
             accounting_status=case.accounting_status,disposition_status=case.disposition_status,
             stock_already_owned=bool(case.get('stock_already_owned')),

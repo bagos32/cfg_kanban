@@ -66,10 +66,16 @@ def summaries(trip_name):
     # The parent Trip read check is mandatory before calling this projection.
     names = frappe.get_all('CFG Kanban Return Case',filters={'driver_trip':trip_name},pluck='name',
         order_by='claimed_on, name',limit_page_length=0)
+    trip=frappe.get_doc('CFG Kanban Delivery Trip',trip_name)
+    if trip.get('follow_on_of') or trip.get('follow_on_trip'):
+        from cfg_kanban.services.return_custody import cases
+        names=[case.name for case in cases(trip)]
     rows=[]
     for name in names:
         case=frappe.get_doc('CFG Kanban Return Case',name);case.check_permission('read')
         rows.append(dict(name=case.name,stop_key=case.driver_stop_key,state=case.state,
+            origin_trip=case.driver_trip,custody_trip=case.get('custody_trip') or case.driver_trip,received_on=case.received_on,
+            current_vehicle=case.get('custody_vehicle_warehouse') or case.collection_vehicle_warehouse,
             stock_already_owned=bool(case.stock_already_owned),claimed_total_qty=case.claimed_total_qty,
             qc_started_on=case.qc_started_on,qc_completed_on=case.qc_completed_on,
             inspection_location=case.inspection_location,vehicle_warehouse=case.collection_vehicle_warehouse,

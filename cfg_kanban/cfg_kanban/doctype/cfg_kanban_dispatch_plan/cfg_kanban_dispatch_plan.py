@@ -18,6 +18,8 @@ class CFGKanbanDispatchPlan(Document):
 
     def validate(self):
         before = None if self.is_new() else self.get_doc_before_save()
+        if (self.get('follow_on_trip') or None)!=((before.get('follow_on_trip') or None) if before else None) and not self.flags.get('cfg_follow_on'):
+            frappe.throw('Existing-stock provenance is controlled by the follow-on action')
         for field in ('office_delivery_trip','office_stop_key','office_source_hash','existing_lorry_stock_only'):
             if (self.get(field) or None)!=((before.get(field) or None) if before else None) and not (getattr(self,'flags',None) or {}).get('cfg_office_dispatch'):
                 frappe.throw('Office dispatch provenance is immutable; generate it from the Trip')

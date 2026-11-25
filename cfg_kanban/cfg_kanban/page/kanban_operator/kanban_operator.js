@@ -389,6 +389,7 @@ frappe.pages["kanban-operator"].on_page_load = function (wrapper) {
             RELEASE_STOCK: () => { frappe.route_options={cfg_open_stock_isolation:1,cfg_isolation_action:0};frappe.set_route("kanban-logistics"); },
             ALLOCATE_ROUTE_STOCK: () => { frappe.route_options = {cfg_open_route_delivery:1,cfg_route_action:"stock"}; frappe.set_route("kanban-logistics"); },
             ...Object.fromEntries(["START_ROUTE_COUNT","ROUTE_COUNT_SCAN","ROUTE_COUNT_LOOSE","ROUTE_COUNT_EVALUATE","ROUTE_COUNT_CLOSE"].map(command=>[command,()=>{frappe.route_options={cfg_route_count_cmd:"CFG:CMD:"+command};frappe.set_route("kanban-logistics");}])),
+            PLAN_FOLLOW_ON_TRIP: () => {frappe.route_options={cfg_follow_on:true};return frappe.set_route('kanban-trip-handover');},
             TRIP_HANDOVER: () => frappe.set_route("kanban-trip-handover"),
             VIEW_LORRY_ROUTE: () => {frappe.route_options={cfg_lorry_route:"driver"};frappe.set_route("kanban-logistics");},
             EDIT_ROUTE_SEQUENCE: () => {frappe.route_options={cfg_lorry_route:"editor"};frappe.set_route("kanban-logistics");},
