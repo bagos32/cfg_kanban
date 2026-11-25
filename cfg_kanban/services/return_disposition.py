@@ -318,7 +318,9 @@ def confirm_owned_stock_disposal(return_case,stock_entry,reason):
         return dict(return_case=case.name,stock_entry=entry.name,already_recorded=True)
     used=frappe.db.get_value('CFG Kanban Return Case',{'owned_stock_issue':entry.name},'name',for_update=True)
     if used:frappe.throw('This Material Issue already supports another Return Case')
-    from cfg_kanban.services.driver_delivery_outcomes import LINE, OUTCOME, _ledger, held_tag_qty
+    from cfg_kanban.services.driver_delivery_outcomes import LINE, OUTCOME, _ledger, held_tag_qty, assert_custody_not_frozen
+    outcome=frappe.get_doc(OUTCOME,case.driver_delivery_outcome)
+    assert_custody_not_frozen(outcome.dispatch_plan)
     rows=[];expected={}
     for source in sorted(case.lines,key=lambda r:r.driver_outcome_line or ''):
         if (source.qc_disposition!='Accept for Disposal'

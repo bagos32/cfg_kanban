@@ -682,8 +682,14 @@ amendment, or require supervisor reconciliation. It never deletes submitted audi
   native feedback, current commitment reads, unused cancellation and scanner/tablet controls are
   preserved. E5A still requires a fresh balanced D3 count and final settlement. See
   `USER_GUIDE_DISPATCH_E5B1.md` / `TEST_DISPATCH_E5B1_RECOVERY.md`; native acceptance is pending.
-  Mixed dispositions/destinations, follow-on recovery Plans/reassignment and wider partial/refused
-  known-customer fulfilment remain later increments.
+  Mixed destinations are covered by E5B2 below, and partial/refused fulfilment by the Driver Route
+  extension. Follow-on recovery Plans/reassignment remain later increments.
+- **Development implemented in E5B2:** full-page Trip Handover and frozen per-source mixed
+  destinations/lorry retention through existing recovery Manifests, exact evidence and fresh D3
+  count. Whole-tag/held-source constraints and native permissions remain. Old customer returns
+  stay separate QC custody, with physical receipt required before office Trip closure; no duplicate
+  receipt/credit is created for owned refusals. See `USER_GUIDE_DISPATCH_E5B2.md` and
+  `TEST_DISPATCH_E5B2_RECOVERY.md`. Follow-on Plans/vehicle reassignment and native acceptance remain pending.
 - Driver DN-based Sales Invoice commands are implemented with Company policy (Draft default), named automatic-submit authority and native accounting/naming. See Dispatch Baseline §26 and `USER_GUIDE_DRIVER_PRINTING.md`. Payment collection remains outside this increment.
 
 ### Package D — Proof, returns, and reconciliation

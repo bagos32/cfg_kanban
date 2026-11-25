@@ -40,7 +40,7 @@ function adapter(){
  const window={cfg_delivery_action_scanner:api};
  const names=['delivery_action_dialog','confirm_delivery_allocations','prepare_customer_delivery_note','required_erp_dialog_fields','required_erp_values','submit_customer_delivery_note','open_delivery_proof'];
  const run=new Function('frappe','window','state','unique_token','server_error_message','fetch_delivery','render_lookup','refresh_list','focus_scanner','scanner_error','bind_delivery_proof_evidence','delivery_geotag','__',
-  `let active_dispatch_review=null,opening_dispatch_review=false,active_delivery_action=null,opening_delivery_action=false,active_route_delivery=null,active_prepared_delivery=null,active_repack=null,active_isolation=null;\n`+
+  `let active_route_count_action=null,active_dispatch_review=null,opening_dispatch_review=false,active_delivery_action=null,opening_delivery_action=false,active_route_delivery=null,active_prepared_delivery=null,active_repack=null,active_isolation=null;\n`+
   names.map(source).join('\n')+'\nreturn {delivery_action_dialog,confirm_delivery_allocations,prepare_customer_delivery_note,open_delivery_proof,handle:()=>active_delivery_action};');
  const methods=run(frappe,window,state,()=>`T-${++nonce}`,(err,fallback)=>err.message||fallback,async()=>({name:'KDS'}),()=>{},async()=>{},()=>{focus++;},err=>{throw new Error(err);},()=>{evidence++;},async()=>({latitude:1,longitude:2,accuracy:3}),text=>text);
  return {methods,state,calls,frappe,dialog:()=>dialog,focused:()=>focus,hidden:()=>hide,cameras,evidence:()=>evidence,
@@ -137,7 +137,7 @@ function adapter(){
  });
  await test('warehouse command and pickup action route through actual global dispatcher',async()=>{
   const start=panel.indexOf('\tasync function process_scan(value)'),end=panel.indexOf('\n\tasync function lookup_tag(',start);const actions=[];
-  const code=`let active_dispatch_review=null,opening_dispatch_review=false,active_delivery_action=null,opening_delivery_action=false,active_route_delivery=null,opening_route_delivery=false,active_prepared_delivery=null,opening_prepared_delivery=false,active_isolation=null,opening_isolation=false,active_repack=null,opening_repack=false;\n`+panel.slice(start,end)+'\nreturn process_scan(command);';
+  const code=`let active_route_count_action=null,active_dispatch_review=null,opening_dispatch_review=false,active_delivery_action=null,opening_delivery_action=false,active_route_delivery=null,opening_route_delivery=false,active_prepared_delivery=null,opening_prepared_delivery=false,active_isolation=null,opening_isolation=false,active_repack=null,opening_repack=false;\n`+panel.slice(start,end)+'\nreturn process_scan(command);';
   const run=new Function('$scanner','state','open_prepared_delivery','confirm_delivery_allocations','prepare_customer_delivery_note','open_delivery_proof','command',code);
   const args=[{find:()=>({val(){}})},{lookup:{delivery_session:{name:'KDS',fulfilment_mode:'Customer Pickup'},dispatch_plan:{name:'DPL'}}},(...v)=>actions.push(['start',...v]),()=>{},()=>{},v=>actions.push(['proof',v.name])];
   await run(...args,'CFG:CMD:START_WAREHOUSE_DELIVERY');await run(...args,'CFG:CMD:ACKNOWLEDGE_PICKUP');assert.deepEqual(actions,[['start','DPL',null],['proof','KDS']]);

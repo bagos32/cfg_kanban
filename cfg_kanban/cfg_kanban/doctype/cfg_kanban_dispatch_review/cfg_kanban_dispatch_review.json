@@ -35,7 +35,8 @@
   "finish_key",
   "finish_payload_hash",
   "hold_key",
-  "resume_key"
+  "resume_key",
+  "mixed_recovery_json"
  ],
  "fields": [
   {
@@ -114,7 +115,7 @@
    "label": "Closing Choice",
    "fieldtype": "Select",
    "read_only": 1,
-   "options": "\nNo Remaining Prepared Stock\nClose Trip - Stock Stays\nContinue Same Plan Overnight\nReturned to Warehouse\nTransferred to Another Lorry"
+   "options": "\nNo Remaining Prepared Stock\nClose Trip - Stock Stays\nContinue Same Plan Overnight\nReturned to Warehouse\nTransferred to Another Lorry\nMixed Leftover Dispositions"
   },
   {
    "fieldname": "reason",
@@ -257,6 +258,13 @@
    "fieldtype": "Link",
    "read_only": 1,
    "options": "CFG Kanban Movement Manifest"
+  },
+  {
+   "fieldname": "mixed_recovery_json",
+   "label": "Approved Per-item Recovery",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "read_only": 1
   }
  ],
  "permissions": [

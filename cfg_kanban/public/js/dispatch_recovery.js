@@ -43,7 +43,7 @@
    if(!['Reviewing','Held'].includes(s.context.review?.state))return false;
    const m=manifest(),next=step();
    if(next==='create')return !!s.route&&!!s.reason&&(!m||m.state==='Cancelled');
-   if(next==='cancel')return ['Draft','Prepared'].includes(m?.state)&&!m.dispatch_command&&!m.dispatch_stock_entry&&!!s.reason;
+   if(next==='cancel')return !s.context.mixed_recovery?.active&&['Draft','Prepared'].includes(m?.state)&&!m.dispatch_command&&!m.dispatch_stock_entry&&!!s.reason;
    if(next==='loose'){const row=m?.lines?.find(row=>row.name===s.line);return m?.state==='Draft'&&!!row&&Number.isFinite(Number(s.qty))&&Number(s.qty)>0&&Math.abs(Number(s.qty)-Number(row.dispatch_qty))<=0.000001;}
    if(next==='prepare')return m?.state==='Draft'&&m.lines?.length>0&&m.lines.every(row=>row.loading_confirmed);
    return m?.state==='Prepared'||!!m?.dispatch_retry_available;
@@ -87,7 +87,7 @@
    if(upper==='CFG:CMD:CONFIRM')return confirm();
    edit();
    if(upper==='CFG:CMD:FINISH_DISPATCH_REVIEW')return finish();
-   if(['CFG:CMD:RECOVERY_REFRESH','CFG:CMD:DISPATCH_REVIEW_REFRESH'].includes(upper))return load(s.context?.plan.name||'');
+   if(['CFG:CMD:RECOVERY_REFRESH','CFG:CMD:DISPATCH_REVIEW_REFRESH'].includes(upper))return load(manifest()?.name||s.context?.plan.name||'');
    if(['CFG:CMD:RECOVERY_REASON','CFG:CMD:DISPATCH_REVIEW_REASON'].includes(upper)){s.arm='reason';return;}
    if(upper==='CFG:CMD:RECOVERY_SOURCE'){s.arm='source';s.line='';s.qty='';return;}
    if(upper==='CFG:CMD:RECOVERY_CANCEL')return action('cancel');
@@ -180,7 +180,7 @@
    event.preventDefault();event.stopPropagation();dialog.set_value('scan','');if(value)queue(()=>controller.scan(value));
   });
   dialog.show();render(controller.state);focus();if(options.planScan)await queue(()=>controller.load(options.planScan));
-  return controller.state.closed?null:{scan:value=>child?child.scan(value):queue(()=>controller.scan(value)),focus,controller};
+  return controller.state.closed?null:{scan:value=>child?child.scan(value):queue(()=>controller.scan(value)),focus,controller,close:()=>dialog.hide()};
  }
  const api={createController,open,erpFields,erpValues};if(typeof module!=='undefined'&&module.exports)module.exports=api;
  root.cfg_dispatch_recovery=api;

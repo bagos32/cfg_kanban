@@ -10,7 +10,7 @@ class CFGKanbanDispatchReview(Document):
         if before:
             for name in ('dispatch_plan','company','vehicle_warehouse','vehicle_reference',
                          'opened_on','opened_by_operator','operator_session','opening_snapshot_json',
-                         'opening_snapshot_hash','idempotency_key'):
+                         'opening_snapshot_hash','idempotency_key','mixed_recovery_json'):
                 if before.get(name)!=self.get(name):
                     frappe.throw('Dispatch Review opening snapshots are immutable')
             if before.state in ('Completed','Resumed') and before.as_dict()!=self.as_dict():

@@ -449,6 +449,16 @@ def _protect_driver_execution(doc, before):
             frappe.throw('Complete the started driver route before closing its planning record')
 
 
+def _assert_return_custody_received(trip):
+    """Closing ends transport custody; QC/accounting may continue after physical receipt."""
+    names=frappe.db.get_values('CFG Kanban Return Case',dict(driver_trip=trip.name,return_flow='Customer Return for QC',
+        state=['not in',['Cancelled','Closed']],received_on=['is','not set']),
+        ['name','stock_already_owned'],as_dict=True,for_update=True)
+    if any(not cint(row.stock_already_owned) for row in names):
+        frappe.throw('Collected customer returns still await QC receipt; confirm their physical handover before closing the Delivery Trip')
+
+
+
 def validate_trip(doc):
     frappe.only_for(EDITORS)
     doc.check_permission('create' if doc.is_new() else 'write')
@@ -503,6 +513,7 @@ def validate_trip(doc):
         for name in closing:
             if _read('CFG Kanban Dispatch Plan', name, current=True).state not in ('Reconciled', 'Cancelled'):
                 frappe.throw('Settle or cancel linked Dispatch Plans through the existing workflow before closing this planning record')
+        _assert_return_custody_received(doc)
         _preserve_derived(doc, before)
         if before.get('driver_route_state') == 'In Progress':
             # Only the existing office close/cancel path, after all linked Plans are settled,

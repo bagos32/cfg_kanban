@@ -1,0 +1,10 @@
+.cfg-trip-handover .btn { min-height: 44px; white-space: normal; margin: 4px 2px; }
+.cfg-trip-handover .handover-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 4px; }
+.cfg-trip-handover .handover-scan { margin: 10px 0; min-height: 44px; }
+.cfg-trip-handover .handover-operator { font-weight: 600; margin-bottom: 10px; }
+.cfg-trip-handover .handover-notice { margin-top: 12px; padding: 12px; background: var(--subtle-fg, #f2f5fa); border-left: 4px solid var(--primary, #2471a3); }
+.cfg-trip-handover .handover-options .btn { min-height: 52px; overflow-wrap: anywhere; }
+.cfg-trip-handover .table-responsive { overflow-x: auto; }
+.cfg-trip-handover td, .cfg-trip-handover th { vertical-align: middle; }
+.cfg-trip-handover .handover-inputs { margin: 14px 0; }
+@media (max-width: 500px) { .cfg-trip-handover .handover-actions { grid-template-columns: 1fr; } }

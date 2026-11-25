@@ -102,6 +102,7 @@ class CFGKanbanMovementManifest(Document):
             "dispatch_plan", "vehicle_warehouse", "vehicle_reference",
             "dispatch_recovery_review", "recovery_action", "recovery_reason",
             "recovery_snapshot_json", "recovery_payload_hash",
+            "recovery_bundle_key",
         )
         for fieldname in immutable:
             if before.get(fieldname) != self.get(fieldname):

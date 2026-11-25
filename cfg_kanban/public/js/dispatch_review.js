@@ -14,7 +14,8 @@
     const result=await env.rpc('get_dispatch_review_context',{scan_value:value,operator_session_token:env.token()});
     if(s.closed)return;if(env.owner()!==env.openedOwner)fail('Operator changed; reopen the review.');
     s.context=result;
-    if(result.recovery?.state==='Received'){s.action=result.recovery.recovery_action;s.movement=result.recovery.dispatch_stock_entry;}
+    if(result.mixed_recovery?.active){s.action='Mixed Leftover Dispositions';s.movement='';}
+    else if(result.recovery?.state==='Received'){s.action=result.recovery.recovery_action;s.movement=result.recovery.dispatch_stock_entry;}
     if(s.mode==='begin'&&['Reviewing','Held'].includes(result.review?.state))s.mode='finish';
     s.message=result.review?.state==='Overnight'?'This Plan retains its overnight commitments. Use Resume Review and a reason to continue.':
      result.review?.state==='Completed'?'This trip is reconciled. Its closing snapshot is retained below.':
@@ -128,7 +129,7 @@
    event.preventDefault();event.stopPropagation();dialog.set_value('scan','');if(value)queue(()=>controller.scan(value));
   });
   dialog.show();render(controller.state);focus();if(options.planScan)await queue(()=>controller.load(options.planScan));
-  return controller.state.closed?null:{scan:value=>queue(()=>controller.scan(value)),focus,controller};
+  return controller.state.closed?null:{scan:value=>queue(()=>controller.scan(value)),focus,controller,close:()=>dialog.hide()};
  }
  const api={createController,open};if(typeof module!=='undefined'&&module.exports)module.exports=api;
  root.cfg_dispatch_review=api;

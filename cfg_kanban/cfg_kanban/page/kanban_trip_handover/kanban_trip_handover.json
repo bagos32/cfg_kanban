@@ -1,0 +1,44 @@
+{
+ "doctype": "Page",
+ "module": "CFG Kanban",
+ "name": "kanban-trip-handover",
+ "page_name": "kanban-trip-handover",
+ "roles": [
+  {
+   "role": "Kanban Terminal"
+  },
+  {
+   "role": "Quality User"
+  },
+  {
+   "role": "Quality Manager"
+  },
+  {
+   "role": "Stock User"
+  },
+  {
+   "role": "Stock Manager"
+  },
+  {
+   "role": "Sales Manager"
+  },
+  {
+   "role": "Accounts User"
+  },
+  {
+   "role": "Accounts Manager"
+  },
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Sales User"
+  },
+  {
+   "role": "Manufacturing Manager"
+  }
+ ],
+ "standard": "Yes",
+ "system_page": 0,
+ "title": "Trip Handover"
+}

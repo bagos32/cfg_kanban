@@ -294,6 +294,7 @@ def release(doc, line_names, reason, operator, session):
         frappe.throw('A Supervisor with Override permission must release refused stock', frappe.PermissionError)
     if not str(reason or '').strip():
         frappe.throw('A Supervisor release reason is required')
+    assert_custody_not_frozen(doc.dispatch_plan)
     delivery = _read('CFG Kanban Delivery Session', doc.delivery_session, current=True)
     if delivery.state != 'Closed':
         frappe.throw('Complete accepted delivery and proof before releasing refused stock')
@@ -313,6 +314,7 @@ def release(doc, line_names, reason, operator, session):
 def auto_release(delivery):
     if not delivery.get('driver_delivery_outcome') or delivery.state != 'Closed':
         return
+    assert_custody_not_frozen(delivery.dispatch_plan)
     doc = outcome_for(delivery, current=True)
     # Fetch the child values with current reads; a row lock alone must not retain an older snapshot.
     rows = [frappe.get_doc(LINE, row.name, for_update=True) for row in sorted(doc.lines,key=lambda r:r.name)]
@@ -336,6 +338,20 @@ def held_rows(filters=None, current=False):
     else:
         names = frappe.get_all(LINE, filters=base, pluck='name', order_by='name', limit_page_length=0)
     return [frappe.get_doc(LINE, name, **({'for_update':True} if current else {})) for name in names]
+
+
+def assert_custody_not_frozen(plan_name):
+    """A receiving QC decision must not change a frozen recovery before E5 settles it."""
+    if not plan_name:
+        return
+    review_name=frappe.db.get_value('CFG Kanban Dispatch Plan',plan_name,'active_dispatch_review',for_update=True)
+    if not review_name:
+        return
+    review=frappe.get_doc('CFG Kanban Dispatch Review',review_name,for_update=True)
+    if review.state in ('Reviewing','Held') and review.get('mixed_recovery_json'):
+        value=json.loads(review.mixed_recovery_json)
+        if value.get('active'):
+            frappe.throw('Settle the frozen per-item Dispatch Review before releasing or confirming disposal of its recovered QC stock')
 
 
 def held_tag_qty(name):

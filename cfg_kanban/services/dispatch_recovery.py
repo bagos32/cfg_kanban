@@ -135,7 +135,12 @@ def _context(plan, review, token, manifest=None):
 def get_dispatch_recovery_context(scan_value, operator_session_token):
     operator, _session = _authorized(operator_session_token)
     plan, review = _load(scan_value, operator)
-    return _context(plan, review, operator_session_token)
+    manifest = None
+    if frappe.db.exists(MANIFEST, scan_value):
+        candidate = frappe.get_doc(MANIFEST, scan_value)
+        if candidate.dispatch_recovery_review == review.name:
+            manifest = candidate
+    return _context(plan, review, operator_session_token, manifest)
 
 
 @frappe.whitelist()
@@ -155,6 +160,10 @@ def create_dispatch_recovery(dispatch_review, logistics_route, reason, balance_h
             frappe.throw('This recovery token belongs to different details', DispatchRecoveryReplayError)
         return _context(plan, review, operator_session_token, manifest)
     _active(plan, review)
+    if review.get('mixed_recovery_json'):
+        from cfg_kanban.services.dispatch_recovery_mixed import active
+        if active(review):
+            frappe.throw('Use the frozen per-item recovery instead of creating a whole-remainder movement')
     if review.get('recovery_manifest'):
         old = frappe.get_doc(MANIFEST, review.recovery_manifest, for_update=True)
         if old.state != 'Cancelled':
@@ -211,7 +220,11 @@ def _locked_manifest(name, operator=None):
         plan = frappe.get_doc('CFG Kanban Dispatch Plan', plan_name, for_update=True)
         review = frappe.get_doc(review_service.REVIEW, link, for_update=True)
     manifest = frappe.get_doc(MANIFEST, name, for_update=True)
-    if (review.get('recovery_manifest') != name or manifest.dispatch_recovery_review != review.name
+    allowed = review.get('recovery_manifest') == name
+    if manifest.get('recovery_bundle_key'):
+        from cfg_kanban.services.dispatch_recovery_mixed import belongs
+        allowed = belongs(review, manifest)
+    if (not allowed or manifest.dispatch_recovery_review != review.name
             or review.company != plan.company or review.vehicle_warehouse != plan.vehicle_warehouse):
         frappe.throw('Recovery Manifest does not match its active Review and original lorry')
     return plan, review, manifest
@@ -254,6 +267,9 @@ def validate_recovery_manifest(manifest, operator=None, reserved=False, confirme
         frappe.throw('Recovery Manifest route/source/destination differs from its approved recovery')
     expected = json.loads(manifest.recovery_snapshot_json or '[]')
     current = _recipe(_review_service()._balances(plan, current=True))
+    if manifest.get('recovery_bundle_key'):
+        from cfg_kanban.services.dispatch_recovery_mixed import expected_manifest
+        current = expected_manifest(plan, review, manifest)
     if not expected or expected != current or len(manifest.lines) != len(expected):
         frappe.throw('Prepared remainder changed; cancel the unused recovery and review it again')
     by_allocation = {row['dispatch_allocation']: row for row in expected}
@@ -424,7 +440,15 @@ def cancel_dispatch_recovery(manifest_name, reason, event_token, operator_sessio
     if manifest.state == 'Cancelled':
         return _context(plan, review, operator_session_token, manifest)
     _active(plan, review)
+    if manifest.get('recovery_bundle_key'):
+        frappe.throw('Cancel the whole unused per-item decision from Trip Handover; individual destination groups cannot be removed')
     reason = str(reason or '').strip()
+    _cancel_unused(plan, review, manifest, reason, operator, session)
+    return _context(plan, review, operator_session_token, manifest)
+
+
+def _cancel_unused(plan, review, manifest, reason, operator, session):
+    """Caller holds Plan/Review/member locks and has approved the complete cancellation."""
     if (manifest.state not in ('Draft', 'Prepared') or manifest.dispatch_stock_entry
             or manifest.dispatch_command or not reason):
         frappe.throw('Only an unused Draft/Prepared recovery can be cancelled, with a Supervisor reason; ERP work requires controlled resolution')
@@ -449,7 +473,6 @@ def cancel_dispatch_recovery(manifest_name, reason, event_token, operator_sessio
     record('Dispatch Recovery Cancelled', movement_manifest=manifest.name,
         reference_doctype=review.doctype, reference_name=review.name,
         operator=operator.employee, operator_session=session.name, terminal_user=session.terminal_user, notes=reason)
-    return _context(plan, review, operator_session_token, manifest)
 
 
 def validate_recovery_stock_entry(doc):
@@ -475,6 +498,10 @@ def validate_recovery_stock_entry(doc):
 
 def assert_review_disposition(review, action=None, movement=None):
     """Do not abandon a reserved recovery or settle it against unrelated movement."""
+    if review.get('mixed_recovery_json'):
+        from cfg_kanban.services.dispatch_recovery_mixed import assert_disposition
+        if assert_disposition(review, action, movement):
+            return
     if not review.get('recovery_manifest'):
         return
     manifest = frappe.get_doc(MANIFEST, review.recovery_manifest, for_update=True)

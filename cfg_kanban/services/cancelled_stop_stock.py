@@ -80,7 +80,7 @@ def assert_held_tag_unload(unit,token):
 def assert_review_action(plan,action):
     if not plan.get('stop_cancellation'):return
     outstanding=rows({'dispatch_plan':plan.name,'stock_state':['in',[HELD,RECOVERY]]},True)
-    if outstanding and action not in ('Continue Same Plan Overnight','Returned to Warehouse','Transferred to Another Lorry'):
+    if outstanding and action not in ('Continue Same Plan Overnight','Returned to Warehouse','Transferred to Another Lorry','Mixed Leftover Dispositions'):
         frappe.throw('Cancelled customer goods are reserved for return; complete their controlled recovery or continue the same Plan overnight')
 
 
@@ -122,7 +122,11 @@ def assert_loose_movement(item,warehouse,qty,manifest=None):
     excluded=None
     if manifest and manifest.get('dispatch_recovery_review'):
         review=frappe.get_doc('CFG Kanban Dispatch Review',manifest.dispatch_recovery_review)
-        if review.recovery_manifest!=manifest.name:frappe.throw('Recovery does not match its controlled Dispatch Review')
+        allowed=review.recovery_manifest==manifest.name
+        if manifest.get('recovery_bundle_key'):
+            from cfg_kanban.services.dispatch_recovery_mixed import belongs
+            allowed=belongs(review,manifest)
+        if not allowed:frappe.throw('Recovery does not match its controlled Dispatch Review')
         excluded=review.dispatch_plan
     protected={}
     for row in held:

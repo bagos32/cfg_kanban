@@ -2,7 +2,7 @@
 
 **Baseline identifier:** `CFG-DISPATCH-E3`
 **Decision status:** Locked
-**Current status:** E1–E3 implemented; E4A/E4B/E4C and E5A development implemented; E5B remains pending
+**Current status:** E1–E3 implemented; E4A/E4B/E4C, E5A, E5B1 and E5B2 development implemented; follow-on recovery Plans/reassignment and wider native hardening remain pending
 **Implementation status:** Dispatch Profiles, permanent Dispatch Operations cards, the read-only
 operator launcher, Dispatch Plans, approval/cancellation, controlled tagged/untagged reservation,
 late lorry claim, physical loading confirmation, Manifest generation and controlled direct Material
@@ -12,8 +12,9 @@ E4B adds Open Route multi-customer Stops, configurable flexible/planned order, c
 origins, partial quantity containers and persisted action reconciliation. E4C adds direct warehouse
 fulfilment/pickup with reservation handoff and configurable attended acknowledgement. E4A/E4B/E4C
 live acceptance is pending; E3 loading remains a separate lifecycle. E5A adds guarded Plan reviews,
-D3 count/evidence linkage and both overnight choices. E5B guided recovery and wider hardening remain
-pending; E5A is not acceptance of the whole E5 roadmap.
+D3 count/evidence linkage and both overnight choices. E5B1 adds whole-remainder recovery and E5B2 adds per-item destinations/retention and Trip Handover
+(see later extensions). Follow-on recovery Plans/reassignment and wider native hardening remain
+pending; implementation is not acceptance of the whole E5 roadmap.
 
 ## 1. Objective
 
@@ -329,9 +330,9 @@ replay/reopen, unused cancellation, saved-Draft validation/delete protection and
 mandatory ERP-input controls are included. See [E5B1 guide](USER_GUIDE_DISPATCH_E5B1.md) and
 [acceptance checklist](TEST_DISPATCH_E5B1_RECOVERY.md). Native/live acceptance is pending.
 
-**Remaining E5B:** mixed per-line or multiple-destination leftover dispositions, follow-on recovery
-Plans/vehicle reassignment, wider partial/refused known-customer fulfilment and native operational
-hardening. E5B1 creates no quantity correction, write-off, credit or replacement delivery engine.
+**E5B2** below implements mixed per-line/multiple-destination leftover dispositions. Driver partial/
+refused fulfilment is covered by the later Driver Route extension. **Remaining E5B:** follow-on
+recovery Plans/vehicle reassignment and native operational hardening. E5B1 creates no quantity correction, write-off, credit or replacement delivery engine.
 
 ### Optional E6 — Destination selected at receipt
 
@@ -731,3 +732,36 @@ browser checks are separate from migration, native accounting/concurrency and de
 Earlier historical references to printing/customer invoicing as future scope are superseded by
 this section only for this approved increment. Automatic route optimization, payment collection
 and other separately deferred reconciliation work remain outside this increment.
+
+
+## 27. E5B2 — Trip Handover and frozen per-item leftover dispositions
+
+Approved 24 November 2026 above `d466852`: a full-page Trip Handover over the existing office Trip,
+Plans, Reviews, native lorry stock and return/QC Cases. Drivers/assistants see their assigned Trip;
+Supervisor decisions retain reconciliation/Override, responsibility and native record permissions.
+Each exact prepared source is fully accounted for across approved same-Company Direct Transfer
+routes and Keep on Lorry. Loose stock can split; physical tags and held sources stay whole.
+Frozen decisions create one existing recovery Manifest per route in one transaction. Every group
+retains normal source confirmation, reservation, certificate/expiry identity, native ERP inputs,
+Draft/submission/feedback and recovery history. Keep releases old Plan commitments only at final
+settlement; continuing the same Plan overnight remains the existing separate whole-Plan action.
+
+One fresh balanced D3 lorry count after all movements and the mixed Review choice recheck every
+exact movement/kept quantity. No unfinished group, foreign evidence or moved/used tag can settle
+the Plan. Whole unused cancellation restores all reservations/custody before ERP work; after any
+ERP command/Draft the frozen instructions remain and saved document recovery is required. Unknown
+browser actions retain their original payload/event across reopening. Settled evidence cannot
+be cancelled or used to explain another Plan, including loose-only recovery movements.
+
+Old customer returns remain separate non-stock custody. Existing QC receipt/inspection and
+accounting/physical disposition own them; owned refusals retain holds and create no duplicate
+receipt/credit. Office Trip closure now requires physical receipt of uncancelled old returns;
+inspection/accounting may continue later. Native permissions restrict visible Case details.
+
+Operator/Logistics/Driver/office entry points, command catalogue/Help, camera, Enter/Tab and focus/
+identity lifecycle accompany the normal page. D3 opening, loose table and closing inputs now use
+the existing shared scanner controller; count/variance server rules are unchanged.
+
+See [guide](USER_GUIDE_DISPATCH_E5B2.md) and [acceptance](TEST_DISPATCH_E5B2_RECOVERY.md). Offline
+checks do not establish native posting, database concurrency, warehouse/kiosk or device acceptance.
+Follow-on Trips/vehicle reassignment remain separate scope.

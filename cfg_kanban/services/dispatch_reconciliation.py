@@ -132,11 +132,16 @@ def _current_context(plan, review=None):
             prepared_remaining_budget=prepared))
     recovery = frappe.db.get_value('CFG Kanban Movement Manifest', review.recovery_manifest,
         ['name','state','dispatch_stock_entry','recovery_action'], as_dict=True) if review and review.get('recovery_manifest') else None
+    mixed = None
+    if review and review.get('mixed_recovery_json'):
+        from cfg_kanban.services.dispatch_recovery_mixed import context
+        mixed = context(plan, review)
     return dict(plan=plan.as_dict(), review=review.as_dict() if review else None, recovery=recovery,
+                mixed_recovery=mixed,
                 lorry_balances=lorry_balances,
                 unassigned_deliveries=unassigned,
                 balances=balances, balance_hash=_hash(balances), quantity_totals=quantities,
-                actions=list(ACTIONS),
+                actions=list(ACTIONS) + (['Mixed Leftover Dispositions'] if mixed and mixed['active'] else []),
                 boundary='The route stock count covers all lorry stock, including other Plans and unassigned stock. This review settles only this Plan.')
 
 
@@ -242,6 +247,10 @@ def _movement_evidence(plan, review, rows, name, action, count):
     if (entry.docstatus!=1 or entry.company!=plan.company or
             (entry.get('purpose') or entry.get('stock_entry_type'))!='Material Transfer'):
         frappe.throw('Movement evidence must be a submitted same-Company Material Transfer')
+    manifest_name=entry.get('cfg_movement_manifest')
+    linked_review=frappe.db.get_value('CFG Kanban Movement Manifest',manifest_name,'dispatch_recovery_review') if manifest_name else None
+    if linked_review and linked_review!=review.name:
+        frappe.throw('This controlled movement belongs to another Dispatch Review and cannot settle this Plan')
     # SLE creation supplies submission chronology. Tags additionally require the completed
     # controlled Manifest, so native stock and the operational tag ledger agree.
     expected={}
@@ -320,7 +329,7 @@ def finish_dispatch_review(dispatch_review, action, reconciliation_name, reason,
         return _current_context(plan,review)
     if review.state not in ('Reviewing','Held') or plan.active_dispatch_review!=review.name:
         frappe.throw('Only the active Dispatch Review can be completed')
-    if action not in ACTIONS or not reason:
+    if action not in ACTIONS + ('Mixed Leftover Dispositions',) or not reason:
         frappe.throw('Choose a valid leftover-stock action and provide its reason')
     _no_open_delivery(plan)
     if plan.get('stop_cancellation'):
@@ -336,12 +345,15 @@ def finish_dispatch_review(dispatch_review, action, reconciliation_name, reason,
         frappe.throw('Prepared stock remains; select its actual disposition')
     if action!='No Remaining Prepared Stock' and not remaining:
         frappe.throw('No prepared stock remains; use No Remaining Prepared Stock')
-    if review.get('recovery_manifest'):
+    if review.get('recovery_manifest') or review.get('mixed_recovery_json'):
         from cfg_kanban.services.dispatch_recovery import assert_review_disposition
         assert_review_disposition(review, action, movement_stock_entry)
     count=_count_evidence(plan,review,reconciliation_name)
     destination=None
-    if action in ('Returned to Warehouse','Transferred to Another Lorry'):
+    if action == 'Mixed Leftover Dispositions':
+        from cfg_kanban.services.dispatch_recovery_mixed import settle
+        settle(plan, review, rows, count)
+    elif action in ('Returned to Warehouse','Transferred to Another Lorry'):
         destination=_movement_evidence(plan,review,rows,movement_stock_entry,action,count)
     else:
         if movement_stock_entry:
@@ -421,7 +433,7 @@ def resume_dispatch_review(dispatch_review, reason, event_token, operator_sessio
         frappe.throw('Only an open or overnight review can resume, with a reason; a held review requires counted settlement')
     if review.state=='Reviewing':
         _supervisor(operator)
-    if review.get('recovery_manifest'):
+    if review.get('recovery_manifest') or review.get('mixed_recovery_json'):
         from cfg_kanban.services.dispatch_recovery import assert_review_disposition
         assert_review_disposition(review)
     _counts()._validate_vehicle_warehouse(plan.company, plan.vehicle_warehouse)
@@ -442,6 +454,10 @@ def protect_review_movement_cancellation(doc, method=None):
     """A closing stock-disposition reference cannot disappear behind a reconciled trip."""
     if not frappe.db.table_exists(REVIEW):
         return
+    manifest=doc.get('cfg_movement_manifest')
+    if manifest and frappe.db.get_value('CFG Kanban Movement Manifest',manifest,'recovery_bundle_key'):
+        from cfg_kanban.services.dispatch_recovery_mixed import protect_movement_cancellation
+        protect_movement_cancellation(doc)
     review=frappe.db.get_value(REVIEW,{'movement_stock_entry':doc.name,'state':'Completed'},'name',for_update=True)
     if review:
         frappe.throw(f'Stock Entry {doc.name} settled Dispatch Review {review}; use an audited follow-on movement instead of cancelling its evidence')

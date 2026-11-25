@@ -216,7 +216,7 @@
         if(state.detail&&source?.binding?.trip===state.detail.trip.name&&source.gps)state.detail.vehicle_locations=[{trip:state.detail.trip,gps:source.gps}];
         gps?.context(state);
         routeMap?.detach();
-        $root.find('.cfg-driver-print-launch').html(state.detail&&state.operator&&!state.stale?'<button class="btn btn-default cfg-driver-print-documents">Documents / Print / Invoice</button>':'');
+        $root.find('.cfg-driver-print-launch').html(state.detail&&state.operator&&!state.stale?'<button class="btn btn-default cfg-driver-print-documents">Documents / Print / Invoice</button><button class="btn btn-default cfg-driver-handover">Trip Handover</button>':'');
         $root.find('.cfg-driver-list').html(tripList(state)); $root.find('.cfg-driver-detail').html(detailView(state));
         routeMap?.update(state,$root.find('.cfg-driver-map-slot')[0]);
         notice(state.error ? (state.stale ? tr('Not refreshed') + ': ' : '') + state.error : state.busy ? tr('Refreshing…') : '');
@@ -234,7 +234,7 @@
     });
     app.hide(); // A late asset load must not activate an already hidden Desk page.
     const focus = () => action ? action.focus() : input.trigger('focus');
-    async function submit(value) { if(String(value??input.val()).trim().toUpperCase()==='CFG:CMD:MOBILE_PRINT'&&!action){input.val('');return printDocuments();} const command=String(value??input.val()).trim();if(command.toUpperCase()==='CFG:CMD:CANCEL_CUSTOMER_STOP'&&!action){input.val('');const key=app.state.stop||app.state.detail?.next_stop_key;if(!key){notice(tr('Select an unstarted customer stop first.'));focus();return;}return execute(key,'Cancel Customer Stop');} const text=String(value??input.val()).trim();if(/^CFG:CMD:GPS_(SHARE|STOP|REFRESH)$/.test(text)&&!action){input.val('');try{return await gps?.scan(text);}finally{focus();}} if (action) { const scan = value ?? input.val(); input.val(''); return action.scan(scan); } try { let station = ''; try { station = localStorage.getItem('cfg_kanban_station') || ''; } catch (_) {} await app.scan(value ?? input.val(), $root.find('.cfg-driver-pin').val(), station); input.val(''); $root.find('.cfg-driver-pin').val(''); } finally { focus(); } }
+    async function submit(value) { if(String(value??input.val()).trim().toUpperCase()==='CFG:CMD:MOBILE_PRINT'&&!action){input.val('');return printDocuments();} const command=String(value??input.val()).trim();if(command.toUpperCase()==='CFG:CMD:TRIP_HANDOVER'&&!action){input.val('');return openHandover();}if(command.toUpperCase()==='CFG:CMD:CANCEL_CUSTOMER_STOP'&&!action){input.val('');const key=app.state.stop||app.state.detail?.next_stop_key;if(!key){notice(tr('Select an unstarted customer stop first.'));focus();return;}return execute(key,'Cancel Customer Stop');} const text=String(value??input.val()).trim();if(/^CFG:CMD:GPS_(SHARE|STOP|REFRESH)$/.test(text)&&!action){input.val('');try{return await gps?.scan(text);}finally{focus();}} if (action) { const scan = value ?? input.val(); input.val(''); return action.scan(scan); } try { let station = ''; try { station = localStorage.getItem('cfg_kanban_station') || ''; } catch (_) {} await app.scan(value ?? input.val(), $root.find('.cfg-driver-pin').val(), station); input.val(''); $root.find('.cfg-driver-pin').val(''); } finally { focus(); } }
     function stopCamera() { cameraEpoch++; try { camera?.stop_scan?.(); camera?.dialog?.hide?.(); } catch (_) {} camera = null; }
     $root.on('keydown.cfg_driver', '.cfg-driver-scan', event => {
       if (!['Enter', 'Tab'].includes(event.key) || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.isComposing || !String(input.val() || '').trim()) return;
@@ -261,6 +261,8 @@
           onClose:()=>{action=null;focus();}});
       } catch(error) { $root.find('.cfg-driver-action-host').empty(); notice(message(error)); focus(); }
     }
+    function openHandover(){if(app.state.busy||app.state.stale||!app.state.detail||!app.state.operator)return;frappe.set_route('kanban-trip-handover',app.state.detail.trip.name);}
+    $root.on('click.cfg_driver','.cfg-driver-handover',openHandover);
     function printDocuments(stopKey=null) {
       if(action||!app.session()||!app.state.detail||app.state.stale||app.state.busy)return;
       stopCamera();

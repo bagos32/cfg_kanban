@@ -28,7 +28,7 @@ class TestOfficeDeliveryTrip(unittest.TestCase):
         self.data = {}; self.queries = []; self.reads = []; self.fulfilled = []; self.roles = ['Stock Manager']
         self.frappe = Row(get_doc=self.get_doc, get_list=self.get_list, throw=self.throw,
             as_json=json.dumps, only_for=self.only_for, session=Row(user='planner@example.com'),
-            db=Row(sql=self.sql, table_exists=lambda name:True, exists=self.exists, get_value=self.get_value))
+            db=Row(sql=self.sql, table_exists=lambda name:True, exists=self.exists, get_value=self.get_value,get_values=self.get_values))
         self.ns = load('services/delivery_trips.py', dict(frappe=self.frappe, json=json, math=math, re=re, uuid=uuid,
             cint=lambda value:int(value or 0), flt=lambda value:float(value or 0),
             getdate=lambda value:dt.date.fromisoformat(str(value)[:10]),
@@ -59,6 +59,7 @@ class TestOfficeDeliveryTrip(unittest.TestCase):
     def matches(self, doc, filters):
         for key, value in (filters or {}).items():
             if isinstance(value,list):
+                if value[0]=='is' and ((value[1]=='not set' and doc.get(key)) or (value[1]=='set' and not doc.get(key))):return False
                 if value[0]=='in' and doc.get(key) not in value[1]:return False
                 if value[0]=='not in' and doc.get(key) in value[1]:return False
             elif doc.get(key)!=value:return False
@@ -70,6 +71,8 @@ class TestOfficeDeliveryTrip(unittest.TestCase):
             return [row[pluck] for row in rows]
         if fields:return [Doc({field:row.get(field) for field in fields}) for row in rows]
         return rows
+    def get_values(self,doctype,filters,fields,**kwargs):
+        return [Doc({field:row.get(field) for field in fields}) for row in self.data.get(doctype,{}).values() if self.matches(row,filters)]
     def exists(self,doctype,filters):return any(self.matches(row,filters) for row in self.data.get(doctype,{}).values())
     def get_value(self,doctype,name,field):return self.data.get(doctype,{}).get(name,{}).get(field)
     def sql(self, query, values=None, **kw):

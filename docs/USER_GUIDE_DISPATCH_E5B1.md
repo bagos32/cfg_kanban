@@ -106,3 +106,14 @@ nested input dialog without posting; closing the outer dialog does not cancel it
 
 See [E5B1 acceptance checklist](TEST_DISPATCH_E5B1_RECOVERY.md) and
 [E5A final review/count rules](USER_GUIDE_DISPATCH_E5A.md).
+
+
+## Trip Handover and per-item leftovers — E5B2 extension
+
+Open **Delivery Trip / Driver Route → Trip Handover** for the full-page balance/return view.
+Authorized Supervisors may assign remaining sources to multiple approved destinations and retain
+selected sound stock on the lorry. Existing scans/native movements, a fresh balanced D3 count and
+Review settlement still apply. Whole tags/held sources stay together; old returns use their existing
+QC receipt, with no duplicate receipt/credit. Office closure now requires old-return physical receipt,
+while inspection/accounting may continue. See [E5B2 setup and scanner guide](USER_GUIDE_DISPATCH_E5B2.md)
+and [acceptance checklist](TEST_DISPATCH_E5B2_RECOVERY.md). Implementation does not establish live acceptance.

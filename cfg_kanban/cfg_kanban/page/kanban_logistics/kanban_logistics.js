@@ -587,25 +587,37 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		$reconciliation.find(".clear-reconciliation").on("click", clear_reconciliation_view);
 	}
 
-	function reconciliation_dialog() {
-		if (!state.can_reconcile) return frappe.msgprint(__("This operator is not assigned to Logistics Reconciliation."));
-		if (!state.vehicle_warehouses.length) return frappe.msgprint(__("No active Vehicle Warehouse is configured."));
-		const dialog = new frappe.ui.Dialog({ title: __("Start or Continue Route Stock Count"), fields: [
-			{ fieldname: "warehouse", label: __("Company-specific Vehicle Warehouse"), fieldtype: "Select", reqd: 1,
-				options: state.vehicle_warehouses.map((row) => row.name).join("\n"),
-				description: __("One physical lorry may have a separate Warehouse for each Company. Count only one Company Warehouse at a time.") },
-		], primary_action_label: __("Start / Continue Count"), primary_action: async (values) => {
-			const warehouse = state.vehicle_warehouses.find((row) => row.name === values.warehouse);
-			const response = await frappe.call({ method: "cfg_kanban.services.route_reconciliation.start_route_reconciliation", args: {
-				company: warehouse.company, vehicle_warehouse: warehouse.name,
-				event_token: unique_token(), operator_session_token: state.token,
-			}, freeze: true, freeze_message: __("Opening ERP stock snapshot...") });
-			dialog.hide(); state.reconciliation = response.message; state.scan_mode = "lookup";
-			localStorage.setItem(last_reconciliation_key, state.reconciliation.name);
-			render_reconciliation(); await refresh_list(); focus_scanner();
-		} });
-		dialog.show();
-	}
+	async function count_input_dialog(title, fields, label, submit) {
+        const token=state.token, owner=()=>`${state.operator?.employee||''}:${localStorage.getItem(session_key)||''}:${frappe.get_route()?.[0]||''}`, opened=owner();
+        await frappe.require('/assets/cfg_kanban/js/delivery_action_scanner.js');
+        if(owner()!==opened||frappe.get_route()?.[0]!=='kanban-logistics')return;
+        const dialog=new frappe.ui.Dialog({title,size:'extra-large',fields:[...window.cfg_delivery_action_scanner.fields(),...fields]});
+        let result;
+        active_route_count_action=window.cfg_delivery_action_scanner.bind({frappe,dialog,
+            fields:fields.map(row=>({...row,name:row.fieldname})),owner,nonce:unique_token,label,
+            errorMessage:(error,fallback)=>error?.message||fallback,
+            submit:async(values,event)=>{result=await submit(values,event,token);},
+            success:async()=>{if(owner()!==opened||frappe.get_route()?.[0]!=='kanban-logistics')return;
+                state.reconciliation=result;state.scan_mode='lookup';localStorage.setItem(last_reconciliation_key,result.name);
+                render_reconciliation();await refresh_list();focus_scanner();},
+            onClose:()=>{active_route_count_action=null;focus_scanner();}});
+    }
+
+    async function reconciliation_dialog() {
+        if (!state.can_reconcile) return frappe.msgprint(__('This operator is not assigned to Logistics Reconciliation.'));
+        if (!state.vehicle_warehouses.length) return frappe.msgprint(__('No active Vehicle Warehouse is configured.'));
+        const warehouse=frappe.route_options?.cfg_count_default_warehouse;
+        if(frappe.route_options)delete frappe.route_options.cfg_count_default_warehouse;
+        return count_input_dialog(__('Start or Continue Route Stock Count'),[
+            {fieldname:'warehouse',label:__('Company-specific Vehicle Warehouse'),fieldtype:'Select',reqd:1,
+             options:'\n'+state.vehicle_warehouses.map(row=>row.name).join('\n'),
+             default:state.vehicle_warehouses.some(row=>row.name===warehouse)?warehouse:'',
+             description:__('Confirm the exact Company lorry Warehouse.')}],__('Start / Continue Count'),
+            async(values,event,token)=>{const row=state.vehicle_warehouses.find(row=>row.name===values.warehouse);
+                if(!row)throw new Error(__('Choose a displayed Vehicle Warehouse.'));
+                return (await frappe.call({method:'cfg_kanban.services.trip_handover.start_handover_count',
+                    args:{company:row.company,vehicle_warehouse:row.name,event_token:event,operator_session_token:token},freeze:true})).message;});
+    }
 
 	async function open_reconciliation(name, options) {
 		try {
@@ -643,26 +655,20 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		state.reconciliation = response.message; render_reconciliation(); focus_scanner();
 	}
 
-	function loose_count_dialog() {
-		const rows = (state.reconciliation.lines || []).filter((row) => Number(row.loose_count_qty || 0) !== 0)
-			.map((row) => ({ item_code: row.item_code, batch_no: row.batch_no, qty: row.loose_count_qty }));
-		const dialog = new frappe.ui.Dialog({ title: __("Loose / Untagged Physical Count"), size: "extra-large", fields: [
-			{ fieldname: "counts", label: __("Loose Stock"), fieldtype: "Table", data: rows,
-				in_place_edit: true, description: __("Enter only physical quantity not represented by the Stock Tags scanned above."),
-				fields: [
-					{ fieldname: "item_code", label: __("Item"), fieldtype: "Link", options: "Item", reqd: 1, in_list_view: 1, columns: 4 },
-					{ fieldname: "batch_no", label: __("Batch"), fieldtype: "Link", options: "Batch", in_list_view: 1, columns: 4 },
-					{ fieldname: "qty", label: __("Physical Qty"), fieldtype: "Float", reqd: 1, in_list_view: 1, columns: 4 },
-				] },
-		], primary_action_label: __("Save Loose Count"), primary_action: async (values) => {
-			const response = await frappe.call({ method: "cfg_kanban.services.route_reconciliation.save_loose_counts", args: {
-				reconciliation_name: state.reconciliation.name,
-				counts: JSON.stringify(values.counts || []), operator_session_token: state.token,
-			}, freeze: true });
-			dialog.hide(); state.reconciliation = response.message; render_reconciliation(); focus_scanner();
-		} });
-		dialog.show();
-	}
+	async function loose_count_dialog() {
+        if(!state.reconciliation)return scanner_error(__('Open a Route Stock Count first.'));
+        const name=state.reconciliation.name;
+        const rows=(state.reconciliation.lines||[]).filter(row=>Number(row.loose_count_qty||0)!==0)
+            .map(row=>({item_code:row.item_code,batch_no:row.batch_no,qty:row.loose_count_qty}));
+        return count_input_dialog(__('Loose / Untagged Physical Count'),[
+            {fieldname:'counts',label:__('Loose Stock'),fieldtype:'Table',data:rows,in_place_edit:true,
+             description:__('Enter only quantities not represented by scanned Stock Tags.'),fields:[
+                {fieldname:'item_code',label:__('Item'),fieldtype:'Link',options:'Item',reqd:1,in_list_view:1,columns:4},
+                {fieldname:'batch_no',label:__('Batch'),fieldtype:'Link',options:'Batch',in_list_view:1,columns:4},
+                {fieldname:'qty',label:__('Physical Qty'),fieldtype:'Float',reqd:1,in_list_view:1,columns:4}]}],__('Save Loose Count'),
+            async(values,event,token)=>(await frappe.call({method:'cfg_kanban.services.route_reconciliation.save_loose_counts',
+                args:{reconciliation_name:name,counts:JSON.stringify(values.counts||[]),operator_session_token:token},freeze:true})).message);
+    }
 
 	async function evaluate_reconciliation() {
 		const response = await frappe.call({ method: "cfg_kanban.services.route_reconciliation.evaluate_route_reconciliation", args: {
@@ -672,25 +678,17 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		render_reconciliation(); await refresh_list(); focus_scanner();
 	}
 
-	function close_reconciliation_dialog() {
-		const had_variance = Boolean(state.reconciliation.variance_exception);
-		const dialog = new frappe.ui.Dialog({ title: __("Close Balanced Route Reconciliation"), fields: [
-			{ fieldname: "resolution_notes", label: had_variance ? __("Recount / Resolution Notes") : __("Closing Notes"),
-				fieldtype: "Small Text", reqd: had_variance ? 1 : 0 },
-			{ fieldname: "correction_reference_doctype", label: __("ERP Correction Document Type"), fieldtype: "Select", options: "\nStock Reconciliation\nStock Entry\nDelivery Note\nPurchase Receipt" },
-			{ fieldname: "correction_reference", label: __("ERP Correction Document"), fieldtype: "Dynamic Link", options: "correction_reference_doctype" },
-		], primary_action_label: __("Close Reconciliation"), primary_action: async (values) => {
-			const response = await frappe.call({ method: "cfg_kanban.services.route_reconciliation.close_route_reconciliation", args: {
-				reconciliation_name: state.reconciliation.name, resolution_notes: values.resolution_notes,
-				correction_reference_doctype: values.correction_reference_doctype,
-				correction_reference: values.correction_reference, operator_session_token: state.token,
-			}, freeze: true, freeze_message: __("Closing balanced route count...") });
-			dialog.hide(); state.reconciliation = response.message; render_reconciliation(); await refresh_list(); focus_scanner();
-			if (state.reconciliation.state === "Variance") frappe.msgprint({ title: __("Route Count Changed"), indicator: "red",
-				message: __("ERPNext stock changed after evaluation or the count is still different. Recount or post the authorized ERP correction, then evaluate again.") });
-		} });
-		dialog.show();
-	}
+	async function close_reconciliation_dialog() {
+        if(!state.reconciliation)return scanner_error(__('Open a Route Stock Count first.'));
+        const name=state.reconciliation.name,had_variance=Boolean(state.reconciliation.variance_exception);
+        return count_input_dialog(__('Close Balanced Route Reconciliation'),[
+            {fieldname:'resolution_notes',label:had_variance?__('Recount / Resolution Notes'):__('Closing Notes'),fieldtype:'Small Text',reqd:had_variance?1:0},
+            {fieldname:'correction_reference_doctype',label:__('ERP Correction Document Type'),fieldtype:'Select',options:'\nStock Reconciliation\nStock Entry\nDelivery Note\nPurchase Receipt'},
+            {fieldname:'correction_reference',label:__('ERP Correction Document'),fieldtype:'Dynamic Link',options:'correction_reference_doctype'}],__('Close Reconciliation'),
+            async(values,event,token)=>(await frappe.call({method:'cfg_kanban.services.route_reconciliation.close_route_reconciliation',
+                args:{reconciliation_name:name,resolution_notes:values.resolution_notes,correction_reference_doctype:values.correction_reference_doctype,
+                    correction_reference:values.correction_reference,operator_session_token:token},freeze:true})).message);
+    }
 
 	function cancel_reconciliation() {
 		frappe.prompt([{ fieldname: "reason", label: __("Cancellation Reason"), fieldtype: "Small Text", reqd: 1 }], async (values) => {
@@ -2891,6 +2889,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	}
 
 	let active_dispatch_review = null, opening_dispatch_review = false;
+    let active_route_count_action = null;
 	let active_delivery_action = null, opening_delivery_action = false;
 	let active_repack = null, opening_repack = false, active_isolation = null, opening_isolation = false, active_prepared_delivery = null, opening_prepared_delivery = false, active_route_delivery = null, opening_route_delivery = false;
 	async function open_container_repack(sourceScan, release = false) {
@@ -3006,13 +3005,14 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 
 	function repack_scanner_help() {
         frappe.msgprint(__("Customer Return QC: VIEW_RETURN_QC_MONITOR opens the full return worklist. Sign in with Customer Return QC responsibility. Scan a Temporary Return Note or CFG:SELECT:1–10; NEXT_MATERIALS / PREVIOUS_MATERIALS page cases. QC_INSPECT_RETURN opens the existing authorized QC workflow; RETURN_CASE_RECORD opens the case form. REFRESH updates; CANCEL clears selection. These commands use CFG:CMD: and can be printed from Scanner Command Labels."));
-		frappe.msgprint(__("Lorry routes: CFG:CMD:VIEW_LORRY_ROUTE shows customer names and addresses without a Site QR. EDIT_ROUTE_SEQUENCE opens Supervisor planning. Scan a lorry card or Plan; select an exact numbered trip/Plan if several apply. ROUTE_TEMPLATE selects a preset; ROUTE_ADD_STOP and ROUTE_ASSIGN_PLAN capture customer/source choices. ROUTE_MOVE_UP / ROUTE_MOVE_DOWN provide scanner and touch alternatives to dragging. ROUTE_SAVE_DRAFT / ROUTE_APPROVE_SEQUENCE choose the action, then Confirm. Drivers select the assigned Stop and scan Customer Site QR when the Supervisor policy requires it, then Confirm. ROUTE_SHEET_CAMERA / ROUTE_SHEET_REFRESH and standard numbered choice paging work throughout. ROUTE_SHEET_REASON arms the reason for ROUTE_CANCEL_SHEET / ROUTE_CLOSE_SHEET / ROUTE_VOID_PENDING. A started legacy sheet enters Cancellation Pending: no new visits. ROUTE_OPEN_DELIVERIES and ROUTE_REVIEW_PLANS show numbered existing Sessions and E5 reviews. Resolve and settle them, Refresh, then finish cancellation; posted documents remain intact. Cancel preserves pending requests. All action names use CFG:CMD:. Direct Customer Return: CFG:CMD:DIRECT_CUSTOMER_RETURN opens Company/Customer selection without a Customer Site QR. Select numbered header inputs and scan exact values. RETURN_ITEMS, RETURN_ADD_ITEM, numbered columns and Material Qty enter returned stock quantities; RETURN_NEXT_ITEM / RETURN_PREVIOUS_ITEM move rows, RETURN_INPUTS returns to headers. RETURN_REASON arms the return reason; RETURN_CAMERA opens the camera. Confirm first reviews stock UOM quantities, then Confirm issues the Temporary Return Note. RETURN_EDIT corrects before submission. Unknown submissions retain their original payload across reopening. RETURN_RECONCILE reads the outcome; RETURN_VOID_REASON plus a reason and RETURN_VOID_PENDING abandons only an unrecorded action. Cancel preserves pending details. These actions use CFG:CMD:; Next/Previous Material Choices page inputs. QC/accounting and disposition use the existing Return Case. Guided leftovers: RECOVER_DISPATCH opens the Return / Transfer checklist for an active Review. Select an approved route, RECOVERY_REASON and reason, Confirm. Scan tags/containers; select loose rows, Material Qty and Confirm. RECOVERY_PREPARE then Confirm reserves; RECOVERY_POST then Confirm creates/posts the Stock Entry. RECOVERY_CANCEL with a new reason cancels only an unused recovery. RECOVERY_REFRESH / CAMERA / SOURCE are available. After posting, close a fresh D3 count and FINISH_DISPATCH_REVIEW. Dispatch Review: REVIEW_DISPATCH opens Plan/Review selection and freezes new fulfilment after Confirm. FINISH_DISPATCH_REVIEW, HOLD_DISPATCH_REVIEW and RESUME_DISPATCH_REVIEW select the action. Scan a numbered closing choice, closed KREC count, optional submitted Stock Entry using DISPATCH_REVIEW_MOVEMENT, reason and Confirm. DISPATCH_REVIEW_COUNT / REASON arm input; DISPATCH_REVIEW_CAMERA opens camera; DISPATCH_REVIEW_REFRESH re-reads recorded status. Stock-stays closes the trip and releases commitments; Continue Same Plan Overnight retains them until explicit Resume. Counting uses the existing D3 panel. These commands use CFG:CMD:. Open Route: START_ROUTE_DELIVERY opens Plan/Site selection. PLAN_ROUTE_STOP adds one planned visit as Supervisor; APPROVE_ROUTE_ORDER and SKIP_ROUTE_STOP require a selected planned Stop and reason. ALLOCATE_ROUTE_STOCK opens source selection in the current Route Delivery Session. Scan a tag/container or ERP Item, exact Batch when required, select prepared/unassigned stock, CFG:QTY:MATERIAL:n and Confirm. Quantity bins allow partial stock quantities; ordinary logistics containers deliver all current tags. ROUTE_ITEM / ROUTE_BATCH / ROUTE_REASON / ROUTE_SOURCE arm inputs. ROUTE_CAMERA opens the camera. Numbered choices and Next/Previous Material Choices page selections; Cancel preserves unknown requests for the original operator. ROUTE_RECONCILE re-reads its recorded result; ROUTE_VOID_PENDING requires a reason and cancels only an unrecorded action, preventing late execution. Recorded allocations are reopened and must use their ordinary release controls. All action commands use CFG:CMD:. Warehouse Delivery/Pickup: CFG:CMD:START_WAREHOUSE_DELIVERY opens the same prepared Plan/Site selection without a lorry. CONFIRM_CUSTOMER_ALLOCATION, CREATE_CUSTOMER_DELIVERY_NOTE, CAPTURE_DELIVERY_PROOF and ACKNOWLEDGE_PICKUP open scanner-operable actions for the current Session. DELIVERY_RECIPIENT arms the name, numbered choices select input fields, DELIVERY_CAMERA scans a value; Confirm/Cancel complete or close. ERP table inputs use DELIVERY_ADD_ROW, DELIVERY_NEXT_ROW, DELIVERY_PREVIOUS_ROW, numbered column values and DELIVERY_INPUTS to return. Next/Previous Material Choices page inputs. Profile Pickup Acknowledgement selects name, signature or both; Customer Site evidence also applies. Prepared Customer Delivery: CFG:CMD:START_PREPARED_DELIVERY opens the action. Scan a loaded or warehouse-ready Plan or Customer Site, choose CFG:SELECT:1–10 if needed, scan the exact Customer Site and Confirm. Loaded quantities are reused without re-entry. NEXT_MATERIALS / PREVIOUS_MATERIALS page Plans; PREPARED_DELIVERY_SOURCE starts another selection; PREPARED_DELIVERY_CAMERA opens camera; CANCEL exits safely. Continue with the existing allocation confirmation, Delivery Note and proof workflow. FEFO / FIFO Isolation: CFG:CMD:STOCK_ISOLATION opens the action. Scan a tag/bin, select CFG:SELECT:1–10 if several targets, scan CFG:CMD:ISOLATE_STOCK or CFG:CMD:RELEASE_STOCK, reason and CFG:CMD:CONFIRM. CFG:CMD:ISOLATION_SOURCE arms another source; Next/Previous Material Choices page targets; Cancel exits. Bin isolation covers future loads until released. Tag isolation follows stock splits/replacements. Batch isolation remains independent. Only an unrestricted Supervisor with Override permission may change rules. Explicit scans still require normal validity. Release Stock Tag: CFG:CMD:RELEASE_CONTAINER_STOCK. Source container/tag, numbered fill if needed, Material Qty, unused Main tag for internal or partial releases, reason, Confirm. Whole physical tags can keep their current tag. No destination bin is required; stock remains in the same warehouse, and certificates/expiry stay with it. Camera and Tab/Enter scans work. Intermediate Hopper WIP uses Recover Hopper. Move / Repack: tablets can use Scan with Camera, Scan Source with Camera, Scan Destination with Camera and Scan New Tag with Camera. CFG:CMD:REPACK_CAMERA opens the general camera. Destination requires an existing reusable bin; unused registered stock labels go in Optional New Preprinted Main Tag after an empty bin is selected. Scanners may end each code with Tab or Enter, including the global open command. Keep scanning in the dialog Scanner field; a blank Tab or Shift-Tab retains normal navigation. Scan CFG:CMD:MOVE_CONTAINER_STOCK, source Stock Tag or container, CFG:SELECT:1–10 if several fills, CFG:QTY:MATERIAL:n, destination container, numbered destination choice if needed, reason, then CFG:CMD:CONFIRM. Existing destination stock uses its current tag and combines quantities. For an empty destination only, CFG:CMD:REPACK_NEW_TAG arms a new unused Main Stock Tag. CFG:CMD:REPACK_SOURCE, REPACK_DESTINATION and REPACK_REASON re-arm those fields. NEXT_MATERIALS / PREVIOUS_MATERIALS page choices; CANCEL closes safely. An unacknowledged move remains locked for its original operator to retry, including after reopening or refresh. Print these commands from Kanban Operator → Scanner Command Labels. Intermediate Hopper WIP uses Recover Hopper."));
+		frappe.msgprint(__("Lorry routes: CFG:CMD:VIEW_LORRY_ROUTE shows customer names and addresses without a Site QR. EDIT_ROUTE_SEQUENCE opens Supervisor planning. Scan a lorry card or Plan; select an exact numbered trip/Plan if several apply. ROUTE_TEMPLATE selects a preset; ROUTE_ADD_STOP and ROUTE_ASSIGN_PLAN capture customer/source choices. ROUTE_MOVE_UP / ROUTE_MOVE_DOWN provide scanner and touch alternatives to dragging. ROUTE_SAVE_DRAFT / ROUTE_APPROVE_SEQUENCE choose the action, then Confirm. Drivers select the assigned Stop and scan Customer Site QR when the Supervisor policy requires it, then Confirm. ROUTE_SHEET_CAMERA / ROUTE_SHEET_REFRESH and standard numbered choice paging work throughout. ROUTE_SHEET_REASON arms the reason for ROUTE_CANCEL_SHEET / ROUTE_CLOSE_SHEET / ROUTE_VOID_PENDING. A started legacy sheet enters Cancellation Pending: no new visits. ROUTE_OPEN_DELIVERIES and ROUTE_REVIEW_PLANS show numbered existing Sessions and E5 reviews. Resolve and settle them, Refresh, then finish cancellation; posted documents remain intact. Cancel preserves pending requests. All action names use CFG:CMD:. Direct Customer Return: CFG:CMD:DIRECT_CUSTOMER_RETURN opens Company/Customer selection without a Customer Site QR. Select numbered header inputs and scan exact values. RETURN_ITEMS, RETURN_ADD_ITEM, numbered columns and Material Qty enter returned stock quantities; RETURN_NEXT_ITEM / RETURN_PREVIOUS_ITEM move rows, RETURN_INPUTS returns to headers. RETURN_REASON arms the return reason; RETURN_CAMERA opens the camera. Confirm first reviews stock UOM quantities, then Confirm issues the Temporary Return Note. RETURN_EDIT corrects before submission. Unknown submissions retain their original payload across reopening. RETURN_RECONCILE reads the outcome; RETURN_VOID_REASON plus a reason and RETURN_VOID_PENDING abandons only an unrecorded action. Cancel preserves pending details. These actions use CFG:CMD:; Next/Previous Material Choices page inputs. QC/accounting and disposition use the existing Return Case. Route counts: START_ROUTE_COUNT opens numbered scanner inputs for the lorry; Confirm starts the existing D3 count. ROUTE_COUNT_SCAN arms tag/container counting; ROUTE_COUNT_LOOSE opens the scanner table using DELIVERY_ADD_ROW, numbered columns and scanned values. DELIVERY_INPUTS returns to headers. ROUTE_COUNT_EVALUATE compares stock; ROUTE_COUNT_CLOSE opens scanner-operable closing notes/correction details, then Confirm. These commands use CFG:CMD:. Trip Handover: CFG:CMD:TRIP_HANDOVER opens the full-page per-item recovery view. Select a Trip/Plan; HANDOVER_BEGIN_REVIEW freezes fulfilment after Confirm. HANDOVER_ITEMS, numbered source, HANDOVER_DESTINATION, numbered route or Keep on Lorry, Material Qty and HANDOVER_ADD build choices. HANDOVER_REASON arms the reason; HANDOVER_APPROVE then Confirm freezes every quantity. HANDOVER_MOVEMENTS opens each existing scan/post checklist. HANDOVER_CANCEL_DECISIONS then reason and Confirm cancels the whole unused arrangement only before ERP work. HANDOVER_RETURNS opens existing QC custody. After all movements, use a fresh D3 count and HANDOVER_FINISH. Scanner Help is available on that page. Guided leftovers: RECOVER_DISPATCH opens the Return / Transfer checklist for an active Review. Select an approved route, RECOVERY_REASON and reason, Confirm. Scan tags/containers; select loose rows, Material Qty and Confirm. RECOVERY_PREPARE then Confirm reserves; RECOVERY_POST then Confirm creates/posts the Stock Entry. RECOVERY_CANCEL with a new reason cancels only an unused recovery. RECOVERY_REFRESH / CAMERA / SOURCE are available. After posting, close a fresh D3 count and FINISH_DISPATCH_REVIEW. Dispatch Review: REVIEW_DISPATCH opens Plan/Review selection and freezes new fulfilment after Confirm. FINISH_DISPATCH_REVIEW, HOLD_DISPATCH_REVIEW and RESUME_DISPATCH_REVIEW select the action. Scan a numbered closing choice, closed KREC count, optional submitted Stock Entry using DISPATCH_REVIEW_MOVEMENT, reason and Confirm. DISPATCH_REVIEW_COUNT / REASON arm input; DISPATCH_REVIEW_CAMERA opens camera; DISPATCH_REVIEW_REFRESH re-reads recorded status. Stock-stays closes the trip and releases commitments; Continue Same Plan Overnight retains them until explicit Resume. Counting uses the existing D3 panel. These commands use CFG:CMD:. Open Route: START_ROUTE_DELIVERY opens Plan/Site selection. PLAN_ROUTE_STOP adds one planned visit as Supervisor; APPROVE_ROUTE_ORDER and SKIP_ROUTE_STOP require a selected planned Stop and reason. ALLOCATE_ROUTE_STOCK opens source selection in the current Route Delivery Session. Scan a tag/container or ERP Item, exact Batch when required, select prepared/unassigned stock, CFG:QTY:MATERIAL:n and Confirm. Quantity bins allow partial stock quantities; ordinary logistics containers deliver all current tags. ROUTE_ITEM / ROUTE_BATCH / ROUTE_REASON / ROUTE_SOURCE arm inputs. ROUTE_CAMERA opens the camera. Numbered choices and Next/Previous Material Choices page selections; Cancel preserves unknown requests for the original operator. ROUTE_RECONCILE re-reads its recorded result; ROUTE_VOID_PENDING requires a reason and cancels only an unrecorded action, preventing late execution. Recorded allocations are reopened and must use their ordinary release controls. All action commands use CFG:CMD:. Warehouse Delivery/Pickup: CFG:CMD:START_WAREHOUSE_DELIVERY opens the same prepared Plan/Site selection without a lorry. CONFIRM_CUSTOMER_ALLOCATION, CREATE_CUSTOMER_DELIVERY_NOTE, CAPTURE_DELIVERY_PROOF and ACKNOWLEDGE_PICKUP open scanner-operable actions for the current Session. DELIVERY_RECIPIENT arms the name, numbered choices select input fields, DELIVERY_CAMERA scans a value; Confirm/Cancel complete or close. ERP table inputs use DELIVERY_ADD_ROW, DELIVERY_NEXT_ROW, DELIVERY_PREVIOUS_ROW, numbered column values and DELIVERY_INPUTS to return. Next/Previous Material Choices page inputs. Profile Pickup Acknowledgement selects name, signature or both; Customer Site evidence also applies. Prepared Customer Delivery: CFG:CMD:START_PREPARED_DELIVERY opens the action. Scan a loaded or warehouse-ready Plan or Customer Site, choose CFG:SELECT:1–10 if needed, scan the exact Customer Site and Confirm. Loaded quantities are reused without re-entry. NEXT_MATERIALS / PREVIOUS_MATERIALS page Plans; PREPARED_DELIVERY_SOURCE starts another selection; PREPARED_DELIVERY_CAMERA opens camera; CANCEL exits safely. Continue with the existing allocation confirmation, Delivery Note and proof workflow. FEFO / FIFO Isolation: CFG:CMD:STOCK_ISOLATION opens the action. Scan a tag/bin, select CFG:SELECT:1–10 if several targets, scan CFG:CMD:ISOLATE_STOCK or CFG:CMD:RELEASE_STOCK, reason and CFG:CMD:CONFIRM. CFG:CMD:ISOLATION_SOURCE arms another source; Next/Previous Material Choices page targets; Cancel exits. Bin isolation covers future loads until released. Tag isolation follows stock splits/replacements. Batch isolation remains independent. Only an unrestricted Supervisor with Override permission may change rules. Explicit scans still require normal validity. Release Stock Tag: CFG:CMD:RELEASE_CONTAINER_STOCK. Source container/tag, numbered fill if needed, Material Qty, unused Main tag for internal or partial releases, reason, Confirm. Whole physical tags can keep their current tag. No destination bin is required; stock remains in the same warehouse, and certificates/expiry stay with it. Camera and Tab/Enter scans work. Intermediate Hopper WIP uses Recover Hopper. Move / Repack: tablets can use Scan with Camera, Scan Source with Camera, Scan Destination with Camera and Scan New Tag with Camera. CFG:CMD:REPACK_CAMERA opens the general camera. Destination requires an existing reusable bin; unused registered stock labels go in Optional New Preprinted Main Tag after an empty bin is selected. Scanners may end each code with Tab or Enter, including the global open command. Keep scanning in the dialog Scanner field; a blank Tab or Shift-Tab retains normal navigation. Scan CFG:CMD:MOVE_CONTAINER_STOCK, source Stock Tag or container, CFG:SELECT:1–10 if several fills, CFG:QTY:MATERIAL:n, destination container, numbered destination choice if needed, reason, then CFG:CMD:CONFIRM. Existing destination stock uses its current tag and combines quantities. For an empty destination only, CFG:CMD:REPACK_NEW_TAG arms a new unused Main Stock Tag. CFG:CMD:REPACK_SOURCE, REPACK_DESTINATION and REPACK_REASON re-arm those fields. NEXT_MATERIALS / PREVIOUS_MATERIALS page choices; CANCEL closes safely. An unacknowledged move remains locked for its original operator to retry, including after reopening or refresh. Print these commands from Kanban Operator → Scanner Command Labels. Intermediate Hopper WIP uses Recover Hopper."));
 	}
 
 	async function process_scan(value) {
 		const $input = $scanner.find(".logistics-scan-input");
 		const raw = String(value || $input.val() || "").trim(); $input.val("");
 		if (!raw) return focus_scanner();
+		if (active_route_count_action) return active_route_count_action.scan(raw);
 		if (active_dispatch_review) return active_dispatch_review.scan(raw);
 		if (opening_dispatch_review) return scanner_error(__("Wait for Dispatch Review to open."));
 		if (active_delivery_action) return active_delivery_action.scan(raw);
@@ -3025,6 +3025,17 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (opening_isolation) return scanner_error(__("Wait for Isolation to open, then scan again."));
 		if (active_repack) return active_repack.scan(raw);
 		if (opening_repack) return scanner_error(__("Wait for Move / Repack to open, then scan again."));
+        const countCommand=raw.toUpperCase();
+        if(countCommand==='CFG:CMD:START_ROUTE_COUNT')return reconciliation_dialog();
+        if(countCommand.startsWith('CFG:CMD:ROUTE_COUNT_')&&!state.reconciliation)return scanner_error(__('Open a Route Stock Count first.'));
+        if(countCommand==='CFG:CMD:ROUTE_COUNT_SCAN'){
+            if(!state.reconciliation?.can_count)return scanner_error(__('Open an active Route Stock Count first.'));
+            state.scan_mode='reconciliation';render_reconciliation();update_scanner_state();return focus_scanner();
+        }
+        if(countCommand==='CFG:CMD:ROUTE_COUNT_LOOSE')return loose_count_dialog();
+        if(countCommand==='CFG:CMD:ROUTE_COUNT_EVALUATE')return evaluate_reconciliation();
+        if(countCommand==='CFG:CMD:ROUTE_COUNT_CLOSE')return close_reconciliation_dialog();
+		if (raw.toUpperCase() === "CFG:CMD:TRIP_HANDOVER") return frappe.set_route("kanban-trip-handover");
 		if (raw.toUpperCase() === "CFG:CMD:HELP") return repack_scanner_help();
 		if (["CFG:CMD:VIEW_LORRY_ROUTE","CFG:CMD:EDIT_ROUTE_SEQUENCE"].includes(raw.toUpperCase())) return open_lorry_route(raw.toUpperCase().includes("EDIT_")?"editor":"driver",state.lookup?.dispatch_plan?{plan:state.lookup.dispatch_plan.name}:{});
 		if (raw.toUpperCase() === "CFG:CMD:VIEW_RETURN_QC_MONITOR") return frappe.set_route("kanban-return-qc");
@@ -3468,6 +3479,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	}
 
 	function focus_scanner() {
+		if (active_route_count_action) return active_route_count_action.focus();
 		if (active_dispatch_review) return active_dispatch_review.focus();
 		if (active_delivery_action) return active_delivery_action.focus();
 		if (active_isolation) return active_isolation.focus();
@@ -3508,6 +3520,15 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	const initial_load = load().then(() => { if (initial_scan && state.token) return lookup_tag(initial_scan); });
 	frappe.pages["kanban-logistics"].on_page_show = async () => {
 		await initial_load;
+        if(frappe.route_options?.cfg_route_count_cmd){
+            const command=frappe.route_options.cfg_route_count_cmd;delete frappe.route_options.cfg_route_count_cmd;
+            if(sync_session_from_storage())await load();return process_scan(command);
+        }
+		if (frappe.route_options?.cfg_open_route_count) {
+			delete frappe.route_options.cfg_open_route_count;
+			if (sync_session_from_storage()) await load();
+			return reconciliation_dialog();
+		}
         if (frappe.route_options?.cfg_qc_return_case) {
             const request=frappe.route_options.cfg_qc_return_case;
             delete frappe.route_options.cfg_qc_return_case;

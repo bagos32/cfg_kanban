@@ -6399,3 +6399,36 @@ Driver, assistant and publisher labels use **Name (Employee ID)**. **Assigned Dr
 ID** on the Trip form/list also supports older records. The Trip stock format includes this
 identity; custom Trip stock formats can use `{{ trip_driver_display(doc) | e }}`. Delivery Note,
 Invoice, Credit Note, Return Note and custody-label formats keep their existing content.
+
+
+## Trip Handover: per-item returns and lorry leftovers
+
+Open **CFG Kanban Delivery Trip → Trip Handover**, or the same button on **Driver Route**.
+This is a normal full-page view, not a route-setup popup. It separates prepared loaded/delivered/
+refused/remaining quantities from current ERP stock and old collected-return custody. Drivers and
+assistants see assigned Trips; authorized reconciliation Supervisors make stock decisions.
+
+Select a Plan, Begin Review and Confirm. Assign every remaining source quantity to an approved
+same-Company route or Keep on Lorry, add a reason, approve and Confirm. Loose quantities may split;
+whole physical tags and held sources stay together. Open each exact destination Manifest and use
+existing scan/prepare/post controls. After all groups post, close a fresh balanced D3 count, then
+Finish Review with Mixed Leftover Dispositions. Stock kept on the lorry releases the old Plan's
+commitments only at settlement; continuing the same Plan overnight remains its existing action.
+
+Old returns open existing QC Cases. Physical receipt is required before office Trip closure,
+but inspection/credit/disposition may continue. Owned quality refusals retain their stock hold
+and never create another receipt/credit. Unknown handover submissions retain the original payload
+and event token across reopening; cancel/back does not imply failure. Only a whole unused
+arrangement may be cancelled before ERP work; original loading, movements and audit remain.
+
+Scanner: **CFG:CMD:TRIP_HANDOVER**, then Trip/Plan and numbered choices. **HANDOVER_BEGIN_REVIEW**,
+**HANDOVER_ITEMS**, **HANDOVER_DESTINATION**, **HANDOVER_ADD**, **HANDOVER_CHOICES**, **HANDOVER_REASON**,
+**HANDOVER_APPROVE**, **HANDOVER_MOVEMENTS**, **HANDOVER_CANCEL_DECISIONS**, **HANDOVER_RETURNS**,
+**HANDOVER_COUNT**, **HANDOVER_FINISH**, **HANDOVER_CAMERA**, Confirm/Cancel and Next/Previous Materials
+use the same page controls. **CFG:QTY:MATERIAL:n** enters the stock quantity. All named action
+commands use **CFG:CMD:**. D3 **START_ROUTE_COUNT**, **ROUTE_COUNT_SCAN**, **ROUTE_COUNT_LOOSE**,
+**ROUTE_COUNT_EVALUATE**, **ROUTE_COUNT_CLOSE** and shared numbered/table input commands make
+opening, counting and closure scanner-operable. Print these from Scanner Command Labels.
+
+See [the E5B2 guide](USER_GUIDE_DISPATCH_E5B2.md) for responsibilities, destinations, QR/tablet/scanner
+steps and recovery limits. Follow-on Trips/reassignment and native/site acceptance remain pending.

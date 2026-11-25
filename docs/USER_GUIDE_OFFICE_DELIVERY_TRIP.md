@@ -363,3 +363,14 @@ See [driver steps, holds, recovery and scanner commands](USER_GUIDE_DRIVER_ROUTE
 and [native acceptance](TEST_DRIVER_STOP_CANCELLATION.md). This adds controlled links, a request
 type and a cancellation-stock child table; owner-managed migrate/build is required. Existing
 sequence-change requests retain their previous behavior. No existing stops are cancelled by migration.
+
+
+## Trip Handover and per-item leftovers — E5B2 extension
+
+Open **Delivery Trip / Driver Route → Trip Handover** for the full-page balance/return view.
+Authorized Supervisors may assign remaining sources to multiple approved destinations and retain
+selected sound stock on the lorry. Existing scans/native movements, a fresh balanced D3 count and
+Review settlement still apply. Whole tags/held sources stay together; old returns use their existing
+QC receipt, with no duplicate receipt/credit. Office closure now requires old-return physical receipt,
+while inspection/accounting may continue. See [E5B2 setup and scanner guide](USER_GUIDE_DISPATCH_E5B2.md)
+and [acceptance checklist](TEST_DISPATCH_E5B2_RECOVERY.md). Implementation does not establish live acceptance.
