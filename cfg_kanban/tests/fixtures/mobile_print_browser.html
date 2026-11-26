@@ -45,7 +45,7 @@ window.runMobileTests=async()=>{
   let denied=false;try{await bridge.render(nativeHTML().replace('data:image/svg+xml;base64,','https://outside.example/'),settings);}catch(_){denied=true;}check(denied,'Rejected an external QR asset rather than silently omitting it');
   let scripted=false;try{await bridge.render(nativeHTML().replace('<h3>','<script>void 0;<\/script><h3>'),settings);}catch(_){scripted=true;}check(scripted,'Rejected script-dependent formats rather than dropping their content');
   const storage=new Map(),store={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
-  const calls=[],receipts=new Map(),jobs={},sessionErrors=[];let lead='DRIVER',session='TOKEN',opened=[],loss=null,refreshes=0,invoiceVersion='POLICY1',renderMode='normal',authFailure=null;
+  const calls=[],receipts=new Map(),jobs={},sessionErrors=[];let lead='DRIVER',session='TOKEN',opened=[],loss=null,lossTask=null,refreshes=0,invoiceVersion='POLICY1',renderMode='normal',authFailure=null;
   const operatorScan=document.createElement('input');operatorScan.setAttribute('aria-label','Fixture operator sign-in');document.body.append(operatorScan);
   const context={trip:'TRIP',stop_key:'STOP',company:'A',revision:1,scope_hash:'SCOPE',profile:'A',profile_version:'POLICY1',defaults:settings,invoice_mode:'Draft',invoice_sources:['DN'],custody_lines:[{return_case:'CASE',return_line:'ROW',item_code:'BAG',remaining_qty:2,stock_uom:'Nos'}],active_jobs:[],documents:[{doctype:'Delivery Note',name:'DN',label:'Delivery Note',docstatus:1,formats:['Standard','CUSTOM80'],default_format:'CUSTOM80',scan_code:'DN'},{doctype:'Delivery Note',name:'DN2',label:'Second Delivery Note',docstatus:1,formats:['Standard','CUSTOM80'],default_format:'CUSTOM80',scan_code:'DN2'}]};
   const fakeF={utils:{escape_html:v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;')},ui:{form:{make_control({parent,df}){const label=document.createElement('label');label.textContent=df.label;const el=document.createElement(df.fieldtype==='Table'?'div':df.fieldtype==='Select'?'select':df.fieldtype==='Small Text'?'textarea':'input');el.dataset.field=df.fieldname;if(df.fieldtype==='Password')el.type='password';if(df.fieldtype==='Check')el.type='checkbox';$(parent).append(label).append(el);let rows=df.fieldtype==='Table'?structuredClone(df.data||df.default||[]):null;function refresh(){if(df.fieldtype==='Table'){el.innerHTML='';for(const row of rows){const group=document.createElement('div');for(const col of df.fields||[]){const input=document.createElement('input');input.dataset.column=col.fieldname;input.value=row[col.fieldname]??'';input.disabled=!!col.read_only;input.addEventListener('change',()=>row[col.fieldname]=input.value);group.append(input);}el.append(group);}return;}if(df.fieldtype==='Select'){el.innerHTML='';for(const o of df.options||[]){const option=document.createElement('option');option.value=typeof o==='string'?o:o.value;option.textContent=typeof o==='string'?o:o.label;el.append(option);}}}refresh();el.addEventListener('change',()=>df.change?.());return {df,$input:$(el),grid:df.fieldtype==='Table'?{get_data:()=>rows}:undefined,refresh,get_value:()=>df.fieldtype==='Table'?rows:df.fieldtype==='Check'?Number(el.checked):el.value,set_value(v){if(df.fieldtype==='Table'){rows=structuredClone(v);refresh();return Promise.resolve();}const old=el.value;if(df.fieldtype==='Check')el.checked=!!v;else el.value=v??'';if(old!==el.value)df.change?.();return Promise.resolve();}};}}},
@@ -53,16 +53,25 @@ window.runMobileTests=async()=>{
     if(fn==='get_mobile_print_job'){if(args.print_job==='STALE')throw Object.assign(new Error('Document or Print Format changed'),{exc_type:'ValidationError'});return {message:structuredClone(jobs[args.print_job])};}
     const key=args.event_token;if(fn==='reconcile_driver_action')return {message:receipts.get(key)||{status:'Not Recorded'}};
     if(fn!=='perform_driver_action')throw new Error(fn);if(receipts.has(key))return {message:receipts.get(key)};
-    const p=args.payload,result={};if(args.action==='Prepare Mobile Print'){result.print_job='JOB1';jobs.JOB1={name:'JOB1',html:nativeHTML(),render_hash:'HASH',copies:p.copies,stop_key:args.stop_key,status:'Prepared',segments:{},print_format:p.print_format,document_name:'DN',document_type:p.doctype};context.active_jobs=[{name:'JOB1',document_name:'DN',status:'Prepared'}];}
-    if(args.action==='Record Print Segment'){const job=jobs[p.print_job],prior=job.segments.pages?.[p.page];if(p.outcome==='Awaiting Confirmation'&&prior&&!p.reason)throw Object.assign(new Error('Give a retry reason'),{exc_type:'ValidationError'});job.segments.hashes=p.frame_hashes;job.segments.pages??={};job.segments.pages[p.page]={status:p.outcome};result.print_job=job.name;result.page=p.page;result.outcome=p.outcome;job.status=Object.values(job.segments.pages).filter(row=>row.status==='Operator Confirmed').length===p.frame_hashes.length?'Operator Confirmed':'Awaiting Confirmation';result.job_status=job.status;if(job.status==='Operator Confirmed')context.active_jobs=[];}
+    const p=args.payload,result={};
+    if(args.action==='Run Stop Document'){
+      const task=context.stop_documents.find(row=>row.name===p.document_task);
+      if(task.task_type==='Create Draft Invoice'){task.status='Completed';task.invoice='AUTO-INV';result.invoice='AUTO-INV';result.docstatus=0;}
+      else{result.print_job=task.print_job||'AUTO-'+task.name;task.print_job=result.print_job;task.status='Prepared';
+        jobs[result.print_job]??={name:result.print_job,html:nativeHTML(),render_hash:'HASH',copies:2,stop_key:'STOP',status:'Prepared',segments:{},print_format:'CUSTOM80',document_name:task.source_name,document_type:task.task_type==='Print Draft Invoice'?'Sales Invoice':'Delivery Note'};
+        context.active_jobs=[{name:result.print_job,stop_key:'STOP',document_name:task.source_name,status:'Prepared',can_resume:true}];}
+      result.document_task=task.name;
+    }
+    if(args.action==='Prepare Mobile Print'){result.print_job='JOB1';jobs.JOB1={name:'JOB1',html:nativeHTML(),render_hash:'HASH',copies:p.copies,stop_key:args.stop_key,status:'Prepared',segments:{},print_format:p.print_format,document_name:'DN',document_type:p.doctype};context.active_jobs=[{name:'JOB1',document_name:'DN',status:'Prepared'}];}
+    if(args.action==='Record Print Segment'){const job=jobs[p.print_job],prior=job.segments.pages?.[p.page];if(p.outcome==='Awaiting Confirmation'&&prior&&!p.reason)throw Object.assign(new Error('Give a retry reason'),{exc_type:'ValidationError'});job.segments.hashes=p.frame_hashes;job.segments.pages??={};job.segments.pages[p.page]={status:p.outcome};result.print_job=job.name;result.page=p.page;result.outcome=p.outcome;job.status=Object.values(job.segments.pages).filter(row=>row.status==='Operator Confirmed').length===p.frame_hashes.length?'Operator Confirmed':'Awaiting Confirmation';result.job_status=job.status;for(const task of context.stop_documents||[])if(task.print_job===job.name)task.status=job.status;if(job.status==='Operator Confirmed')context.active_jobs=[];}
     if(args.action==='Create Sales Invoice'){result.invoice='INV1';result.docstatus=0;}
     if(args.action==='Create Custody Label')result.custody_label='KRC-1';
     if(args.action==='Close Mobile Print'){if(!p.reason)throw Object.assign(new Error('Give a reason to close'),{exc_type:'ValidationError'});result.print_job=p.print_job;result.job_status='Abandoned';context.active_jobs=[];}
-    const receipt={status:'Recorded',action:args.action,result};receipts.set(key,receipt);if(loss===args.action){loss=null;throw new Error('Lost response');}return {message:receipt};}};
+    const receipt={status:'Recorded',action:args.action,result};receipts.set(key,receipt);if(loss===args.action&&(!lossTask||p.document_task===lossTask)){loss=null;lossTask=null;throw new Error('Lost response');}return {message:receipt};}};
   const uiBridge={...bridge,render:async(...args)=>{if(renderMode==='reject')throw new Error('Unsupported Print Format style');if(renderMode==='timeout')return bridge.render(args[0],args[1],{html2canvas:()=>new Promise(()=>{}),timeoutMs:500});return bridge.render(...args);}};
   const fakeRoot={document,location:{origin:location.origin,set href(uri){opened.push(uri);}},cfg_mobile_print_bridge:uiBridge,cfg_driver_route_actions:window.cfg_driver_route_actions,cfg_delivery_action_scanner:window.cfg_delivery_action_scanner,cfg_dispatch_recovery:window.cfg_dispatch_recovery,open:(...args)=>opened.push(args)};
   const source=await(await fetch('../../public/js/driver_mobile_print.js')).text();new Function('window','module',source)(fakeRoot,undefined);
-  let panel;const start=()=>panel=fakeRoot.cfg_driver_mobile_print.open({frappe:fakeF,host:$('#host'),trip:'TRIP',stop:'STOP',owner:()=>lead,token:()=>session,active:()=>true,storage:store,locks:navigator.locks,nonce:()=>crypto.randomUUID(),error:e=>e.message,refresh:async()=>refreshes++,onSessionError(error,token){if(session!==token||!/Operator session/.test(error.message))return false;sessionErrors.push(error.message);session=null;lead=null;panel.close();operatorScan.focus();return true;},onClose(){}});
+  let panel;const start=(automatic=false)=>panel=fakeRoot.cfg_driver_mobile_print.open({frappe:fakeF,host:$('#host'),trip:'TRIP',stop:'STOP',automatic,owner:()=>lead,token:()=>session,active:()=>true,storage:store,locks:navigator.locks,nonce:()=>crypto.randomUUID(),error:e=>e.message,refresh:async()=>refreshes++,onSessionError(error,token){if(session!==token||!/Operator session/.test(error.message))return false;sessionErrors.push(error.message);session=null;lead=null;panel.close();operatorScan.focus();return true;},onClose(){}});
   const control=name=>document.querySelector('[data-field="'+name+'"]');const set=(name,value)=>{control(name).value=value;control(name).dispatchEvent(new Event('change',{bubbles:true}));};const click=name=>document.querySelector('[data-mobile="'+name+'"]').click();
   const scanKey=async key=>{const index=[...document.querySelectorAll('.cfg-mobile-fields [data-field]')].findIndex(node=>node.getAttribute('data-field')==='signing_key');check(index>=0,'Pairing field remains scanner-selectable');await panel.scan('CFG:SELECT:'+(index+1));await panel.scan(key);};
   start();await until(()=>!!control('document'));click('setup');await until(()=>!!control('signing_key'));const setupKey=control('signing_key');
@@ -122,6 +131,37 @@ window.runMobileTests=async()=>{
   document.querySelector('.cfg-mobile-open-bridge').click();check(opened.length===copyHandoffs+2,'Second click opens only the office copy');
   check(JSON.parse(atob(new URL(opened.at(-1)).searchParams.get('job'))).copies===1,'Office copy also requests one physical copy');
   click('printed');await until(()=>!!control('document')&&!panel.controller.state.busy);check(!context.active_jobs.length,'Both confirmed copies finish the same original print job');
+  panel.close();
+  context.stop_documents=[{name:'INV-TASK',task_type:'Create Draft Invoice',source_name:'DN',status:'Pending',copies:0},
+    {name:'DN-TASK',task_type:'Print Delivery Note',source_name:'DN',status:'Pending',copies:2},
+    {name:'SI-TASK',task_type:'Print Draft Invoice',source_name:'AUTO-INV',status:'Pending',copies:2},
+    {name:'RETURN-TASK',task_type:'Print Return Note',source_name:'CASE',status:'Pending',copies:2}];
+  const autoHandoffs=opened.length;loss='Run Stop Document';lossTask='DN-TASK';start(true);
+  await until(()=>!!panel.controller.state.pending&&!panel.controller.state.busy);
+  const automaticIdentity=panel.controller.state.pending.id;
+  check(context.stop_documents.find(r=>r.name==='INV-TASK').status==='Completed','Created the Draft before waiting for either DN paper copy');
+  check(context.stop_documents.find(r=>r.name==='DN-TASK').print_job==='AUTO-DN-TASK','Lost automatic-prepare response still leaves one source-linked print job');
+  panel.close();start(true);await until(()=>!!control('document')&&!panel.controller.state.busy);
+  check(panel.controller.state.pending.id===automaticIdentity,'Reopening automatic documents retains original uncertain request');
+  await panel.scan('CFG:CMD:REFRESH');await until(()=>!!document.querySelector('.cfg-mobile-open-bridge')&&!panel.controller.state.busy);
+  check(opened.length===autoHandoffs,'Automatic preparation and readback never send paper silently');
+  for(const name of ['DN-TASK','SI-TASK','RETURN-TASK']){
+    await until(()=>!!document.querySelector('.cfg-mobile-open-bridge')&&context.stop_documents.find(r=>r.name===name).print_job&&!panel.controller.state.busy);
+    for(let copy=1;copy<=2;copy++){
+      const before=opened.length;
+      check(document.querySelector('.cfg-mobile-body').textContent.includes('Copy '+copy+' of 2'),name+': displayed the correct complete copy');
+      document.querySelector('.cfg-mobile-open-bridge').click();
+      check(opened.length===before+1,name+': one explicit tap handed off only one copy');
+      await panel.scan('CFG:CMD:PRINT_CONFIRM');
+      if(copy===1){await until(()=>document.querySelector('.cfg-mobile-open-bridge')?.textContent.includes('Office copy')&&!panel.controller.state.busy);
+        check(opened.length===before+1,name+': second copy waited while first copy could be torn off');}
+    }
+  }
+  await until(()=>context.stop_documents.every(r=>['Completed','Operator Confirmed'].includes(r.status))&&!!control('document')&&!panel.controller.state.busy);
+  check(calls.filter(c=>c.args.action==='Run Stop Document'&&c.args.payload.document_task==='INV-TASK').length===1,'Automatic checklist creates one Draft Invoice between print tasks');
+  check(new Set(calls.filter(c=>c.args.action==='Run Stop Document'&&c.args.payload.document_task==='DN-TASK').map(c=>c.args.event_token)).size===1,'Readback resumes automatic print with the same preparation identity');
+  check(opened.length===autoHandoffs+6,'Three automatic documents produced exactly six individually requested handoffs');
+  context.stop_documents=[];panel.close();start();await until(()=>!!control('document')&&!panel.controller.state.busy);
   loss='Prepare Mobile Print';await panel.scan('DN');click('confirm');await until(()=>!!panel.controller.state.pending&&!panel.controller.state.busy);
   const uncertain=structuredClone(panel.controller.state.pending),handoffsBeforeExpiry=opened.length;
   authFailure='reconcile_driver_action';click('readback');await until(()=>session===null&&!panel.controller.state.busy);

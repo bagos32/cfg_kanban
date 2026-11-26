@@ -34,6 +34,8 @@ class TestTripSales(unittest.TestCase):
         self.gen=types.ModuleType('cfg_kanban.services.trip_dispatch');self.gen.__dict__.update(common);load('services/trip_dispatch.py',self.gen.__dict__)
         self.sales=types.ModuleType('cfg_kanban.services.trip_sales');self.sales.__dict__.update(common);load('services/trip_sales.py',self.sales.__dict__)
         self.act=types.ModuleType('cfg_kanban.services.driver_route_actions');self.act.__dict__.update(common);load('services/driver_route_actions.py',self.act.__dict__)
+        documents=types.SimpleNamespace(**load('services/stop_documents.py',dict(common)))
+        self.act._documents=lambda:documents
         self.sheets=types.ModuleType('cfg_kanban.services.route_sheets');self.sheets.__dict__.update(common);load('services/route_sheets.py',self.sheets.__dict__)
         self.views=types.ModuleType('cfg_kanban.services.driver_routes');self.views.__dict__.update(common);load('services/driver_routes.py',self.views.__dict__)
         self.actual_view=self.views.get_driver_trip;self.views._trip=self.owned_trip;self.views.get_driver_trip=self.view;self.views._delivery=lambda:self.b.engine
@@ -161,7 +163,7 @@ class TestTripSales(unittest.TestCase):
         self.assertEqual(self.r.unit.current_qty,3);self.assertEqual(entries,len(self.data.get('Stock Entry',{})))
     def test_existing_pool_unassigned_untagged_uses_native_erp_stock_and_receipt(self):
         self.existing_only();self.start();self.begin()
-        choices=self.r.context(item='ITEM')['choices'];self.assertEqual([r['source_key'] for r in choices],['unassigned'])
+        choices=self.r.context(item='ITEM')['choices'];self.assertEqual({r['source_key'] for r in choices},{'unassigned-tag:TAG','unassigned'})
         self.r.allocate(2,source='unassigned',scan=None,item='ITEM');self.run_action('Confirm Allocations');self.run_action('Create Delivery Note')
         note=next(iter(self.data['Delivery Note'].values()));self.assertEqual(note.items[0].stock_qty,2)
         self.assertEqual(self.r.unit.current_qty,5)

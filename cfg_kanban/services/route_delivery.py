@@ -469,6 +469,41 @@ def _unit_choice(unit, delivery, plan, container=None, container_code=None):
             'container': container, 'container_visible_code': container_code}
 
 
+def _item_tag_choices(delivery, plan, item_code, batch_no=None):
+    """Explicit Item browsing uses the same physical-tag checks as a QR scan.
+
+    Source keys must distinguish unassigned tags. They are re-resolved under the
+    normal allocation locks; a displayed row is never a new reservation.
+    """
+    filters = dict(item_code=item_code, inventory_company=plan.company,
+        current_warehouse=plan.vehicle_warehouse, identity_state='Active', quality_state='Released',
+        tag_kind=['!=', 'Reusable Container'], movement_state=['in', ['At Source','Packed','Received','Returned']])
+    if batch_no:
+        filters['batch_no'] = batch_no
+    rows = frappe.get_all('CFG Kanban Handling Unit', filters=filters, fields=['name'],
+        order_by='handling_unit_id, name', limit_page_length=0)
+    choices, unavailable = [], []
+    for row in rows:
+        unit = frappe.get_doc('CFG Kanban Handling Unit', row.name, for_update=True)
+        if flt(unit.available_qty) <= 0.000001:
+            continue
+        # Do not present validation popups for candidates that are ineligible.
+        # Unexpected database/programming errors still propagate.
+        muted = frappe.flags.get('mute_messages')
+        frappe.flags.mute_messages = True
+        try:
+            choice = _unit_choice(unit, delivery, plan)
+        except (frappe.ValidationError, frappe.PermissionError) as exc:
+            unavailable.append(dict(visible_code=unit.handling_unit_id, reason=str(exc)))
+            continue
+        finally:
+            frappe.flags.mute_messages = muted
+        if choice['source_key'] == 'unassigned':
+            choice['source_key'] = 'unassigned-tag:' + unit.name
+        choices.append(choice)
+    return choices, unavailable
+
+
 def _stock_context(delivery, plan, scan_value=None, item_code=None, batch_no=None):
     engine, planning = _engine(), _planning()
     if scan_value:
@@ -501,16 +536,19 @@ def _stock_context(delivery, plan, scan_value=None, item_code=None, batch_no=Non
         return {'mode':'item','choices':[]}
     inventory = frappe.db.get_value('Item', item_code,
         ['name','is_stock_item','has_serial_no','has_batch_no','stock_uom','disabled'], as_dict=True)
-    if not inventory or inventory.disabled or not inventory.is_stock_item or inventory.has_serial_no:
-        frappe.throw('Untagged route delivery requires an enabled non-serialized ERP stock Item')
-    if inventory.has_batch_no and not batch_no:
-        return {'mode':'item','item_code':item_code,'requires_batch':True,'choices':[]}
+    if not inventory or inventory.disabled or not inventory.is_stock_item:
+        frappe.throw('Route delivery requires an enabled ERP stock Item')
+    tagged, unavailable = _item_tag_choices(delivery, plan, item_code, batch_no)
+    if inventory.has_serial_no or (inventory.has_batch_no and not batch_no):
+        return {'mode':'item','item_code':item_code,'requires_batch':bool(inventory.has_batch_no and not batch_no and not tagged and not inventory.has_serial_no),
+                'untagged_requires_batch':bool(inventory.has_batch_no and not batch_no),
+                'tagged_only':bool(inventory.has_serial_no), 'choices':tagged,'unavailable_tags':unavailable}
     planning._validate_batch(item_code, batch_no)
     _fulfilment()._assert_untagged_batch_expiry(batch_no)
     planning._lock_erp_bin(item_code, plan.vehicle_warehouse)
     available_prepared = planning._untagged_available(plan.company, plan.vehicle_warehouse,
         item_code,batch_no,exclude_prepared_plan=plan.name)
-    choices=[]
+    choices=list(tagged)
     for source in _route_sources(plan):
         if source.handling_unit or source.item_code != item_code or (source.batch_no or '') != (batch_no or ''):
             continue
@@ -524,7 +562,7 @@ def _stock_context(delivery, plan, scan_value=None, item_code=None, batch_no=Non
         choices.append({'source_key':'unassigned','source_kind':'Unassigned Lorry Stock',
             'allocation_kind':'Untagged ERP Stock','handling_unit':None,'item_code':item_code,
             'batch_no':batch_no,'stock_uom':inventory.stock_uom,'available_qty':free})
-    return {'mode':'item','item_code':item_code,'batch_no':batch_no,'choices':choices}
+    return {'mode':'item','item_code':item_code,'batch_no':batch_no,'choices':choices,'unavailable_tags':unavailable}
 
 
 @frappe.whitelist()

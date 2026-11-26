@@ -69,6 +69,7 @@ class TestMobilePrinting(unittest.TestCase):
         self.source = self.add('Sales Invoice', 'INV', company='A', customer='C1', docstatus=1)
         self.fmt = self.add('Print Format', 'CUSTOM', doc_type='Sales Invoice', disabled=0, raw_printing=0)
         self.catalog = [dict(doctype='Sales Invoice', name='INV')]
+        self.ns['_stop_documents'] = Mock(return_value=[])
         self.native_catalog = self.ns['_catalog']
         self.ns['_catalog'] = Mock(side_effect=lambda *args:copy.deepcopy(self.catalog))
         views = types.ModuleType('cfg_kanban.services.driver_routes')

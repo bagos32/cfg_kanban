@@ -1,0 +1,200 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Stop Document Task",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "track_changes": 1,
+ "autoname": "KSD-.YYYY.-.#####",
+ "field_order": [
+  "delivery_trip",
+  "stop_key",
+  "company",
+  "customer",
+  "customer_scan_point",
+  "source_doctype",
+  "source_name",
+  "task_type",
+  "copies",
+  "status",
+  "print_job",
+  "invoice",
+  "scheduled_on",
+  "scheduled_by",
+  "idempotency_key"
+ ],
+ "fields": [
+  {
+   "fieldname": "delivery_trip",
+   "label": "Delivery Trip",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "in_list_view": 1,
+   "options": "CFG Kanban Delivery Trip"
+  },
+  {
+   "fieldname": "stop_key",
+   "label": "Trip Stop",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "in_list_view": 1,
+   "options": "Company"
+  },
+  {
+   "fieldname": "customer",
+   "label": "Customer",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "in_list_view": 1,
+   "options": "Customer"
+  },
+  {
+   "fieldname": "customer_scan_point",
+   "label": "Customer QR Profile",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Customer Scan Point"
+  },
+  {
+   "fieldname": "source_doctype",
+   "label": "Source Type",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "DocType"
+  },
+  {
+   "fieldname": "source_name",
+   "label": "Source Document",
+   "fieldtype": "Dynamic Link",
+   "read_only": 1,
+   "reqd": 1,
+   "options": "source_doctype"
+  },
+  {
+   "fieldname": "task_type",
+   "label": "Task",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "reqd": 1,
+   "in_list_view": 1,
+   "options": "Print Delivery Note\nCreate Draft Invoice\nPrint Draft Invoice\nPrint Return Note"
+  },
+  {
+   "fieldname": "copies",
+   "label": "Complete Copies",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "default": "2"
+  },
+  {
+   "fieldname": "status",
+   "label": "Preparation Status",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "default": "Pending",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "Print completion is taken from the linked Mobile Print Job, never from preparation alone.",
+   "options": "Pending\nPrepared\nCompleted"
+  },
+  {
+   "fieldname": "print_job",
+   "label": "Print Job",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Mobile Print Job"
+  },
+  {
+   "fieldname": "invoice",
+   "label": "Sales Invoice",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Sales Invoice"
+  },
+  {
+   "fieldname": "scheduled_on",
+   "label": "Scheduled On",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "scheduled_by",
+   "label": "Scheduled By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "ignore_user_permissions": 1,
+   "options": "Employee"
+  },
+  {
+   "fieldname": "idempotency_key",
+   "label": "Task Identity",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "unique": 1,
+   "hidden": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Stock User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Accounts Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Quality User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Quality Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "CFG Kanban System Maintenance",
+   "read": 1,
+   "print": 1
+  }
+ ]
+}

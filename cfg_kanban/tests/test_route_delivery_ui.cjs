@@ -169,5 +169,22 @@ function adapter(options={}){
   const f=fixture({mode:'stock'});await stock(f);f.failure(new Error('network'));await assert.rejects(()=>f.c.confirm());
   const next=adapter({map:f.map});next.owner('OTHER');await next.launch();assert(!next.dialog().html.includes(' · TAG · '));assert.match(next.dialog().html,/original operator EMP/);
  });
+ await test('Product search shows tagged and untagged sources and scanner confirms the exact selected tag',async()=>{
+  const f=fixture({mode:'stock'}),rpc=f.env.rpc;
+  f.env.rpc=async(method,args)=>method==='route_stock_context'?{mode:'item',item_code:'ITEM',untagged_requires_batch:true,choices:[
+   {...f.tag,source_key:'unassigned-tag:HU1',handling_unit:'HU1',visible_code:'TAG1',batch_no:'B1'},
+   {...f.tag,source_key:'unassigned-tag:HU2',handling_unit:'HU2',visible_code:'TAG2',batch_no:'B2'},
+   {...f.tag,source_key:'unassigned',handling_unit:null,visible_code:null}],unavailable_tags:[{visible_code:'BIN-TAG',reason:'Scan the physical container'}]}:rpc(method,args);
+  await f.c.scan('CFG:CMD:ROUTE_ITEM');await f.c.scan('ITEM');assert.equal(f.c.state.choices.length,3);
+  assert.match(f.c.state.message,/Tagged sources retain their Batch/);assert.match(f.c.state.message,/BIN-TAG/);
+  await f.c.scan('CFG:SELECT:2');await f.c.scan('CFG:QTY:MATERIAL:2');await f.c.scan('CFG:CMD:CONFIRM');
+  const request=f.calls.find(row=>row.method==='allocate_route_stock').args;
+  assert.equal(request.source_key,'unassigned-tag:HU2');assert.equal(request.item_code,'ITEM');assert.equal(request.qty,2);
+ });
+ await test('serialized Product choices keep the full tag quantity rule',async()=>{
+  const f=fixture({mode:'stock'}),rpc=f.env.rpc;
+  f.env.rpc=async(m,a)=>m==='route_stock_context'?{mode:'item',item_code:'ITEM',tagged_only:true,choices:[{...f.tag,full_quantity_only:true}]}:rpc(m,a);
+  await f.c.stock({item_code:'ITEM'});assert.equal(f.c.state.qty,5);assert.match(f.c.state.message,/complete tagged unit/);
+ });
  console.log(`${checks} E4B route UI checks passed`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

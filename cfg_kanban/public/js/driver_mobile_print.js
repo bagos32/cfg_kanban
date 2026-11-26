@@ -4,12 +4,14 @@
  const service='cfg_kanban.services.mobile_printing.';
  let memoryKey=null;
  function forget(){memoryKey?.signer.forget();memoryKey=null;}
- const commands=['MOBILE_PRINT','PRINT_NATIVE','PRINT_SEND','PRINT_OPEN','PRINT_CONFIRM','PRINT_UNKNOWN','PRINT_SETUP','PRINT_PAIR','PRINT_PAIR_BROWSER','PRINT_PAIR_LEGACY','PRINT_FORGET','CREATE_DRIVER_INVOICE','CREATE_RETURN_LABEL','MOBILE_PRINT_BACK'];
+ const commands=['PRINT_STOP_DOCUMENTS','DRIVER_CURRENT_CUSTOMER','MOBILE_PRINT','PRINT_NATIVE','PRINT_SEND','PRINT_OPEN','PRINT_CONFIRM','PRINT_UNKNOWN','PRINT_SETUP','PRINT_PAIR','PRINT_PAIR_BROWSER','PRINT_PAIR_LEGACY','PRINT_FORGET','CREATE_DRIVER_INVOICE','CREATE_RETURN_LABEL','MOBILE_PRINT_BACK'];
  function nativeLink(entry,format,noLetterhead){return '/printview?'+new URLSearchParams({doctype:entry.doctype,name:entry.name,format,no_letterhead:noLetterhead?'1':'0'});}
  function unfinishedJobs(jobs,e){return jobs.map(row=>{
   const label=[row.name,row.document_name,row.status,row.operator,row.delivery_trip,row.stop_key||'Trip documents'].filter(Boolean).map(e).join(' · ');
   return row.can_resume===false?`<div class="mt-2">${label}<br><a class="btn btn-default" href="/app/cfg-kanban-mobile-print-job/${encodeURIComponent(row.name)}" target="_blank" rel="noopener">Open Print Job for Office Recovery</a><small>Another operator or Trip owns this job. Office closure requires authority and a reason.</small></div>`:`<button class="btn btn-default" data-mobile="resume" data-job="${e(row.name)}">Resume / Review · ${label}</button>`;
  }).join('');}
+ function nextStopDocument(tasks,attempted=new Set()){return (tasks||[]).find(row=>!attempted.has(row.name)&&['Pending','Prepared','Awaiting Confirmation'].includes(row.status));}
+ function documentChecklist(tasks,e,errors={}){return !tasks?.length?'':`<div class="cfg-stop-documents mt-3"><b>Customer document checklist</b>${tasks.map(row=>`<div>${e(row.task_type)} · ${e(row.source_name)} · ${e(row.status)}${row.invoice?' · '+e(row.invoice):''}${row.print_job?' · '+e(row.print_job):''}${row.copies?' · '+e(row.copies)+' copies (separate handoffs)':''}${errors[row.name]?' · '+e(errors[row.name]):''}</div>`).join('')}<button class="btn btn-primary" data-mobile="auto">Continue customer documents</button><p>You can close this panel and choose another customer at any time. Preparation is not confirmation of paper output.</p></div>`;}
  function copies(frames,count){if(!Number.isInteger(count)||count<1||count>5)throw new Error('Select one to five copies.');const out=[];for(let n=0;n<count;n++)out.push(...frames);if(out.length>1000)throw new Error('Too many print segments; use normal ERPNext printing.');return out;}
  async function reviewedFrames(bridge,html,settings,count,manifest){
   let frames=copies(await bridge.render(html,settings),count);
@@ -50,6 +52,7 @@
   let closed=false,mode='choose',context=null,controls={},fields=[],scanner=null,camera=null,cameraVersion=0,version=0,
       prefs=null,prefStore=null,job=null,frames=[],prepared=null,handed=false,loading=false,message='',requirements=null,
       jobName=null,jobStop=options.stop||null,releaseLease=null,leaseReady=false,selected=null,selectedLabel=null;
+  let automatic=Boolean(options.automatic);const attemptedTasks=new Set(),taskErrors={};
   let tail=Promise.resolve();const inputLocks=new WeakMap(),keyEntry=pairingEntry();
   const valid=()=>!closed&&options.active()&&options.owner()===owner&&options.token()===token&&erpUser()===openedUser;
   const rpc=async(method,args)=>{try{const answer=(await f.call({method,args:{...args,operator_session_token:token}})).message;if(!valid())throw new Error('Operator or page changed.');return answer;}
@@ -105,6 +108,27 @@
     prefStore=bridge.preferences(options.storage,root.location.origin,next.company);prefs=prefStore.load(next.defaults);mode='choose';draw();}
    finally{loading=false;update();}
   }
+  function scheduleAutomatic(){if(automatic&&valid()&&!c.state.pending)setTimeout(()=>queue(runNext),0);}
+  async function runNext(chosen){
+   if(!valid()||loading||c.state.busy||c.state.pending||mode!=='choose')return;
+   const task=chosen?context?.stop_documents?.find(row=>row.name===chosen):nextStopDocument(context?.stop_documents,attemptedTasks);
+   if(!task){message=nextStopDocument(context?.stop_documents)?'Some document steps need attention. Review the checklist and choose a task, or continue to another customer.':'No pending customer document steps. Review any closed jobs; choose another customer when ready.';update();return;}
+   attemptedTasks.add(task.name);
+   try{
+    if(task.can_resume===false)throw new Error('Another operator owns '+task.print_job+'. Ask the office to review its print outcome; no new copy will be prepared.');
+    if(task.print_job){await lease();await showJob(task.print_job);return stageNext();}
+    if(task.task_type!=='Create Draft Invoice')await lease();
+    const result=await c.mutate(context,'Run Stop Document',{document_task:task.name});
+    delete taskErrors[task.name];
+    if(result?.status==='Recorded'&&result.result?.print_job)return stageNext();
+   }catch(error){
+    if(!valid())return;
+    taskErrors[task.name]=options.error(error);message=taskErrors[task.name];draw();
+    // A confirmed rejection may leave other independent tasks usable. An unknown
+    // response always keeps the original action frozen and prevents new work.
+    if(!c.state.pending)scheduleAutomatic();
+   }
+  }
   async function showJob(name){jobName=name;mode='job';prepared=null;handed=false;loading=true;message='Loading print job '+name+'…';if(job?.name!==name){job=null;frames=[];}draw();const ticket=++version;
    const original=context.active_jobs.find(row=>row.name===name);jobStop=original?(original.stop_key||null):(options.stop||null);
    try{const next=await rpc(service+'get_mobile_print_job',{trip_name:options.trip,print_job:name});if(ticket!==version||!valid())return;
@@ -117,9 +141,13 @@
    }finally{loading=false;update();}
   }
   async function recorded(receipt){if(!valid())return;message='';const result=receipt.result||{};
+   if(receipt.action==='Run Stop Document'){
+    if(result.print_job&&result.job_status!=='Operator Confirmed'){await showJob(result.print_job);if(valid()&&job)setTimeout(()=>queue(stageNext),0);return;}
+    await load();scheduleAutomatic();return;
+   }
    if(receipt.action==='Prepare Mobile Print'){await showJob(result.print_job);return;}
    if(receipt.action==='Record Print Segment'){
-    if(result.job_status==='Operator Confirmed'){message='All segments were confirmed by the operator. This is not a printer acknowledgement.';job=null;frames=[];jobName=null;await load();return;}
+    if(result.job_status==='Operator Confirmed'){message='All segments were confirmed by the operator. This is not a printer acknowledgement.';job=null;frames=[];jobName=null;await load();scheduleAutomatic();return;}
     await showJob(result.print_job);
     if(result.outcome==='Awaiting Confirmation'&&frames.length){const page=nextPage(job,frames);prepared=await signer.prepare(frames[page-1].payload);handed=false;draw();}
     return;
@@ -165,6 +193,9 @@
     field({fieldname:'no_letterhead',label:'No letterhead',fieldtype:'Check',default:0,change:update});
     field({fieldname:'reason',label:'Reprint reason (required for an already printed tag)',fieldtype:'Small Text'});
     confirmButton.text('Prepare Print');
+    body.append(documentChecklist(context.stop_documents,e,taskErrors));
+    const queued=(context.stop_documents||[]).filter(row=>['Pending','Prepared','Awaiting Confirmation'].includes(row.status));
+    if(queued.length)field({fieldname:'document_task',label:'Customer document task (optional)',fieldtype:'Select',options:[{label:'Next pending task',value:''},...queued.map(row=>({label:row.task_type+' · '+row.source_name,value:row.name}))],default:''});
     if(context.active_jobs.length)body.append(`<div class="mt-3"><b>Unfinished print jobs</b><p>Resume your own job on this Trip here, keeping its original stop. For another operator or Trip, ask the office to review and close the original job with a reason. Check the paper first; closing does not confirm printing or cancel the document.</p>${unfinishedJobs(context.active_jobs,e)}</div>`);
    }else if(mode==='setup'){
     body.html(`<p>Saved printer settings belong to this browser and Company. Select the Bluetooth printer inside Label Bridge.</p><a class="btn btn-default" href="/app/cfg-kanban-mobile-print-profile/${encodeURIComponent(context.profile)}">Open Office Print / Invoice Policy</a>`);
@@ -254,6 +285,7 @@
    if(name==='legacy'){stopPairPoll();pairNote=null;if(mode==='pair')mode=pairReturn;legacy=true;signer.forget();message='Legacy mode: deliberately enter the Browser key shown by the companion app.';draw();return;}
    if(name==='forget'){keyEntry.clear();await controls.signing_key?.set_value('');signer.forget();stopPairPoll();pairNote=null;
     if(browserPair?.supported()){await browserPair.unpair(pairSource());message='Browser key removed here. Also use Remove approved browsers in Label Bridge to remove device trust.';}else message='Signing key forgotten.';draw();return;}
+   if(name==='auto'){const chosen=value('document_task');automatic=true;attemptedTasks.clear();await load();return runNext(chosen);}
    if(name==='back'){stopPairPoll();pairNote=null;setupDraft=null;if(c.state.pending){mode='choose';draw();return;}return load();}
    if(name==='setup'){mode='setup';draw();return;}
    if(name==='reset'){setupDraft=null;prefStore.reset();prefs=prefStore.load(context.defaults);message='Device settings reset to office defaults.';draw();return;}
@@ -263,10 +295,10 @@
    if(name==='printed'){const result=await segment('Operator Confirmed');if(result?.status==='Recorded')return stageNext();return result;}if(name==='unknown')return segment('Outcome Unknown');
    if(name==='abandon'){if(!jobName)throw new Error('Select an unfinished job.');return c.mutate({...context,stop_key:jobStop},'Close Mobile Print',{print_job:jobName,reason:value('reason')||''});}
   }
-  function scan(raw){if(String(raw||'').trim().toUpperCase()==='CFG:CMD:PRINT_OPEN'){if(mode==='pair')openPairing();else openBridge();return Promise.resolve();}return queue(async()=>{const text=String(raw||'').trim(),upper=text.toUpperCase();if(!text)return;
-   const names={MOBILE_PRINT_BACK:'back',PRINT_SETUP:'setup',CREATE_DRIVER_INVOICE:'invoice',CREATE_RETURN_LABEL:'label',PRINT_PAIR:'pair',PRINT_PAIR_BROWSER:'browser',PRINT_PAIR_LEGACY:'legacy',PRINT_FORGET:'forget',PRINT_CONFIRM:'printed',PRINT_UNKNOWN:'unknown',PRINT_SEND:'confirm',CONFIRM:'confirm',REFRESH:mode==='pair'?'confirm':'readback',CANCEL:'close',DELIVERY_CAMERA:'camera'};
+  function scan(raw){if(String(raw||'').trim().toUpperCase()==='CFG:CMD:DRIVER_CURRENT_CUSTOMER'){options.currentCustomer?.();return Promise.resolve();}if(String(raw||'').trim().toUpperCase()==='CFG:CMD:PRINT_OPEN'){if(mode==='pair')openPairing();else openBridge();return Promise.resolve();}return queue(async()=>{const text=String(raw||'').trim(),upper=text.toUpperCase();if(!text)return;
+   const names={PRINT_STOP_DOCUMENTS:'auto',MOBILE_PRINT_BACK:'back',PRINT_SETUP:'setup',CREATE_DRIVER_INVOICE:'invoice',CREATE_RETURN_LABEL:'label',PRINT_PAIR:'pair',PRINT_PAIR_BROWSER:'browser',PRINT_PAIR_LEGACY:'legacy',PRINT_FORGET:'forget',PRINT_CONFIRM:'printed',PRINT_UNKNOWN:'unknown',PRINT_SEND:'confirm',CONFIRM:'confirm',REFRESH:mode==='pair'?'confirm':'readback',CANCEL:'close',DELIVERY_CAMERA:'camera'};
    const key=upper.replace(/^CFG:CMD:/,'');if(names[key])return command(names[key]);
-   if(key==='HELP'){message='PRINT_SETUP opens printer settings. PRINT_PAIR starts browser approval (or pairs an explicitly selected legacy key); PRINT_PAIR_BROWSER explicitly selects browser approval. PRINT_OPEN opens the six-digit approval in pairing mode or the ready copy in print mode. Confirm/Refresh checks approval. PRINT_PAIR_LEGACY selects the older app key input; use CFG:SELECT:1–10 to choose inputs, then scan values. PRINT_FORGET removes local browser pairing/key; remove device trust inside Label Bridge too. After checking paper PRINT_CONFIRM stages the next part/copy, waiting for PRINT_OPEN. No automatic resend. Cancel closes safely.';update();return;}
+   if(key==='HELP'){message='PRINT_STOP_DOCUMENTS resumes the saved customer checklist; two copies pause for separate Print taps. DRIVER_CURRENT_CUSTOMER scrolls to the selected customer, which stays selected after delivery. You can move freely. PRINT_SETUP opens printer settings. PRINT_PAIR starts browser approval (or pairs an explicitly selected legacy key); PRINT_PAIR_BROWSER explicitly selects browser approval. PRINT_OPEN opens the six-digit approval in pairing mode or the ready copy in print mode. Confirm/Refresh checks approval. PRINT_PAIR_LEGACY selects the older app key input; use CFG:SELECT:1–10 to choose inputs, then scan values. PRINT_FORGET removes local browser pairing/key; remove device trust inside Label Bridge too. After checking paper PRINT_CONFIRM stages the next part/copy, waiting for PRINT_OPEN. No automatic resend. Cancel closes safely.';update();return;}
    if(key==='PRINT_NATIVE'){const href=host.find('.cfg-mobile-native').attr('href');if(!href)throw new Error('Choose a document and Print Format.');root.open(href,'_blank','noopener');return;}
    if(loading||c.state.busy||c.state.pending)throw new Error('Resolve the original request before editing or scanning another document.');
    const matches=context.documents.map((row,index)=>({row,index})).filter(({row})=>row.scan_code===text||row.name===text);
@@ -286,8 +318,8 @@
   host.on('click.cfg_mobile','.cfg-mobile-open-pair',event=>{event.preventDefault();openPairing();});
   root.document?.addEventListener('visibilitychange',returnedToBrowser);root.addEventListener?.('focus',returnedToBrowser);
   host.on('keydown.cfg_mobile','.cfg-mobile-scan',event=>{if(!['Enter','Tab'].includes(event.key)||event.shiftKey||event.ctrlKey||event.altKey||event.metaKey||event.isComposing)return;const text=host.find('.cfg-mobile-scan').val();if(!String(text||'').trim())return;event.preventDefault();event.stopPropagation();host.find('.cfg-mobile-scan').val('');scan(text);});
-  c.restore(options.trip);draw();queue(load);
+  c.restore(options.trip);draw();queue(async()=>{await load();scheduleAutomatic();});
   return {close,focus,scan,controller:c,refresh:()=>queue(()=>c.state.pending?c.reconcile():load()),valid};
  }
- return {commands,nativeLink,unfinishedJobs,copies,reviewedFrames,nextPage,copyProgress,pairingEntry,open,forget};
+ return {commands,nativeLink,unfinishedJobs,nextStopDocument,documentChecklist,copies,reviewedFrames,nextPage,copyProgress,pairingEntry,open,forget};
 });

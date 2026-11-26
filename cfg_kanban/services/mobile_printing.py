@@ -269,7 +269,13 @@ def get_mobile_print_context(trip_name, operator_session_token, stop_key=None):
         profile=profile.name, profile_version=str(profile.modified), defaults=dict(paper_width_mm=profile.paper_width_mm, printable_width=profile.printable_width,
             dpi=profile.dpi), documents=entries, invoice_sources=invoice_sources, invoice_mode=profile.invoice_mode,
         custody_lines=_custody_lines(trip, stop),
-        active_jobs=_unfinished_jobs(trip, stop_key, operator, entries))
+        active_jobs=_unfinished_jobs(trip, stop_key, operator, entries),
+        stop_documents=_stop_documents(trip, stop_key, operator))
+
+
+def _stop_documents(trip, stop_key, operator):
+    from cfg_kanban.services.stop_documents import context
+    return context(trip, stop_key, operator)
 
 
 def _unfinished_jobs(trip, stop_key, operator, entries):
@@ -591,6 +597,9 @@ def action(trip, request, operator, session, token, key):
         return _close_job(job, values.get('reason'), operator, session)
     if request['scope_hash'] != driver_route_actions._core(trip) or request['expected_revision'] != cint(trip.driver_route_revision):
         frappe.throw('Trip changed; refresh before preparing new document details')
+    if request['action'] == 'Run Stop Document':
+        from cfg_kanban.services.stop_documents import run
+        return run(trip, request['stop_key'], values.get('document_task'), operator, session, token)
     profile = get_profile(trip.company, current=request['action'] == 'Create Sales Invoice')
     if request['action'] == 'Prepare Mobile Print':
         return _prepare(trip, request['stop_key'], values, operator, session, key)

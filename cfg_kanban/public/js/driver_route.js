@@ -57,7 +57,7 @@
       state.selected = selected || null;
       if (!state.token || !state.active) { emit(); return; }
       const token = state.token; const ticket = ++epoch;
-      if (selected !== state.detail?.trip?.name) state.detail = null;
+      if (selected !== state.detail?.trip?.name) { state.detail = null; state.stop = null; }
       state.busy = true; state.error = ''; emit();
       let listRead = false;
       try {
@@ -73,7 +73,8 @@
           const detail = await call(service + 'get_driver_trip', { trip_name: state.selected, operator_session_token: token, interactive: Number(manual) });
           if (!valid(ticket, token)) return;
           state.detail = detail;
-          if (state.stop && !(detail.stops || []).some(row => row.stop_key === state.stop)) state.stop = null;
+          if (!state.stop) { try { state.stop = storage.getItem('cfg_driver_stop:' + state.operator.employee + ':' + state.selected); } catch (_) {} }
+          if (!detail.stops?.some(row => row.stop_key === state.stop)) state.stop = detail.current_stop_key || detail.next_stop_key || detail.stops?.[0]?.stop_key || null;
           try { storage.setItem('cfg_driver_trip:' + state.operator.employee, state.selected); } catch (_) { /* view still works */ }
         } else state.detail = null;
         state.stale = false;
@@ -106,7 +107,7 @@
     }
     return { state, refresh, identify, rejectSession,
       select(name) { state.stop = null; return refresh(name); },
-      viewStop(key) { if (sync()) { emit(); return; } if (state.detail?.stops?.some(row => row.stop_key === key)) { state.stop = key; emit(); } },
+      viewStop(key) { if (sync()) { emit(); return; } if (state.detail?.stops?.some(row => row.stop_key === key)) { state.stop = key; try { storage.setItem('cfg_driver_stop:' + state.operator.employee + ':' + state.selected, key); } catch (_) {} emit(); } },
       changeOperator() { epoch++; clear(); state.token = null; state.selected = null; state.busy = false; try { storage.removeItem(SESSION); } catch (_) {} emit(); },
       async scan(value, pin, station) {
         sync(); const target = scan(value);
@@ -129,10 +130,21 @@
       <div class="cfg-driver-pages"><button class="btn btn-default" data-page="-1"${state.start <= 0 || state.busy ? ' disabled' : ''}>${tr('Previous')}</button>
       <button class="btn btn-default" data-page="1"${!state.has_more || state.busy ? ' disabled' : ''}>${tr('Next')}</button></div>`;
   }
+  function selectedStop(state) {
+    const data=state.detail;
+    return data?.stops?.find(row=>row.stop_key===(state.stop||data.current_stop_key||data.next_stop_key))||data?.stops?.[0];
+  }
+  function scrollCustomer(target,input,toolbar) {
+    if(!target)return false;
+    if(target.style)target.style.scrollMarginTop=Math.max(16,Number(toolbar?.getBoundingClientRect?.()?.bottom||0)+16)+'px';
+    target.scrollIntoView({behavior:'smooth',block:'start'});
+    input?.focus?.({preventScroll:true});
+    return true;
+  }
   function detailView(state) {
     const data = state.detail;
     if (!data) return `<div class="frappe-card p-4"><h3>${tr('Select a trip')}</h3><p>${tr('Choose your trip to see its next stop and the products assigned there.')}</p></div>`;
-    const selected = (data.stops || []).find(row => row.stop_key === (state.stop || data.next_stop_key)) || data.stops?.[0];
+    const selected = selectedStop(state);
     const next = (data.stops || []).find(row => row.stop_key === data.next_stop_key);
     const badge = data.current_stop_key ? tr('Current stop') : data.sequence_source === 'Approved Route Sheet' ? tr('Next delivery stop') : tr('Next planned stop');
     return `<section class="frappe-card cfg-driver-summary p-4"><div class="cfg-driver-summary-head"><div><h2>${escape(data.trip.trip_title || data.trip.name)}</h2>
@@ -164,7 +176,7 @@
     return `<details class="frappe-card p-3 mt-3"><summary>${tr('Cancelled Customer Stops')} (${escape(data.cancelled_stops.length)})</summary>${data.cancelled_stops.map(row=>`<section class="mt-3 cfg-cancelled-stop cfg-status-cancelled"><strong>${escape(row.office_sequence)}. ${escape(row.site_name||row.customer_name)}</strong><p>${escape(row.cancelled_on)} · ${escape(row.cancelled_by)} · ${escape(row.cancellation_reason)}</p><p>${escape(row.stock_disposition)} · ${escape(row.cancellation_request)}</p>${(row.loaded_stock||[]).map(stock=>`<p>${escape(stock.visible_code||stock.item_code)} · ${escape(stock.qty)} ${escape(stock.stock_uom)} · ${escape(stock.stock_state)} · ${tr('Last recorded custody')}: ${escape(stock.current_warehouse)}</p>`).join('')}</section>`).join('')}</details>`;
   }
   function stopView(stop, trip) {
-    return `<section class="frappe-card p-4 mt-3"><h3>${escape(stop.sequence)}. ${escape(stop.site_name || stop.customer_name)}</h3>
+    return `<section class="frappe-card p-4 mt-3 cfg-driver-customer" data-customer-stop="${escape(stop.stop_key)}" tabindex="-1"><h3>${escape(stop.sequence)}. ${escape(stop.site_name || stop.customer_name)}</h3>
       <button class="btn btn-default cfg-driver-stop-print" data-print-stop="${escape(stop.stop_key)}">${tr('Documents / Print / Invoice')}</button>
       <p>${escape(stop.customer_name)} · ${escape(stop.purpose)} · <strong>${escape(stop.state)}</strong></p>
       <p class="cfg-driver-address">${escape(stop.address || tr('No address recorded'))}</p>
@@ -205,10 +217,10 @@
     $root.html(`<section class="frappe-card cfg-driver-toolbar p-3"><div class="cfg-driver-identity"></div><div class="cfg-driver-scan-row"><input class="form-control cfg-driver-scan" autocomplete="off" placeholder="${tr('Operator credential or Delivery Trip ID')}">
       <input class="form-control cfg-driver-pin" type="password" autocomplete="off" placeholder="${tr('PIN if required')}">
       <button class="btn btn-primary cfg-driver-confirm">${tr('Open / Sign in')}</button><button class="btn btn-default cfg-driver-camera">${tr('Scan with Camera')}</button>
-      <button class="btn btn-default cfg-driver-change">${tr('Change Operator')}</button><button class="btn btn-default cfg-driver-refresh">${tr('Refresh')}</button></div>
+      <button class="btn btn-default cfg-driver-current-customer">${tr('Current Customer')}</button><button class="btn btn-default cfg-driver-change">${tr('Change Operator')}</button><button class="btn btn-default cfg-driver-refresh">${tr('Refresh')}</button></div>
       <label class="mt-2"><input type="checkbox" class="cfg-driver-closed"> ${tr('Show closed trips')}</label><div class="cfg-driver-notice" role="status" aria-live="polite"></div></section>
       <div class="cfg-driver-gps-host"></div><div class="cfg-driver-layout"><aside class="cfg-driver-list"></aside><main><div class="cfg-driver-detail"></div><div class="cfg-driver-print-launch mt-3"></div><div class="cfg-driver-action-host"></div></main></div>`);
-    const input = $root.find('.cfg-driver-scan'); let camera = null, cameraEpoch = 0, timer = null, action = null, routeMap = null, gps = null;
+    const input = $root.find('.cfg-driver-scan'); let camera = null, cameraEpoch = 0, timer = null, action = null, routeMap = null, gps = null, pendingDocuments = null;
     const notice = text => $root.find('.cfg-driver-notice').text(text || '');
     const app = controller({ storage: localStorage,
       call: async (method, args) => (await frappe.call({ method, args })).message,
@@ -239,7 +251,17 @@
     });
     app.hide(); // A late asset load must not activate an already hidden Desk page.
     const focus = () => action ? action.focus() : input.trigger('focus');
+    function currentCustomer(){
+      if(!app.session()||app.state.stale||!app.state.detail)return;
+      const scanner=$root.find(action?'.cfg-mobile-scan,.driver-action-scan':'.cfg-driver-scan')[0]||input[0];
+      scrollCustomer($root.find('.cfg-driver-customer')[0],scanner,$root.find('.cfg-driver-toolbar')[0]);
+    }
+    $root.on('click.cfg_driver','.cfg-driver-current-customer',currentCustomer);
     async function submit(value) {
+      const shortcut=String(value??input.val()).trim().toUpperCase();
+      if(shortcut==='CFG:CMD:HELP'&&!action){input.val('');notice(tr('DRIVER_CURRENT_CUSTOMER scrolls to the selected customer below the map. The completed customer stays selected; choose another stop freely. MOBILE_PRINT opens its documents; PRINT_STOP_DOCUMENTS resumes its automatic checklist. PRINT_OPEN and PRINT_CONFIRM handle each copy separately.'));return focus();}
+      if(shortcut==='CFG:CMD:DRIVER_CURRENT_CUSTOMER'){input.val('');return currentCustomer();}
+      if(shortcut==='CFG:CMD:PRINT_STOP_DOCUMENTS'&&!action){input.val('');return printDocuments(null,true);}
       const loose=String(value??input.val()).trim();
       if(loose.startsWith('CFG:LOOSE:')&&!action){
         input.val('');const key=app.state.stop||app.state.detail?.next_stop_key;
@@ -262,25 +284,35 @@
     $root.on('click.cfg_driver', '.cfg-driver-refresh', () => action ? action.refresh() : app.refresh());
     function execute(stop, operation, outcome) {
       if (action || !app.session() || !app.state.detail || app.state.stale || app.state.busy) return;
+      if(stop)app.viewStop(stop);
       stopCamera();
+      const actionTrip=app.state.selected, actionToken=app.session();
       try {
         action = window.cfg_driver_route_actions.open({frappe, host:$root.find('.cfg-driver-action-host'),
           trip:app.state.selected, stop:stop || null, operation, outcome, owner:()=>app.state.operator?.employee, token:()=>app.session(),
           active:()=>app.state.active && route(), detail:()=>app.state.detail,
           refresh:()=>app.refresh(app.state.selected, true), storage:localStorage, locks:navigator.locks,
           // Run after the departure's Web Lock is released; GPS has its own durable action.
-          recorded:result=>{if(result.action==='Start Route'&&result.result?.gps_auto_start)setTimeout(()=>gps?.autoStart(result),0);},
+          currentCustomer,
+          recorded:result=>{
+            if(result.action==='Start Route'&&result.result?.gps_auto_start)setTimeout(()=>gps?.autoStart(result),0);
+            if(result.result?.automatic_documents?.length)pendingDocuments={trip:actionTrip,token:actionToken,stop};
+          },
           nonce:()=>crypto.randomUUID(), error:message, supervisor:()=>app.state.can_view_all && app.state.operator?.can_override && ['Supervisor','Development Proxy'].includes(app.state.operator?.kanban_role),
-          onClose:()=>{action=null;focus();}});
+          onClose:()=>{action=null;focus();const next=pendingDocuments;pendingDocuments=null;
+            if(next)setTimeout(()=>{if(!action&&app.state.active&&route()&&app.state.selected===next.trip&&app.session()===next.token&&app.state.stop===next.stop){printDocuments(next.stop,true);currentCustomer();}},0);
+          }});
       } catch(error) { $root.find('.cfg-driver-action-host').empty(); notice(message(error)); focus(); }
     }
     function openHandover(){if(app.state.busy||app.state.stale||!app.state.detail||!app.state.operator)return;frappe.set_route('kanban-trip-handover',app.state.detail.trip.name);}
     $root.on('click.cfg_driver','.cfg-driver-handover',openHandover);
-    function printDocuments(stopKey=null) {
+    function printDocuments(stopKey=null,automatic=false) {
       if(action||!app.session()||!app.state.detail||app.state.stale||app.state.busy)return;
+      const selected=stopKey||selectedStop(app.state)?.stop_key||null;
+      if(selected)app.viewStop(selected);
       stopCamera();
       try { action=window.cfg_driver_mobile_print.open({frappe,host:$root.find('.cfg-driver-action-host'),
-        trip:app.state.selected,stop:stopKey||app.state.stop||app.state.detail.next_stop_key||null,
+        trip:app.state.selected,stop:selected,automatic,currentCustomer,
         owner:()=>app.state.operator?.employee,token:()=>app.session(),active:()=>app.state.active&&route(),
         refresh:()=>app.refresh(app.state.selected,true),storage:localStorage,locks:navigator.locks,
         onSessionError:(error,token)=>app.rejectSession(error,token),
@@ -327,5 +359,5 @@
     frappe.router?.on?.('change', () => { if (!route()) lifecycle.hide(); });
     return lifecycle;
   }
-  return { controller, scan, expired, message, tripList, detailView, mount, escape,cancelledView,cancellationControl };
+  return { controller, scan, expired, message, tripList, detailView, mount, escape,cancelledView,cancellationControl,selectedStop,scrollCustomer };
 });

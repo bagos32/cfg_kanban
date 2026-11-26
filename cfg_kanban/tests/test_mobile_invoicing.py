@@ -53,6 +53,45 @@ class TestMobileInvoicing(unittest.TestCase):
         self.frappe.local.cfg_mobile_invoice_token='TOKEN'
         return self.ns['execute'](self.command(),self.payload(automatic))
 
+    def test_customer_automatic_documents_force_draft_even_under_submission_policy(self):
+        self.profile.invoice_mode='Automatic Submission'
+        self.profile.invoice_operators=[Doc(employee='DRIVER')]
+        self.frappe.local.cfg_mobile_invoice_token='TOKEN'
+        payload=dict(self.payload(),draft_only=True)
+        result=self.ns['execute'](self.command(),payload)
+        self.assertEqual(result.docstatus,0)
+        self.invoice.insert.assert_called_once_with()
+        self.invoice.submit.assert_not_called()
+        self.assertFalse(self.invoice.update_stock)
+
+    def test_customer_draft_does_not_bypass_company_disable_native_create_or_named_operator(self):
+        self.frappe.local.cfg_mobile_invoice_token='TOKEN'
+        payload=dict(self.payload(),draft_only=True)
+        for mode,allowed,native in [('Disabled',[],True),('Draft',[],False),('Automatic Submission',[],True)]:
+            self.profile.invoice_mode=mode;self.profile.invoice_operators=allowed;self.permissions['create']=native
+            with self.assertRaises((ValueError,PermissionError)):
+                self.ns['execute'](self.command(),payload)
+        self.mapper.assert_not_called();self.invoice.insert.assert_not_called()
+
+    def test_draft_only_is_frozen_into_the_native_command_payload(self):
+        command=Doc(name='COMMAND')
+        self.ns['insert_once'].return_value=(command,True)
+        self.frappe.get_doc.return_value=command
+        self.profile.invoice_mode='Automatic Submission';self.profile.invoice_operators=[Doc(employee='DRIVER')]
+        values=dict(delivery_note='DN',profile_version=str(self.profile.modified),invoice_mode=self.profile.invoice_mode)
+        self.ns['create'](Doc(name='TRIP'),Doc(stop_key='STOP'),values,self.operator,self.session,self.profile,'KEY',draft_only=True)
+        payload=json.loads(self.frappe.get_doc.call_args.args[0]['request_payload'])
+        self.assertTrue(payload['draft_only']);self.assertFalse(payload['automatic'])
+        self.assertEqual(payload['delivery_note'],'DN')
+
+    def test_default_manual_command_keeps_the_legacy_payload_for_retries(self):
+        command=Doc(name='COMMAND')
+        self.ns['insert_once'].return_value=(command,True);self.frappe.get_doc.return_value=command
+        values=dict(delivery_note='DN',profile_version=str(self.profile.modified),invoice_mode=self.profile.invoice_mode)
+        self.ns['create'](Doc(name='TRIP'),Doc(stop_key='STOP'),values,self.operator,self.session,self.profile,'KEY')
+        payload=json.loads(self.frappe.get_doc.call_args.args[0]['request_payload'])
+        self.assertNotIn('draft_only',payload);self.assertFalse(payload['automatic'])
+
     def test_native_mapper_owns_remaining_quantity_and_numbering(self):
         invoice=self.ns['build'](self.note)
         self.mapper.assert_called_once_with('DN')

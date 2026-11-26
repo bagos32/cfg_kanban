@@ -127,12 +127,12 @@ def requirements(trip, stop, note_name, operator, profile):
                 invoice_mode=profile.invoice_mode, profile_version=str(profile.modified), delivery_note=note.name)
 
 
-def create(trip, stop, values, operator, session, profile, action_key):
+def create(trip, stop, values, operator, session, profile, action_key, *, draft_only=False):
     from cfg_kanban.services.mobile_printing import delivery_note
     from cfg_kanban.integrations.erp_gateway import execute_command
     if values.get('profile_version') != str(profile.modified) or values.get('invoice_mode') != profile.invoice_mode:
         frappe.throw('Office Invoice policy changed after review; refresh and review the current policy')
-    automatic = _permissions(profile, operator)
+    automatic = _permissions(profile, operator) and not draft_only
     note = delivery_note(trip, stop, values.get('delivery_note'), operator, current=True)
     existing = _existing(note, current=True)
     if existing:
@@ -141,6 +141,8 @@ def create(trip, stop, values, operator, session, profile, action_key):
     payload = dict(trip_name=trip.name, stop_key=stop.stop_key, delivery_note=note.name,
                    required_erp_inputs=values.get('required_erp_inputs') or {},
                    automatic=automatic, profile=profile.name, profile_version=str(profile.modified), employee=operator.employee)
+    if draft_only:
+        payload['draft_only'] = True  # Keep pre-existing manual command payloads replay-compatible.
     command, created = insert_once(frappe.get_doc(dict(
         doctype='CFG ERP Command', command_type='Create Driver Sales Invoice', status='Pending',
         target_doctype='Sales Invoice', request_payload=frappe.as_json(payload),
@@ -161,7 +163,7 @@ def execute(command, payload):
     trip = driver_routes._trip(payload['trip_name'], operator)
     stop = saved_stop(trip, payload['stop_key'])
     profile = get_profile(trip.company, current=True)
-    automatic = _permissions(profile, operator)
+    automatic = _permissions(profile, operator) and not bool(payload.get('draft_only'))
     if (profile.name != payload['profile'] or str(profile.modified) != payload.get('profile_version') or automatic != bool(payload['automatic'])
             or operator.employee != payload['employee']):
         frappe.throw('Invoice policy changed; review a new driver request')

@@ -170,3 +170,15 @@ test('office closure submits exact job version and reason, then reloads after su
  await assert.rejects(()=>failed.prompt().callback({reason:'Reviewed'}),/changed/);assert.equal(failed.reloads(),0);
  const dirty=officeFixture();dirty.dirty();dirty.button().callback();assert.equal(dirty.prompt(),undefined);
 });
+
+test('customer checklist selects one pending step and never auto-reprints ended jobs',()=>{
+ const tasks=[{name:'DONE',status:'Operator Confirmed'},{name:'CLOSED',status:'Abandoned'},{name:'CREATE',status:'Pending'},{name:'PRINT',status:'Awaiting Confirmation'}];
+ assert.equal(ui.nextStopDocument(tasks).name,'CREATE');assert.equal(ui.nextStopDocument(tasks,new Set(['CREATE'])).name,'PRINT');
+ assert.equal(ui.nextStopDocument(tasks,new Set(['CREATE','PRINT'])),undefined);
+});
+test('customer checklist escapes references and states each copy needs a separate handoff',()=>{
+ const e=v=>String(v).replaceAll('<','&lt;').replaceAll('>','&gt;');
+ const html=ui.documentChecklist([{name:'TASK',task_type:'Print Delivery Note',source_name:'<DN>',status:'Prepared',copies:2}],e,{TASK:'<needs review>'});
+ assert(html.includes('&lt;DN&gt;'));assert(html.includes('2 copies (separate handoffs)'));assert(html.includes('&lt;needs review&gt;'));
+ assert(!html.includes('<DN>'));assert(html.includes('another customer at any time'));
+});

@@ -2,7 +2,7 @@
 (function(root){
  'use strict';
  const prefix='cfg_kanban.services.driver_route_actions.';
- const actions=['Create Sales Invoice','Create Custody Label','Prepare Mobile Print','Record Print Segment','Close Mobile Print','Request Stop Cancellation','Cancel Customer Stop','Release GPS','Start GPS','Start Route','Begin Delivery','Confirm Allocations','Create Delivery Note','Open Proof','Submit Proof','Complete Stop','Collect Old Return','Release Refused Stock','Begin Open Sale','Add Assistant','Change Route Order','Request Route Change','Cancel Route Change','Decide Route Change'];
+ const actions=['Run Stop Document','Create Sales Invoice','Create Custody Label','Prepare Mobile Print','Record Print Segment','Close Mobile Print','Request Stop Cancellation','Cancel Customer Stop','Release GPS','Start GPS','Start Route','Begin Delivery','Confirm Allocations','Create Delivery Note','Open Proof','Submit Proof','Complete Stop','Collect Old Return','Release Refused Stock','Begin Open Sale','Add Assistant','Change Route Order','Request Route Change','Cancel Route Change','Decide Route Change'];
  function controller(env){
   const s={trip:null,pending:null,busy:false,closed:false,baseline:null,message:''};
   const fail=text=>{throw new Error(text);};
@@ -87,6 +87,7 @@
    if(['Begin Delivery','Begin Open Sale'].includes(result.action)){quantityReview=null;}
    if(!valid())return;await options.refresh();if(!valid())return;
    options.recorded?.(result);
+   if(result.result?.stop_completed){close();return;}
    if(['Request Stop Cancellation','Cancel Customer Stop','Start Route','Collect Old Return','Release Refused Stock','Add Assistant','Change Route Order','Request Route Change','Cancel Route Change','Decide Route Change'].includes(result.action)){close();return;}
    await load();if(!valid())return;
    if(context?.next_step==='Done'){close();return;}
@@ -301,11 +302,12 @@
    await c.mutate(context,step,payload);
   }
   async function scan(value){
+   if(String(value||'').trim().toUpperCase()==='CFG:CMD:DRIVER_CURRENT_CUSTOMER'){options.currentCustomer?.();return;}
    if(stockChild)return stockChild.scan(value);
    const text=String(value||'').trim(),upper=text.toUpperCase();if(!text||!valid())return;
    if(upper==='CFG:CMD:CANCEL')return close();if(upper==='CFG:CMD:CONFIRM')return submit();
    if(['CFG:CMD:REFRESH','CFG:CMD:ROUTE_SHEET_REFRESH'].includes(upper))return c.state.pending?c.reconcile():load();
-   if(upper==='CFG:CMD:HELP'){host.find('.driver-action-message').text(context?.next_step==='Edit Route Order'?'Numbered choices select customers. ROUTE_MOVE_UP / ROUTE_MOVE_DOWN changes their order. NEXT_MATERIALS / PREVIOUS_MATERIALS pages the customer choices. ROUTE_REASON selects the reason. Confirm saves or requests approval; Cancel closes safely.':'Open Route goods: ALLOCATE_ROUTE_STOCK opens Add Product / Scan Stock in this Session. Scan the source or Item, select the source, enter stock UOM quantity and Confirm; repeat, then Confirm on the stop screen creates its DN. Loose Tag: scan CFG:LOOSE: QR once at its assigned customer stop; review every packed Item/Batch/source and Accepted quantity. Reduce a refused quantity with reason/condition, Confirm, then continue native DN/proof. For customer cancellation, STOP_CANCEL_REASON arms the reason; STOP_STOCK_DISPOSITION selects Keep Reserved for Return or Release for Same-trip Sale using numbered choices. Drivers request; Supervisors approve. Confirm submits reviewed details. Scan Customer Site when required. CFG:SELECT:1–10 arms a field; scan its value. DELIVERY_RECIPIENT and ERP table-row commands are supported. Cancel closes while retaining unknown results. Refresh reads back the saved outcome.');return;}
+   if(upper==='CFG:CMD:HELP'){host.find('.driver-action-message').text(context?.next_step==='Edit Route Order'?'Numbered choices select customers. ROUTE_MOVE_UP / ROUTE_MOVE_DOWN changes their order. NEXT_MATERIALS / PREVIOUS_MATERIALS pages the customer choices. ROUTE_REASON selects the reason. Confirm saves or requests approval; Cancel closes safely.':'DRIVER_CURRENT_CUSTOMER scrolls to customer details. After completing delivery, close this action and scan PRINT_STOP_DOCUMENTS to resume the saved document checklist; each copy waits for Print. Open Route goods: ALLOCATE_ROUTE_STOCK opens Add Product / Scan Stock in this Session. Scan the source or Item, select the source, enter stock UOM quantity and Confirm; repeat, then Confirm on the stop screen creates its DN. Loose Tag: scan CFG:LOOSE: QR once at its assigned customer stop; review every packed Item/Batch/source and Accepted quantity. Reduce a refused quantity with reason/condition, Confirm, then continue native DN/proof. For customer cancellation, STOP_CANCEL_REASON arms the reason; STOP_STOCK_DISPOSITION selects Keep Reserved for Return or Release for Same-trip Sale using numbered choices. Drivers request; Supervisors approve. Confirm submits reviewed details. Scan Customer Site when required. CFG:SELECT:1–10 arms a field; scan its value. DELIVERY_RECIPIENT and ERP table-row commands are supported. Cancel closes while retaining unknown results. Refresh reads back the saved outcome.');return;}
    if(c.state.pending)throw new Error('Retry or reconcile the original request before editing.');
    if(text.startsWith('CFG:LOOSE:')){
     if(!['Begin Delivery','Begin Open Sale'].includes(context?.next_step))throw new Error('Open the assigned customer stop before scanning its unused Loose Tag.');

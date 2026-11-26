@@ -359,6 +359,8 @@ def _scanner_command_catalog(quantity_steps=None):
             for number in normalized_steps
         ]),
         ("Driver Mobile Printing", [
+            ("Driver: Current Customer", "CFG:CMD:DRIVER_CURRENT_CUSTOMER", ""),
+            ("Driver: Continue Customer Documents", "CFG:CMD:PRINT_STOP_DOCUMENTS", ""),
             ("Driver: Documents / Print", "CFG:CMD:MOBILE_PRINT", ""),
             ("Driver: Printer Setup", "CFG:CMD:PRINT_SETUP", ""),
             ("Driver: Normal ERPNext Print", "CFG:CMD:PRINT_NATIVE", ""),

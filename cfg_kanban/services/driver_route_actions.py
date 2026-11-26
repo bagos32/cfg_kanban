@@ -8,10 +8,11 @@ from cfg_kanban.services.idempotency import canonical_key
 from cfg_kanban.services.operator_auth import require_operator
 
 TRIP = 'CFG Kanban Delivery Trip'
-MOBILE_ACTIONS = ('Create Sales Invoice', 'Create Custody Label', 'Prepare Mobile Print', 'Record Print Segment', 'Close Mobile Print')
+MOBILE_ACTIONS = ('Run Stop Document', 'Create Sales Invoice', 'Create Custody Label', 'Prepare Mobile Print', 'Record Print Segment', 'Close Mobile Print')
 ACTIONS = MOBILE_ACTIONS + ('Request Stop Cancellation','Cancel Customer Stop','Release GPS','Start GPS', 'Start Route', 'Begin Delivery', 'Confirm Allocations', 'Create Delivery Note',
            'Open Proof', 'Submit Proof', 'Complete Stop', 'Collect Old Return', 'Release Refused Stock', 'Begin Open Sale', 'Add Assistant', 'Change Route Order', 'Request Route Change', 'Cancel Route Change', 'Decide Route Change')
 PAYLOAD_FIELDS = {
+    'Run Stop Document': {'document_task'},
     'Create Sales Invoice': {'delivery_note', 'required_erp_inputs', 'profile_version', 'invoice_mode'},
     'Create Custody Label': {'return_case', 'return_line', 'qty'},
     'Prepare Mobile Print': {'doctype', 'name', 'print_format', 'copies', 'reason', 'no_letterhead', 'printer_settings'},
@@ -37,6 +38,11 @@ PAYLOAD_FIELDS = {
 
 class DriverActionConflict(frappe.ValidationError):
     """An action identity already describes a different or voided request."""
+
+
+def _documents():
+    from cfg_kanban.services import stop_documents
+    return stop_documents
 
 
 def _views():
@@ -362,6 +368,10 @@ def _finish(doc, stop, operator, token, notes=None):
         values.update(driver_route_state='Completed', driver_route_completed_on=now_datetime(),
                       driver_active_vehicle_key=None)
     doc.db_set(values, update_modified=True)
+    _documents().schedule_delivery(doc, stop, operator)
+    for name in frappe.get_all('CFG Kanban Return Case', filters={'driver_trip': doc.name,
+            'driver_stop_key': stop.stop_key}, pluck='name', limit_page_length=0):
+        _documents().schedule_return(doc, stop, name, operator)
     return True
 
 
@@ -652,6 +662,8 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
             # Closure is always based on native submitted DN/proof feedback, never a button click alone.
             result['stop_completed'] = _finish(doc, stop, operator, operator_session_token)
     doc.db_set('driver_route_revision', cint(doc.driver_route_revision) + 1, update_modified=True)
+    if result.get('stop_completed'):
+        result['automatic_documents'] = _documents().pending_names(doc, stop.stop_key)
     return _record(doc, operator, session, key, request, result)
 
 
@@ -687,6 +699,7 @@ def _special_action(doc,request,operator,session,token,key):
     if request['action']=='Collect Old Return':
         from cfg_kanban.services.driver_collections import collect
         result=collect(doc,stop,request['payload'],operator,session,token,key)
+        result['automatic_documents'] = _documents().schedule_return(doc, stop, result['return_case'], operator)
     else:
         if not (_views()._all(operator) and operator.can_override):frappe.throw('Supervisor with Override is required',frappe.PermissionError)
         from cfg_kanban.services.driver_delivery_outcomes import OUTCOME, release

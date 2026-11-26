@@ -624,3 +624,22 @@ Review settlement still apply. Whole tags/held sources stay together; old return
 QC receipt, with no duplicate receipt/credit. Office closure now requires old-return physical receipt,
 while inspection/accounting may continue. See [E5B2 setup and scanner guide](USER_GUIDE_DISPATCH_E5B2.md)
 and [acceptance checklist](TEST_DISPATCH_E5B2_RECOVERY.md). Implementation does not establish live acceptance.
+
+## Keep the completed customer and find tagged products
+
+After delivery, the completed customer stays selected for its documents. The top **Current
+Customer** button skips the map and scrolls to those details. Selecting another stop remains free
+under the existing route execution policy. Customer QR profiles can independently enable DN ×2,
+Draft Invoice creation, Draft Invoice ×2 and Temporary Return Note ×2; copies pause for separate
+Print taps. See [Driver Printing](USER_GUIDE_DRIVER_PRINTING.md#customer-qr-document-automation-26-november-2026).
+
+For **Sell from Lorry → Add Product / Scan Stock**, either scan a Stock Tag/container or select
+**Product — Stock Tags or Untagged Stock**. The numbered source list includes eligible loaded tags,
+with their codes and Batches, and separate untagged sources. Choose the exact source, enter Stock
+Quantity, and Confirm; repeat for the next product. Tags in reusable containers still require
+scanning the physical container. Invalid/reserved/expired sources retain their original controls.
+A changed balance at confirmation is rejected; refresh the source list rather than retrying with
+a different identity while a request is unresolved.
+
+If the Batch input is armed after Item selection, scan `CFG:CMD:ROUTE_SOURCE` to return to
+physical-source scanning before scanning a reusable container.

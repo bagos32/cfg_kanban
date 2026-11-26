@@ -328,3 +328,68 @@ Printable labels are in **Kanban Operator → Scanner Command Labels → Driver 
 | `CFG:CMD:CONFIRM` / `CANCEL` / `REFRESH` | Confirm/check approval / close safely / read back result or check approval |
 
 See [native/device acceptance](TEST_DRIVER_MOBILE_PRINTING.md) before accepting this phase.
+
+## Customer QR document automation (26 November 2026)
+
+Open the customer's **CFG Kanban Customer Scan Point** on its normal DocType page. Under
+**Driver Documents After Delivery / Return Collection**, choose independently:
+
+- **Auto Print Delivery Note — 2 Copies**: queue the submitted DN after delivery and required
+  proof finish. The Company's configured Delivery Note Print Format and signature requirement apply.
+- **Auto Create Draft Sales Invoice**: use the existing native Delivery Note mapper. This action
+  always creates/reuses a **Draft**, including when the Company's manual driver invoicing policy
+  permits automatic submission. It never posts another stock movement or changes naming rules.
+- **Auto Print Draft Sales Invoice — 2 Copies**: print the single exact linked Draft. Enable the
+  creation option too if the system should create it; print-only never creates an invoice.
+- **Auto Print Return Custody Note — 2 Copies**: queue the existing **Temporary Return Note** for
+  a collected old return or QC refusal case. This is the Return Case document, not a new stock
+  tag, custody label, customer credit, or QC receipt.
+
+All four options default **off**. They apply when a stop completes or a return is collected;
+changing a profile does not backfill past deliveries. Each source gets a durable
+**CFG Kanban Stop Document Task**. A stop with several DNs gets separate document steps per DN.
+A fully refused delivery without a DN does not generate an invoice.
+
+Stock/Sales/System Managers who can edit Customer Scan Points select these options. The existing
+Company **Mobile Print Profile**, native source-document Read/Print permissions, Sales Invoice
+Create permission, operator Complete authority and assigned-Trip access remain required. Disabled
+Company invoicing stays disabled. If the Company's policy is Automatic Submission, its existing
+named-operator/Submit authorization still applies; the automatic customer task nevertheless stays
+Draft. Assistants use their own operator session; they cannot resume another person's print job.
+
+After completion the customer stays selected. The document panel opens, creates the selected Draft Invoice first, and prepares the next
+selected print step automatically. Draft creation does not wait for paper copies. **Print / Open Label Bridge** sends only the current copy; inspect the
+paper and choose **Confirm Segment Printed**, tear it off, then tap **Print** for the office copy.
+Long documents still require their existing segment confirmations. Opening the companion app is
+not a printer acknowledgement. No copy is silently resent.
+
+A failed setup step remains pending on the checklist. Other independently usable steps may proceed
+following a confirmed rejection. An uncertain network outcome freezes the original request: use
+**Read back result / Retry original request**. Do not prepare a replacement job. If ERP requires
+custom mandatory invoice data, use the existing **Create Invoice** editor or let Accounts prepare
+the exact linked Draft, then continue the checklist. Existing unfinished manual jobs must be
+resumed by their owner or closed by authorized office staff with a reason. Closed automatic jobs
+are not recreated automatically; use the existing reviewed manual reprint if needed.
+
+Drivers may close the panel and select any other allowed customer. Printing does not introduce a
+travel/stop gate. Return later through **Documents / Print / Invoice → Continue customer documents**;
+use its optional **Customer document task** selector for a particular pending step. Confirmation
+updates come from the original mobile print job, not from opening the preview.
+
+**Current Customer**, at the top of Driver Route, scrolls past the map to the selected customer's
+details and restores scanner focus without scrolling back up. The selected stop is remembered per
+operator and Trip and is validated against the currently authorized Trip. Office route order and
+next-stop recommendations remain separate from this viewing preference.
+
+Scanner Help / printable **Driver Mobile Printing** commands:
+
+- `CFG:CMD:DRIVER_CURRENT_CUSTOMER`: scroll to customer details, including from a document/action panel.
+- `CFG:CMD:PRINT_STOP_DOCUMENTS`: open/resume the current customer's checklist; within Documents it
+  continues the selected task or the next pending one. Close an unfinished delivery action first.
+- Existing `PRINT_OPEN`, `PRINT_CONFIRM`, `PRINT_UNKNOWN`, numbered `CFG:SELECT:1`–`10`, camera and
+  `CANCEL` continue to operate the same print jobs and retain unresolved requests safely.
+
+Run the normal app migration/build/cache steps to install the new task DocType and four default-off
+fields. No ERPNext/Frappe upgrade, document renumbering or stock conversion is needed. Live native
+ERPNext, multi-tab/multi-operator, signature, Bluetooth and kiosk acceptance remain separate from
+offline development tests; record them in [the acceptance checklist](TEST_CUSTOMER_STOP_DOCUMENTS.md).

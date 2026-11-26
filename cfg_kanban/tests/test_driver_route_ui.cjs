@@ -317,3 +317,32 @@ test('the driver scanner opens exact selected customer cancellation with the sam
  const h=domHarness();await h.view.show(trip);let opened;Object.defineProperty(globalThis,'navigator',{configurable:true,value:{locks:{}}});window.cfg_driver_route_actions={open:options=>{opened=options;return {focus(){},close(){options.onClose();}};}};
  h.view.app.state.stop='STOP1';h.nodes.get('.cfg-driver-scan').val('CFG:CMD:CANCEL_CUSTOMER_STOP');h.events.get('click.cfg_driver .cfg-driver-confirm')();await flush();assert.equal(opened.stop,'STOP1');assert.equal(opened.operation,'Cancel Customer Stop');h.view.hide();
 });
+
+test('completed customer stays selected across next-stop changes and reload; choosing another stays free',async()=>{
+ const h=harness();await h.app.show(trip);h.app.viewStop('STOP1');
+ const done={...structuredClone(detail),next_stop_key:'STOP2',current_stop_key:null,stops:[{...structuredClone(stop),state:'Completed'},{...structuredClone(stop),stop_key:'STOP2',customer_name:'Second'}]};
+ h.respond(async method=>method.endsWith('get_driver_trips')?{operator:{employee:'EMP'},trips:[]}:structuredClone(done));
+ await h.app.refresh();assert.equal(h.app.state.stop,'STOP1');assert.equal(ui.selectedStop(h.app.state).state,'Completed');
+ const reloaded=ui.controller({storage:h.storage,call:async method=>method.endsWith('get_driver_trips')?{operator:{employee:'EMP'},trips:[]}:structuredClone(done),render:()=>{}});
+ await reloaded.show(trip);assert.equal(reloaded.state.stop,'STOP1');
+ const before=h.calls.length;h.app.viewStop('STOP2');assert.equal(h.app.state.stop,'STOP2');assert.equal(h.calls.length,before);
+ assert.equal(h.data.get('cfg_driver_stop:EMP:'+trip),'STOP2');
+});
+test('saved customer selection is scoped to operator/trip and discarded when absent from authorized detail',async()=>{
+ const h=harness();h.data.set('cfg_driver_stop:OTHER:'+trip,'OTHER-CUSTOMER');h.data.set('cfg_driver_stop:EMP:'+trip,'REMOVED');
+ await h.app.show(trip);assert.equal(h.app.state.stop,'STOP1');
+ h.app.changeOperator();assert.equal(h.app.state.stop,null);assert.equal(ui.selectedStop(h.app.state),undefined);
+});
+test('Current Customer scroll uses native smooth scrolling and scanner focus without a scroll jump',()=>{
+ const calls=[],target={style:{},scrollIntoView:v=>calls.push(['scroll',v])},input={focus:v=>calls.push(['focus',v])};
+ assert.equal(ui.scrollCustomer(target,input),true);assert.deepEqual(calls,[['scroll',{behavior:'smooth',block:'start'}],['focus',{preventScroll:true}]]);
+ ui.scrollCustomer(target,input,{getBoundingClientRect:()=>({bottom:140})});assert.equal(target.style.scrollMarginTop,'156px');
+ assert.equal(ui.scrollCustomer(null,input),false);
+ assert.match(ui.detailView({detail,stop:'STOP1'}),/cfg-driver-customer/);
+});
+test('customer shortcuts share global and dialog scanner dispatch and printable catalogue',()=>{
+ const fs=require('node:fs'),path=require('node:path'),base=path.resolve(__dirname,'..');
+ const driver=fs.readFileSync(path.join(base,'public/js/driver_route.js'),'utf8'),panel=fs.readFileSync(path.join(base,'public/js/driver_mobile_print.js'),'utf8'),actions=fs.readFileSync(path.join(base,'public/js/driver_route_actions.js'),'utf8'),catalog=fs.readFileSync(path.join(base,'api/operator.py'),'utf8');
+ for(const code of ['DRIVER_CURRENT_CUSTOMER','PRINT_STOP_DOCUMENTS']){assert(driver.includes('CFG:CMD:'+code));assert(panel.includes(code));assert(catalog.includes('CFG:CMD:'+code));}
+ assert(actions.includes('CFG:CMD:DRIVER_CURRENT_CUSTOMER'));assert(driver.includes('pendingDocuments'));
+});

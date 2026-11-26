@@ -6625,3 +6625,50 @@ for normal resume, uncertain requests and the appropriate path for each actual s
 The printed command **Allocate Open Route Stock** (`CFG:CMD:ALLOCATE_ROUTE_STOCK`) works inside
 the driver goods-selection screen; its older `ROUTE_ALLOCATE_STOCK` alias remains valid. Touch,
 camera, numbered source choices, quantity and safe cancel retain the existing scanner workflow.
+
+## Customer QR: automatic delivery/return documents and Current Customer
+
+On **CFG Kanban Customer Scan Point → Driver Documents After Delivery / Return Collection**, four
+independent default-off choices prepare **DN ×2**, create a **Draft Sales Invoice**, print the
+**Draft Invoice ×2**, and print the existing **Temporary Return/Custody Note ×2**. The normal
+Company Mobile Print Profile supplies native ERPNext Print Formats and invoice authorization.
+Automatic customer invoicing always stays Draft and uses the existing DN mapper; no duplicate
+stock issue, custom numbering prefix or invoice submission is introduced. Print-only invoice
+selection requires one exact linked Draft. Old-return pickup, QC receipt and credit controls stay
+on their existing workflow.
+
+Completion/collection creates a source-linked **Stop Document Task** checklist. The driver panel
+prepares the next configured step automatically. Each complete copy waits for its own **Print / Open
+Label Bridge** tap, with the existing segment/paper confirmation between copies. An uncertain
+outcome retains the original action/job for readback or retry. Setup failures remain visible;
+print preparation alone does not confirm paper output. Another operator's unfinished job requires
+its existing office recovery process. Old completed stops are not backfilled when settings change.
+
+The completed customer remains selected; drivers can choose another allowed customer freely.
+**Current Customer** at the top scrolls directly below the map. Resume documents later from the
+customer's **Documents / Print / Invoice → Continue customer documents**. The optional task selector
+is scanner-operable; native permissions and the original Trip/customer/source scope still apply.
+Printable commands are `CFG:CMD:DRIVER_CURRENT_CUSTOMER` and `CFG:CMD:PRINT_STOP_DOCUMENTS`, alongside
+existing `PRINT_OPEN` / `PRINT_CONFIRM` / `PRINT_UNKNOWN` and safe Cancel. See
+[setup, permissions and recovery](USER_GUIDE_DRIVER_PRINTING.md#customer-qr-document-automation-26-november-2026)
+and [live acceptance steps](TEST_CUSTOMER_STOP_DOCUMENTS.md).
+
+## Sell from Lorry: find a Stock Tag by Product
+
+**Add Product / Scan Stock → Product — Stock Tags or Untagged Stock** now lists eligible loaded
+Stock Tags alongside prepared and unassigned untagged ERP quantities. Previously the Item lookup
+searched only untagged quantities; tagged goods needed their physical QR scan. Every numbered tag
+choice shows its exact visible code, Batch and available stock UOM quantity. Selecting a tag is an
+explicit source choice, not an automatic FEFO/FIFO recommendation. Different unassigned tags have
+distinct identities; they are not merged into one untagged balance.
+
+A tag keeps its own Batch. Untagged stock still needs an exact Batch when required; serialized
+Items can only use eligible complete tagged units. Reserved, wrong-lorry/Company, expired or
+otherwise invalid sources cannot be allocated. For a tag inside a reusable container, the screen
+explains that its physical container must be scanned: Quantity Bin partial delivery and mixed
+Logistics Container full-content rules remain unchanged. Eligibility is checked again when the
+allocation is confirmed; repeated/uncertain requests retain the existing native reservation and
+Delivery Note recovery controls.
+
+If the Batch input is armed after Item selection, scan `CFG:CMD:ROUTE_SOURCE` to return to
+physical-source scanning before scanning a reusable container.

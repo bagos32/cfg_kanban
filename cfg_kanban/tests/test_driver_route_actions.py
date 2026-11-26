@@ -59,7 +59,8 @@ class TestDriverRouteActions(unittest.TestCase):
             cint=lambda v:int(v or 0), flt=lambda v:float(v or 0), canonical_key=canonical,
             get_datetime=lambda v:datetime.datetime.fromisoformat(str(v)),
             now_datetime=lambda:datetime.datetime(2026,11,21,17), require_operator=self.auth, record=self.record))
-        self.ns.update(_views=lambda:Row(**self.v.ns), _delivery=lambda:self.engine,
+        documents=Row(**load('services/stop_documents.py',dict(frappe=self.b.frappe,cint=lambda x:int(x or 0), now_datetime=lambda:'NOW',canonical_key=canonical)))
+        self.ns.update(_documents=lambda:documents, _views=lambda:Row(**self.v.ns), _delivery=lambda:self.engine,
             _prepared=lambda:self.prepared, _sheets=lambda:self.sheets, _proof=lambda:self.proof,
             _planning=lambda:Row(_assert_plan_authorized=self.authorized,_vehicle_warehouse=self.vehicle_check),
             _core=lambda doc:self.ns['_scope_hash'](doc,self.b.ns['_business'](doc)))

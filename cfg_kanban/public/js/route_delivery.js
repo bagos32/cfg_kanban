@@ -73,7 +73,10 @@
     s.choices=result.choices||[];s.item=result.item_code||s.item;s.batch=result.batch_no||s.batch;
     if(result.requires_batch){s.arm='batch';s.message='Scan or select the exact Batch for this Item.';}
     else if(s.choices.length===1){s.choosing='stock';select(1);s.message='Set the quantity and confirm the stock source.';}
-    else{s.choosing=s.choices.length>1?'stock':'';s.message=s.choices.length?'Choose prepared route stock or unassigned lorry stock explicitly.':'No eligible stock is available for this source.';}
+    else{s.choosing=s.choices.length>1?'stock':'';s.message=s.choices.length?'Choose the exact Stock Tag, prepared route stock or unassigned lorry stock.':'No eligible stock is available for this source.';}
+    if(result.untagged_requires_batch)s.message+=' Tagged sources retain their Batch; select an exact Batch to find untagged stock.';
+    if(result.tagged_only)s.message+=' Serialized Items require a complete tagged unit.';
+    if(result.unavailable_tags?.length)s.message+=' Other loaded tags: '+result.unavailable_tags.map(row=>row.visible_code+' — '+row.reason).join('; ');
    }finally{s.loading=false;changed();}
   }
   function quantity(value){editable();if(s.mode!=='stock')fail('Quantity applies to Route Stock allocation.');const n=Number(value);if(!Number.isFinite(n)||n<=0){s.qty=0;changed();fail('Stock quantity must be positive.');}s.qty=n;changed();}
@@ -153,7 +156,7 @@
    if(upper==='CFG:CMD:ROUTE_RECONCILE')return reconcile();
    if(upper==='CFG:CMD:ROUTE_VOID_PENDING'){if(!s.pending||s.pending.invalid)fail('Open a valid original pending action first.');s.cancelPending=true;s.arm='reason';s.message='Cancel only if unrecorded: enter a reason, then Confirm. A recorded action will be reopened instead.';changed();return;}
    if(s.pending&&s.cancelPending&&(!upper.startsWith('CFG:')||upper==='CFG:CMD:ROUTE_REASON')){if(upper==='CFG:CMD:ROUTE_REASON'){s.arm='reason';return;}return reason(value);}
-   if(upper==='CFG:CMD:HELP'){s.message='Scan the Plan and Customer Site, select numbered choices and Confirm. Stock: scan a tag/container or Item, exact Batch when required, choose prepared/unassigned source, Material Qty, Confirm. Manager actions need a planned Stop and reason. Cancel preserves uncertain requests.';changed();return;}
+   if(upper==='CFG:CMD:HELP'){s.message='Scan the Plan and Customer Site, select numbered choices and Confirm. Stock: scan a tag/container or select Product to list eligible loaded Stock Tags and untagged stock. Choose an exact tag/source; tags keep their own Batch, while untagged stock needs an exact Batch when required, Material Qty, Confirm. Manager actions need a planned Stop and reason. Cancel preserves uncertain requests.';changed();return;}
    editable();
    if(upper==='CFG:CMD:NEXT_MATERIALS'||upper==='CFG:CMD:PREVIOUS_MATERIALS'){
     const list=s.choosing==='plan'?s.plans:s.choosing==='stop'?s.stops:s.choices;
@@ -215,7 +218,7 @@
    {fieldname:'review',fieldtype:'HTML'},
    {fieldname:'reconcile',label:'Re-read Pending Action',fieldtype:'Button',hidden:1,click:()=>queue(()=>controller.reconcile())},
    {fieldname:'void_pending',label:'Cancel If Unrecorded',fieldtype:'Button',hidden:1,click:()=>queue(()=>controller.scan('CFG:CMD:ROUTE_VOID_PENDING'))},
-   {fieldname:'item_code',label:'Untagged ERP Item',fieldtype:'Link',options:'Item',hidden:options.mode==='stock'?0:1,
+   {fieldname:'item_code',label:'Product — Stock Tags or Untagged Stock',fieldtype:'Link',options:'Item',hidden:options.mode==='stock'?0:1,
     onchange:()=>{const value=dialog?.get_value('item_code');if(controller&&value)queue(()=>controller.stock({item_code:value}));}},
    {fieldname:'batch_no',label:'Exact Batch',fieldtype:'Link',options:'Batch',hidden:options.mode==='stock'?0:1,
     onchange:()=>{const value=dialog?.get_value('batch_no');if(controller&&controller.state.item&&value)queue(()=>controller.stock({item_code:controller.state.item,batch_no:value}));}},

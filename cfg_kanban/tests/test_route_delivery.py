@@ -18,6 +18,7 @@ class TestRouteDelivery(unittest.TestCase):
             stop_sequence_policy='Flexible Order',proof_policy='No Proof Required',route_stock_commitment=1,
             actual_stop_count=0,completed_stop_count=0,allow_supervisor_override=1)
         self.operator=self.b.operator
+        self.b.frappe.flags=e4a.Row(); self.b.frappe.ValidationError=ValueError
         self.other=self.b.add('CFG Kanban Customer Scan Point','OTHER',active=1,site_code='OTHER-SITE',
             site_name='Second Customer',selling_company='B',customer='CUSTOMER2',customer_address='ADDR2',
             default_price_list='SELL',proof_policy='Required')
@@ -86,6 +87,97 @@ class TestRouteDelivery(unittest.TestCase):
         self.b.erp_balance-=sum(float(row.stock_qty) for row in note.items)
         self.b.feedback._on_customer_delivery_submit(note,delivery.name)
         return note,delivery
+
+    def free_tag(self,name='FREE',code='FREE1',qty=3,**values):
+        original=dict(self.unit)
+        for field in ('name','doctype','_store'):original.pop(field,None)
+        original.update(handling_unit_id=code,current_qty=qty,available_qty=qty,reserved_qty=0,**values)
+        unit=self.b.add(e4a.HU,name,**original)
+        self.identities[code]={'identity_type':'Handling Unit','name':name}
+        return unit
+
+    def test_item_search_lists_prepared_tag_and_allocates_it_through_native_dn_once(self):
+        self.start();choices=self.context(item='ITEM')['choices']
+        tagged=next(row for row in choices if row.get('handling_unit')=='TAG')
+        self.assertEqual((tagged['source_key'],tagged['visible_code']),('ALLOC','TAG1'))
+        self.allocate(2,source=tagged['source_key'],scan=None,item='ITEM')
+        self.allocate(2,source=tagged['source_key'],scan=None,item='ITEM')
+        self.assertEqual(len(self.data[e4a.DA]),1)
+        note,delivery=self.submit()
+        self.assertEqual(self.unit.current_qty,3)
+        self.assertEqual(note.items[0].item_code,'ITEM')
+        self.assertEqual(delivery.state,'Closed')
+
+    def test_multiple_unassigned_tags_have_unique_keys_and_selection_keeps_exact_identity(self):
+        one=self.free_tag();two=self.free_tag('FREE2','FREE2',4);self.b.erp_balance=20
+        self.start();choices=self.context(item='ITEM')['choices']
+        one_choice=next(row for row in choices if row.get('handling_unit')==one.name)
+        two_choice=next(row for row in choices if row.get('handling_unit')==two.name)
+        self.assertNotEqual(one_choice['source_key'],two_choice['source_key'])
+        self.assertTrue(two_choice['source_key'].startswith('unassigned-tag:'))
+        self.allocate(2,source=two_choice['source_key'],scan=None,item='ITEM')
+        self.assertEqual(two.reserved_qty,2);self.assertEqual(one.reserved_qty,0)
+        allocation=next(iter(self.data[e4a.DA].values()))
+        self.assertEqual(allocation.handling_unit,'FREE2');self.assertFalse(allocation.dispatch_allocation)
+        self.submit();self.assertEqual(two.current_qty,2);self.assertEqual(one.current_qty,3)
+
+    def test_item_browse_revalidates_a_tag_that_was_reserved_after_display(self):
+        self.start();choice=next(row for row in self.context(item='ITEM')['choices'] if row.get('handling_unit')=='TAG')
+        self.unit.reserved_qty=1;self.unit.available_qty=4
+        with self.assertRaisesRegex(ValueError,'exact current'):
+            self.allocate(2,source=choice['source_key'],scan=None,item='ITEM')
+        self.assertFalse(self.data.get(e4a.DA));self.assertEqual(self.unit.reserved_qty,1)
+
+    def test_ineligible_expired_tags_do_not_hide_valid_sources_or_emit_candidate_popups(self):
+        self.free_tag();self.b.frappe.flags.mute_messages='ORIGINAL'
+        def expiry(unit):
+            self.assertTrue(self.b.frappe.flags.mute_messages)
+            if unit.name=='FREE':raise ValueError('Expired stock is blocked')
+        self.b.bridge.assert_delivery_tag_expiry.side_effect=expiry
+        self.start();result=self.context(item='ITEM')
+        self.assertTrue(any(row.get('handling_unit')=='TAG' for row in result['choices']))
+        self.assertFalse(any(row.get('handling_unit')=='FREE' for row in result['choices']))
+        self.assertEqual(result['unavailable_tags'][0]['visible_code'],'FREE1')
+        self.assertEqual(self.b.frappe.flags.mute_messages,'ORIGINAL')
+
+    def test_container_contents_still_require_physical_container_scan(self):
+        self.container();self.start();result=self.context(item='ITEM')
+        self.assertFalse(any(row.get('handling_unit')=='TAG' for row in result['choices']))
+        self.assertIn('scan the container',result['unavailable_tags'][0]['reason'])
+        self.assertEqual(self.context('BIN1')['choices'][0]['handling_unit'],'TAG')
+        self.allocate(2,scan='BIN1');self.submit();self.assertEqual(self.unit.current_qty,3)
+
+    def test_tagged_batch_is_selectable_without_guessing_a_batch_for_untagged_stock(self):
+        original=self.b.frappe.db.get_value
+        def get_value(dt,name,fields,*args,**kw):
+            value=original(dt,name,fields,*args,**kw)
+            if dt=='Item' and isinstance(fields,list):value.has_batch_no=1
+            return value
+        self.b.frappe.db.get_value=get_value;self.unit.batch_no='BATCH'
+        self.b.add('Batch','BATCH',item='ITEM',expiry_date='2027-01-01')
+        self.data['CFG Kanban Dispatch Allocation']['ALLOC'].batch_no='BATCH'
+        self.start();result=self.context(item='ITEM')
+        self.assertFalse(result['requires_batch']);self.assertTrue(result['untagged_requires_batch'])
+        self.assertEqual(result['choices'][0]['batch_no'],'BATCH')
+
+    def test_serialized_item_browse_cannot_allocate_a_partial_physical_tag(self):
+        self.start();original=self.b.frappe.db.get_value
+        def get_value(dt,name,fields,*args,**kw):
+            value=original(dt,name,fields,*args,**kw)
+            if dt=='Item' and isinstance(fields,list):value.has_serial_no=1
+            return value
+        self.b.frappe.db.get_value=get_value;self.unit.serial_count=5
+        result=self.context(item='ITEM');self.assertTrue(result['tagged_only'])
+        self.assertTrue(result['choices'][0]['full_quantity_only'])
+        self.assertTrue(all(row['handling_unit'] for row in result['choices']))
+        with self.assertRaisesRegex(ValueError,'complete physical unit'):
+            self.allocate(2,source='ALLOC',scan=None,item='ITEM')
+        self.assertFalse(self.data.get(e4a.DA))
+
+    def test_programming_or_database_errors_are_not_silently_treated_as_ineligible_tags(self):
+        self.start();self.b.bridge.assert_delivery_tag_expiry.side_effect=RuntimeError('Database unavailable')
+        with self.assertRaisesRegex(RuntimeError,'Database unavailable'):self.context(item='ITEM')
+        self.assertFalse(self.b.frappe.flags.mute_messages)
 
     def test_two_customers_receive_separate_notes_and_actual_sequence(self):
         first=self.start();self.allocate(2);note1,delivery1=self.submit()
@@ -160,7 +252,7 @@ class TestRouteDelivery(unittest.TestCase):
     def test_prepared_and_unassigned_loose_stock_have_separate_choices(self):
         self.b.loose(6);self.b.erp_balance=15;self.start()
         result=self.context(item='ITEM');keys={r['source_key'] for r in result['choices']}
-        self.assertEqual(keys,{'LOOSE','unassigned'})
+        self.assertEqual(keys,{'ALLOC','LOOSE','unassigned'})
         free=next(r for r in result['choices'] if r['source_key']=='unassigned')
         self.assertEqual(free['available_qty'],4)
         self.allocate(2,source='unassigned',scan=None,item='ITEM');self.submit()
