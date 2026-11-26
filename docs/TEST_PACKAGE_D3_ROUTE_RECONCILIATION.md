@@ -49,7 +49,13 @@ Expected result:
    tag is expanded into the Exact Scanned Tags list.
 3. Scan the same tag/container again.
 4. Stop count scanning.
-5. Select **Enter Loose / Untagged Count** and enter `TEST-FG-LOOSE`, no Batch, quantity `6`.
+5. Select **Enter Loose / Untagged Count**. Select **Add Row**; verify **Item**, **Batch** and
+   editable **Physical Qty** are all visible in the table. Choose `TEST-FG-LOOSE`, leave Batch empty,
+   type quantity `6` in Physical Qty, then **Save Loose Count**.
+6. Reopen the popup and verify the saved quantity remains editable. Repeat using a Batch-controlled
+   test Item and using a tablet viewport; verify the Quantity column is still accessible.
+7. Repeat through `CFG:CMD:ROUTE_COUNT_LOOSE`, table selection, `DELIVERY_ADD_ROW`, numbered
+   Item/Batch/quantity inputs and `CONFIRM`. Cancel an unsaved edit and verify nothing is saved.
 
 Expected result:
 
@@ -123,3 +129,18 @@ correction document. The linked Exception must become `Resolved`.
 Package D3 passes when the route closes only on a zero Item/Batch variance, both tagged and untagged
 stock are represented, submitted ERP movements are reflected, all mismatches create auditable
 Exceptions, correction never deletes history, and no counting action changes ERPNext stock.
+
+## Loose-count quantity-column correction — 26 November 2026
+
+The three dialog columns previously requested 4 + 4 + 4 layout units. Frappe v15 reserves only ten
+units for grid data fields, so the third field, Physical Qty, was omitted. The corrected layout is
+Item 4 / Batch 3 / Physical Qty 3. Native count validation, permissions and stock posting rules are
+unchanged. Offline dialog/scanner tests cover the column budget, typed and scanned quantities,
+reopening saved loose values, and safe Cancel. Live ERPNext grid rendering and tablet/scanner
+acceptance remain **Not run** for this correction; record the deployed SHA and evidence here.
+
+Offline result for this correction: 29 Node UI checks and 70 Python regression tests passed.
+Frappe v15.69.2's actual `Grid.setup_visible_columns` method was also executed offline against the
+original and corrected dialog definitions: original visible fields were Item/Batch; corrected
+visible fields were Item/Batch/Physical Qty. This is a column-selection check, not live DOM,
+ERPNext posting or physical scanner acceptance.

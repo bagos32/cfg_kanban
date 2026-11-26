@@ -40,3 +40,38 @@ test('D3 scanner command catalogue and global routes reach the same existing act
  for(const command of ['START_ROUTE_COUNT','ROUTE_COUNT_SCAN','ROUTE_COUNT_LOOSE','ROUTE_COUNT_EVALUATE','ROUTE_COUNT_CLOSE']){assert.ok(source.includes('CFG:CMD:'+command));assert.ok(operator.includes('CFG:CMD:'+command));assert.ok(production.includes('"'+command+'"'));}
  assert.match(source,/active_route_count_action\.scan\(raw\)/);assert.match(source,/active_route_count_action\.focus\(\)/);
 });
+
+test('loose count shows an editable Physical Qty within the Frappe v15 grid budget',async()=>{
+ const h=harness();await h.ctx.loose_count_dialog();
+ const table=h.dialogs[0].fields.find(field=>field.fieldname==='counts');
+ // Native v15 Grid.setup_visible_columns starts at 1 and stops above 11:
+ // only ten layout columns are available for user data fields.
+ // https://github.com/frappe/frappe/blob/v15.69.2/frappe/public/js/frappe/form/grid.js
+ const fields=table.fields.filter(field=>field.in_list_view&&!field.hidden);
+ assert.ok(fields.reduce((n,field)=>n+field.columns,0)<=10,'Physical Qty must fit after Item and Batch');
+ assert.deepEqual(Array.from(fields,field=>field.fieldname),['item_code','batch_no','qty']);
+ const qty=fields.find(field=>field.fieldname==='qty');
+ assert.equal(qty.fieldtype,'Float');assert.ok(!qty.read_only);assert.equal(table.in_place_edit,true);
+});
+test('typed quantity and exact Batch reach the existing save endpoint',async()=>{
+ const h=harness();await h.ctx.loose_count_dialog();
+ h.dialogs[0].values.counts=[{item_code:'ITEM',batch_no:'BATCH',qty:2.5}];
+ await h.active.controller.confirm();
+ assert.equal(h.calls.length,1);assert.equal(h.calls[0].method,'cfg_kanban.services.route_reconciliation.save_loose_counts');
+ assert.deepEqual(JSON.parse(h.calls[0].args.counts),[{item_code:'ITEM',batch_no:'BATCH',qty:2.5}]);
+ assert.equal(h.calls[0].args.reconciliation_name,'COUNT');assert.equal(h.calls[0].args.operator_session_token,'TOKEN');
+});
+test('reopening loose counts retains saved quantities and does not copy tagged or expected stock',async()=>{
+ const h=harness();h.state.reconciliation.lines=[
+  {item_code:'LOOSE',batch_no:'BATCH',loose_count_qty:4.5,tagged_count_qty:2,expected_closing_qty:10},
+  {item_code:'TAGGED',loose_count_qty:0,tagged_count_qty:7,expected_closing_qty:7}];
+ await h.ctx.loose_count_dialog();
+ assert.deepEqual(JSON.parse(JSON.stringify(h.dialogs[0].values.counts)),[{item_code:'LOOSE',batch_no:'BATCH',qty:4.5}]);
+});
+test('empty loose count explains Add Row and safe Cancel submits no count',async()=>{
+ const h=harness();await h.ctx.loose_count_dialog();
+ const table=h.dialogs[0].fields.find(field=>field.fieldname==='counts');
+ assert.match(table.description,/Add Row/);assert.match(table.description,/Physical Qty/);
+ assert.notEqual(table.cannot_add_rows,true);assert.equal(h.dialogs[0].values.counts.length,0);
+ await h.active.scan('CFG:CMD:CANCEL');assert.equal(h.calls.length,0);
+});

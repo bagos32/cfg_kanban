@@ -663,11 +663,12 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
         const rows=(state.reconciliation.lines||[]).filter(row=>Number(row.loose_count_qty||0)!==0)
             .map(row=>({item_code:row.item_code,batch_no:row.batch_no,qty:row.loose_count_qty}));
         return count_input_dialog(__('Loose / Untagged Physical Count'),[
+            // Frappe v15 leaves ten grid columns for fields; keep Physical Qty visible.
             {fieldname:'counts',label:__('Loose Stock'),fieldtype:'Table',data:rows,in_place_edit:true,
-             description:__('Enter only quantities not represented by scanned Stock Tags.'),fields:[
+             description:__('Select Add Row, choose Item and Batch if applicable, then enter Physical Qty in the Item stock UOM. Count only quantities not represented by scanned Stock Tags.'),fields:[
                 {fieldname:'item_code',label:__('Item'),fieldtype:'Link',options:'Item',reqd:1,in_list_view:1,columns:4},
-                {fieldname:'batch_no',label:__('Batch'),fieldtype:'Link',options:'Batch',in_list_view:1,columns:4},
-                {fieldname:'qty',label:__('Physical Qty'),fieldtype:'Float',reqd:1,in_list_view:1,columns:4}]}],__('Save Loose Count'),
+                {fieldname:'batch_no',label:__('Batch'),fieldtype:'Link',options:'Batch',in_list_view:1,columns:3},
+                {fieldname:'qty',label:__('Physical Qty'),fieldtype:'Float',reqd:1,in_list_view:1,columns:3}]}],__('Save Loose Count'),
             async(values,event,token)=>(await frappe.call({method:'cfg_kanban.services.route_reconciliation.save_loose_counts',
                 args:{reconciliation_name:name,counts:JSON.stringify(values.counts||[]),operator_session_token:token},freeze:true})).message);
     }

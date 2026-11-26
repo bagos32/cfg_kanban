@@ -4226,9 +4226,12 @@ lorry may be shared, but every Company Warehouse has its own ERP stock balance a
    unactivated, wrong-Company, and wrong-Warehouse tags are rejected. If a counted tag's quantity,
    Warehouse, identity state, or container membership changes, evaluation requires it to be removed
    and rescanned.
-4. Stop scanning and select **Enter Loose / Untagged Count**. Enter only physical quantity not
-   represented by a scanned tag, grouped by exact Item and optional Batch. This is how ordinary
-   ERP-only stock participates without forcing physical tagging.
+4. Stop scanning and select **Enter Loose / Untagged Count**. Select **Add Row**, choose **Item**
+   and **Batch** if applicable, then type the counted quantity in the visible **Physical Qty**
+   column, using the Item's stock UOM. Repeat for each Item/Batch and select **Save Loose Count**.
+   Reopening retains saved loose quantities. Enter only physical quantity not represented by a
+   scanned tag; do not copy the expected ERP balance. This lets ERP-only stock participate without
+   forcing physical tagging.
 5. Select **Evaluate against ERPNext**. The server refreshes submitted ERP stock at **Final Count
    Evaluated On** (`period_end`). For every Item/Batch it records:
 
