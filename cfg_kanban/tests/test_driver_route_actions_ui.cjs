@@ -72,7 +72,7 @@ test('a render/refresh failure after success does not turn a recorded action int
 });
 
 const tick=async()=>{for(let i=0;i<8;i++)await new Promise(resolve=>setTimeout(resolve,0));};
-function panel({step='Begin Delivery',requireScan=false,requirements=[],proof=null,fail=null,existingStorage=null,quantities=[],looseTags=[],selectedStock=[],stockPending=false,setup={conditions:['Unknown','Damaged']},previewFailure=null}={}){
+function panel({step='Begin Delivery',requireScan=false,requirements=[],proof=null,fail=null,existingStorage=null,quantities=[],looseTags=[],selectedStock=[],stockPending=false,setup={conditions:['Unknown','Damaged']},previewFailure=null,sessionState=null,recoveryMessage=null,exception=null}={}){
  const nodes=new Map(),events=new Map(),controls={},calls=[],cameras=[],storage=existingStorage||memory();let owner='EMP',token='TOKEN',active=true,closed=0,refreshes=0,revision=0,current=step,lastAction='',stockOptions=null,stockClosed=0,stockFocus=0;const stockScans=[];
  class Node{
   constructor(){this.value='';this.disabled=false;this.caption='';this.visible=true;}
@@ -87,7 +87,7 @@ function panel({step='Begin Delivery',requireScan=false,requirements=[],proof=nu
  },Scanner:class{constructor(opts){this.opts=opts;this.dialog={$wrapper:new Node(),hide(){}};cameras.push(this);}stop_scan(){this.stopped=true;}}},
  require:async()=>{window.cfg_route_delivery=stockApi;},call:async({method,args})=>{
   calls.push({method,args});
-  if(method.endsWith('driver_action_context'))return{message:{...context,revision,next_step:current,dispatch_plan:['Request Stop Cancellation','Cancel Customer Stop','Add Assistant','Edit Route Order','Decide Route Change','Cancel Route Change'].includes(current)?null:context.dispatch_plan,stop_key:['Add Assistant','Edit Route Order','Decide Route Change','Cancel Route Change'].includes(current)?null:context.stop_key,delivery_session:'DELIVERY',selected_stock:selectedStock,quantities,loose_tags:looseTags,setup,require_scan:requireScan,requirements:{fields:requirements},proof,delivery_note:'DN',purpose:current==='Complete Stop'?'Visit Only':'Delivery'}};
+  if(method.endsWith('driver_action_context'))return{message:{...context,revision,next_step:current,dispatch_plan:['Request Stop Cancellation','Cancel Customer Stop','Add Assistant','Edit Route Order','Decide Route Change','Cancel Route Change'].includes(current)?null:context.dispatch_plan,stop_key:['Add Assistant','Edit Route Order','Decide Route Change','Cancel Route Change'].includes(current)?null:context.stop_key,delivery_session:'DELIVERY',session_state:sessionState,message:recoveryMessage,exception,selected_stock:selectedStock,quantities,loose_tags:looseTags,setup,require_scan:requireScan,requirements:{fields:requirements},proof,delivery_note:'DN',purpose:current==='Complete Stop'?'Visit Only':'Delivery'}};
   if(method.endsWith('scan_loose_tag')){if(args.stop_key!=='STOP'||args.scan_value!=='CFG:LOOSE:KLT-1')throw new Error('Wrong customer stop');looseTags[0].state='Scanned';return{message:{...looseTags[0],lines:looseTags[0].lines}};}
   if(method.endsWith('preview_driver_quantities')||method.endsWith('preview_open_quantities')){if(previewFailure)throw previewFailure;return {message:args.quantities.map(row=>({...row,item_code:'ITEM',stock_uom:'Nos',refused_qty:5-Number(row.accepted_qty)}))};}
   if(method.endsWith('preview_driver_collection')){if(previewFailure)throw previewFailure;return {message:{...args.payload,company:'A',customer:'CUST',inspection_location:'QC BAY',lines:args.payload.lines.map(row=>({...row,stock_uom:'Nos'}))}};}
@@ -344,4 +344,27 @@ test('Open Route Loose Tag uses existing accepted/refused table and review befor
 test('wrong Loose Tag stays on the stop screen, posts nothing and restores scanner focus',async()=>{
  const h=panel({quantities:preparedQty(),looseTags:[loosePack()]});await tick();await h.view.scan('CFG:LOOSE:OTHER');await tick();
  assert(!h.calls.some(c=>c.method.endsWith('perform_driver_action')));assert(h.nodes.get('.driver-action-message').caption.includes('Wrong customer'));assert(h.nodes.get('.driver-action-scan').focused);
+});
+
+test('Customer Identified selection shows Add Product, the current Session and restores scanner focus',async()=>{
+ const h=panel({step:'Select Route Stock',sessionState:'Customer Identified'});await tick();
+ assert.match(h.nodes.get('.driver-action-fields').markup,/Add Product \/ Scan Stock/);
+ assert.match(h.nodes.get('.driver-action-summary').markup,/DELIVERY/);assert.match(h.nodes.get('.driver-action-summary').markup,/Customer Identified/);
+ h.events.get('click.cfg_driver_action .driver-action-add-stock')();await tick();
+ assert.equal(h.stock().deliverySession,'DELIVERY');assert.equal(h.stock().mode,'stock');assert.equal(h.calls.filter(c=>c.method.endsWith('perform_driver_action')).length,0);
+ h.stock().onClose();assert(h.nodes.get('.driver-action-scan').focused);
+});
+test('printed Allocate Open Route Stock command opens goods selection in the same Session',async()=>{
+ const h=panel({step:'Select Route Stock',sessionState:'Customer Identified'});await tick();
+ await h.view.scan('CFG:CMD:ALLOCATE_ROUTE_STOCK');await tick();assert.equal(h.stock().deliverySession,'DELIVERY');
+ await h.view.scan('SOURCE-QR');assert.deepEqual(h.stockScans,['SOURCE-QR']);
+ h.view.close();assert.equal(h.stockClosed(),1);
+});
+test('genuine blocked state displays Session, note and exception links without posting or hiding the problem',async()=>{
+ const h=panel({step:'Blocked',sessionState:'Exception',recoveryMessage:'Open Route Session DELIVERY is Exception. Open Kanban Logistics.',exception:'EX-1'});await tick();
+ assert.match(h.nodes.get('.driver-action-message').caption,/Kanban Logistics/);
+ assert.match(h.nodes.get('.driver-action-summary').markup,/cfg-kanban-delivery-session\/DELIVERY/);
+ assert.match(h.nodes.get('.driver-action-summary').markup,/delivery-note\/DN/);assert.match(h.nodes.get('.driver-action-summary').markup,/cfg-kanban-exception\/EX-1/);
+ assert.equal(h.nodes.get('.driver-action-confirm').disabled,true);await h.view.scan('CFG:CMD:CONFIRM');await tick();
+ assert.equal(h.calls.filter(c=>c.method.endsWith('perform_driver_action')).length,0);assert(h.nodes.get('.driver-action-scan').focused);
 });

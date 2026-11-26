@@ -118,3 +118,34 @@ coverage. Results recorded in chat are local tests only; fill the table with rea
 Deployed Git revision: **Not recorded**  
 Site / tester / date: **Not recorded**  
 Accepted exceptions / follow-up: **Not recorded**
+
+## Open Route identified-session regression — 26 November 2026
+
+The new test reproduces native Start Route → Sell from Lorry → Customer Identified → driver
+context. Before correction, context incorrectly returned Blocked; it must return Select Route
+Stock on the same Session, with **Add Product / Scan Stock** and an empty selection.
+
+Required offline checks:
+
+- New/reopened Customer Identified Session offers goods selection without a state rewrite,
+  new Session, stock movement or reservation release.
+- Allocate goods, confirm and create the native DN; original-request replay creates only one
+  DN/consumption and completes only the appropriate customer stop.
+- Current operator/Company/route permissions and existing frozen-pack allocation gates remain.
+- A linked Draft/submitted DN never reopens goods selection. Genuine exceptions remain blocked
+  with exact Session/state, document/exception links and actionable recovery guidance.
+- The actual driver adapter shows the product button and Session reference, opens its stock
+  child on click or the printable ALLOCATE_ROUTE_STOCK command, and restores focus on close/error.
+
+**Live acceptance: Not run.** On the affected site, verify both a new sale and an existing stuck
+Session, tagged and untagged Item/Batch quantities, Draft/auto-submit policy, proof and actual
+posting feedback. Follow `USER_GUIDE_OPEN_ROUTE_SESSION_RECOVERY.md`; retain record references
+and the deployed Git revision. Offline document/RPC/DOM doubles do not establish live behaviour.
+
+Local result for this correction: **238 Python tests passed**, including the native identified-
+Session regression, same-Session selection/DN flow and replay, operator isolation, existing
+Draft/submitted-DN rejection, frozen-pack guard, and genuine-exception visibility. **112 Node
+results passed**, including the actual driver adapter and an existing legacy harness with 36
+named checks. Python/JavaScript syntax and diff-whitespace checks passed. No live site or physical
+device was used. The original regression failed with `Blocked != Select Route Stock` before the
+correction and passed afterward.

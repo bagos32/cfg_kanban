@@ -243,12 +243,17 @@ def action_context(trip,stop,operator,result,token,force=False):
     engine=_routes()._engine();view=engine.get_delivery_session(delivery.name,token)
     base=dict(result,dispatch_plan=trip.open_route_plan,delivery_session=delivery.name,session_state=delivery.state,
         auto_submit_delivery_note=view['auto_submit_delivery_note'],open_sale=True)
-    if delivery.state=='Allocating Stock':
+    if delivery.state in ('Customer Identified','Allocating Stock') and not view.get('delivery_note'):
+        # Native Open Route start identifies the customer before any goods are allocated.
+        # Resume the same Session; state advances only when native allocation succeeds.
+        packed = False
         if pool(trip).get('has_loose_tags'):
             from cfg_kanban.services.loose_tags import is_pack_delivery
-            if is_pack_delivery(delivery):
-                return dict(base,next_step='Confirm Allocations')
-        return dict(base,next_step='Select Route Stock' ,selected_stock=view.get('allocations') or [])
+            packed = is_pack_delivery(delivery)
+        if packed and delivery.state=='Allocating Stock':
+            return dict(base,next_step='Confirm Allocations')
+        if not packed:
+            return dict(base,next_step='Select Route Stock',selected_stock=view.get('allocations') or [])
     if delivery.state in ('Awaiting Confirmation','ERP Document Pending'):
         req=engine.get_customer_delivery_requirements(delivery.name,token)
         return dict(base,next_step='Await ERP' if req.get('existing_draft') else 'Create Delivery Note',requirements=req,delivery_note=delivery.delivery_note)
@@ -256,7 +261,18 @@ def action_context(trip,stop,operator,result,token,force=False):
         from cfg_kanban.services import delivery_proof
         return dict(base,next_step='Submit Proof' if delivery.delivery_proof else 'Open Proof',
             proof=delivery_proof.get_delivery_proof(delivery.delivery_proof,token) if delivery.delivery_proof else None)
-    return dict(base,next_step='Blocked',message='Use controlled recovery for this Open Route Session')
+    note=view.get('delivery_note')
+    status=(view.get('delivery_note_status') or {}).get('docstatus')
+    if note and status==0:
+        instruction='Open the existing Draft Delivery Note in ERPNext. Review/correct it and submit through the normal workflow, then refresh this Trip.'
+    elif note and status==1:
+        instruction='A Delivery Note is already submitted. Have a Supervisor inspect the linked exception and posting feedback; do not allocate or deliver these goods again.'
+    elif delivery.state=='Exception':
+        instruction='Open Kanban Logistics, identify the same driver or an authorized Supervisor, and open this Customer Delivery Session. Inspect its exception and use the existing Delivery Note recovery controls.'
+    else:
+        instruction='Open this Session from Customer Delivery Sessions in Kanban Logistics and check its state and linked ERP documents before restarting.'
+    return dict(base,next_step='Blocked',delivery_note=note,delivery_note_status=status,
+        exception=view.get('exception'),message=f'Open Route Session {delivery.name} is {delivery.state}. {instruction}')
 
 
 def begin(trip,stop,scan,key,operator,token):

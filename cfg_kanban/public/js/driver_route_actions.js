@@ -132,6 +132,13 @@
    if(owned)host.find('.driver-action-summary').html(stop?`<h4>${e(stop.site_name||stop.customer_name)}</h4><p>${e(stop.address||'')}</p>`+
     stop.items.map(row=>`<div><strong>${e(row.item_code)}</strong> · ${e(row.planned_qty)} ${e(row.stock_uom)} ${e(row.orders.map(order=>order.sales_order).join(', '))}</div>`).join(''):
     `<h4>${e(detail?.trip?.trip_title||options.trip)}</h4>${context?.next_step==='Start Route'?`<p>${tr('Start this loaded route. This records departure; it creates no customer Delivery Note.')}</p>`:''}`);
+   if(owned&&context?.delivery_session){
+    const sessionURL='/app/cfg-kanban-delivery-session/'+encodeURIComponent(context.delivery_session);
+    const note=context.delivery_note,exception=context.exception;
+    host.find('.driver-action-summary').append(`<p class="driver-session-reference">${tr('Delivery Session')}: <a href="${e(sessionURL)}" target="_blank" rel="noopener">${e(context.delivery_session)}</a> · ${e(context.session_state||'')}</p>`+
+     (note?`<p>${tr('Delivery Note')}: <a href="/app/delivery-note/${e(encodeURIComponent(note))}" target="_blank" rel="noopener">${e(note)}</a></p>`:'')+
+     (exception?`<p>${tr('Exception')}: <a href="/app/cfg-kanban-exception/${e(encodeURIComponent(exception))}" target="_blank" rel="noopener">${e(exception)}</a></p>`:''));
+   }
    if(pending){update();return;}
    const step=context?.next_step;
    host.find('.driver-action-edit-return').toggle((step==='Collect Old Return'&&Boolean(returnReview))||(step==='Begin Delivery'&&Boolean(quantityReview))||Boolean(quantityReview));
@@ -298,7 +305,7 @@
    const text=String(value||'').trim(),upper=text.toUpperCase();if(!text||!valid())return;
    if(upper==='CFG:CMD:CANCEL')return close();if(upper==='CFG:CMD:CONFIRM')return submit();
    if(['CFG:CMD:REFRESH','CFG:CMD:ROUTE_SHEET_REFRESH'].includes(upper))return c.state.pending?c.reconcile():load();
-   if(upper==='CFG:CMD:HELP'){host.find('.driver-action-message').text(context?.next_step==='Edit Route Order'?'Numbered choices select customers. ROUTE_MOVE_UP / ROUTE_MOVE_DOWN changes their order. NEXT_MATERIALS / PREVIOUS_MATERIALS pages the customer choices. ROUTE_REASON selects the reason. Confirm saves or requests approval; Cancel closes safely.':'Loose Tag: scan CFG:LOOSE: QR once at its assigned customer stop; review every packed Item/Batch/source and Accepted quantity. Reduce a refused quantity with reason/condition, Confirm, then continue native DN/proof. For customer cancellation, STOP_CANCEL_REASON arms the reason; STOP_STOCK_DISPOSITION selects Keep Reserved for Return or Release for Same-trip Sale using numbered choices. Drivers request; Supervisors approve. Confirm submits reviewed details. Scan Customer Site when required. CFG:SELECT:1–10 arms a field; scan its value. DELIVERY_RECIPIENT and ERP table-row commands are supported. Cancel closes while retaining unknown results. Refresh reads back the saved outcome.');return;}
+   if(upper==='CFG:CMD:HELP'){host.find('.driver-action-message').text(context?.next_step==='Edit Route Order'?'Numbered choices select customers. ROUTE_MOVE_UP / ROUTE_MOVE_DOWN changes their order. NEXT_MATERIALS / PREVIOUS_MATERIALS pages the customer choices. ROUTE_REASON selects the reason. Confirm saves or requests approval; Cancel closes safely.':'Open Route goods: ALLOCATE_ROUTE_STOCK opens Add Product / Scan Stock in this Session. Scan the source or Item, select the source, enter stock UOM quantity and Confirm; repeat, then Confirm on the stop screen creates its DN. Loose Tag: scan CFG:LOOSE: QR once at its assigned customer stop; review every packed Item/Batch/source and Accepted quantity. Reduce a refused quantity with reason/condition, Confirm, then continue native DN/proof. For customer cancellation, STOP_CANCEL_REASON arms the reason; STOP_STOCK_DISPOSITION selects Keep Reserved for Return or Release for Same-trip Sale using numbered choices. Drivers request; Supervisors approve. Confirm submits reviewed details. Scan Customer Site when required. CFG:SELECT:1–10 arms a field; scan its value. DELIVERY_RECIPIENT and ERP table-row commands are supported. Cancel closes while retaining unknown results. Refresh reads back the saved outcome.');return;}
    if(c.state.pending)throw new Error('Retry or reconcile the original request before editing.');
    if(text.startsWith('CFG:LOOSE:')){
     if(!['Begin Delivery','Begin Open Sale'].includes(context?.next_step))throw new Error('Open the assigned customer stop before scanning its unused Loose Tag.');
@@ -321,7 +328,7 @@
    if(upper==='CFG:CMD:RETURN_EDIT'){returnReview=null;quantityReview=null;host.find('.driver-action-edit-return').toggle(false);update();return;}
    if(returnReview||quantityReview)throw new Error('Use Return to Edit before changing reviewed quantities.');
    if(context?.next_step==='Begin Delivery'&&context.require_scan&&!inputScanner?.state.table&&inputScanner?.state.field==='customer_scan'&&!upper.startsWith('CFG:')){await inputs.customer_scan.set_value(text);return;}
-   if(upper==='CFG:CMD:ROUTE_ALLOCATE_STOCK'&&context?.next_step==='Select Route Stock')return addStock();
+   if(['CFG:CMD:ALLOCATE_ROUTE_STOCK','CFG:CMD:ROUTE_ALLOCATE_STOCK'].includes(upper)&&context?.next_step==='Select Route Stock')return addStock();
    if(upper==='CFG:CMD:RETURN_CAMERA')return startCamera();
    if(upper==='CFG:CMD:STOP_CANCEL_REASON')return inputScanner.field('reason');
    if(upper==='CFG:CMD:STOP_STOCK_DISPOSITION')return inputScanner.field('stock_disposition');

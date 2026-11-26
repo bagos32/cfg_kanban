@@ -86,6 +86,67 @@ class TestTripSales(unittest.TestCase):
     def existing_only(self):
         self.plan.update(existing_lorry_stock_only=1,state='Approved',lines=[],movement_manifest=None,vehicle_warehouse=None)
         self.data[e4.ALLOC]={}
+    def test_newly_identified_optional_sale_offers_goods_selection_in_the_same_session(self):
+        self.start();self.begin(customer_scan='SITE-QR')
+        session=self.delivery();self.assertEqual(session.state,'Customer Identified')
+        before=(len(self.data[e4.SESSION]),len(self.b.posted))
+        context=self.act.driver_action_context('TRIP','TOKEN',self.trip.stops[0].stop_key,'Sell from Lorry')
+        self.assertEqual(context['next_step'],'Select Route Stock')
+        self.assertEqual(context['delivery_session'],session.name)
+        self.assertEqual(context['selected_stock'],[])
+        again=self.act.driver_action_context('TRIP','TOKEN',self.trip.stops[0].stop_key,'Sell from Lorry')
+        self.assertEqual(again['delivery_session'],session.name)
+        self.assertEqual((len(self.data[e4.SESSION]),len(self.b.posted)),before)
+
+    def test_identified_session_resumes_through_selection_dn_and_feedback_once(self):
+        self.start();self.begin(customer_scan='SITE-QR')
+        session=self.delivery();self.assertEqual(session.state,'Customer Identified')
+        self.assertEqual(self.act.driver_action_context('TRIP','TOKEN',self.trip.stops[0].stop_key)['next_step'],'Select Route Stock')
+        self.r.allocate(2)
+        context=self.act.driver_action_context('TRIP','TOKEN',self.trip.stops[0].stop_key)
+        self.assertEqual(context['next_step'],'Select Route Stock')
+        self.assertEqual(context['selected_stock'][0]['allocated_qty'],2)
+        request=self.request('Confirm Allocations');self.act.perform_driver_action(**request);self.act.perform_driver_action(**request)
+        request=self.request('Create Delivery Note');self.act.perform_driver_action(**request);self.act.perform_driver_action(**request)
+        self.assertEqual(len(self.data[e4.SESSION]),1);self.assertEqual(len(self.data['Delivery Note']),1)
+        self.assertEqual(self.r.unit.current_qty,3);self.assertEqual(self.r.unit.reserved_qty,0)
+        self.assertTrue(self.trip.stops[0].driver_completed_on)
+
+    def test_identified_resume_retains_operator_scope(self):
+        self.start();self.begin();self.operator.employee='ANOTHER'
+        with self.assertRaises(PermissionError):
+            self.act.driver_action_context('TRIP','TOKEN',self.trip.stops[0].stop_key)
+
+    def test_genuine_exception_is_visible_without_resetting_stock_or_status(self):
+        self.start();self.begin();session=self.delivery();session.state='Exception';session.exception='EXCEPTION-1'
+        before=(len(self.b.posted),len(self.data[e4.SESSION]),self.r.unit.current_qty)
+        context=self.act.driver_action_context('TRIP','TOKEN',self.trip.stops[0].stop_key)
+        self.assertEqual(context['next_step'],'Blocked')
+        self.assertEqual(context['session_state'],'Exception');self.assertEqual(context['exception'],'EXCEPTION-1')
+        self.assertIn(session.name,context['message']);self.assertIn('Kanban Logistics',context['message'])
+        self.assertEqual(session.state,'Exception');self.assertEqual((len(self.b.posted),len(self.data[e4.SESSION]),self.r.unit.current_qty),before)
+
+    def test_draft_or_submitted_note_does_not_reopen_goods_selection(self):
+        self.start();self.begin();session=self.delivery()
+        for status in (0,1):
+            name='DN-'+str(status);self.b.add('Delivery Note',name,docstatus=status,status='Draft' if status==0 else 'To Bill')
+            session.state='Exception';session.delivery_note=name
+            context=self.act.driver_action_context('TRIP','TOKEN',self.trip.stops[0].stop_key)
+            self.assertEqual(context['next_step'],'Blocked');self.assertEqual(context['delivery_note'],name)
+            self.assertEqual(context['delivery_note_status'],status)
+            self.assertIn('Draft' if status==0 else 'submitted',context['message'])
+            self.assertFalse(self.data.get(e4.DA))
+
+    def test_frozen_pack_session_still_requires_its_native_allocation_state(self):
+        self.start();self.begin();self.plan.has_loose_tags=1
+        module=types.ModuleType('cfg_kanban.services.loose_tags');module.is_pack_delivery=lambda d:True
+        with patch.dict(sys.modules,{module.__name__:module}):
+            context=self.act.driver_action_context('TRIP','TOKEN',self.trip.stops[0].stop_key)
+            self.assertEqual(context['next_step'],'Blocked')
+            self.delivery().state='Allocating Stock'
+            context=self.act.driver_action_context('TRIP','TOKEN',self.trip.stops[0].stop_key)
+            self.assertEqual(context['next_step'],'Confirm Allocations')
+
     def test_shared_prepared_pool_sells_native_quantity_and_completes_only_that_visit(self):
         self.start();self.begin();self.r.allocate(2)
         self.run_action('Confirm Allocations');self.run_action('Create Delivery Note')

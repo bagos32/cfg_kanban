@@ -6602,3 +6602,26 @@ Installation requires the normal CFG-only schema migration and asset build. No h
 stock conversion or ERPNext version change is required. Offline checks are development evidence;
 record live ERPNext posting, concurrency, printer and scanner/kiosk acceptance separately in
 `docs/TEST_MULTI_SKU_LOOSE_TAG.md` before operational sign-off.
+
+## “Sell from Lorry” stops after identifying the customer
+
+A newly opened Open Route sale normally starts in **Customer Identified** with no goods yet.
+Driver Route now resumes **Add Product / Scan Stock** for this state as well as **Allocating
+Stock**, retaining the existing Session. This corrects the former generic “Use controlled recovery”
+dead end. No Trip reset or reservation release is needed for a normal empty identified Session.
+
+If the driver screen is blocked before the correction is deployed, open **Kanban Logistics**,
+identify the same operator, select the matching row under **Customer Delivery Sessions**, then
+**Add Route Stock**. Allocate each source/Item/Batch and Stock Quantity, confirm the customer
+allocation, create/review/submit the existing Delivery Note, and complete required proof. Refresh
+the existing Driver Route stop afterward. Frozen Loose Tag deliveries keep their pack controls.
+
+The action now shows its Session number/state and links to existing ERP/exception records.
+Genuine exceptions, existing Draft/submitted DNs, and cancelled attempts keep their native
+recovery protections; no status or stock is reset. See
+[the step-by-step Open Route Session recovery guide](USER_GUIDE_OPEN_ROUTE_SESSION_RECOVERY.md)
+for normal resume, uncertain requests and the appropriate path for each actual state.
+
+The printed command **Allocate Open Route Stock** (`CFG:CMD:ALLOCATE_ROUTE_STOCK`) works inside
+the driver goods-selection screen; its older `ROUTE_ALLOCATE_STOCK` alias remains valid. Touch,
+camera, numbered source choices, quantity and safe cancel retain the existing scanner workflow.
