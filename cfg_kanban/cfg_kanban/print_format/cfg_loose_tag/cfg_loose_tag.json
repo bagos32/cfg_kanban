@@ -1,0 +1,14 @@
+{
+ "doctype": "Print Format",
+ "name": "CFG Loose Tag",
+ "doc_type": "CFG Kanban Loose Tag",
+ "module": "CFG Kanban",
+ "standard": "Yes",
+ "custom_format": 1,
+ "disabled": 0,
+ "raw_printing": 0,
+ "print_format_type": "Jinja",
+ "default_print_language": "en",
+ "css": ".print-format{width:80mm;max-width:80mm;padding:4mm;font-family:Arial,sans-serif;font-size:11px}.loose-qr{text-align:center}.loose-qr img{width:34mm;height:34mm}td,th{padding:3px!important}table{width:100%;border-collapse:collapse}",
+ "html": "<h3>{{ _(\"Customer Loose Tag\") }}</h3><p><b>{{ doc.name | e }}</b> \u00b7 {{ doc.state | e }}<br>{{ doc.customer | e }}<br>{{ doc.delivery_trip | e }} / {{ doc.stop_key | e }}</p>{% if doc.state not in [\"Cancelled\", \"Building\"] %}<div class=\"loose-qr\"><img src=\"{{ get_qr_svg(doc.qr_payload, 180) }}\"><p>{{ doc.qr_payload | e }}</p></div>{% else %}<h3>{{ _(\"VOID \u2014 DO NOT LOAD OR DELIVER\") }}</h3>{% endif %}<table><thead><tr><th>{{ _(\"Item / Batch / Source\") }}</th><th>{{ _(\"Packed Qty\") }}</th></tr></thead><tbody>{% for row in doc.lines %}<tr><td>{{ row.item_code | e }}<br>{{ (row.batch_no or \"\u2014\") | e }}<br>{{ row.source_visible_code | e }}{% if row.expiry_date %}<br>{{ _(\"Expiry\") }}: {{ row.expiry_date | e }}{% endif %}</td><td>{{ row.qty }} {{ row.stock_uom | e }}</td></tr>{% endfor %}</tbody></table><p>{{ _(\"One customer stop only. Scan once and review every accepted/refused line. ERPNext posting confirms delivery.\") }}</p>"
+}

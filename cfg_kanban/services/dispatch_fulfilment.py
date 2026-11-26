@@ -143,6 +143,9 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
         assert_visit_allowed(plan,site.name)
     validate_prepared_loading(plan)
     allocations = _loaded_allocations(plan)
+    if plan.get('has_loose_tags'):
+        from cfg_kanban.services.loose_tags import assert_scanned
+        assert_scanned(plan)
     outcome = _driver_outcomes().pending_for(plan, operator) if plan.get('driver_delivery_outcome') else None
     accepted = {r.dispatch_allocation:flt(r.accepted_qty) for r in outcome.lines} if outcome else {}
     # Native ERP stock and physical identities are locked in consistent sorted order.
@@ -190,6 +193,9 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
         else:
             _reserve_untagged(created, source, request_token, operator, session, link)
     created.db_set('state', 'Allocating Stock', update_modified=True)
+    if plan.get('has_loose_tags'):
+        from cfg_kanban.services.loose_tags import bind_delivery
+        bind_delivery(plan, created)
     if outcome:
         _driver_outcomes().activate(outcome, created, operator, session)
     validate_prepared_allocations(created)
@@ -420,6 +426,9 @@ def sync_plan_delivery(delivery):
         delivery.db_set('active_dispatch_plan_key',None,update_modified=False)
     if delivery.get('driver_delivery_outcome'):
         _driver_outcomes().auto_release(delivery)
+    if plan.get('has_loose_tags'):
+        from cfg_kanban.services.loose_tags import sync_delivery
+        sync_delivery(delivery)
 
 
 def assert_delivery_tag_expiry(unit):

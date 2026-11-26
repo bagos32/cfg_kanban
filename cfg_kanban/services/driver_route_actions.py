@@ -25,7 +25,7 @@ PAYLOAD_FIELDS = {
     'Cancel Route Change': {'request_name','reason'},
     'Decide Route Change': {'request_name','decision','approval_mode','reason','goods_hash','stock_disposition'},
     'Add Assistant': {'employee'},
-    'Begin Open Sale': {'customer_scan'},
+    'Begin Open Sale': {'customer_scan', 'quantities'},
     'Start Route': set(), 'Begin Delivery': {'customer_scan', 'quantities'}, 'Confirm Allocations': set(),
     'Create Delivery Note': {'required_erp_inputs'}, 'Open Proof': set(),
     'Submit Proof': {'proof_name', 'disposition', 'recipient_name', 'unattended_reason',
@@ -463,7 +463,11 @@ def driver_action_context(trip_name, operator_session_token, stop_key=None, oper
         plan = _read('CFG Kanban Dispatch Plan', row.dispatch_plan)
         _planning()._assert_plan_authorized(plan, operator)
         if not plan.delivery_session:
-            return dict(result, next_step='Begin Delivery', dispatch_plan=plan.name,
+            packs = []
+            if plan.get('has_loose_tags'):
+                from cfg_kanban.services.loose_tags import driver_context
+                packs = driver_context(plan)
+            return dict(result, next_step='Begin Delivery', dispatch_plan=plan.name, loose_tags=packs,
                 require_scan=snapshot['policies'][plan.name]['require_scan'],
                 quantities=[dict(dispatch_allocation=r.name,item_code=r.item_code,source_label=' · '.join(filter(None,[r.item_code,frappe.db.get_value('CFG Kanban Handling Unit',r.handling_unit,'handling_unit_id') if r.handling_unit else 'Untagged ERP stock',r.batch_no])),batch_no=r.batch_no,stock_uom=r.stock_uom,prepared_qty=r.allocated_qty,accepted_qty=r.allocated_qty,refusal_reason='',condition='Good / Unwanted') for r in _prepared()._loaded_allocations(plan)])
         delivery = _delivery().get_delivery_session(plan.delivery_session, operator_session_token)
@@ -598,7 +602,11 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
         if action == 'Begin Open Sale':
             if plan.name!=doc.get('open_route_plan') or stop.stop_purpose!='Visit Only':frappe.throw('Select this Trip optional-sale customer stop')
             from cfg_kanban.services.trip_sales import begin
-            delivery=begin(doc,stop,values.get('customer_scan'),key,operator,operator_session_token)
+            if plan.get('has_loose_tags'):
+                from cfg_kanban.services.loose_tags import begin_open_packs
+                delivery=begin_open_packs(doc,stop,plan,values,key,operator,session,operator_session_token)
+            else:
+                delivery=begin(doc,stop,values.get('customer_scan'),key,operator,operator_session_token)
             result['delivery_session']=delivery['name']
         elif action == 'Begin Delivery':
             for link in doc.dispatch_plans:

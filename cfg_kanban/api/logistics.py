@@ -1335,6 +1335,10 @@ def scan_receipt_tag(manifest_name, scan_value, event_token, operator_session_to
     _require_route_responsibility(profile, route.receipt_responsibility, "receipt")
     if manifest.state not in ("Dispatched", "Awaiting Receipt", "Receipt Document Pending"):
         frappe.throw("Receipt scanning requires confirmed dispatch")
+    if str(scan_value or '').strip().startswith('CFG:LOOSE:'):
+        from cfg_kanban.services.loose_tags import scan_group
+        return scan_group(scan_value, lambda code: scan_receipt_tag(
+            manifest_name, code, event_token, operator_session_token))
     identity = resolve_logistics_scan(scan_value)
     if not identity or identity["identity_type"] != "Handling Unit":
         frappe.throw("The scanned code is not an active Handling Unit")

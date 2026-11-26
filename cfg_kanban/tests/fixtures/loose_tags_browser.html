@@ -1,0 +1,67 @@
+<!doctype html><meta charset="utf-8"><title>Offline Loose Tag checks</title>
+<style>body{font:15px Arial;margin:20px;max-width:900px}.btn{padding:12px;margin:5px;border:1px solid #aaa;cursor:pointer}.form-control{width:100%;box-sizing:border-box;padding:12px}label{display:block;margin-top:12px}.alert{padding:12px;background:#e5f4f6}table{width:100%;border-collapse:collapse}td,th{padding:8px;text-align:left;border-bottom:1px solid #ddd}pre{white-space:pre-wrap}</style>
+<h2>Offline Loose Tag fixture</h2><p>Demo stock and simulated RPC/camera only. No ERPNext site or physical stock/printer is connected.</p><pre id="result">Running…</pre><div id="host"></div>
+<script src="../../public/js/loose_tags.js"></script><script>
+class Wrap{
+ constructor(nodes){this.nodes=nodes;nodes.forEach((n,i)=>this[i]=n);this.length=nodes.length;}
+ find(q){return new Wrap(this.nodes.flatMap(n=>[...n.querySelectorAll(q)]));}
+ html(v){if(v===undefined)return this.nodes[0]?.innerHTML;this.nodes.forEach(n=>n.innerHTML=v);return this;}
+ text(v){this.nodes.forEach(n=>n.textContent=v);return this;}
+ trigger(k){this.nodes.forEach(n=>k==='focus'?n.focus():n.dispatchEvent(new Event(k,{bubbles:true})));return this;}
+ on(type,fn){this.nodes.forEach(n=>n.addEventListener(type.split('.')[0],fn));return this;}
+ one(type,fn){this.nodes.forEach(n=>n.addEventListener(type.split('.')[0],fn,{once:true}));return this;}
+}
+const $=value=>new Wrap(typeof value==='string'?[...document.querySelectorAll(value)]:[value]);window.$=$;
+const results=[],check=(value,description)=>{if(!value)throw new Error(description);results.push(description);};
+const pause=ms=>new Promise(r=>setTimeout(r,ms));async function until(fn){for(let i=0;i<200;i++){if(fn())return;await pause(20);}throw new Error('Timed out: '+fn);}
+window.runLooseTagTests=async()=>{
+ localStorage.clear();let dialog,camera,owner='EMP',lost=true,recorded=null,counter=0;const calls=[];
+ class Dialog{
+  constructor(config){this.config=config;this.fields_dict={};this.values={};const host=document.querySelector('#host');host.innerHTML='';this.el=document.createElement('section');host.append(this.el);
+   for(const df of config.fields){const label=document.createElement('label');label.textContent=df.label||'';this.el.append(label);const el=document.createElement(df.fieldtype==='HTML'?'div':df.fieldtype==='Button'?'button':df.fieldtype==='Small Text'?'textarea':'input');el.dataset.field=df.fieldname;if(df.fieldtype==='Button'){el.textContent=df.label;el.onclick=df.click;}else if(df.fieldtype!=='HTML'){el.className='form-control';el.addEventListener('change',()=>df.onchange?.());}this.el.append(el);this.fields_dict[df.fieldname]={df,$input:$(el),$wrapper:$(el)};}
+   this.button=document.createElement('button');this.button.className='btn';this.button.textContent=config.primary_action_label;this.button.onclick=config.primary_action;this.el.append(this.button);dialog=this;
+  }
+  show(){this.el.hidden=false;}hide(){this.el.hidden=true;this.onhide?.();}disable_primary_action(){this.button.disabled=true;}enable_primary_action(){this.button.disabled=false;}
+  get_value(name){return this.fields_dict[name].$input.nodes[0]?.value;}set_value(name,value){this.fields_dict[name].$input.nodes[0].value=value;}
+ }
+ const f={session:{user:'demo'},utils:{escape_html:v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')},ui:{Dialog,Scanner:class{constructor(opts){this.opts=opts;camera=this;this.dialog={$wrapper:$(document.createElement('div'))};}hide_dialog(){this.hidden=true;}}},set_route(...route){f.lastRoute=route;},async call({method,args}){
+  calls.push({method,args:structuredClone(args)});const action=method.split('.').at(-1);
+  if(action==='packing_context'){
+   if(args.source_scan==='BAD')throw new Error('Source is unavailable');
+   const code=args.source_scan?.endsWith('B')?'B':'A';
+   return{message:{dispatch_plan:'DPL-1',stop_key:'STOP',site_name:'Shop',lines:[{name:code,item_code:'SKU-'+code,stock_uom:'Carton',remaining_qty:code==='A'?3:2}],source:args.source_scan?{scan:args.source_scan,visible_code:args.source_scan,item_code:'SKU-'+code,stock_uom:'Carton',available_qty:10}:null}};
+  }
+  if(action==='create_loose_tag'){recorded={name:'KLT-1',qr_payload:'CFG:LOOSE:KLT-1',state:'Ready',lines:args.lines.map(r=>({...r,item_code:'SKU-'+r.dispatch_plan_line,stock_uom:'Carton'}))};if(lost){lost=false;throw new Error('Lost response');}return{message:recorded};}
+  if(action==='read_packing_request')return{message:{recorded:!!recorded,pack:recorded}};
+  if(action==='get_loose_tag')return{message:recorded};
+  if(action==='cancel_loose_tag'){recorded.state='Cancelled';return{message:recorded};}
+  throw new Error(action);
+ }};
+ const options={frappe:f,owner:()=>owner,token:()=> 'TOKEN',nonce:()=> 'N'+(++counter),errorMessage:(error)=>error.message,onClose:()=>{}};
+ let view=await cfg_loose_tags.open(options);
+ const input=()=>dialog.fields_dict.scan.$input.nodes[0];
+ async function scan(value,key='Enter'){input().value=value;input().dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}));await pause(35);}
+ check(document.activeElement===input(),'Packing dialog opens with Scanner Ready focus');
+ await scan('DPL-1','Tab');await scan('BAD','Tab');check(document.activeElement===input()&&document.querySelector('[data-field="summary"]').textContent.includes('unavailable'),'Rejected source shows an inline error and returns scanner focus');
+ await scan('TAG-A','Tab');await scan('CFG:QTY:MATERIAL:3');await scan('CFG:CMD:LOOSE_TAG_ADD');
+ await scan('TAG-B');dialog.set_value('qty',2);dialog.fields_dict.qty.df.onchange();await pause(30);dialog.fields_dict.add.$input.nodes[0].click();await pause(40);
+ check(view.controller.state.lines.length===2,'Tab scanner and touch quantity/add controls build two SKU lines');
+ check(document.querySelector('[data-field="summary"]').textContent.includes('SKU-A')&&document.querySelector('[data-field="summary"]').textContent.includes('SKU-B'),'Both packed lines are visible before confirmation');
+ await scan('CFG:CMD:CONFIRM');await until(()=>!view.controller.state.busy);
+ check(!!view.controller.state.pending,'Unknown create persists its original request in real localStorage');
+ const first=calls.find(r=>r.method.endsWith('create_loose_tag'));
+ await scan('CFG:CMD:CANCEL');view=await cfg_loose_tags.open(options);
+ check(view.controller.state.pending.args.event_token===first.args.event_token,'Reopening restores the same request identity and both packed sources');
+ await scan('CFG:CMD:LOOSE_TAG_READBACK');await until(()=>!view.controller.state.busy);
+ check(view.controller.state.pack.name==='KLT-1'&&!view.controller.state.pending,'Readback resolves the recorded pack without another split or reservation');
+ check(calls.filter(r=>r.method.endsWith('create_loose_tag')).length===1,'Lost-response recovery sends no second create');
+ await scan('CFG:CMD:LOOSE_TAG_CAMERA');const old=camera;old.opts.on_scan({decodedText:'CFG:CMD:HELP'});await pause(50);
+ check(document.activeElement===input()&&view.controller.state.message.includes('Read Back'),'Camera sends one value through the same scanner flow and restores focus');
+ dialog.fields_dict.print.$input.nodes[0].click();await pause(50);check(f.lastRoute.join('/')==='Form/CFG Kanban Loose Tag/KLT-1','Printing opens the ordinary DocType with configurable ERPNext Print Format selection');
+ old.opts.on_scan({decodedText:'CFG:CMD:CONFIRM'});await pause(30);check(calls.filter(r=>r.method.endsWith('create_loose_tag')).length===1,'Late camera callback after close cannot submit another pack');
+ view=await cfg_loose_tags.open(options);await scan('CFG:CMD:CANCEL_LOOSE_TAG');await scan('CFG:LOOSE:KLT-1');await scan('CFG:CMD:LOOSE_TAG_REASON');await scan('Wrong box');await scan('CFG:CMD:CONFIRM');await until(()=>!view.controller.state.busy);
+ check(view.controller.state.pack.state==='Cancelled','Scanner can cancel an unused pack with an explicit reason');
+ owner='OTHER';await view.scan('CFG:CMD:CONFIRM');check(calls.filter(r=>r.method.endsWith('cancel_loose_tag')).length===1,'Operator change cannot repeat the prior operator cancellation');view.close();
+ const result={passed:results.length,checks:results,userAgent:navigator.userAgent,scope:'Offline DOM, browser storage, Web Locks, simulated RPC/camera. No native ERP, kiosk, physical scanner or printer acceptance.'};document.querySelector('#result').textContent=JSON.stringify(result,null,2);return result;
+};
+</script>

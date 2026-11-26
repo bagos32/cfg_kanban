@@ -29,6 +29,11 @@ class CFGKanbanHandlingUnit(Document):
                 "Standard Quantity WIP Bin", "Loose Multi-Item WIP Bin",
             ):
                 self.wip_bin_state = self.wip_bin_state or "Empty"
+        elif self.get("loose_tag"):
+            from cfg_kanban.services.loose_tags import validate_internal_fill
+            validate_internal_fill(self)
+            self.reusable_container_role = None
+            self.wip_bin_state = None
         elif self.get("virtual_content"):
             self.reusable_container_role = None
             self.wip_bin_state = None
@@ -56,7 +61,7 @@ class CFGKanbanHandlingUnit(Document):
         validate_physical_code_namespace(
             self.handling_unit_id, "Handling Unit", tag_family=self.tag_family
         )
-        if self.tag_kind != "Reusable Container" and not self.get("virtual_content"):
+        if self.tag_kind != "Reusable Container" and not self.get("virtual_content") and not self.get("loose_tag"):
             self._bind_tag_identity()
         self.opaque_token = self.opaque_token or str(uuid.uuid4())
         if not self.handling_unit_id:
@@ -134,6 +139,10 @@ class CFGKanbanHandlingUnit(Document):
         # self-referencing root here so a new main tag never persists a blank root.
         if self.tag_kind == "Main Stock Tag" and not self.root_handling_unit:
             self.root_handling_unit = self.name
+        if not self.is_new():
+            before = self.get_doc_before_save()
+            if before and any(self.get(f) != before.get(f) for f in ('loose_tag','loose_tag_line')):
+                frappe.throw('Loose Tag line identity is immutable')
         self._validate_immutable_identity()
         self._validate_reusable_policy_change()
         self._validate_virtual_content()
@@ -209,7 +218,7 @@ class CFGKanbanHandlingUnit(Document):
             return
         immutable = (
             "handling_unit_id", "opaque_token", "tag_kind", "tag_range_registry", "tag_family",
-            "parent_handling_unit", "root_handling_unit", "child_index", "virtual_content",
+            "parent_handling_unit", "root_handling_unit", "child_index", "virtual_content", "loose_tag", "loose_tag_line",
             "physical_container", "item_code",
             "batch_no", "stock_uom", "packed_on", "expiry_date", "original_qty", "qty",
             "inventory_company", "current_warehouse", "origin_reference_doctype",

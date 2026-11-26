@@ -84,7 +84,7 @@
    finally{loading=false;update();focus();}
   }
   async function recorded(result){
-   if(result.action==='Begin Delivery'){quantityReview=null;}
+   if(['Begin Delivery','Begin Open Sale'].includes(result.action)){quantityReview=null;}
    if(!valid())return;await options.refresh();if(!valid())return;
    options.recorded?.(result);
    if(['Request Stop Cancellation','Cancel Customer Stop','Start Route','Collect Old Return','Release Refused Stock','Add Assistant','Change Route Order','Request Route Change','Cancel Route Change','Decide Route Change'].includes(result.action)){close();return;}
@@ -96,10 +96,11 @@
    if(automatic&&auto&&result.status!=='Voided')setTimeout(()=>{if(valid())queue(()=>submit(true));},0);
   }
   const c=controller({storage:options.storage,locks:options.locks,owner:options.owner,token:options.token,nonce:options.nonce,rpc,render:update,success:recorded});
+  function packSummary(packs){return packs.map(p=>`<div class="alert ${p.state==='Scanned'?'alert-success':'alert-warning'}"><strong>${e(p.name)} · ${e(p.state)}</strong>${p.lines.map(r=>`<div>${e(r.item_code)} / ${e(r.batch_no||'—')} · ${e(r.qty)} ${e(r.stock_uom)} · ${e(r.source_visible_code)}</div>`).join('')}</div>`).join('');}
   function update(){
    if(!valid())return;const pending=c.state.pending,own=!pending||pending.actor===owner;
    host.find('.driver-action-confirm').text(tr(pending?'Retry original request':context?.next_step==='Done'?'Recorded':context?.next_step==='Request Stop Cancellation'?'Request Supervisor Cancellation':context?.next_step==='Cancel Customer Stop'?'Cancel This Customer Stop':context?.next_step==='Start Route'?'Start Route':context?.next_step==='Edit Route Order'?(context.setup.enforced?'Request Supervisor Approval':'Save Stop Order'):context?.next_step==='Decide Route Change'?'Record Route Decision':context?.next_step==='Cancel Route Change'?'Cancel Route Request':context?.next_step==='Add Assistant'?'Add Assistant Driver':context?.next_step==='Collect Old Return'?(returnReview?'Issue Temporary Return Note':'Review Collected Return'):context?.next_step==='Release Refused Stock'?'Release Selected Refused Stock':context?.next_step==='Submit Proof'?'Submit delivery proof':context?.next_step==='Begin Open Sale'?'Open Customer Sale':context?.next_step==='Select Route Stock'?'Finish Selection / Create DN':context?.next_step==='Create Delivery Note'?'Confirm document details':context?.next_step==='Begin Delivery'?(quantityReview?'Confirm Accepted / Refused':'Deliver Accepted Quantities'):'Complete Stop'))
-    .prop('disabled',c.state.busy||loading||!own||(!pending&&(!context||['Blocked','Await ERP','Done'].includes(context.next_step)||(context.next_step==='Select Route Stock'&&!(context.selected_stock||[]).some(r=>['Reserved','Delivery Pending'].includes(r.state))))));
+    .prop('disabled',c.state.busy||loading||!own||(!pending&&(context?.loose_tags||[]).some(p=>p.state!=='Scanned'))||(!pending&&(!context||['Blocked','Await ERP','Done'].includes(context.next_step)||(context.next_step==='Select Route Stock'&&!(context.selected_stock||[]).some(r=>['Reserved','Delivery Pending'].includes(r.state))))));
    host.find('.driver-action-fields :input').prop('disabled',c.state.busy||Boolean(pending)||Boolean(returnReview)||Boolean(quantityReview));
    host.find('.driver-order-row').attr?.('draggable',!(c.state.busy||pending));
    host.find('.driver-action-readback').toggle(true).prop('disabled',c.state.busy);
@@ -168,7 +169,7 @@
     field({fieldname:'employee',label:tr('Assistant Driver Employee / ID'),fieldtype:'Link',options:'Employee',reqd:1,get_query:()=>({filters:{status:'Active'}})});
    }
    if(['Begin Delivery','Begin Open Sale'].includes(step)&&context.require_scan)field({fieldname:'customer_scan',label:tr('Required Customer Site QR'),fieldtype:'Data',reqd:1,default:arrival});
-   if(step==='Begin Delivery'&&context.quantities?.length)field({fieldname:'quantities',label:tr('Accepted / Refused — stock UOM'),fieldtype:'Table',cannot_add_rows:true,cannot_delete_rows:true,in_place_edit:true,data:context.quantities,fields:[
+   if(['Begin Delivery','Begin Open Sale'].includes(step)&&context.quantities?.length)field({fieldname:'quantities',label:tr('Accepted / Refused — stock UOM'),fieldtype:'Table',cannot_add_rows:true,cannot_delete_rows:true,in_place_edit:true,data:context.quantities,fields:[
     {fieldname:'dispatch_allocation',fieldtype:'Data',read_only:1,hidden:1},
     {fieldname:'source_label',label:'Item / Tag / Batch',fieldtype:'Data',read_only:1,in_list_view:1,columns:3},
     {fieldname:'stock_uom',label:'UOM',fieldtype:'Data',read_only:1,in_list_view:1,columns:1},
@@ -177,6 +178,7 @@
     {fieldname:'condition',label:'Refused Condition',fieldtype:'Select',options:['Good / Unwanted','Damaged','Expired','Pest or Contamination','Customer Handling Damage','Wrong Item or Quantity','Other','Unknown'],in_list_view:1,columns:2},
     {fieldname:'refusal_reason',label:'Refusal Reason',fieldtype:'Small Text',in_list_view:1,columns:2},
    ]});
+   if(context?.loose_tags?.length)host.find('.driver-action-fields').prepend?.('<div class="driver-loose-tags">'+packSummary(context.loose_tags)+'</div>');
    if(step==='Collect Old Return'){
     host.find('.driver-action-message').text(tr('Old customer goods: temporary custody for QC. No stock receipt or credit is posted. Review the stock UOM quantities before issuing the note.'));
     field({fieldname:'existing_return_case',label:'Existing Temporary Return Note QR / Number (optional; collect full case)',fieldtype:'Data'});
@@ -236,18 +238,19 @@
    if(tools?.busy?.())throw new Error('Wait until proof evidence has finished uploading.');
    let payload={},v=values(),step=context.next_step;
    if(!auto)automatic=!['Start Route','Add Assistant'].includes(step);
-   if(step==='Begin Delivery'&&context.quantities?.length)payload.quantities=(v.quantities||inputs.quantities.df.data||[]).map(row=>({dispatch_allocation:row.dispatch_allocation,accepted_qty:row.accepted_qty,refusal_reason:row.refusal_reason||'',condition:row.condition||'Good / Unwanted'}));
+   if(!c.state.pending&&(context.loose_tags||[]).some(p=>p.state!=='Scanned'))throw new Error('Scan every assigned Loose Tag at this customer stop before confirming.');
+   if(['Begin Delivery','Begin Open Sale'].includes(step)&&context.quantities?.length)payload.quantities=(v.quantities||inputs.quantities.df.data||[]).map(row=>({dispatch_allocation:row.dispatch_allocation,accepted_qty:row.accepted_qty,refusal_reason:row.refusal_reason||'',condition:row.condition||'Good / Unwanted'}));
    if(['Begin Delivery','Begin Open Sale'].includes(step)){arrival=String(v.customer_scan||arrival||'').trim();if(context.require_scan&&!arrival)throw new Error('Scan the required Customer Site before confirmation.');payload.customer_scan=arrival||null;}
-   if(step==='Begin Delivery'&&context.quantities?.length){
+   if(['Begin Delivery','Begin Open Sale'].includes(step)&&context.quantities?.length){
     if(!quantityReview&&payload.quantities.some((r,index)=>Number(r.accepted_qty)!==Number(context.quantities[index].prepared_qty))){
-     const preview=await rpc(prefix+'preview_driver_quantities',{trip_name:options.trip,stop_key:context.stop_key,dispatch_plan:context.dispatch_plan,quantities:payload.quantities,operator_session_token:options.token()});
+     const preview=await rpc(step==='Begin Open Sale'?'cfg_kanban.services.loose_tags.preview_open_quantities':prefix+'preview_driver_quantities',{trip_name:options.trip,stop_key:context.stop_key,dispatch_plan:context.dispatch_plan,quantities:payload.quantities,operator_session_token:options.token()});
      if(!valid())return;quantityReview=JSON.parse(JSON.stringify(payload));
      host.find('.driver-action-message').text(preview.map(r=>`${r.item_code}${r.visible_code?' / '+r.visible_code:''}${r.batch_no?' / '+r.batch_no:''}: accepted ${r.accepted_qty}, refused ${r.refused_qty} ${r.stock_uom} · ${r.refusal_reason||''}`).join(' | ')+'. Confirm records these quantities. Quality refusals create company-owned QC custody; no credit or stock receipt.');
      host.find('.driver-action-edit-return').toggle(true);update();return;
     }
     if(quantityReview)payload=quantityReview;
    }
-   if(step==='Begin Delivery'&&quantityReview)payload=JSON.parse(JSON.stringify(quantityReview));
+   if(['Begin Delivery','Begin Open Sale'].includes(step)&&quantityReview)payload=JSON.parse(JSON.stringify(quantityReview));
    if(step==='Edit Route Order'){
     if(context.setup.enforced&&!String(v.reason||'').trim())throw new Error('Enter a reason for the Supervisor route request.');
     payload={order:routeOrder.keys(),reason:v.reason||''};step=context.setup.enforced?'Request Route Change':'Change Route Order';automatic=false;
@@ -295,8 +298,17 @@
    const text=String(value||'').trim(),upper=text.toUpperCase();if(!text||!valid())return;
    if(upper==='CFG:CMD:CANCEL')return close();if(upper==='CFG:CMD:CONFIRM')return submit();
    if(['CFG:CMD:REFRESH','CFG:CMD:ROUTE_SHEET_REFRESH'].includes(upper))return c.state.pending?c.reconcile():load();
-   if(upper==='CFG:CMD:HELP'){host.find('.driver-action-message').text(context?.next_step==='Edit Route Order'?'Numbered choices select customers. ROUTE_MOVE_UP / ROUTE_MOVE_DOWN changes their order. NEXT_MATERIALS / PREVIOUS_MATERIALS pages the customer choices. ROUTE_REASON selects the reason. Confirm saves or requests approval; Cancel closes safely.':'For customer cancellation, STOP_CANCEL_REASON arms the reason; STOP_STOCK_DISPOSITION selects Keep Reserved for Return or Release for Same-trip Sale using numbered choices. Drivers request; Supervisors approve. Confirm submits reviewed details. Scan Customer Site when required. CFG:SELECT:1–10 arms a field; scan its value. DELIVERY_RECIPIENT and ERP table-row commands are supported. Cancel closes while retaining unknown results. Refresh reads back the saved outcome.');return;}
+   if(upper==='CFG:CMD:HELP'){host.find('.driver-action-message').text(context?.next_step==='Edit Route Order'?'Numbered choices select customers. ROUTE_MOVE_UP / ROUTE_MOVE_DOWN changes their order. NEXT_MATERIALS / PREVIOUS_MATERIALS pages the customer choices. ROUTE_REASON selects the reason. Confirm saves or requests approval; Cancel closes safely.':'Loose Tag: scan CFG:LOOSE: QR once at its assigned customer stop; review every packed Item/Batch/source and Accepted quantity. Reduce a refused quantity with reason/condition, Confirm, then continue native DN/proof. For customer cancellation, STOP_CANCEL_REASON arms the reason; STOP_STOCK_DISPOSITION selects Keep Reserved for Return or Release for Same-trip Sale using numbered choices. Drivers request; Supervisors approve. Confirm submits reviewed details. Scan Customer Site when required. CFG:SELECT:1–10 arms a field; scan its value. DELIVERY_RECIPIENT and ERP table-row commands are supported. Cancel closes while retaining unknown results. Refresh reads back the saved outcome.');return;}
    if(c.state.pending)throw new Error('Retry or reconcile the original request before editing.');
+   if(text.startsWith('CFG:LOOSE:')){
+    if(!['Begin Delivery','Begin Open Sale'].includes(context?.next_step))throw new Error('Open the assigned customer stop before scanning its unused Loose Tag.');
+    if(quantityReview)throw new Error('Return to Edit before scanning another pack.');
+    const packed=await rpc('cfg_kanban.services.loose_tags.scan_loose_tag',{trip_name:options.trip,stop_key:context.stop_key,scan_value:text,operator_session_token:options.token()});
+    if(!valid())return;
+    for(const pack of context.loose_tags||[])if(pack.name===packed.name)pack.state=packed.state;
+    host.find('.driver-loose-tags').html(packSummary(context.loose_tags||[]));
+    host.find('.driver-action-message').text(packed.lines.map(r=>`${r.item_code} / ${r.batch_no||'—'}: ${r.qty} ${r.stock_uom} · ${r.source_visible_code}`).join(' | ')+'. All lines are in Accepted / Refused below. Confirm delivers the accepted quantities.');update();return;
+   }
    if(context?.next_step==='Edit Route Order'){
     const selected=upper.match(/^CFG:SELECT:(10|[1-9])$/);
     if(selected){orderEditable();const row=routeOrder.list()[routePage*10+Number(selected[1])-1];if(!row)throw new Error('Choose a displayed customer number.');routeSelected=row.stop_key;drawOrder();return;}

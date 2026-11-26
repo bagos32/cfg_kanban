@@ -331,6 +331,14 @@ def _scanner_command_catalog(quantity_steps=None):
             ("Crew: Close Session", "CFG:CMD:CREW_CLOSE", ""),
         ]),
     ]
+    command_groups.append(('Logistics Loose Tag', [
+        ('Pack Multi-SKU Loose Tag','CFG:CMD:PACK_LOOSE_TAG',''),
+        ('Cancel Unused Loose Tag','CFG:CMD:CANCEL_LOOSE_TAG',''),
+        *[('Loose Tag: '+label,'CFG:CMD:LOOSE_TAG_'+command,'') for label,command in [
+            ('Scan Plan Next','PLAN'),('Scan Source Next','SOURCE'),('Add Packed Line','ADD'),
+            ('Remove Last Draft Line','REMOVE'),('Create Pack','CREATE'),('Reason Next','REASON'),
+            ('Print','PRINT'),('Read Back','READBACK'),('Void Pending Create','VOID'),('Scan with Camera','CAMERA')]],
+    ]))
     command_groups.extend([
         ("Numbered Selection", [
             (f"Select Option {number}", f"CFG:SELECT:{number}", "")

@@ -6476,3 +6476,129 @@ that cannot clear browser storage retain their original request, avoiding a new 
 
 See [one combined E5 acceptance procedure](TEST_DISPATCH_E5_COMBINED.md). Live testing remains
 deferred; native transaction tests require an explicitly authorized isolated test fixture.
+
+## Multi-SKU customer Loose Tag
+
+A **CFG Kanban Loose Tag** identifies one box/pack for one saved Delivery Trip customer stop.
+It can contain, for example, **3 cartons of SKU A and 2 cartons of SKU B**, with different
+Batches on separate lines. Its QR starts with `CFG:LOOSE:`. Each line retains its exact source
+Stock Tag, Item, Batch, stock UOM, quantity, certificate set and expiry. Internal line identities
+keep the ordinary stock ledger and Dispatch Allocations accurate; they are not additional
+physical labels to print. The original source balance decreases by the quantity physically packed.
+Packing does **not** create an ERPNext Stock Entry or Delivery Note.
+
+This is separate from the permanent **Logistics Quantity Bin** (one Item/Batch/UOM per fill),
+**Logistics Container** (complete Stock Tags, possibly mixed), and **Loose Multi-Item WIP Bin**
+(manufacturing WIP). Their existing rules remain in effect. A Loose Tag is one-use customer
+custody, not a reusable bin or an available-stock receipt for a customer return.
+
+### Setup and permissions
+
+1. Prepare an office Delivery Trip and generate its Dispatch Plans. For a **Delivery** stop,
+   use its exact Customer Order Plan. For a **Visit Only** stop, configure the Trip's shared
+   **Open Route Stock** pool and the extra Items/quantities to load. No Sales Order is required
+   for a Visit Only sale. The packing screen asks for the exact customer stop in a shared pool.
+2. Submit/approve the Plan through the normal workflow. Its Profile must permit **Tagged** or
+   **Mixed** stock. Pack before claiming a lorry or creating its loading Manifest.
+3. Warehouse operators require **Start**, **Container Loading**, and the Plan's Dispatch
+   Responsibility. The terminal user retains normal DocType, Company and Warehouse permissions.
+   Loose Tag records are read/print audit documents for Stock/Sales users and managers;
+   creation and changes happen only through controlled actions.
+4. Drivers/assistants sign in separately, must be assigned to the Trip, and require the normal
+   **Customer Delivery** and Plan responsibility permissions. Existing customer-site scanning,
+   route sequence, proof, ERP required fields and Draft/auto-submit policies continue to apply.
+5. Quality refusals require existing Customer Return intake permission and the Customer Site's
+   **Customer Return QC / Inspection Custody Location** setup. Sound refusals follow the
+   captured Profile policy: hold for Supervisor release or allow resale after delivery/proof.
+6. Sources must be active, Released physical Stock Tags for stock-maintained Items in the Plan's source Warehouse, with
+   free quantity. Unload a tag from its reusable container first. Use stock UOM quantities;
+   whole-number UOMs cannot be fractional. ERP serial-controlled Items continue to use the
+   existing exact-serial workflow and cannot be packed with this action.
+
+### Warehouse: pack, print and load
+
+1. In **Kanban Logistics**, identify the operator, stop other transaction scanning, and tap
+   **Pack / View Loose Tag** or scan `CFG:CMD:PACK_LOOSE_TAG`.
+2. Scan the `DPL-…` Plan. For a shared Open Route pool, choose the exact customer stop with a
+   displayed numbered choice; Next/Previous Choices page lists longer than ten.
+3. Scan the source Stock Tag. If more than one matching Plan/Sales Order row exists, choose
+   its numbered row explicitly. Enter the packed quantity in stock UOM, or scan
+   `CFG:QTY:MATERIAL:3`, then **Add Packed Line** / `CFG:CMD:LOOSE_TAG_ADD`.
+4. Repeat for the next SKU/Batch/source. Each source appears only once in a pack; combine its
+   quantity before adding. **Remove Last Draft Line** corrects an unsubmitted draft.
+5. Review every source and quantity, then **Confirm**. The server checks current stock and
+   Plan budgets, splits only the exact packed quantities and reserves each internal line
+   through the existing Dispatch service. It refuses overlapping reservations and excessive
+   quantities. If any line fails, the grouped action rolls back.
+6. Select **Print Loose Tag** / `CFG:CMD:LOOSE_TAG_PRINT`. This opens the ordinary Loose Tag
+   DocType; use **Print Loose Tag** and select **CFG Loose Tag** in ERPNext's Print Format
+   selector. Administrators may copy/customize the preset through normal Print Format setup.
+   The pack has one QR and a human-readable list of all lines and original source codes.
+7. Claim the lorry and follow existing E3 physical loading, Manifest preparation and ERP
+   Stock Entry submission. Scan the box QR once in loading mode to confirm all its reserved
+   lines. Loading is complete only after the usual posting feedback.
+
+**Unknown result:** cancelling/closing the dialog does not abandon an unacknowledged write.
+Reopen as the same operator and use **Read Back** / `CFG:CMD:LOOSE_TAG_READBACK`, or retry the
+original **Confirm**. The same event and payload are retained across reopening/refresh.
+To abandon an unrecorded Create, enter a reason and **Void Pending Create** /
+`CFG:CMD:LOOSE_TAG_VOID`. The server records a tombstone so a late original request cannot pack
+again. If it already recorded a pack, readback returns that pack; correct it through cancellation.
+Browser storage and Web Locks must be available for safe warehouse retries.
+
+### Driver: scan one box at its customer stop
+
+1. Start the loaded Trip normally and open the assigned stop in **Driver Route**. A Visit Only
+   stop with assigned packs offers the existing optional-sale action with those packs.
+2. Scan its `CFG:LOOSE:…` QR once, using the scanner field or camera. All packed lines appear
+   on the same stop screen, including their original source codes. All assigned packs must
+   be scanned; the wrong Trip/customer/stop, cancelled pack or processed QR is rejected.
+3. For full acceptance, leave every **Accepted** quantity unchanged and **Confirm** once.
+   The existing allocation and Delivery Note workflow continues. Required ERP fields, customer
+   QR checks and proof still apply; a Draft DN awaits normal ERP submission.
+4. For a partial refusal, reduce **Accepted** on the affected line and record its reason and
+   condition on the same table. Confirm reviews the accepted/refused figures; confirm that
+   review to proceed. For a shared Open Route pack sale, all assigned pack lines form this
+   Session's reviewed selection; prepare any additional boxed products before departure.
+5. ERPNext submission feedback consumes only accepted quantities. Refused goods stay on the
+   lorry under the existing company-stock refusal hold/release and E5 recovery workflow.
+   Quality refusals use the existing QC case without a duplicate stock receipt or credit.
+   Complete any required delivery proof before closing the stop. Full refusal creates no DN.
+6. **Collect Old Return** stays on its existing workflow and remains separate from today's pack.
+
+Repeated box scans do not move stock. Delivery/ERP retries use the existing Session, command
+and posting-feedback identities. A processed QR cannot start another delivery. Its remaining
+stock can still be scanned with the box QR in existing Dispatch Recovery, receipt and lorry
+stock-count screens; empty delivered lines are excluded. For another customer sale, use the
+existing authorised release/recovery and physical retagging controls rather than reusing the box.
+
+### Correct or cancel an unused box
+
+Before vehicle claim, open **Pack / View Loose Tag**, choose **Cancel Unused Pack** or scan
+`CFG:CMD:CANCEL_LOOSE_TAG`, scan the box, select `CFG:CMD:LOOSE_TAG_REASON`, scan the reason,
+then **Confirm**. This releases all its native reservations and restores the exact quantities
+to the original compatible source tags in the same Warehouse. The old QR becomes Cancelled;
+rebuild a corrected box under a new QR. Historical records are retained. A reserved, moved,
+changed or container-loaded original source must be reconciled before unpacking.
+
+After vehicle claim/loading or delivery start, this action cannot merge stock back across
+Warehouses. Cancel an unused loading arrangement through its existing controls first, or use
+Supervisor customer-stop cancellation and Dispatch Recovery for goods already loaded. The
+Supervisor's recorded disposition controls return versus same-trip release. For a Visit Only stop
+with assigned boxes, cancel its unused packs first. Once loaded, accept/refuse the boxes through
+that stop or settle its pool through E5 before cancelling the visit; cancellation cannot orphan
+customer-bound pack stock. Never edit pack
+lines, Handling Unit balances, allocations or ERP stock directly.
+
+Scanner command labels are available in **Kanban Operator → Scanner Command Labels →
+Logistics Loose Tag**. `LOOSE_TAG_PLAN`, `LOOSE_TAG_SOURCE`, `LOOSE_TAG_ADD`,
+`LOOSE_TAG_REMOVE`, `LOOSE_TAG_CREATE`, `LOOSE_TAG_REASON`, `LOOSE_TAG_PRINT`,
+`LOOSE_TAG_READBACK`, `LOOSE_TAG_VOID`, `LOOSE_TAG_CAMERA` use the `CFG:CMD:` prefix.
+`CFG:SELECT:1`–`10`, Material Qty, Next/Previous Choices, `CFG:CMD:CONFIRM`,
+`CFG:CMD:CANCEL` and `CFG:CMD:HELP` complete the scanner path. Tab and Enter suffixes are
+supported; camera, success, rejection and cancellation restore Scanner Ready focus.
+
+Installation requires the normal CFG-only schema migration and asset build. No historical
+stock conversion or ERPNext version change is required. Offline checks are development evidence;
+record live ERPNext posting, concurrency, printer and scanner/kiosk acceptance separately in
+`docs/TEST_MULTI_SKU_LOOSE_TAG.md` before operational sign-off.

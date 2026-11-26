@@ -123,6 +123,10 @@ def scan_reconciliation_tag(reconciliation_name, scan_value, event_token,
         frappe.throw(_("A stable scan event token is required"))
     doc = _locked_reconciliation(reconciliation_name)
     _require_counting(doc)
+    if str(scan_value or '').strip().startswith('CFG:LOOSE:'):
+        from cfg_kanban.services.loose_tags import scan_group
+        return scan_group(scan_value, lambda code: scan_reconciliation_tag(
+            reconciliation_name, code, event_token, operator_session_token))
     resolved = resolve_logistics_scan(scan_value)
     if not resolved or resolved.get("identity_type") != "Handling Unit":
         frappe.throw(_("Scan an activated Handling Unit or reusable-container code"))

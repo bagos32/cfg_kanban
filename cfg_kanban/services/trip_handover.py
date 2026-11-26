@@ -129,7 +129,7 @@ def get_trip_handover(scan_value=None,operator_session_token=None,start=0,return
             if row.get('batch_no'):_read('Batch',row['batch_no'])
             if row['handling_unit']:_read('CFG Kanban Handling Unit',row['handling_unit'])
             row['refused_qty']=0
-            if plan.get('driver_delivery_outcome'):
+            if plan.get('driver_delivery_outcome') or plan.get('has_loose_tags'):
                 from cfg_kanban.services.driver_delivery_outcomes import declared_source_qty
                 row['refused_qty']=declared_source_qty(row['dispatch_allocation'])
         review=_read(review_service.REVIEW,plan.active_dispatch_review) if plan.get('active_dispatch_review') else None

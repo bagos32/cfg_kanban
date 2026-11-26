@@ -142,7 +142,10 @@ def finish_visit(trip,stop,operator,record_no_sale=False):
             record('Trip Visit Completed Without Sale',reference_doctype='CFG Kanban Route Stop',reference_name=row.name,operator=operator.employee)
         return True
     if delivery.state=='Cancelled':return True
-    if delivery.state!='Closed' or not delivery.delivery_note:return False
+    if delivery.state != 'Closed':return False
+    if not delivery.delivery_note:
+        from cfg_kanban.services.driver_delivery_outcomes import full_refusal
+        return full_refusal(delivery) if delivery.get('driver_delivery_outcome') else False
     note=_read('Delivery Note',delivery.delivery_note)
     if note.docstatus!=1 or note.is_return or note.company!=trip.company or note.customer!=stop.customer:return False
     if delivery.proof_policy!='No Proof Required':
@@ -163,6 +166,10 @@ def projection(trip,stops,operator):
         target['can_open_sale']=bool(row and not stop.get('cancellation_request') and not stop.driver_completed_on and trip.driver_route_state=='In Progress')
         if not row:continue
         delivery=session(trip,stop,operator)
+        if doc.get('has_loose_tags'):
+            from cfg_kanban.services.loose_tags import driver_context, project_open_sources
+            target['loose_tags'] = driver_context(doc, stop.stop_key)
+            target['sources'].extend(project_open_sources(doc,stop.stop_key,delivery))
         target['open_sale']=dict(dispatch_plan=doc.name,route_stop=row.name,state=row.state,
             delivery_session=delivery.name if delivery else None,session_state=delivery.state if delivery else None,
             delivery_note=delivery.delivery_note if delivery else None,allocations=[])
@@ -221,17 +228,27 @@ def action_context(trip,stop,operator,result,token,force=False):
     if not row:return None
     delivery=session(trip,stop,operator)
     if not delivery:
-        if force:
+        packed = {}
+        if trip.get('open_route_plan'):
+            source = pool(trip)
+            if source.get('has_loose_tags'):
+                from cfg_kanban.services.loose_tags import open_context
+                packed = open_context(source, stop.stop_key)
+        if force or packed:
             saved=json.loads(trip.driver_route_snapshot_json or '{}')
             return dict(result,next_step='Begin Open Sale',dispatch_plan=trip.open_route_plan,
-                require_scan=saved['open_pool']['require_scan'])
+                require_scan=saved['open_pool']['require_scan'], **packed)
         return None
     if delivery.state in ('Closed','Cancelled'):return None
     engine=_routes()._engine();view=engine.get_delivery_session(delivery.name,token)
     base=dict(result,dispatch_plan=trip.open_route_plan,delivery_session=delivery.name,session_state=delivery.state,
         auto_submit_delivery_note=view['auto_submit_delivery_note'],open_sale=True)
     if delivery.state=='Allocating Stock':
-        return dict(base,next_step='Select Route Stock',selected_stock=view.get('allocations') or [])
+        if pool(trip).get('has_loose_tags'):
+            from cfg_kanban.services.loose_tags import is_pack_delivery
+            if is_pack_delivery(delivery):
+                return dict(base,next_step='Confirm Allocations')
+        return dict(base,next_step='Select Route Stock' ,selected_stock=view.get('allocations') or [])
     if delivery.state in ('Awaiting Confirmation','ERP Document Pending'):
         req=engine.get_customer_delivery_requirements(delivery.name,token)
         return dict(base,next_step='Await ERP' if req.get('existing_draft') else 'Create Delivery Note',requirements=req,delivery_note=delivery.delivery_note)

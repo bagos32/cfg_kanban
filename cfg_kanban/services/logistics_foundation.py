@@ -98,6 +98,8 @@ def price_list_rate(price_list, item_code, uom, batch_no, mode, party):
 
 def validate_physical_code_namespace(code, identity_type, tag_family=None):
     """Prevent a visible code from resolving to unrelated physical identities."""
+    if str(code).upper().startswith('CFG:LOOSE:'):
+        frappe.throw('CFG:LOOSE: is reserved for controlled customer Loose Tag QRs')
     if str(code).upper().startswith("CFG:RETURN-CUSTODY:"):
         frappe.throw("This prefix is reserved for Return Custody labels, not Stock Tags or containers")
     if identity_type != "Customer Scan Point" and frappe.db.exists(

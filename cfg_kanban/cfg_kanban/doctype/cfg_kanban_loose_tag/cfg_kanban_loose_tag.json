@@ -1,0 +1,246 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Loose Tag",
+ "module": "CFG Kanban",
+ "field_order": [
+  "state",
+  "delivery_trip",
+  "stop_key",
+  "dispatch_plan",
+  "company",
+  "customer",
+  "customer_site",
+  "source_warehouse",
+  "qr_payload",
+  "lines",
+  "created_on",
+  "packed_by",
+  "operator_session",
+  "creation_key",
+  "request_hash",
+  "scanned_on",
+  "scanned_by",
+  "delivery_session",
+  "delivery_note",
+  "cancel_reason",
+  "cancel_key",
+  "cancelled_on",
+  "cancelled_by"
+ ],
+ "fields": [
+  {
+   "fieldname": "state",
+   "label": "State",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "options": "Building\nReady\nScanned\nIn Delivery\nProcessed\nRecovery Required\nCancelled",
+   "default": "Building",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "delivery_trip",
+   "label": "Delivery Trip",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Delivery Trip",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "stop_key",
+   "label": "Stop Key",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "dispatch_plan",
+   "label": "Dispatch Plan",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Dispatch Plan",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "customer",
+   "label": "Customer",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Customer",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "customer_site",
+   "label": "Customer Site",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Customer Scan Point",
+   "reqd": 1
+  },
+  {
+   "fieldname": "source_warehouse",
+   "label": "Source Warehouse",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Warehouse",
+   "reqd": 1
+  },
+  {
+   "fieldname": "qr_payload",
+   "label": "Qr Payload",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "lines",
+   "label": "Lines",
+   "fieldtype": "Table",
+   "read_only": 1,
+   "options": "CFG Kanban Loose Tag Line"
+  },
+  {
+   "fieldname": "created_on",
+   "label": "Created On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "packed_by",
+   "label": "Packed By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee",
+   "ignore_user_permissions": 1
+  },
+  {
+   "fieldname": "operator_session",
+   "label": "Operator Session",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Operator Session",
+   "hidden": 1,
+   "ignore_user_permissions": 1
+  },
+  {
+   "fieldname": "creation_key",
+   "label": "Creation Key",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "unique": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "request_hash",
+   "label": "Request Hash",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "scanned_on",
+   "label": "Scanned On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "scanned_by",
+   "label": "Scanned By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee",
+   "ignore_user_permissions": 1
+  },
+  {
+   "fieldname": "delivery_session",
+   "label": "Delivery Session",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Delivery Session",
+   "search_index": 1
+  },
+  {
+   "fieldname": "delivery_note",
+   "label": "Delivery Note",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Delivery Note"
+  },
+  {
+   "fieldname": "cancel_reason",
+   "label": "Cancel Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancel_key",
+   "label": "Cancel Key",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "unique": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "cancelled_on",
+   "label": "Cancelled On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancelled_by",
+   "label": "Cancelled By",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Employee",
+   "ignore_user_permissions": 1
+  }
+ ],
+ "autoname": "KLT-.YYYY.-.#####",
+ "track_changes": 1,
+ "permissions": [
+  {
+   "role": "Stock User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "CFG Kanban System Maintenance",
+   "read": 1,
+   "print": 1
+  }
+ ]
+}

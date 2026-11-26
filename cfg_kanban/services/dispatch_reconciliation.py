@@ -82,7 +82,7 @@ def _balances(plan, current=False):
             as_dict=True, for_update=current)
         delivered = sum(flt(row.delivered_qty) for row in allocations)
         released = 0
-        if plan.get('driver_delivery_outcome'):
+        if plan.get('driver_delivery_outcome') or plan.get('has_loose_tags'):
             from cfg_kanban.services.driver_delivery_outcomes import released_source_qty
             released = released_source_qty(source.name, current=current)
         cancelled_released=0
@@ -466,7 +466,7 @@ def protect_review_movement_cancellation(doc, method=None):
 def _refusal_reserve(plan,row):
     if not row.get('handling_unit'):return 0
     held=0
-    if plan.get('driver_delivery_outcome'):
+    if plan.get('driver_delivery_outcome') or plan.get('has_loose_tags'):
         from cfg_kanban.services.driver_delivery_outcomes import held_tag_qty
         held+=held_tag_qty(row['handling_unit'])
     if plan.get('stop_cancellation'):

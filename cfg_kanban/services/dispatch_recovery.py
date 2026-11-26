@@ -317,6 +317,10 @@ def scan_dispatch_recovery(manifest_name, scan_value, event_token, operator_sess
     plan, review, manifest = _locked_manifest(manifest_name, operator)
     if manifest.state != 'Draft':
         frappe.throw('Physical recovery confirmation requires a Draft Manifest')
+    if str(scan_value or '').strip().startswith('CFG:LOOSE:'):
+        from cfg_kanban.services.loose_tags import scan_group
+        return scan_group(scan_value, lambda code: scan_dispatch_recovery(
+            manifest_name, code, event_token, operator_session_token))
     identity = resolve_logistics_scan(scan_value)
     if not identity or identity['identity_type'] != 'Handling Unit':
         frappe.throw('Scan an active Stock Tag or reusable container from this recovery')
@@ -384,14 +388,14 @@ def prepare_recovery_manifest(manifest, operator, session, event_token):
     # Refusal rows precede HU locks, matching Supervisor release order.
     if manifest.get('dispatch_recovery_review'):
         source_plan=frappe.db.get_value('CFG Kanban Dispatch Review',manifest.dispatch_recovery_review,'dispatch_plan')
-        if source_plan and frappe.db.get_value('CFG Kanban Dispatch Plan',source_plan,'driver_delivery_outcome'):
+        if source_plan and (frappe.db.get_value('CFG Kanban Dispatch Plan',source_plan,'driver_delivery_outcome') or frappe.db.get_value('CFG Kanban Dispatch Plan',source_plan,'has_loose_tags')):
             from cfg_kanban.services.driver_delivery_outcomes import lock_recovery_rows
             lock_recovery_rows(manifest)
         if source_plan and frappe.db.get_value('CFG Kanban Dispatch Plan',source_plan,'stop_cancellation'):
             from cfg_kanban.services.cancelled_stop_stock import lock_recovery_rows
             lock_recovery_rows(manifest)
     plan, review, manifest = validate_recovery_manifest(manifest, operator)
-    if plan.get('driver_delivery_outcome'):
+    if plan.get('driver_delivery_outcome') or plan.get('has_loose_tags'):
         from cfg_kanban.services.driver_delivery_outcomes import recovery_adopt
         recovery_adopt(manifest)
     if plan.get('stop_cancellation'):
@@ -461,7 +465,7 @@ def _cancel_unused(plan, review, manifest, reason, operator, session):
                     source_company=plan.company, source_warehouse=plan.vehicle_warehouse,
                     reference_doctype=manifest.doctype, reference_name=manifest.name,
                     operator=operator.employee, operator_session=session.name, reason=reason)
-    if plan.get('driver_delivery_outcome'):
+    if plan.get('driver_delivery_outcome') or plan.get('has_loose_tags'):
         from cfg_kanban.services.driver_delivery_outcomes import recovery_restore
         recovery_restore(manifest)
     if plan.get('stop_cancellation'):
@@ -528,7 +532,7 @@ def protect_recovery_document_identity(doc, method=None):
 
 def _refused_reserve(plan,unit):
     held=0
-    if plan.get('driver_delivery_outcome'):
+    if plan.get('driver_delivery_outcome') or plan.get('has_loose_tags'):
         from cfg_kanban.services.driver_delivery_outcomes import held_tag_qty
         held+=held_tag_qty(unit)
     if plan.get('stop_cancellation'):

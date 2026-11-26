@@ -18,6 +18,11 @@ class TestWarehouseFulfilment(unittest.TestCase):
             delivery_session=None,total_loaded_qty=0,total_reserved_qty=5,prepared_stock_commitment=0)
         self.plan.as_dict=lambda:dict(self.plan)
         self.plan.lines[0].update(parent='PLAN',reserved_qty=5,loaded_qty=0,line_state='Reserved')
+        # E2 reads child rows with current locks; keep the offline document API and scope faithful.
+        self.plan.lines[0].update(parenttype=PLAN,parentfield='lines')
+        self.data[LINE]={self.plan.lines[0].name:self.plan.lines[0]}
+        setter=patch.object(type(self.plan),'set',lambda doc,key,value:doc.__setitem__(key,value),create=True)
+        setter.start();self.addCleanup(setter.stop)
         self.unit.update(current_warehouse='SOURCE',reserved_qty=5,available_qty=0)
         self.source=self.data[ALLOC]['ALLOC'];self.source.update(state='Reserved',movement_manifest=None,
             active_handling_unit_key='TAG',movement_state_before_reservation='Received',
@@ -28,7 +33,7 @@ class TestWarehouseFulfilment(unittest.TestCase):
         self.b.planning.post_quantity_event=self.b.post_quantity
         self.b.planning.RESERVABLE_STATES={'Approved','Picking','Ready for Vehicle','Ready for Fulfilment'}
         e4a.extract('services/dispatch_planning.py',self.b.planning.__dict__,{
-            '_release_allocation','_refresh_plan_totals','_active_line_reserved','cancel_dispatch_plan','release_dispatch_allocation'})
+            '_release_allocation','_refresh_plan_totals','_active_line_reserved','_current_reservation_lines','_cancel_unposted_plan','cancel_dispatch_plan','release_dispatch_allocation'})
         self.w=types.ModuleType('cfg_kanban.services.warehouse_fulfilment');self.w.__dict__.update(self.b.bridge.__dict__)
         self.w.MODES=('Direct Warehouse Delivery','Customer Pickup');self.w.ACTIVE_STATES=('Ready for Fulfilment','Fulfilment In Progress')
         e4a.extract('services/warehouse_fulfilment.py',self.w.__dict__)

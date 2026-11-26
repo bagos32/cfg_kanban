@@ -59,7 +59,7 @@ def _native_route(plan, name, operator):
 
 def _held(plan, source):
     held = []
-    if plan.get('driver_delivery_outcome'):
+    if plan.get('driver_delivery_outcome') or plan.get('has_loose_tags'):
         from cfg_kanban.services.driver_delivery_outcomes import held_rows
         held.extend(held_rows({'dispatch_allocation':source}, current=True))
     if plan.get('stop_cancellation'):

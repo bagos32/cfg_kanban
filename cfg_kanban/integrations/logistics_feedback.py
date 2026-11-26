@@ -307,7 +307,7 @@ def _post_internal_direct(manifest, doc):
     complete_transfer_cycle(manifest, "Stock Entry", doc.name)
     if manifest.get('dispatch_recovery_review'):
         source_plan=frappe.db.get_value('CFG Kanban Dispatch Review',manifest.dispatch_recovery_review,'dispatch_plan')
-        if source_plan and frappe.db.get_value('CFG Kanban Dispatch Plan',source_plan,'driver_delivery_outcome'):
+        if source_plan and (frappe.db.get_value('CFG Kanban Dispatch Plan',source_plan,'driver_delivery_outcome') or frappe.db.get_value('CFG Kanban Dispatch Plan',source_plan,'has_loose_tags')):
             from cfg_kanban.services.driver_delivery_outcomes import recovery_restore
             recovery_restore(manifest, received=True)
         if source_plan and frappe.db.get_value('CFG Kanban Dispatch Plan',source_plan,'stop_cancellation'):

@@ -452,6 +452,9 @@ def _delivery_context(name, operator):
 def _unit_choice(unit, delivery, plan, container=None, container_code=None):
     engine = _engine()
     engine._validate_allocation_unit(unit, delivery, expected_container=container)
+    if unit.get('loose_tag'):
+        from cfg_kanban.services.loose_tags import assert_unit_scope
+        assert_unit_scope(unit, delivery)
     _fulfilment().assert_delivery_tag_expiry(unit)
     source = next((row for row in _route_sources(plan) if row.handling_unit == unit.name and _remaining(row)>0.000001), None)
     maximum = min(flt(unit.available_qty), _remaining(source)) if source else flt(unit.available_qty)
@@ -635,6 +638,10 @@ def validate_route_allocations(delivery, allocations=None):
         else:
             frappe.throw('Route allocation requires an explicit prepared or unassigned stock source')
 
+    if plan.get('has_loose_tags'):
+        from cfg_kanban.services.loose_tags import validate_open_allocations
+        validate_open_allocations(delivery, allocations)
+
 
 def sync_route_delivery(delivery):
     if not delivery.get('route_stop'):
@@ -667,6 +674,12 @@ def sync_route_delivery(delivery):
     values['unassigned_delivered_qty']=sum(flt(row.qty) for row in rows if row.route_source_kind=='Unassigned Lorry Stock')
     values['completed_stop_count']=frappe.db.count(STOP,{'dispatch_plan':plan.name,'state':'Completed'})
     plan.db_set(values,update_modified=True)
+    if plan.get('has_loose_tags'):
+        from cfg_kanban.services.loose_tags import sync_delivery
+        sync_delivery(delivery)
+        if delivery.get('driver_delivery_outcome'):
+            from cfg_kanban.services.driver_delivery_outcomes import auto_release
+            auto_release(delivery)
     if state=='Cancelled' and cint(stop.planned_sequence):
         retry=canonical_key('route-stop-cancelled-retry',stop.name)
         if not frappe.db.exists(STOP,{'idempotency_key':retry}):

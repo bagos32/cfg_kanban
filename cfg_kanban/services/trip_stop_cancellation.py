@@ -117,6 +117,11 @@ def _preview(doc,stop,operator,current=False):
     plans=_plans(doc,stop,operator,current)
     from cfg_kanban.services import route_sheets
     shared=_shared_visit(doc,stop,operator,current)
+    if shared:
+        pool=_read('CFG Kanban Dispatch Plan',doc.open_route_plan,current)
+        if pool.get('has_loose_tags'):
+            from cfg_kanban.services.loose_tags import assert_visit_cancellation_ready
+            assert_visit_cancellation_ready(pool,stop.stop_key)
     result=[];stock=[]
     for plan in plans:
         _unstarted(plan);manifest=_manifest(plan,current)

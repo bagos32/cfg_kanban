@@ -72,11 +72,11 @@ test('a render/refresh failure after success does not turn a recorded action int
 });
 
 const tick=async()=>{for(let i=0;i<8;i++)await new Promise(resolve=>setTimeout(resolve,0));};
-function panel({step='Begin Delivery',requireScan=false,requirements=[],proof=null,fail=null,existingStorage=null,quantities=[],selectedStock=[],stockPending=false,setup={conditions:['Unknown','Damaged']},previewFailure=null}={}){
+function panel({step='Begin Delivery',requireScan=false,requirements=[],proof=null,fail=null,existingStorage=null,quantities=[],looseTags=[],selectedStock=[],stockPending=false,setup={conditions:['Unknown','Damaged']},previewFailure=null}={}){
  const nodes=new Map(),events=new Map(),controls={},calls=[],cameras=[],storage=existingStorage||memory();let owner='EMP',token='TOKEN',active=true,closed=0,refreshes=0,revision=0,current=step,lastAction='',stockOptions=null,stockClosed=0,stockFocus=0;const stockScans=[];
  class Node{
   constructor(){this.value='';this.disabled=false;this.caption='';this.visible=true;}
-  html(v){this.markup=v;return this;}append(v){this.markup=(this.markup||'')+v;return this;}attr(k,v){this.attrs=this.attrs||{};if(arguments.length===2){this.attrs[k]=v;return this;}return this.attrs[k];}text(v){this.caption=v;return this;}empty(){this.markup='';return this;}appendTo(){return this;}
+  html(v){this.markup=v;return this;}prepend(v){this.markup=v+(this.markup||'');return this;}append(v){this.markup=(this.markup||'')+v;return this;}attr(k,v){this.attrs=this.attrs||{};if(arguments.length===2){this.attrs[k]=v;return this;}return this.attrs[k];}text(v){this.caption=v;return this;}empty(){this.markup='';return this;}appendTo(){return this;}
   find(key){if(!nodes.has(key))nodes.set(key,new Node());return nodes.get(key);}prop(k,v){this[k]=v;return this;}toggle(v){this.visible=v;return this;}
   val(v){if(arguments.length){this.value=v;return this;}return this.value;}trigger(){this.focused=true;return this;}
   off(){return this;}on(type,selector,callback){events.set(type+' '+selector,callback);return this;}one(){return this;}
@@ -87,8 +87,9 @@ function panel({step='Begin Delivery',requireScan=false,requirements=[],proof=nu
  },Scanner:class{constructor(opts){this.opts=opts;this.dialog={$wrapper:new Node(),hide(){}};cameras.push(this);}stop_scan(){this.stopped=true;}}},
  require:async()=>{window.cfg_route_delivery=stockApi;},call:async({method,args})=>{
   calls.push({method,args});
-  if(method.endsWith('driver_action_context'))return{message:{...context,revision,next_step:current,dispatch_plan:['Request Stop Cancellation','Cancel Customer Stop','Add Assistant','Edit Route Order','Decide Route Change','Cancel Route Change'].includes(current)?null:context.dispatch_plan,stop_key:['Add Assistant','Edit Route Order','Decide Route Change','Cancel Route Change'].includes(current)?null:context.stop_key,delivery_session:'DELIVERY',selected_stock:selectedStock,quantities,setup,require_scan:requireScan,requirements:{fields:requirements},proof,delivery_note:'DN',purpose:current==='Complete Stop'?'Visit Only':'Delivery'}};
-  if(method.endsWith('preview_driver_quantities')){if(previewFailure)throw previewFailure;return {message:args.quantities.map(row=>({...row,item_code:'ITEM',stock_uom:'Nos',refused_qty:5-Number(row.accepted_qty)}))};}
+  if(method.endsWith('driver_action_context'))return{message:{...context,revision,next_step:current,dispatch_plan:['Request Stop Cancellation','Cancel Customer Stop','Add Assistant','Edit Route Order','Decide Route Change','Cancel Route Change'].includes(current)?null:context.dispatch_plan,stop_key:['Add Assistant','Edit Route Order','Decide Route Change','Cancel Route Change'].includes(current)?null:context.stop_key,delivery_session:'DELIVERY',selected_stock:selectedStock,quantities,loose_tags:looseTags,setup,require_scan:requireScan,requirements:{fields:requirements},proof,delivery_note:'DN',purpose:current==='Complete Stop'?'Visit Only':'Delivery'}};
+  if(method.endsWith('scan_loose_tag')){if(args.stop_key!=='STOP'||args.scan_value!=='CFG:LOOSE:KLT-1')throw new Error('Wrong customer stop');looseTags[0].state='Scanned';return{message:{...looseTags[0],lines:looseTags[0].lines}};}
+  if(method.endsWith('preview_driver_quantities')||method.endsWith('preview_open_quantities')){if(previewFailure)throw previewFailure;return {message:args.quantities.map(row=>({...row,item_code:'ITEM',stock_uom:'Nos',refused_qty:5-Number(row.accepted_qty)}))};}
   if(method.endsWith('preview_driver_collection')){if(previewFailure)throw previewFailure;return {message:{...args.payload,company:'A',customer:'CUST',inspection_location:'QC BAY',lines:args.payload.lines.map(row=>({...row,stock_uom:'Nos'}))}};}
   if(method.endsWith('reconcile_driver_action'))return{message:{status:'Recorded',action:lastAction}};
   if(fail)throw fail;
@@ -325,4 +326,22 @@ test('Supervisor cancellation approval offers stock disposition instead of seque
 test('lost cancellation response freezes its exact source/stock decision and reload retries original identity',async()=>{
  const h=panel({step:'Cancel Customer Stop',setup:cancellationSetup(),fail:new Error('Lost')});await tick();h.controls.reason.set_value('Customer closed');await h.view.scan('CFG:CMD:CONFIRM');const original=h.calls.find(row=>row.args.action==='Cancel Customer Stop').args;h.view.close();
  const next=panel({step:'Cancel Customer Stop',setup:{...cancellationSetup(),goods_hash:'CHANGED'},existingStorage:h.storage});await tick();await next.view.scan('CFG:CMD:CONFIRM');await tick();const replay=next.calls.find(row=>row.args.action==='Cancel Customer Stop').args;assert.equal(replay.event_token,original.event_token);assert.deepEqual(replay.payload,original.payload);assert.equal(next.closed(),1);
+});
+
+const loosePack=()=>({name:'KLT-1',qr_payload:'CFG:LOOSE:KLT-1',state:'Ready',lines:[{dispatch_allocation:'ALLOCATION',item_code:'A',stock_uom:'Nos',qty:5,source_visible_code:'SOURCE-A'},{dispatch_allocation:'B-ALLOC',item_code:'B',stock_uom:'Nos',qty:2,source_visible_code:'SOURCE-B'}]});
+test('Loose Tag scan reveals both lines on existing delivery screen and gates full acceptance',async()=>{
+ const h=panel({quantities:preparedQty(),looseTags:[loosePack()]});await tick();
+ await h.view.scan('CFG:CMD:CONFIRM');await tick();assert.equal(h.calls.filter(c=>c.method.endsWith('perform_driver_action')).length,0);
+ await h.view.scan('CFG:LOOSE:KLT-1');await tick();assert(h.nodes.get('.driver-action-message').caption.includes('SOURCE-A'));assert(h.nodes.get('.driver-action-message').caption.includes('SOURCE-B'));
+ await h.view.scan('CFG:CMD:CONFIRM');await tick();assert.equal(h.calls.filter(c=>c.args.action==='Begin Delivery').length,1);
+});
+test('Open Route Loose Tag uses existing accepted/refused table and review before sale confirmation',async()=>{
+ const h=panel({step:'Begin Open Sale',quantities:preparedQty(),looseTags:[loosePack()]});await tick();await h.view.scan('CFG:LOOSE:KLT-1');
+ h.controls.quantities.df.data[0].accepted_qty=3;h.controls.quantities.df.data[0].refusal_reason='Downsize';
+ await h.view.scan('CFG:CMD:CONFIRM');assert(h.calls.some(c=>c.method.endsWith('preview_open_quantities')));assert(!h.calls.some(c=>c.args.action==='Begin Open Sale'));
+ await h.view.scan('CFG:CMD:CONFIRM');await tick();const call=h.calls.find(c=>c.args.action==='Begin Open Sale');assert.equal(call.args.payload.quantities[0].accepted_qty,3);
+});
+test('wrong Loose Tag stays on the stop screen, posts nothing and restores scanner focus',async()=>{
+ const h=panel({quantities:preparedQty(),looseTags:[loosePack()]});await tick();await h.view.scan('CFG:LOOSE:OTHER');await tick();
+ assert(!h.calls.some(c=>c.method.endsWith('perform_driver_action')));assert(h.nodes.get('.driver-action-message').caption.includes('Wrong customer'));assert(h.nodes.get('.driver-action-scan').focused);
 });

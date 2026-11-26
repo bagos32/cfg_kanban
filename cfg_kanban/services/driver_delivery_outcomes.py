@@ -45,9 +45,9 @@ def outcome_for(delivery, current=False):
     return doc
 
 
-def quantities(plan, submitted):
+def quantities(plan, submitted, sources=None):
     """Only stock UOM, finite numbers and the exact prepared physical sources are accepted."""
-    sources = _prepared()._loaded_allocations(plan)
+    sources = _prepared()._loaded_allocations(plan) if sources is None else sources
     submitted = frappe.parse_json(submitted) if isinstance(submitted, str) else submitted
     if submitted is None:
         return None

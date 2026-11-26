@@ -1,0 +1,113 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Loose Tag Line",
+ "module": "CFG Kanban",
+ "field_order": [
+  "dispatch_plan_line",
+  "source_handling_unit",
+  "source_visible_code",
+  "item_code",
+  "batch_no",
+  "stock_uom",
+  "qty",
+  "expiry_date",
+  "process_certificate_set",
+  "handling_unit",
+  "dispatch_allocation",
+  "split_ledger"
+ ],
+ "fields": [
+  {
+   "fieldname": "dispatch_plan_line",
+   "label": "Dispatch Plan Line",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "source_handling_unit",
+   "label": "Source Handling Unit",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Handling Unit",
+   "reqd": 1
+  },
+  {
+   "fieldname": "source_visible_code",
+   "label": "Source Visible Code",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "item_code",
+   "label": "Item Code",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Item",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "batch_no",
+   "label": "Batch No",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "Batch",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "stock_uom",
+   "label": "Stock Uom",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "UOM",
+   "reqd": 1
+  },
+  {
+   "fieldname": "qty",
+   "label": "Qty",
+   "fieldtype": "Float",
+   "read_only": 1,
+   "reqd": 1,
+   "in_list_view": 1,
+   "precision": "6"
+  },
+  {
+   "fieldname": "expiry_date",
+   "label": "Expiry Date",
+   "fieldtype": "Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "process_certificate_set",
+   "label": "Process Certificate Set",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Process Certificate Set"
+  },
+  {
+   "fieldname": "handling_unit",
+   "label": "Handling Unit",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Handling Unit"
+  },
+  {
+   "fieldname": "dispatch_allocation",
+   "label": "Dispatch Allocation",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Dispatch Allocation"
+  },
+  {
+   "fieldname": "split_ledger",
+   "label": "Split Ledger",
+   "fieldtype": "Link",
+   "read_only": 1,
+   "options": "CFG Kanban Handling Unit Quantity Ledger"
+  }
+ ],
+ "istable": 1,
+ "permissions": []
+}

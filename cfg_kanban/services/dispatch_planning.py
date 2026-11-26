@@ -411,6 +411,9 @@ def release_dispatch_allocation(allocation_name, reason, event_token=None,
     plan = _locked_authorized_plan(allocation.dispatch_plan, operator)
     if plan.state not in RESERVABLE_STATES:
         frappe.throw(f"Allocation cannot be released while Plan is {plan.state}")
+    if plan.get('has_loose_tags'):
+        from cfg_kanban.services.loose_tags import guard_release
+        guard_release(allocation, plan)
     _release_allocation(allocation, plan, operator, session, reason, event_token)
     _refresh_plan_totals(plan.name)
     return get_dispatch_plan(plan.name, operator_session_token)
@@ -441,6 +444,9 @@ def _cancel_unposted_plan(plan, operator, session, reason, event_token, supervis
         frappe.throw("Supervisor, View All, Override and Complete are required",frappe.PermissionError)
     if plan.state not in RESERVABLE_STATES and not cint(operator.get("can_start")) and not supervisor_cancel:
         frappe.throw("Start permission is required to cancel a Draft or pending Dispatch Plan")
+    if plan.get('has_loose_tags'):
+        from cfg_kanban.services.loose_tags import before_plan_cancel
+        before_plan_cancel(plan, operator, session, reason, event_token)
     allocations = frappe.get_all(
         "CFG Kanban Dispatch Allocation",
         filters={"dispatch_plan": plan.name, "state": "Reserved"},
@@ -542,6 +548,12 @@ def confirm_plan_tag_loaded(manifest_name, scan_value, event_token,
     manifest, plan = _locked_plan_manifest(manifest_name, operator)
     if manifest.state != "Draft" or plan.state not in {"Vehicle Claimed", "Loading"}:
         frappe.throw("Tagged loading can be confirmed only while the claimed Manifest is Draft")
+    if str(scan_value or '').strip().startswith('CFG:LOOSE:'):
+        from cfg_kanban.services.loose_tags import scan_group, _pack, _validate_lines
+        pack = _pack(scan_value)
+        _validate_lines(pack, plan, 'Reserved')
+        return scan_group(scan_value, lambda code: confirm_plan_tag_loaded(
+            manifest_name, code, event_token, operator_session_token))
     identity = resolve_logistics_scan(scan_value)
     if not identity or identity.get("identity_type") != "Handling Unit":
         frappe.throw("Scan the exact reserved Stock Tag")

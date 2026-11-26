@@ -739,7 +739,7 @@ class TestDocTypeSchema(TestCase):
         controller = (doctype_root / "cfg_kanban_handling_unit.py").read_text()
         form_script = (APP_ROOT / "public" / "js" /
                        "cfg_kanban_handling_unit.js").read_text()
-        self.assertIn('if self.tag_kind != "Reusable Container" and not self.get("virtual_content"):\n            self._bind_tag_identity()',
+        self.assertIn('if self.tag_kind != "Reusable Container" and not self.get("virtual_content") and not self.get("loose_tag"):\n            self._bind_tag_identity()',
                       controller)
         self.assertIn('if (frm.doc.tag_kind === "Reusable Container") return;',
                       form_script)
