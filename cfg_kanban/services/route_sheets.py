@@ -39,6 +39,11 @@ def _fulfilment():
     return dispatch_fulfilment
 
 
+def _closure():
+    from cfg_kanban.services import dispatch_closure
+    return dispatch_closure
+
+
 def scope(plan):
     return plan.get('route_sequence_scope') or PER_PLAN
 
@@ -123,7 +128,7 @@ def _sheet_members(sheet,operator):
     if not names:frappe.throw('This Route Sheet has no member Plans; review its audit history')
     # P: scopes already hold their Plan. Feedback locks Session -> Plan -> Route Stop,
     # so never take Session locks from here. Current Plan mirrors detect prior starts;
-    # E5 Settled is mandatory for a started route and owns the no-open-delivery check.
+    # Closure additionally verifies the locked Plan mirrors and all posted evidence.
     plans=[frappe.get_doc('CFG Kanban Dispatch Plan',name,for_update=True) for name in names]
     for plan in plans:
         _plans()._assert_plan_authorized(plan,operator)
@@ -236,7 +241,7 @@ def sheet_context(sheet,operator):
     if sheet.state in ('Approved','In Progress','Ready to Close') and all(row['state'] in TERMINAL for row in result['stops']):result['state']='Ready to Close'
     result['can_edit']=bool(sheet.state=='Draft' and operator.kanban_role in ('Supervisor','Development Proxy') and operator.get('can_override'))
     result['can_start']=bool(result['state'] in ('Approved','In Progress') and operator.get('can_start') and _delivery()._customer_delivery_allowed(operator))
-    result['can_close']=bool(result['state']=='Ready to Close' and operator.get('can_override') and operator.kanban_role in ('Supervisor','Development Proxy'))
+    result['can_close']=bool(result['state']=='Ready to Close' and operator.get('can_start') and operator.get('can_override') and operator.kanban_role in ('Supervisor','Development Proxy'))
     result['can_cancel']=bool(sheet.state not in ('Completed','Cancelled') and operator.get('can_start') and operator.get('can_override') and operator.kanban_role in ('Supervisor','Development Proxy'))
     if sheet.state not in ('Completed','Cancelled'):
         sessions=frappe.db.get_values('CFG Kanban Delivery Session',{'dispatch_plan':['in',members]},
@@ -378,6 +383,19 @@ def _approve(sheet,plans,operator):
 @frappe.whitelist()
 def save_route_sheet(scope_key,stops,expected_revision,event_token,operator_session_token,
                      action='Save Draft',template=None,reason=None,template_hash=None,route_sheet=None):
+    args=(scope_key,stops,expected_revision,event_token,operator_session_token,action,template,reason,template_hash,route_sheet)
+    if action!='Close':return _save_route_sheet(*args)
+    frappe.db.savepoint('cfg_close_route')
+    try:
+        return _save_route_sheet(*args)
+    except Exception as error:
+        frappe.db.rollback(save_point='cfg_close_route')
+        _closure().report_blocker(error)
+        raise
+
+
+def _save_route_sheet(scope_key,stops,expected_revision,event_token,operator_session_token,
+                      action='Save Draft',template=None,reason=None,template_hash=None,route_sheet=None):
     operator,session=require_operator(operator_session_token,'start')
     if action not in ('Save Draft','Approve','Cancel','Close'):frappe.throw('Select a valid route action')
     _lock(scope_key)
@@ -403,6 +421,11 @@ def save_route_sheet(scope_key,stops,expected_revision,event_token,operator_sess
         frappe.throw('Route changed; refresh before saving this revision')
     plans,sessions=(_sheet_members(sheet,operator) if sheet else ([],[])) if teardown else (_members(scope_key,operator),[])
     for plan in plans:_plans()._assert_plan_authorized(plan,operator)
+    if action=='Close' and sheet and sheet.state=='Completed':
+        _supervisor(operator)
+        if not request['reason']:frappe.throw('An existing route and decision reason are required')
+        return dict(sheet=sheet_context(sheet,operator),scope_key=scope_key)
+    settlements=[]
     if (cint(sheet.revision) if sheet else 0)!=cint(expected_revision):
         frappe.throw('Route changed; refresh before saving this revision')
     if teardown:
@@ -439,9 +462,14 @@ def save_route_sheet(scope_key,stops,expected_revision,event_token,operator_sess
                 sheet.state='Cancelled'
         else:
             if sheet.state=='Cancellation Pending':frappe.throw('Finish the pending Route Sheet cancellation after E5 settlement')
-            if any(state not in TERMINAL for state in states) or any(plan.state!='Reconciled' or plan.dispatch_review_state!='Settled' for plan in plans):
-                frappe.throw('Complete/skip every visit and settle every Plan through E5 before closing the trip')
-            if not _closure_context(plans,sessions)['ready']:frappe.throw('Resolve open Delivery Sessions before closing the trip')
+            if any(state not in TERMINAL for state in states):
+                frappe.throw('Complete or skip every Route Sheet stop before closing the route')
+            # Preflight every member before the first write. The outer savepoint also
+            # rolls back all settlements if a later audit/save/response fails.
+            checked=[_closure().inspect_plan(plan) for plan in plans]
+            _closure().validate_group(checked)
+            settlements=[_closure().settle(value,operator,session,request['reason'],key,fingerprint,sheet.name)
+                         for value in checked]
             sheet.state='Completed'
         if sheet.state in ('Cancelled','Completed'):
             sheet.active_scope_key=None;sheet.closed_on=now_datetime();sheet.decision_notes=request['reason']
@@ -483,7 +511,7 @@ def save_route_sheet(scope_key,stops,expected_revision,event_token,operator_sess
         operator=operator.employee,operator_session=session.name,terminal_user=session.terminal_user,
         notes=request['reason'],idempotency_key=key,
         payload=dict(request_hash=fingerprint,route_sheet=sheet.name,revision=sheet.revision,
-            action=action,state=sheet.state,sequence=[dict(plan=row.dispatch_plan,site=row.customer_scan_point,row_key=row.row_key) for row in sheet.stops]))
+            action=action,state=sheet.state,settlements=settlements,sequence=[dict(plan=row.dispatch_plan,site=row.customer_scan_point,row_key=row.row_key) for row in sheet.stops]))
     return dict(sheet=sheet_context(sheet,operator),scope_key=scope_key)
 
 

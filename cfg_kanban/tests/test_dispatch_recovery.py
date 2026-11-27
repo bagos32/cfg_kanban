@@ -63,7 +63,7 @@ class TestDispatchRecovery(unittest.TestCase):
         self.identity.certificate_output_evidence=lambda *args:[];self.identity.printed_expiry_dates=lambda evidence:[]
         e4a.extract('services/logistics_stock_identity.py',self.identity.__dict__,{'_json','_serials','identity_snapshot','capture_manifest_line','validate_saved_manifest_fields','_expiry','_line_identity','erp_identity_fields','validate_logistics_document'})
         self.feedback=self.b.feedback
-        e4a.extract('integrations/logistics_feedback.py',self.feedback.__dict__,{'_post_internal_direct','_unreserve_manifest_line','_post_tag_location','_finish_internal_line','_update_manifest_containers','validate_internal_stock_entry'})
+        e4a.extract('integrations/logistics_feedback.py',self.feedback.__dict__,{'_post_internal_direct','_unreserve_manifest_line','_post_tag_location','_finish_internal_line','_update_manifest_containers','validate_internal_stock_entry','validate_internal_transfer_evidence'})
         transfer=types.ModuleType('cfg_kanban.services.internal_transfer');transfer.complete_transfer_cycle=Mock()
         patcher=patch.dict(sys.modules,{SERVICE:self.mod,'cfg_kanban.services.dispatch_reconciliation':self.r.mod,
             'cfg_kanban.services.container_contents':self.contents,self.identity.__name__:self.identity,

@@ -17,6 +17,7 @@
   "active_plan_key",
   "action",
   "reason",
+  "settlement_basis",
   "route_reconciliation",
   "movement_stock_entry",
   "recovery_manifest",
@@ -24,6 +25,7 @@
   "variance_exception",
   "opening_snapshot_json",
   "opening_snapshot_hash",
+  "closure_evidence_json",
   "closing_snapshot_json",
   "closing_snapshot_hash",
   "closed_on",
@@ -262,6 +264,21 @@
   {
    "fieldname": "mixed_recovery_json",
    "label": "Approved Per-item Recovery",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "fieldname": "settlement_basis",
+   "label": "Settlement Basis",
+   "fieldtype": "Select",
+   "options": "Lorry Count\nPosted Documents",
+   "default": "Lorry Count",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closure_evidence_json",
+   "label": "Posted Document Closure Evidence",
    "fieldtype": "Code",
    "options": "JSON",
    "read_only": 1

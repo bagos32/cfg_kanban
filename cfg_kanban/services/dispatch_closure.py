@@ -1,0 +1,551 @@
+"""Settle only a Plan's proven deliveries/returns; never count or move lorry stock.
+
+The caller holds the route scope and Plan locks. Do not acquire Session locks here:
+delivery feedback takes Session -> Plan. Closed Sessions and submitted documents
+are read as evidence; the locked Plan mirrors and frozen-review gates prevent a
+new visit or delivery cancellation from crossing settlement.
+"""
+import json
+
+import frappe
+from frappe.utils import flt, get_datetime, now_datetime
+
+from cfg_kanban.services.events import record
+from cfg_kanban.services.idempotency import canonical_key
+
+PLAN = 'CFG Kanban Dispatch Plan'
+REVIEW = 'CFG Kanban Dispatch Review'
+SESSION = 'CFG Kanban Delivery Session'
+ALLOCATION = 'CFG Kanban Delivery Allocation'
+MANIFEST = 'CFG Kanban Movement Manifest'
+EPSILON = 0.000001
+TERMINAL = {'Completed', 'Skipped', 'Cancelled', 'Closed Incomplete'}
+
+
+class ClosureEvidenceError(frappe.ValidationError):
+    """Quiet during candidate discovery; reported normally at the API boundary."""
+
+
+def report_blocker(error):
+    if isinstance(error, ClosureEvidenceError):
+        frappe.throw(str(error))
+
+
+def _reviews():
+    from cfg_kanban.services import dispatch_reconciliation
+    return dispatch_reconciliation
+
+
+def _feedback():
+    from cfg_kanban.integrations import logistics_feedback
+    return logistics_feedback
+
+
+def _rows(doctype, filters, fields=None):
+    return frappe.get_all(doctype, filters=filters, fields=fields or ['*'],
+                          order_by='name asc', limit_page_length=0)
+
+
+def _fail(plan, message):
+    raise ClosureEvidenceError(f'{plan.name}: {message}. Use E5 Review / Reconciliation if this evidence cannot be resolved')
+
+
+def _proof(plan, delivery, note):
+    policy = delivery.proof_policy
+    flags = ('require_recipient_name', 'require_signature', 'require_photo', 'require_gps')
+    if policy == 'No Proof Required' and not any(delivery.get(key) for key in flags):
+        return None
+    name = delivery.delivery_proof
+    if not name:
+        _fail(plan, f'Delivery Session {delivery.name} is missing required proof')
+    proof = frappe.get_doc('CFG Kanban Delivery Proof', name)
+    if (proof.state != 'Submitted' or proof.delivery_session != delivery.name
+            or proof.delivery_note != note.name or proof.selling_company != plan.company
+            or proof.customer != delivery.customer or proof.proof_policy != policy):
+        _fail(plan, f'Proof {name} is not submitted for Delivery Note {note.name} and its customer')
+    allowed = {'Required': ('Attended',), 'Optional': ('Attended', 'No Proof Recorded'),
+               'Unattended Delivery Allowed': ('Attended', 'Unattended'),
+               'No Proof Required': ('No Proof Recorded',)}
+    if proof.disposition not in allowed.get(policy, ()):
+        _fail(plan, f'Proof {name} has an invalid disposition for {policy}')
+    if proof.disposition == 'Attended':
+        for flag, value in (('require_recipient_name', str(proof.recipient_name or '').strip()),
+                            ('require_signature', flt(proof.signature_count)),
+                            ('require_photo', flt(proof.photo_count))):
+            if delivery.get(flag) and not value:
+                _fail(plan, f'Proof {name} is missing {flag.replace("require_", "").replace("_", " ")}')
+    if proof.disposition == 'Unattended':
+        if ((delivery.get('unattended_reason_required') and not str(proof.unattended_reason or '').strip())
+                or (delivery.require_photo and not flt(proof.photo_count))):
+            _fail(plan, f'Proof {name} is missing unattended delivery evidence')
+    if delivery.require_gps and proof.disposition != 'No Proof Recorded':
+        if not proof.location_captured or not -90 <= flt(proof.latitude) <= 90 or not -180 <= flt(proof.longitude) <= 180:
+            _fail(plan, f'Proof {name} is missing valid GPS evidence')
+    return name
+
+
+def _deliveries(plan, sources):
+    documents = []
+    source_map = {row.name: row for row in sources}
+    delivered_by_source = {}
+    total = 0
+    sessions = _rows(SESSION, {'dispatch_plan': plan.name})
+    known = {row.name for row in sessions}
+    if plan.get('delivery_session') and plan.delivery_session not in known:
+        _fail(plan, f'linked Delivery Session {plan.delivery_session} is missing from this Plan')
+    if plan.get('active_route_stop'):
+        _fail(plan, f'Route Stop {plan.active_route_stop} is still active')
+    for delivery in sessions:
+        if delivery.state not in ('Closed', 'Cancelled'):
+            _fail(plan, f'Delivery Session {delivery.name} is {delivery.state}; finish posting/proof or controlled recovery')
+        _exception(plan, delivery)
+        allocations = _rows(ALLOCATION, {'delivery_session': delivery.name})
+        if any(row.state not in ('Delivered', 'Released', 'Cancelled') for row in allocations):
+            row = next(row for row in allocations if row.state not in ('Delivered', 'Released', 'Cancelled'))
+            _fail(plan, f'Allocation {row.name} ({row.item_code}) is still {row.state}')
+        delivered = [row for row in allocations if row.state == 'Delivered']
+        if delivery.state == 'Cancelled':
+            if delivered or delivery.get('delivery_note') and frappe.db.get_value('Delivery Note', delivery.delivery_note, 'docstatus') != 2:
+                _fail(plan, f'cancelled Session {delivery.name} still has delivery evidence to resolve')
+            continue
+        if not delivered or not delivery.delivery_note:
+            _fail(plan, f'closed Session {delivery.name} has no posted delivery allocations / Delivery Note')
+        note = frappe.get_doc('Delivery Note', delivery.delivery_note)
+        note.check_permission('read')
+        if (note.docstatus != 1 or note.get('is_return') or note.get('cfg_delivery_session') != delivery.name
+                or delivery.selling_company != plan.company or delivery.source_warehouse != plan.vehicle_warehouse):
+            _fail(plan, f'Delivery Note {note.name} is not a submitted delivery for Session {delivery.name} and this lorry')
+        _feedback()._validate_customer_delivery_header(note, delivery)
+        rows = _feedback()._validate_customer_delivery_rows(note, delivery, delivered)
+        for allocation in delivered:
+            if (allocation.delivery_note != note.name or allocation.delivery_note_item != rows[allocation.name].name
+                    or flt(allocation.delivered_qty) <= EPSILON
+                    or abs(flt(allocation.delivered_qty) - flt(allocation.allocated_qty)) > EPSILON):
+                _fail(plan, f'Allocation {allocation.name} ({allocation.item_code}) has inconsistent posted quantity / DN row')
+            if allocation.dispatch_allocation:
+                source = source_map.get(allocation.dispatch_allocation)
+                if (not source or source.item_code != allocation.item_code or (source.batch_no or '') != (allocation.batch_no or '')
+                        or source.stock_uom != allocation.stock_uom or (source.handling_unit or '') != (allocation.handling_unit or '')):
+                    _fail(plan, f'Allocation {allocation.name} does not match loaded source {allocation.dispatch_allocation}')
+                delivered_by_source[source.name] = delivered_by_source.get(source.name, 0) + flt(allocation.delivered_qty)
+            elif allocation.get('route_source_kind') != 'Unassigned Lorry Stock':
+                _fail(plan, f'Allocation {allocation.name} has no loaded source or unassigned-lorry provenance')
+            total += flt(allocation.delivered_qty)
+        proof = _proof(plan, delivery, note)
+        documents.append(dict(delivery_session=delivery.name, delivery_note=note.name, delivery_proof=proof,
+                              allocations=[row.name for row in delivered]))
+    if abs(total - flt(plan.total_delivered_qty)) > EPSILON:
+        _fail(plan, 'posted Delivery Note quantities differ from the current Plan delivery total; refresh its feedback')
+    # Reject orphaned/cross-Plan allocations, even if their Session was not in this Plan's query.
+    for source in sources:
+        posted = _rows(ALLOCATION, {'dispatch_allocation': source.name, 'state': 'Delivered'})
+        if any(row.delivery_session not in known for row in posted):
+            _fail(plan, f'loaded source {source.name} is used by another Delivery Session')
+        if abs(sum(flt(row.delivered_qty) for row in posted) - delivered_by_source.get(source.name, 0)) > EPSILON:
+            _fail(plan, f'loaded source {source.name} has unmatched Delivery Note evidence')
+    return documents
+
+
+def _pending(plan, sources, review):
+    for row in _rows('CFG Kanban Route Stop', {'dispatch_plan': plan.name}):
+        if row.state not in TERMINAL:
+            _fail(plan, f'Route Stop {row.name} is {row.state}; complete or skip it first')
+    for pack in _rows('CFG Kanban Loose Tag', {'dispatch_plan': plan.name}):
+        if pack.state not in ('Processed', 'Cancelled'):
+            _fail(plan, f'Loose Tag {pack.name} is still {pack.state}; resolve its packed quantities first')
+    for row in _rows('CFG Kanban Dispatch Allocation', {'dispatch_plan': plan.name}):
+        if row.state not in ('Loaded', 'Released', 'Cancelled'):
+            _fail(plan, f'prepared allocation {row.name} ({row.item_code}) remains {row.state}')
+        if row.state in ('Released', 'Cancelled') and row.get('active_handling_unit_key'):
+            _fail(plan, f'allocation {row.name} still holds an active tag reservation')
+    manifests = {row.name for row in _rows(MANIFEST, {'dispatch_plan': plan.name}, ['name'])}
+    review_names = [row.name for row in _rows(REVIEW, {'dispatch_plan': plan.name}, ['name'])]
+    if review_names:
+        manifests.update(row.name for row in _rows(MANIFEST, {'dispatch_recovery_review': ['in', review_names]}, ['name']))
+    if sources:
+        manifests.update(row.parent for row in _rows('CFG Kanban Manifest Line',
+                         {'dispatch_allocation': ['in', [source.name for source in sources]]}, ['parent']))
+    for name in sorted(manifests):
+        manifest = frappe.get_doc(MANIFEST, name)
+        if manifest.state not in ('Received', 'Cancelled'):
+            _fail(plan, f'Movement Manifest {name} is {manifest.state}')
+        _exception(plan, manifest)
+        _commands(plan, 'movement_manifest', name)
+    for delivery in _rows(SESSION, {'dispatch_plan': plan.name}, ['name']):
+        _commands(plan, 'delivery_session', delivery.name)
+    if review and plan.state != 'Reconciled' and review.get('mixed_recovery_json'):
+        _fail(plan, f'Review {review.name} has a per-item recovery; finish its existing E5 workflow')
+    if review and review.state not in ('Reviewing', 'Completed'):
+        _fail(plan, f'Review {review.name} is {review.state}; resolve its hold/overnight decision first')
+    if review and plan.state != 'Reconciled' and review.get('variance_exception'):
+        _fail(plan, f'Review {review.name} has variance Exception {review.variance_exception}; resolve it through E5')
+
+
+def _exception(plan, source):
+    if source.get('exception'):
+        status=frappe.db.get_value('CFG Kanban Exception', source.exception, 'status')
+        if status not in ('Resolved', 'Cancelled', 'Closed'):
+            _fail(plan, f'{source.name} has unresolved Exception {source.exception}')
+
+
+def _commands(plan, field, name):
+    filters = {field: name}
+    if field == 'delivery_session':
+        filters['command_type'] = 'Create Customer Delivery Note'
+    for command in _rows('CFG ERP Command', filters):
+        if command.status not in ('Completed', 'Cancelled'):
+            _fail(plan, f'ERP Command {command.name} is {command.status} for {name}')
+
+
+def _key(row):
+    return (row.get('handling_unit') or '', row['item_code'], row.get('batch_no') or '', row['stock_uom'])
+
+
+def _quantities(rows, quantity):
+    result = {}
+    for row in rows:
+        qty = flt(row.get(quantity))
+        if qty > EPSILON:
+            key = _key(row)
+            result[key] = result.get(key, 0) + qty
+    return result
+
+
+def _exact(plan, expected, actual, document):
+    for key in sorted(set(expected) | set(actual)):
+        if abs(expected.get(key, 0) - actual.get(key, 0)) > EPSILON:
+            tag, item, batch, uom = key
+            _fail(plan, f'{document}: {item} / {batch or "No Batch"} / {tag or "untagged"}: expected {expected.get(key, 0):g} {uom}, recorded {actual.get(key, 0):g}')
+
+
+def _ledger(plan, entry):
+    """Check existing ERP posting, by voucher detail; Batch/tag stay on the SE rows."""
+    actual = {}; submitted = []
+    for row in _rows('Stock Ledger Entry', {'voucher_type': 'Stock Entry', 'voucher_no': entry.name}):
+        if row.get('is_cancelled'):
+            _fail(plan, f'Stock Entry {entry.name} has cancelled stock ledger evidence')
+        if not plan.get('loaded_on') or not row.creation or get_datetime(row.creation) < get_datetime(plan.loaded_on):
+            _fail(plan, f'Stock Entry {entry.name} predates this Plan load; it cannot prove its return')
+        submitted.append(get_datetime(row.creation))
+        key = (row.voucher_detail_no, row.warehouse, row.item_code, row.stock_uom)
+        actual[key] = actual.get(key, 0) + flt(row.actual_qty)
+    expected = {}
+    for row in entry.items:
+        for warehouse, sign in ((row.s_warehouse, -1), (row.t_warehouse, 1)):
+            key = (row.name, warehouse, row.item_code, row.stock_uom)
+            expected[key] = expected.get(key, 0) + sign * flt(row.transfer_qty)
+    if set(actual) != set(expected) or any(abs(actual[key] - expected[key]) > EPSILON for key in expected):
+        _fail(plan, f'Stock Entry {entry.name} has missing or mismatched submitted stock ledger quantities')
+    return min(submitted)
+
+
+def _identity_evidence(plan, manifest, line, item):
+    snapshot = json.loads(line.stock_identity_snapshot) if line.get('stock_identity_snapshot') else None
+    certificate = line.get('process_certificate_set') or None
+    if not snapshot and item.get('serial_no'):
+        _fail(plan, f'Manifest {manifest.name} line {line.name} lacks its historical serial snapshot')
+    if certificate and not snapshot:
+        _fail(plan, f'Manifest {manifest.name} line {line.name} lacks its historical certificate snapshot')
+    if snapshot:
+        for field in ('handling_unit', 'item_code', 'batch_no', 'stock_uom', 'process_certificate_set'):
+            if (snapshot.get(field) or None) != (line.get(field) or None):
+                _fail(plan, f'Manifest {manifest.name} line {line.name} {field} differs from its frozen stock identity')
+        expected_serials = sorted(snapshot.get('serial_nos') or [])
+        actual_serials = sorted(str(item.get('serial_no') or '').splitlines())
+        if actual_serials != expected_serials:
+            _fail(plan, f'Manifest {manifest.name} line {line.name} serials differ from the submitted transfer')
+    for field in ('process_certificate_set', 'to_process_certificate_set'):
+        if (item.get(field) or None) != certificate:
+            _fail(plan, f'Manifest {manifest.name} line {line.name} certificate dimension differs from the submitted transfer')
+
+
+def _returned(plan, rows, manifest_name, review=None):
+    manifest = frappe.get_doc(MANIFEST, manifest_name)
+    manifest.check_permission('read')
+    if (manifest.state != 'Received' or manifest.manifest_type != 'Internal Warehouse Transfer'
+            or manifest.source_company != plan.company or manifest.destination_company != plan.company
+            or manifest.source_warehouse != plan.vehicle_warehouse):
+        _fail(plan, f'Movement Manifest {manifest.name} is not a completed same-Company return from {plan.vehicle_warehouse}')
+    _exception(plan, manifest)
+    _commands(plan, 'movement_manifest', manifest.name)
+    destination = frappe.get_doc('Warehouse', manifest.destination_warehouse)
+    destination.check_permission('read')
+    if (destination.company != plan.company or destination.disabled or destination.is_group
+            or destination.get('cfg_is_vehicle_warehouse') or destination.name == plan.vehicle_warehouse):
+        _fail(plan, f'Movement Manifest {manifest.name} destination {destination.name} is not an active non-lorry Warehouse in this Company')
+    if manifest.get('dispatch_plan') and manifest.dispatch_plan != plan.name:
+        _fail(plan, f'Movement Manifest {manifest.name} belongs to Plan {manifest.dispatch_plan}')
+    linked = manifest.get('dispatch_recovery_review')
+    if linked and (not review or linked != review.name):
+        _fail(plan, f'Movement Manifest {manifest.name} belongs to another Review {linked}')
+    if review and review.get('recovery_manifest') and review.recovery_manifest != manifest.name:
+        _fail(plan, f'Review {review.name} already has recovery Manifest {review.recovery_manifest}')
+    expected = _quantities(rows, 'remaining_qty')
+    _exact(plan, expected, _quantities(manifest.lines, 'dispatch_qty'), manifest.name)
+    by_source = {row['dispatch_allocation']: row for row in rows if row['remaining_qty'] > EPSILON}
+    assigned = {}
+    for line in manifest.lines:
+        if (line.state != 'Received' or flt(line.dispatch_qty) <= EPSILON
+                or abs(flt(line.received_qty) - flt(line.dispatch_qty)) > EPSILON):
+            _fail(plan, f'Manifest {manifest.name} line {line.name} ({line.item_code}) is not fully received')
+        source = by_source.get(line.dispatch_allocation)
+        if line.dispatch_allocation:
+            if not source or _key(source) != _key(line):
+                _fail(plan, f'Manifest {manifest.name} line {line.name} belongs to another source allocation')
+            assigned[source['dispatch_allocation']] = assigned.get(source['dispatch_allocation'], 0) + flt(line.dispatch_qty)
+        elif not line.handling_unit:
+            # An exact SKU total alone cannot identify fungible loose stock from other Plans.
+            _fail(plan, f'Manifest {manifest.name} untagged {line.item_code} has no Plan allocation provenance')
+        else:
+            matches = [row for row in by_source.values() if _key(row) == _key(line)]
+            if len(matches) != 1:
+                _fail(plan, f'Manifest {manifest.name} tag {line.handling_unit} has ambiguous Plan ownership')
+            assigned[matches[0]['dispatch_allocation']] = assigned.get(matches[0]['dispatch_allocation'], 0) + flt(line.dispatch_qty)
+    if any(abs(assigned.get(name, 0) - row['remaining_qty']) > EPSILON for name, row in by_source.items()):
+        _fail(plan, f'Manifest {manifest.name} does not cover every exact remaining Plan source')
+    entries = [manifest.dispatch_stock_entry]
+    if manifest.internal_transfer_mode == 'Goods in Transit':
+        entries.append(manifest.receipt_stock_entry)
+    evidence = []; submitted = []
+    for name in entries:
+        if not name:
+            _fail(plan, f'Manifest {manifest.name} is missing a submitted Stock Entry')
+        entry = frappe.get_doc('Stock Entry', name)
+        entry.check_permission('read')
+        if (entry.docstatus != 1 or entry.company != plan.company
+                or (entry.get('purpose') or entry.get('stock_entry_type')) != 'Material Transfer'
+                or entry.get('cfg_movement_manifest') != manifest.name):
+            _fail(plan, f'Stock Entry {name} is not a submitted same-Company transfer for Manifest {manifest.name}')
+        used = frappe.db.get_value(REVIEW, {'movement_stock_entry': name, 'state': 'Completed'}, 'name')
+        if used and (not review or used != review.name):
+            _fail(plan, f'Stock Entry {name} already settled Review {used}')
+        # Reuse native immutable row/route/transit validation. Posting-time live
+        # identity checks are intentionally not rerun on later warehouse stock.
+        _feedback().validate_internal_transfer_evidence(entry)
+        actual = {}
+        manifest_rows = {line.name: line for line in manifest.lines}
+        for item in entry.items:
+            line = manifest_rows[item.cfg_manifest_line]
+            if (item.get('cfg_handling_unit') or '') != (line.handling_unit or '') or item.stock_uom != line.stock_uom:
+                _fail(plan, f'Stock Entry {name} row {item.name} tag / stock UOM differs from Manifest line {line.name}')
+            _identity_evidence(plan, manifest, line, item)
+            key = (item.get('cfg_handling_unit') or '', item.item_code, item.batch_no or '', item.stock_uom)
+            actual[key] = actual.get(key, 0) + flt(item.transfer_qty)
+        _exact(plan, expected, actual, name)
+        submitted.append(_ledger(plan, entry))
+        evidence.append(name)
+    # The posted location ledger proves historical custody. Later legitimate use
+    # of the returned stock must not be mistaken for an unreturned Plan remainder.
+    tag_ledgers=[]
+    for row in rows:
+        if row['remaining_qty'] <= EPSILON or not row['handling_unit']:
+            continue
+        for owner in _rows('CFG Kanban Dispatch Allocation', {'handling_unit': row['handling_unit'], 'state': 'Loaded'}, ['dispatch_plan']):
+            if owner.dispatch_plan == plan.name:
+                continue
+            later = frappe.get_doc(PLAN, owner.dispatch_plan)
+            if later.get('loaded_on') and get_datetime(plan.loaded_on) <= get_datetime(later.loaded_on) <= max(submitted):
+                _fail(plan, f'Manifest {manifest.name} tag {row["handling_unit"]} was loaded again before this transfer; select its exact earlier return')
+        for index, entry_name in enumerate(entries):
+            source = plan.vehicle_warehouse if index == 0 else manifest.transit_warehouse
+            target = manifest.transit_warehouse if len(entries) == 2 and index == 0 else destination.name
+            transfers = _rows('CFG Kanban Handling Unit Quantity Ledger', {
+                'event_type': 'Location Transfer', 'source_handling_unit': row['handling_unit'],
+                'reference_doctype': 'Stock Entry', 'reference_name': entry_name})
+            matches=[event for event in transfers if event.item_code == row['item_code']
+                     and (event.batch_no or '') == (row['batch_no'] or '') and event.stock_uom == row['stock_uom']
+                     and abs(flt(event.stock_qty) - row['remaining_qty']) <= EPSILON
+                     and event.source_company == plan.company and event.source_warehouse == source
+                     and event.destination_warehouse == target and event.destination_company == plan.company]
+            if len(matches) != 1:
+                _fail(plan, f'Manifest {manifest.name} tag {row["handling_unit"]} is missing its exact posted location-transfer ledger for {entry_name}')
+            tag_ledgers.append(matches[0].name)
+    # A pre-review return is valid; its real document dates are retained, never rewritten.
+    return dict(manifest=manifest.name, stock_entries=evidence, tag_ledgers=tag_ledgers, destination_warehouse=destination.name,
+                posted_before_review=bool(manifest.get('dispatch_confirmed_on')
+                    and get_datetime(manifest.dispatch_confirmed_on) < get_datetime(review.opened_on if review else now_datetime())))
+
+
+def inspect_plan(plan, return_manifest=None, discover=False):
+    """Preflight without writes. Route callers preflight *all* members before settling any."""
+    if plan.fulfilment_mode != 'Vehicle Delivery' or plan.state not in ('Loaded', 'Reconciled', 'Ready for Fulfilment'):
+        _fail(plan, f'Plan is {plan.state}; complete its loading/preparation first')
+    if plan.state == 'Ready for Fulfilment' and not plan.get('existing_lorry_stock_only'):
+        _fail(plan, 'Plan has no confirmed lorry load')
+    for doctype, name in (('Company', plan.company), ('Warehouse', plan.vehicle_warehouse)):
+        source = frappe.get_doc(doctype, name)
+        source.check_permission('read')
+        if doctype == 'Warehouse' and (source.company != plan.company or not source.get('cfg_is_vehicle_warehouse')
+                                     or source.disabled or source.is_group):
+            _fail(plan, f'{name} is not an active lorry Warehouse in this Company')
+    review = frappe.get_doc(REVIEW, plan.active_dispatch_review) if plan.get('active_dispatch_review') else None
+    if review and (review.dispatch_plan != plan.name or review.company != plan.company or review.vehicle_warehouse != plan.vehicle_warehouse):
+        _fail(plan, f'Review {review.name} does not match this Plan / Company / lorry')
+    sources = _reviews()._fulfilment()._loaded_allocations(plan)
+    if not plan.get('existing_lorry_stock_only'):
+        _reviews()._fulfilment().validate_prepared_loading(plan)
+    documents = _deliveries(plan, sources)
+    _pending(plan, sources, review)
+    if plan.state == 'Reconciled':
+        if plan.dispatch_review_state != 'Settled' or not review or review.state != 'Completed':
+            _fail(plan, 'Plan settlement has no completed Review audit')
+        return dict(plan=plan, review=review, settled=True, documents=documents, balances=[], return_evidence=None)
+    if review and review.state == 'Completed':
+        _fail(plan, f'Review {review.name} is completed but Plan settlement is inconsistent')
+    balances = _reviews()._balances(plan)
+    for row in balances:
+        # Audit this Plan's historical quantities, never the tag's later stock.
+        for field in list(row):
+            if field.startswith('current_') or field == 'reserved_qty':row.pop(field)
+    remaining = any(row['remaining_qty'] > EPSILON for row in balances)
+    action = 'Returned to Warehouse' if remaining else 'No Remaining Prepared Stock'
+    if plan.get('stop_cancellation') or plan.get('consolidated_customer_orders'):
+        from cfg_kanban.services.cancelled_stop_stock import assert_review_action
+        assert_review_action(plan, action)
+    result = dict(plan=plan, review=review, settled=False, documents=documents, balances=balances,
+                  return_evidence=None, candidates=[], blockers=[])
+    if not remaining:
+        if return_manifest:
+            _fail(plan, 'no prepared stock remains; do not assign return evidence to this closure')
+        return result
+    if return_manifest:
+        result['return_evidence'] = _returned(plan, balances, return_manifest, review)
+        return result
+    names = {line.parent for line in _rows('CFG Kanban Manifest Line',
+        {'dispatch_allocation': ['in', [row['dispatch_allocation'] for row in balances if row['remaining_qty'] > EPSILON]]}, ['parent'])}
+    tags = [row['handling_unit'] for row in balances if row['remaining_qty'] > EPSILON and row['handling_unit']]
+    if tags:
+        names.update(line.parent for line in _rows('CFG Kanban Manifest Line', {'handling_unit': ['in', tags]}, ['parent']))
+    if review and review.get('recovery_manifest'):
+        names.add(review.recovery_manifest)
+    candidates = _rows(MANIFEST, {'name': ['in', sorted(names)], 'state': 'Received',
+        'manifest_type': 'Internal Warehouse Transfer', 'source_company': plan.company,
+        'source_warehouse': plan.vehicle_warehouse}, ['name']) if names else []
+    for candidate in candidates:
+        # Candidate failures are informational, not permission to bypass any check.
+        messages = getattr(getattr(frappe, 'local', None), 'message_log', None)
+        message_count = len(messages) if isinstance(messages, list) else 0
+        try:
+            evidence = _returned(plan, balances, candidate.name, review)
+        except (frappe.ValidationError, frappe.PermissionError) as error:
+            messages = getattr(getattr(frappe, 'local', None), 'message_log', None)
+            if isinstance(messages, list):del messages[message_count:]
+            result['blockers'].append(str(error))
+        else:
+            result['candidates'].append(evidence)
+    if not result['candidates'] and not result['blockers']:
+        outstanding = ', '.join(f'{row["item_code"]} / {row["batch_no"] or "No Batch"} / {row.get("visible_code") or row["handling_unit"] or "untagged"}: {row["remaining_qty"]:g} {row["stock_uom"]}' for row in balances if row['remaining_qty'] > EPSILON)
+        result['blockers'].append('No completed return is linked to these exact remaining sources: '+outstanding+'. Select the existing Manifest for validation; untagged stock requires its Dispatch Allocation provenance.')
+    if len(result['candidates']) == 1:
+        result['return_evidence'] = result['candidates'][0]
+    elif not discover:
+        if len(result['candidates']) > 1:
+            _fail(plan, 'several completed return Manifests match; select the exact return using Close Plan')
+        detail = result['blockers'][0] if result['blockers'] else ', '.join(
+            f'{row["item_code"]} / {row["batch_no"] or "No Batch"} / {row.get("visible_code") or row["handling_unit"] or "untagged"}: {row["remaining_qty"]:g} {row["stock_uom"]}'
+            for row in balances if row['remaining_qty'] > EPSILON)
+        _fail(plan, 'no exact completed return evidence: ' + detail)
+    return result
+
+
+def validate_group(preflights):
+    claimed={}
+    for value in preflights:
+        for entry in (value['return_evidence'] or {}).get('stock_entries', []):
+            if entry in claimed:
+                _fail(value['plan'], f'Stock Entry {entry} also claims Plan {claimed[entry]} in this route')
+            claimed[entry]=value['plan'].name
+
+
+def settle(preflight, operator, session, reason, key, request_hash, route_sheet=None):
+    plan, review = preflight['plan'], preflight['review']
+    if preflight['settled']:
+        return dict(dispatch_plan=plan.name, dispatch_review=review.name, outcome='Already Settled')
+    rows, returned = preflight['balances'], preflight['return_evidence']
+    if any(row['remaining_qty'] > EPSILON for row in rows) and not returned:
+        _fail(plan, 'select exact return evidence before confirming')
+    action = 'Returned to Warehouse' if returned else 'No Remaining Prepared Stock'
+    evidence = dict(basis='Posted Documents', dispatch_plan=plan.name, route_sheet=route_sheet,
+                    delivery_outcome=plan.fulfilment_status, total_delivered_qty=plan.total_delivered_qty,
+                    deliveries=preflight['documents'], returned=returned, actor=operator.employee,
+                    closed_on=str(now_datetime()), action=action)
+    if not review:
+        review = frappe.get_doc(dict(doctype=REVIEW, state='Reviewing', dispatch_plan=plan.name,
+            company=plan.company, vehicle_warehouse=plan.vehicle_warehouse, vehicle_reference=plan.vehicle_reference,
+            opened_on=now_datetime(), opened_by_operator=operator.employee, operator_session=session.name,
+            opening_snapshot_json=_reviews()._json(rows), opening_snapshot_hash=_reviews()._hash(rows),
+            idempotency_key=canonical_key('document-closure-review', plan.name, key))).insert(ignore_permissions=True)
+    review.db_set(dict(state='Completed', settlement_basis='Posted Documents',
+        closure_evidence_json=frappe.as_json(evidence), action=action, reason=reason,
+        movement_stock_entry=returned['stock_entries'][0] if returned else None,
+        destination_warehouse=returned['destination_warehouse'] if returned else None,
+        closed_on=now_datetime(), closed_by_operator=operator.employee, active_plan_key=None,
+        closing_snapshot_json=_reviews()._json(rows), closing_snapshot_hash=_reviews()._hash(rows),
+        finish_key=canonical_key('document-closure-finish', plan.name, key), finish_payload_hash=request_hash),
+        update_modified=True)
+    # A returned/skipped/partially refused load must never be relabelled as fully delivered.
+    incomplete = bool(returned or any(row.get('refused_released_qty') or row.get('cancelled_released_qty') for row in rows))
+    skipped = any(row.state in ('Skipped', 'Closed Incomplete') for row in _rows('CFG Kanban Route Stop', {'dispatch_plan': plan.name}))
+    plan.db_set(dict(state='Reconciled', dispatch_review_state='Settled', active_dispatch_review=review.name,
+        route_stock_commitment=0, prepared_stock_commitment=0,
+        fulfilment_status='Closed Incomplete' if incomplete or skipped else 'Completed',
+        fulfilment_completed_on=now_datetime()), update_modified=True)
+    record('Dispatch Plan Reconciled', reference_doctype=REVIEW, reference_name=review.name,
+           operator=operator.employee, operator_session=session.name, terminal_user=session.terminal_user,
+           idempotency_key=canonical_key('document-closure-audit', plan.name, key),
+           notes=f'{plan.name}; {action}; posted documents; {reason}', payload=evidence)
+    return dict(dispatch_plan=plan.name, dispatch_review=review.name, outcome=action, evidence=evidence)
+
+
+def _response(plan, result=None):
+    return dict(plan=plan.as_dict(), closure=result, review=frappe.get_doc(REVIEW, plan.active_dispatch_review).as_dict()
+                if plan.get('active_dispatch_review') else None)
+
+
+def get_close_plan_context(scan_value, operator_session_token):
+    operator, _session = _reviews()._authorized(operator_session_token)
+    plan = _reviews()._plan(str(scan_value or '').strip(), operator)
+    plan.check_permission('read')
+    if plan.plan_type != 'Open Route Stock':
+        _fail(plan, 'Close Plan is for standalone Open Route Stock; use Close Route for customer itineraries')
+    if plan.get('active_route_sheet'):
+        _fail(plan, f'use Close Route on linked Sheet {plan.active_route_sheet}')
+    result = inspect_plan(plan, discover=True)
+    return dict(_response(plan), balances=result['balances'], candidates=result.get('candidates', []),
+                blockers=result.get('blockers', []), return_manifest=(result['return_evidence'] or {}).get('manifest'),
+                can_close=bool(result['settled'] or not any(row['remaining_qty'] > EPSILON for row in result['balances']) or result['return_evidence']))
+
+
+def close_dispatch_plan(dispatch_plan, reason, event_token, operator_session_token, return_manifest=None):
+    operator, session = _reviews()._authorized(operator_session_token, 'complete')
+    _reviews()._planning()._require_event_token(event_token)
+    _reviews()._supervisor(operator)
+    reason = str(reason or '').strip()
+    if not reason:
+        frappe.throw('A Plan closure reason is required')
+    key = canonical_key('close-dispatch-plan', dispatch_plan, operator.employee, event_token)
+    fingerprint = canonical_key('close-dispatch-plan-request', dispatch_plan, reason, return_manifest or '')
+    # This savepoint includes the response and audit: caught errors also leave no partial closure.
+    frappe.db.savepoint('cfg_close_dispatch_plan')
+    try:
+        plan = _reviews()._plan(dispatch_plan, operator, current=True)
+        plan.check_permission('read')
+        old = frappe.db.get_value('CFG Kanban Event', {'idempotency_key': key}, 'payload_json', for_update=True)
+        if old:
+            payload = json.loads(old)
+            if payload.get('request_hash') != fingerprint:
+                frappe.throw('This closure token belongs to different details')
+            return _response(plan, payload['closure'])
+        if plan.plan_type != 'Open Route Stock' or plan.get('active_route_sheet'):
+            _fail(plan, 'use Close Route for a linked Route Sheet; standalone Close Plan requires Open Route Stock')
+        if plan.state == 'Reconciled' and plan.dispatch_review_state == 'Settled':
+            return _response(plan, dict(dispatch_plan=plan.name, outcome='Already Settled'))
+        preflight = inspect_plan(plan, return_manifest)
+        result = settle(preflight, operator, session, reason, key, fingerprint)
+        record('Dispatch Plan Closed from Documents', reference_doctype=PLAN, reference_name=plan.name,
+               operator=operator.employee, operator_session=session.name, terminal_user=session.terminal_user,
+               idempotency_key=key, notes=reason, payload=dict(request_hash=fingerprint, closure=result))
+        return _response(plan, result)
+    except Exception:
+        frappe.db.rollback(save_point='cfg_close_dispatch_plan')
+        raise

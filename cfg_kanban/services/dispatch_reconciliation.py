@@ -479,3 +479,27 @@ def _refusal_reserve(plan,row):
         from cfg_kanban.services.cancelled_stop_stock import held_tag_qty
         held+=held_tag_qty(row['handling_unit'],dispatch_plan=plan.name,parent=plan.stop_cancellation if not plan.get('consolidated_customer_orders') else None)
     return held
+
+
+def _closure_services():
+    from cfg_kanban.services import dispatch_closure
+    return dispatch_closure
+
+
+@frappe.whitelist()
+def get_close_plan_context(scan_value, operator_session_token):
+    try:
+        return _closure_services().get_close_plan_context(scan_value, operator_session_token)
+    except Exception as error:
+        _closure_services().report_blocker(error)
+        raise
+
+
+@frappe.whitelist(methods=['POST'])
+def close_dispatch_plan(dispatch_plan, reason, event_token, operator_session_token, return_manifest=None):
+    try:
+        return _closure_services().close_dispatch_plan(dispatch_plan, reason, event_token,
+                                                      operator_session_token, return_manifest)
+    except Exception as error:
+        _closure_services().report_blocker(error)
+        raise

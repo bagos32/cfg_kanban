@@ -25,6 +25,8 @@ function harness(){
 async function opened(){const h=harness();await h.c.showPage('KTRIP-1');await h.c.selectPlan('DPL-1');return h;}
 async function assign(c,number,destination,qty){await c.scan('CFG:CMD:HANDOVER_ITEMS');await c.scan('CFG:SELECT:'+number);await c.scan('CFG:CMD:HANDOVER_DESTINATION');await c.scan('CFG:SELECT:'+destination);if(qty!==undefined)await c.scan('CFG:QTY:MATERIAL:'+qty);await c.scan('CFG:CMD:HANDOVER_ADD');}
 test('QR parser accepts Trip/Plan/Review and operator fragment, never treats arbitrary URL as credential',()=>{
+ assert.deepEqual(api.identity('DRS-DEMO'),{source:'DRS-DEMO'});
+ assert.deepEqual(api.identity('https://erp/app/cfg-kanban-route-sheet/DRS-DEMO'),{source:'DRS-DEMO'});
  assert.deepEqual(api.identity('https://erp/app/cfg-kanban-delivery-trip/KTRIP-1'),{source:'KTRIP-1'});
  assert.deepEqual(api.identity('https://erp/app/kanban-trip-handover/DPL-1'),{source:'DPL-1'});
  assert.deepEqual(api.identity('https://erp/app/kanban-operator#operator=SECRET'),{credential:'SECRET'});
@@ -96,4 +98,18 @@ test('normal page has camera, Tab/Enter, focus restoration and entry points/cata
  for(const file of ['public/js/driver_route.js','cfg_kanban/page/kanban_operator/kanban_operator.js','cfg_kanban/page/kanban_logistics/kanban_logistics.js','api/operator.py'])assert.match(read(file),/TRIP_HANDOVER/);
  for(const command of ['HANDOVER_ITEMS','HANDOVER_DESTINATION','HANDOVER_ADD','HANDOVER_APPROVE','HANDOVER_CANCEL_DECISIONS','HANDOVER_REASON','HANDOVER_MOVEMENTS','HANDOVER_FINISH','HANDOVER_RETURNS','HANDOVER_CAMERA'])assert.ok(read('api/operator.py').includes('CFG:CMD:'+command));
  assert.match(read('cfg_kanban/doctype/cfg_kanban_delivery_trip/cfg_kanban_delivery_trip.js'),/Trip Handover/);
+});
+
+
+test('Next Guided Step opens missing reviews, pending movement, one count and next Plan with that count',async()=>{
+ const h=await opened();h.context.closure_guide={stage:0,plan:'DPL-1',message:'Open review'};await h.c.refresh();await h.c.scan('CFG:CMD:HANDOVER_NEXT_STEP');assert.equal(h.c.state.intent,'begin');
+ h.context.closure_guide={stage:1,plan:'DPL-1',manifest:'KMF-PENDING'};await h.c.refresh();await h.c.scan('CFG:CMD:HANDOVER_NEXT_STEP');assert.deepEqual(h.events.at(-1),['movement','KMF-PENDING']);
+ h.context.closure_guide={stage:2,plan:'DPL-1'};await h.c.refresh();await h.c.scan('CFG:CMD:HANDOVER_NEXT_STEP');assert.equal(h.events.at(-1),'count');
+ let received;h.env.openReview=(plan,count)=>{received={plan,count};};h.context.closure_guide={stage:3,plan:'DPL-1',shared_count:'ONE-COUNT'};await h.c.refresh();await h.c.scan('CFG:CMD:HANDOVER_NEXT_STEP');assert.deepEqual(received,{plan:'DPL-1',count:'ONE-COUNT'});
+ h.env.openRoute=name=>h.events.push(['route',name]);h.context.closure_guide={stage:4,route_sheet:'SHEET'};await h.c.refresh();await h.c.scan('CFG:CMD:HANDOVER_NEXT_STEP');assert.deepEqual(h.events.at(-1),['route','SHEET']);
+});
+
+test('guided unfinished proof opens its exact existing Delivery Session',async()=>{
+ const h=await opened();let selected;h.env.openDelivery=name=>selected=name;h.context.closure_guide={stage:0,plan:'DPL-1',delivery_session:'NEEDS-PROOF'};
+ await h.c.refresh();await h.c.scan('CFG:CMD:HANDOVER_NEXT_STEP');assert.equal(selected,'NEEDS-PROOF');
 });

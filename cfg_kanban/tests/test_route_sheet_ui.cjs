@@ -141,5 +141,22 @@ function dialogFixture(mode='editor'){
   await h.scan('CFG:CMD:ROUTE_SHEET_REFRESH');assert.equal(h.controller.state.context.sheet.state,'Cancellation Pending');assert.equal(h.controller.state.action,'Cancel');assert(f.dialog().visible);
   await h.scan('CFG:CMD:ROUTE_SHEET_REFRESH');assert.equal(refreshArgs.route_sheet,'OLD-SHEET');assert.equal(h.controller.state.pending,null);
  });
+ await test('Ready to Close exposes Close Route to authorized driver view and confirms the existing closure action',async()=>{
+  const f=dialogFixture('driver');f.context({scope_key:'V:LORRY',sheet:{name:'RS1',state:'Ready to Close',revision:4,can_start:false,can_close:true,stops:f.ctx().stops}});
+  let sent;const original=f.frappe.call;f.frappe.call=async request=>{if(request.method.endsWith('save_route_sheet')){sent=request.args;return {message:{sheet:{...f.ctx().sheet,state:'Completed'}}};}return original(request);};
+  const h=await api.open(f.options),d=f.dialog();assert(d.fields_dict.controls.html.includes('Close Route'));assert(d.fields_dict.controls.html.includes('E5 Plan Reviews'));
+  await h.scan('CFG:CMD:ROUTE_CLOSE_SHEET');await h.scan('CFG:CMD:CONFIRM');assert.equal(sent,undefined);assert(d.fields_dict.summary.html.includes('closure reason'));
+  await h.scan('CFG:CMD:ROUTE_SHEET_REASON');await h.scan('All deliveries verified');await h.scan('CFG:CMD:CONFIRM');
+  assert.equal(sent.action,'Close');assert.equal(sent.route_sheet,'RS1');assert.equal(sent.expected_revision,4);assert.equal(sent.reason,'All deliveries verified');assert(!d.visible);assert(f.focus()>0);
+ });
+ await test('read-only Ready to Close has no Close Route button',async()=>{
+  const f=dialogFixture('driver');f.context({scope_key:'V:LORRY',sheet:{name:'RS1',state:'Ready to Close',can_start:false,can_close:false,stops:f.ctx().stops}});
+  await api.open(f.options);assert(!f.dialog().fields_dict.controls.html.includes('route-close'));
+ });
+ await test('guided leftovers hands off the exact Sheet after closing its dialog once',async()=>{
+  const f=dialogFixture('driver');f.context({scope_key:'V:LORRY',sheet:{name:'DRS-GROUP',state:'Ready to Close',can_close:true,can_start:false,stops:f.ctx().stops}});
+  let opened;f.options.openHandover=name=>{assert(!f.dialog().visible);opened=name;};const h=await api.open(f.options);assert(f.dialog().fields_dict.controls.html.includes('Guided Closure / Leftovers'));
+  await h.scan('CFG:CMD:TRIP_HANDOVER');assert.equal(opened,'DRS-GROUP');assert(h.controller.state.closed);
+ });
  console.log(`${ntests} route-sheet UI checks passed`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

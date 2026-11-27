@@ -5961,8 +5961,12 @@ opens **Plan / Approve Route Sequence** from the lorry/Plan, explicitly assigns 
 Plans, then drags stops or uses Move Up/Down and approves. Approved order is frozen. Drivers open
 **Lorry Route Sheet**, read customer names/full addresses/sequence before arrival, select the exact
 stop, scan its Site QR if required and Confirm. The existing Customer Delivery Session, allocation,
-Delivery Note and proof steps continue. Multi-day trips remain active until explicit E5 settlement;
-**Close Settled Trip** needs every Plan settled and a Supervisor reason.
+Delivery Note and proof steps continue. Multi-day trips remain active until explicit closure.
+**Close Route** validates terminal visits, submitted delivery quantities, required proof and each
+member Plan's remaining stock, then settles the Plans and closes the Sheet atomically. Fully
+delivered routes need no E5 count of unrelated lorry stock. Existing completed E5 reviews remain
+valid. A blocking document/quantity directs the Supervisor to controlled recovery; a reason and
+the existing closure permissions remain required.
 
 To stop an older Route Sheet, a Supervisor opens **Kanban Logistics → Plan / Approve Route
 Sequence**, scans its Sheet number and chooses **Stop / Cancel Route** with a reason and Confirm.
@@ -6714,3 +6718,24 @@ Site scan and `CFG:CMD:CONFIRM`. Camera, paging and safe Cancel remain available
 retain their original request. See [setup, warehouse, driver and recovery steps](USER_GUIDE_OFFICE_DELIVERY_TRIP.md#consolidated-customer-orders--27-november-2026)
 and [site acceptance](TEST_CONSOLIDATED_CUSTOMER_ORDERS.md). Schema migration and an asset build are
 required; native-site acceptance is pending.
+
+
+## Route closure and one shared E5 lorry count
+
+For completed deliveries use **Lorry Route Sheet → Close Route → reason → Confirm**. The existing
+posted documents and proof must pass server checks; another Plan's stock on the lorry is unchanged.
+For a standalone **Open Route Stock** Plan already returned, **Kanban Logistics → Close Plan**
+accepts its exact Received Movement Manifest and submitted transfer/ledger evidence, including a
+return posted before its Review opened. Ambiguous returns require an explicit selection; unsupported
+loose ownership stays in E5. No closure action posts stock or invents a customer delivery.
+
+For audited leftovers use **Kanban Trip Handover → Next Guided Step**:
+**open all Reviews → complete all returns/transfers → count this Company/lorry once → reuse the
+same current count to settle each Plan → close Route / office Trip**. A Review opened after the
+count or any later stock change requires a fresh count. Each native E5 validation remains intact.
+Old customer-return pickups and QC receiving remain separate.
+
+See [the operator steps and permissions](USER_GUIDE_LORRY_ROUTES_AND_FLOOR.md#8-close-route-using-posted-documents)
+and [verification / live acceptance](TEST_DISPATCH_DOCUMENT_CLOSURE.md). Migrate adds the Review
+settlement-basis and document-evidence fields; build the app assets and clear cache through the
+owner's normal deployment workflow. No records or stock are automatically closed by migration.

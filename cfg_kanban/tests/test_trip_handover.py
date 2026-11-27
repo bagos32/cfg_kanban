@@ -29,16 +29,25 @@ class TestTripHandover(unittest.TestCase):
             start=kw.get('limit_start',0);rows=rows[start:start+kw.get('limit_page_length',20)]
             return [r[pluck] for r in rows] if pluck else rows
         self.b.frappe.get_list=get_list
+        original_matches=self.b.matches
+        def matches(row,filters):
+            filters=dict(filters)
+            for key,value in list(filters.items()):
+                if isinstance(value,list) and value[0]=='>' and isinstance(value[1],datetime.datetime):
+                    if not row.get(key) or row[key]<=value[1]:return False
+                    del filters[key]
+            return original_matches(row,filters)
+        self.b.matches=matches
         self.b.frappe.db=fixture.Row(get_value=self.value,exists=lambda dt,name:name in self.data.get(dt,{}))
         self.ns=fixture.load('services/trip_handover.py',dict(frappe=self.b.frappe,cint=lambda n:int(n or 0),
-            flt=lambda n:float(n or 0),now_datetime=lambda:datetime.datetime(2026,11,24,12),
+            flt=lambda n:float(n or 0),get_datetime=lambda value:value if isinstance(value,datetime.datetime) else datetime.datetime.fromisoformat(str(value)),now_datetime=lambda:datetime.datetime(2026,11,24,12),
             require_operator=Mock(return_value=(self.operator,self.session)),public_operator=lambda op,s:dict(op)))
         driver=types.ModuleType('cfg_kanban.services.driver_routes')
         driver.assigned=lambda trip,op:trip.driver==op.employee or any(row.employee==op.employee for row in trip.assistant_drivers)
         driver.trip_vehicle_warehouse=lambda trip:trip.vehicle_warehouse
         driver.trip_driver_display=lambda trip:'Driver ('+trip.driver+')'
         review=types.ModuleType('cfg_kanban.services.dispatch_reconciliation');review.REVIEW='CFG Kanban Dispatch Review'
-        review._hash=lambda rows:'HASH';review._balances=lambda plan:[dict(dispatch_allocation='ALLOC',item_code='BAG',
+        review._planning=lambda:fixture.Row(_assert_plan_authorized=Mock());review._hash=lambda rows:'HASH';review._balances=lambda plan:[dict(dispatch_allocation='ALLOC',item_code='BAG',
             handling_unit='TAG',loaded_qty=5,delivered_qty=3,remaining_qty=2)]
         mixed=types.ModuleType('cfg_kanban.services.dispatch_recovery_mixed');mixed.context=Mock(return_value=None)
         self.counts=sys.modules['cfg_kanban.services.route_reconciliation'];self.counts._authorized=lambda op:any(r.responsibility=='Logistics Reconciliation' for r in op.responsibilities)
@@ -98,11 +107,66 @@ class TestTripHandover(unittest.TestCase):
         self.trip.dispatch_plans=[]
         with self.assertRaisesRegex(ValueError,'not a member'):self.read('DPL')
 
+    def test_route_sheet_scan_groups_only_its_original_plans_for_one_count(self):
+        self.plan.office_delivery_trip=None
+        self.b.add('CFG Kanban Route Sheet','DRS-DEMO',company='B',vehicle_warehouse='LORRY',state='Ready to Close',
+            stops=[fixture.Row(dispatch_plan='DPL')])
+        with self.assertRaisesRegex(ValueError,'Supervisor'):self.read('DRS-DEMO')
+        self.supervisor();result=self.read('DRS-DEMO')
+        self.assertEqual(result['route_sheet']['name'],'DRS-DEMO');self.assertIsNone(result['trip'])
+        self.assertEqual([row['name'] for row in result['plans']],['DPL'])
+
     def test_standalone_plan_requires_authorized_reconciliation_supervisor(self):
         self.plan.office_delivery_trip=None
         with self.assertRaisesRegex(ValueError,'standalone Plan'):self.read('DPL')
         self.supervisor();result=self.read('DPL')
         self.assertTrue(result['can_manage']);self.assertIsNone(result['trip'])
+
+    def test_guide_opens_all_reviews_before_one_shared_count_and_advances_to_each_plan(self):
+        self.supervisor()
+        base=dict(self.read(),plans=[dict(name='ONE',state='Loaded',review=None,review_state=None,balances=[]),
+                                   dict(name='TWO',state='Loaded',review=None,review_state=None,balances=[])])
+        guide=self.ns['closure_guide'](base,'B','LORRY')
+        self.assertEqual((guide['stage'],guide['plan']),(0,'ONE'))
+        for plan in base['plans']:
+            plan.update(review='R-'+plan['name'],review_state='Reviewing',review_opened_on=datetime.datetime(2026,11,24,10))
+        self.assertEqual(self.ns['closure_guide'](base,'B','LORRY')['stage'],2)
+        self.b.add('CFG Kanban Route Reconciliation','ONE-COUNT',company='B',vehicle_warehouse='LORRY',state='Closed',
+                   closed_on=datetime.datetime(2026,11,24,11),lines=[])
+        first=self.ns['closure_guide'](base,'B','LORRY')
+        self.assertEqual((first['stage'],first['shared_count'],first['plan']),(3,'ONE-COUNT','ONE'))
+        base['plans'][0]['state']='Reconciled'
+        second=self.ns['closure_guide'](base,'B','LORRY')
+        self.assertEqual((second['shared_count'],second['plan']),('ONE-COUNT','TWO'))
+        self.b.add('Stock Ledger Entry','LATE',company='B',warehouse='LORRY',creation=datetime.datetime(2026,11,24,11,30))
+        self.assertEqual(self.ns['closure_guide'](base,'B','LORRY')['stage'],2)
+
+    def test_guide_names_unfinished_delivery_before_opening_review(self):
+        self.supervisor()
+        base=dict(self.read(),plans=[dict(name='ONE',state='Loaded',review=None,review_state=None,balances=[])])
+        self.b.add('CFG Kanban Delivery Session','NEEDS-PROOF',dispatch_plan='ONE',state='Delivered')
+        guide=self.ns['closure_guide'](base,'B','LORRY')
+        self.assertEqual(guide['delivery_session'],'NEEDS-PROOF')
+        self.assertIn('proof',guide['message'])
+
+    def test_guide_requires_finished_movements_and_count_after_latest_review(self):
+        self.supervisor()
+        base=dict(self.read(),plans=[dict(name='ONE',state='Loaded',review='R',review_state='Reviewing',
+            review_opened_on=datetime.datetime(2026,11,24,12),balances=[],mixed_recovery=dict(active=True,
+            groups=[dict(manifest='MOVE',state='Prepared')]))])
+        self.assertEqual(self.ns['closure_guide'](base,'B','LORRY')['manifest'],'MOVE')
+        base['plans'][0]['mixed_recovery']['groups'][0]['state']='Received'
+        self.b.add('CFG Kanban Route Reconciliation','OLD',company='B',vehicle_warehouse='LORRY',state='Closed',
+                   closed_on=datetime.datetime(2026,11,24,11),lines=[])
+        self.assertEqual(self.ns['closure_guide'](base,'B','LORRY')['stage'],2)
+
+    def test_no_recount_guide_opens_document_closure_and_ignores_cancelled_plans(self):
+        self.supervisor()
+        base=dict(self.read(),plans=[dict(name='ONE',state='Loaded',review=None,balances=[],active_route_sheet='SHEET'),
+                                   dict(name='OLD',state='Cancelled',review=None,balances=[])])
+        guide=self.ns['closure_guide'](base,'B','LORRY')
+        self.assertTrue(guide['bypass_count']);self.assertEqual(guide['route_sheet'],'SHEET')
+        self.assertIn('no lorry recount',guide['message'])
 
     def test_count_opening_delegates_to_existing_d3_with_native_source_read_checks(self):
         self.counts.start_route_reconciliation=Mock(return_value={'name':'COUNT'})

@@ -25,7 +25,7 @@ function adapter(options={}){
   hide_dialog(){if(!this.visible)return;this.visible=false;this.hidden.splice(0).forEach(fn=>fn());}
  }
  const launch=()=>open({frappe:{utils:{escape_html:v=>String(v??'').replaceAll('<','&lt;')},ui:{Dialog,...(!options.noCamera?{Scanner:Camera}:{})},
-  call:async({method,args})=>({message:await f.env.rpc(method.split('.').at(-1),args)})},mode:f.env.mode,planScan:options.planScan,
+  call:async({method,args})=>({message:await f.env.rpc(method.split('.').at(-1),args)})},mode:f.env.mode,planScan:options.planScan,countName:options.countName,
   owner:f.env.owner,token:f.env.token,nonce:f.env.nonce,success:f.env.success,recover:plan=>f.env.recover(plan),onClose(){},errorMessage:(err,fallback)=>err.message||fallback});
  return {...f,launch,dialog:()=>dialog,focused:()=>focused,hidden:()=>hidden,cameras};
 }
@@ -116,6 +116,30 @@ function adapter(options={}){
  });
  await test('terminal Reviews cannot open another recovery checklist',async()=>{
   const f=fixture({state:'Completed'});await f.c.load('DPL-1');await assert.rejects(()=>f.c.scan('CFG:CMD:RECOVER_DISPATCH'),/Begin a Dispatch Review/);assert(!f.c.state.closed);
+ });
+ await test('Close Plan uses completed return Manifest and reason without asking for a lorry count',async()=>{
+  const f=adapter({mode:'close',planScan:'DPL-1'});f.context.candidates=[{manifest:'KMF-RETURN',destination_warehouse:'SOURCE'}];f.context.can_close=true;f.context.return_manifest='KMF-RETURN';
+  const view=await f.launch(),d=f.dialog();assert.equal(f.calls[0].method,'get_close_plan_context');assert.equal(d.fields_dict.count.df.hidden,1);assert.equal(d.fields_dict.return_manifest.df.hidden,0);
+  await view.scan('CFG:CMD:DISPATCH_REVIEW_REASON');await view.scan('Goods returned');await view.scan('CFG:CMD:CONFIRM');
+  const call=f.calls.at(-1);assert.equal(call.method,'close_dispatch_plan');assert.equal(call.args.return_manifest,'KMF-RETURN');assert.equal(call.args.reason,'Goods returned');assert(!('reconciliation_name' in call.args));assert(f.focused()>0);
+ });
+ await test('Close Plan ambiguous return choices page and update the visible Manifest input',async()=>{
+  const f=adapter({mode:'close',planScan:'DPL-1'});f.context.can_close=false;f.context.candidates=Array.from({length:12},(_,i)=>({manifest:'KMF-'+(i+1),destination_warehouse:'SOURCE'}));
+  const view=await f.launch();await view.scan('CFG:CMD:NEXT_MATERIALS');await view.scan('CFG:SELECT:2');assert.equal(view.controller.state.return_manifest,'KMF-12');assert.equal(f.dialog().values.return_manifest,'KMF-12');
+  await view.scan('CFG:CMD:CLOSE_PLAN_RETURN');await view.scan('KMF-EXACT');assert.equal(view.controller.state.return_manifest,'KMF-EXACT');
+ });
+ await test('Close Plan loss retries original Manifest, reason and token; rejection permits correction',async()=>{
+  const f=fixture({mode:'close'});f.context.can_close=true;await f.c.load('DPL-1');f.c.set('reason','Verified');f.c.set('return_manifest','KMF-1');f.failure(new Error('Lost'));
+  await assert.rejects(()=>f.c.confirm());const pending=structuredClone(f.c.state.pending);assert.throws(()=>f.c.set('return_manifest','KMF-2'),/original/);
+  f.failure(null);await f.c.confirm();assert.deepEqual(f.calls.at(-1).args,{...pending.args,operator_session_token:'TOKEN'});
+  const g=fixture({mode:'close'});g.context.can_close=true;await g.c.load('DPL-1');g.c.set('reason','Verified');g.failure({exc_type:'ValidationError'});await assert.rejects(()=>g.c.confirm());g.c.set('return_manifest','KMF-CORRECTED');assert.equal(g.c.state.pending,null);
+ });
+ await test('guided E5 opens with the same shared lorry count preselected',async()=>{
+  const f=adapter({planScan:'DPL-1',countName:'KREC-SHARED'});const view=await f.launch();assert.equal(view.controller.state.count,'KREC-SHARED');assert.equal(f.dialog().values.count,'KREC-SHARED');
+ });
+ await test('closure commands have global launch, labels and Help',()=>{
+  const root=path.resolve(__dirname,'..'),labels=fs.readFileSync(path.join(root,'api/operator.py'),'utf8'),floor=fs.readFileSync(path.join(root,'cfg_kanban/page/kanban_operator/kanban_operator.js'),'utf8'),logistics=fs.readFileSync(path.join(root,'cfg_kanban/page/kanban_logistics/kanban_logistics.js'),'utf8');
+  for(const name of ['CLOSE_DISPATCH_PLAN','HANDOVER_NEXT_STEP']){assert(labels.includes('CFG:CMD:'+name));assert(floor.includes(name));assert(logistics.includes(name));}assert(labels.includes('CFG:CMD:CLOSE_PLAN_RETURN'));assert(logistics.includes('close-dispatch-plan'));
  });
  console.log(`${checks} E5 review UI checks passed`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

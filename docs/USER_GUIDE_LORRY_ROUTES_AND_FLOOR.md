@@ -132,10 +132,11 @@ visit; it does not rewrite the approved Sheet or bypass another visit's unfinish
 5. Continue **Confirm Customer Allocation → Create Delivery Note → Delivery Proof** as configured.
    No stock moves merely because the route was viewed, reordered, saved or approved.
 
-Two/three-day trips remain active across midnight. At the actual trip end, complete the existing E5
-review/count/return-or-overnight decisions for each Plan. After every Plan is **Reconciled / Settled**,
-the Supervisor uses **Close Settled Trip** with a reason. Unvisited stops settled through E5 are
-shown as **Closed Incomplete**; no customer delivery/proof is invented. Continue Same Plan Overnight
+Two/three-day trips remain active across midnight. At the actual trip end, use **Close Route**
+when the deliveries and proof are complete. CFG checks only the member Plans and their posted
+records, settles them and closes the Sheet together. It does not require an E5 count of unrelated
+lorry stock. Remaining or uncertain stock still uses the guided E5 workflow below. Unvisited stops
+remain Skipped / Closed Incomplete; no delivery or proof is invented. Continue Same Plan Overnight
 keeps the trip active rather than releasing it for a new route.
 
 ### Stop/cancel an older Route Sheet
@@ -211,3 +212,98 @@ HTTPS/Web Locks browser setup; do not clear storage to resolve an uncertain acti
 
 See [the acceptance checklist](TEST_LORRY_ROUTES_AND_FLOOR.md). The existing L1 acceptance gate is
 separate and is not closed by these offline development checks.
+
+
+## 8. Close Route using posted documents
+
+1. Finish every delivery and its required proof; complete or explicitly skip every visit.
+2. Open the existing **Lorry Route Sheet** from the lorry or Plan. An authorized Supervisor sees
+   **Ready to Close → Close Route**. Enter a closure reason and **Confirm Close Route**.
+3. CFG validates submitted Delivery Notes against the exact allocations, customer, Company,
+   lorry, Item, Batch, stock UOM, quantity and tag. It also checks required proof and unfinished
+   Sessions, ERP commands, prepared allocations, Loose Tags and linked Manifests.
+4. If all member Plans pass, they become **Reconciled / Settled** and the Sheet becomes
+   **Completed** in the same transaction. Review audit records show **Settlement Basis: Posted
+   Documents**, the operator/time, actual delivery outcome and supporting document references.
+   No D3 count, new Manifest, Stock Entry, Delivery Note or stock movement is created.
+
+Stock belonging to other Plans can remain on the lorry and is unchanged. A delivered tag reused
+for different stock is not treated as this route's leftover stock. If one member fails validation,
+none of the route or Plan closures is retained. The message identifies the blocking document or
+quantity. **E5 Plan Reviews** and **Open Deliveries** remain available for controlled recovery.
+An existing completed E5 settlement is retained rather than recreated.
+
+Permissions stay with the existing route closure: **Start**, Supervisor/Development Proxy with
+**Override**, authorized Dispatch responsibilities and native read access for every member Plan,
+Company, lorry and supporting ERP document. Ordinary drivers without that authority cannot close.
+
+Scanner: **CFG:CMD:ROUTE_CLOSE_SHEET**, **CFG:CMD:ROUTE_SHEET_REASON**, scan the reason, then
+**CFG:CMD:CONFIRM**. Camera and touch use the same action. An unknown result retains its original
+request; retry it or use Route Sheet Refresh to read the receipt. Cancel returns scanner focus
+without discarding a pending request.
+
+## 9. Close an Open Route Stock Plan already returned to a Warehouse
+
+This is for a standalone Plan with no active Route Sheet. For a linked itinerary use Close Route
+or its existing E5 review. Do not make a second transfer merely to satisfy a closure screen.
+
+1. Open the **Open Route Stock** Plan in **Kanban Logistics** and select **Close Plan**.
+2. CFG suggests the exact completed return **Movement Manifest** if there is one match. If more
+   than one matches, select its numbered choice or enter the exact Manifest in **Existing
+   Completed Return Manifest**. Choices page in groups of ten; a camera scan is available.
+3. Enter the closure reason and Confirm. The Manifest must be Received. Its submitted Material
+   Transfer(s) and stock ledger must prove every exact remaining source, Item, Batch, stock UOM,
+   quantity and physical tag, from this Plan's Company/lorry into an active non-lorry Warehouse in
+   that Company. Goods-in-Transit requires both submitted legs. Tag custody must have its posted
+   quantity/location ledger. Loose quantities need their Dispatch Allocation provenance;
+   matching SKU totals alone cannot prove which Plan's loose stock was returned.
+4. A return posted before the Review opened is accepted when this evidence is complete and it
+   follows the Plan's load. A Stock Entry already used to settle another Plan is rejected.
+   A later legitimate use of returned stock does not itself create a new Plan remainder.
+5. The review records **Returned to Warehouse** and the actual delivered total / prior outcome.
+   Partial or undelivered Plans close as **Closed Incomplete**, not as a fabricated full delivery.
+   The completed transfer is referenced; no new stock posting is made.
+
+Close Plan uses existing **Logistics Reconciliation**, **Complete**, authorized Plan responsibility,
+Supervisor **Override** and native source/document read permissions. Held/Overnight reviews,
+per-item recovery decisions, unresolved variances or uncertain ownership must use existing E5.
+A mismatch names the Item/tag/document and expected versus recorded quantity.
+
+Scanner: **CFG:CMD:CLOSE_DISPATCH_PLAN**, scan DPL, numbered return choice if needed, or
+**CFG:CMD:CLOSE_PLAN_RETURN** then scan KMF; **CFG:CMD:DISPATCH_REVIEW_REASON**, scan reason,
+then **CFG:CMD:CONFIRM**. Existing Review Camera / Refresh and Next/Previous Material Choices work.
+Retries reuse the request token and cannot create another settlement or transfer.
+
+## 10. Guided E5: count one lorry once for several Plans
+
+Use **Lorry Route Sheet → Guided Closure / Leftovers**, or **Kanban Trip Handover → Next Guided Step**, when leftovers or audit issues require E5.
+The page displays the current step, the next Plan/document and, when eligible, the shared count.
+Scan a Trip, Route Sheet or standalone Plan. The guide covers that selected group’s Plans; it does not freeze or settle unrelated Plans silently.
+
+1. **Open every Plan Review first.** Select each Plan and Confirm Begin Review. Finish any open
+   delivery/proof before reviewing it. No count is needed yet.
+2. **Resolve leftovers for all those Plans.** Confirm what stays on the lorry, return stock or
+   transfer stock through the existing guided recovery. Finish every Movement Manifest/ERP
+   posting before counting. Old customer-return pickups keep their separate receiving/QC custody.
+3. **Count the lorry once.** Use Open Lorry Count, scan tags and enter exact loose quantities,
+   evaluate and close one balanced **D3 Route Reconciliation**. It covers the entire stock of
+   this Company/lorry, including other Plans and unassigned stock.
+4. **Settle each Review using that same count.** Refresh Trip Handover. Next Guided Step opens
+   the next unsettled Plan's Finish Review with the shared count selected. Check the disposition,
+   any existing transfer evidence and the reason, then Confirm. Repeat Next Guided Step until
+   all Plans are settled. You are reusing one count, not doing a recount for each Dispatch Plan.
+5. **Close Route / office Trip** using its existing controls. Return custody must be handed over
+   before office Trip closure where required.
+
+The same count can support other E5 Plans on the **same Company and lorry**, including another
+Trip, if their Reviews were also opened before it. Reviews opened after the count need a new
+count. Any later stock movement or changed tag/count evidence requires a fresh count. Native E5
+revalidates the selected count and Plan disposition on every confirmation; suggestions never
+bypass that validation. A count from another Company/lorry or with unresolved variance is invalid.
+
+Scanner: **CFG:CMD:TRIP_HANDOVER**, scan Trip/Plan, then **CFG:CMD:HANDOVER_NEXT_STEP**.
+Begin Review and approval still need Confirm. Numbered choices, quantities, reasons, camera and
+safe Cancel remain available. All commands are printable in Kanban Operator → Scanner Command Labels.
+
+Implementation and offline checks: [document-closure verification](TEST_DISPATCH_DOCUMENT_CLOSURE.md).
+Native ERP/database concurrency, real devices and scanner-only kiosk acceptance remain pending.

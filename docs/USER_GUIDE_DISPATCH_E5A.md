@@ -166,3 +166,20 @@ Review settlement still apply. Whole tags/held sources stay together; old return
 QC receipt, with no duplicate receipt/credit. Office closure now requires old-return physical receipt,
 while inspection/accounting may continue. See [E5B2 setup and scanner guide](USER_GUIDE_DISPATCH_E5B2.md)
 and [acceptance checklist](TEST_DISPATCH_E5B2_RECOVERY.md). Implementation does not establish live acceptance.
+
+
+## Completed deliveries and shared lorry counts
+
+**Close Route** can settle a fully delivered Sheet from its submitted deliveries/proof without a
+D3 recount of unrelated lorry stock. A standalone Open Route Stock **Close Plan** can reference an
+exact already-posted return, including one before Review opening, without moving stock again.
+The manual E5 procedure above retains its count, chronology and disposition safeguards.
+
+When that manual audit is needed for several Plans, open **all** their Reviews first, finish
+**all** stock movements, then close **one** balanced D3 count for the Company/lorry. Reuse that
+count in each Finish Review while its stock evidence remains current. Trip Handover's **Next
+Guided Step** shows the sequence and preselects the eligible count for each Plan. Reviews opened
+later or further stock changes need a fresh count. Never reuse across Companies or lorries.
+
+See [the simple operator checklist](USER_GUIDE_LORRY_ROUTES_AND_FLOOR.md#10-guided-e5-count-one-lorry-once-for-several-plans)
+and [verification / acceptance gaps](TEST_DISPATCH_DOCUMENT_CLOSURE.md).

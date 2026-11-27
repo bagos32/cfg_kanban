@@ -690,6 +690,9 @@ def get_dispatch_plan(dispatch_plan, operator_session_token):
         result["route_delivery"] = plan_context(plan, operator)
     result["can_review_dispatch"] = bool(plan.fulfilment_mode == "Vehicle Delivery" and plan.state in ("Loaded","Reconciled")
         and (_view_all(operator) or "Logistics Reconciliation" in _responsibilities(operator)))
+    result["can_close_plan"] = bool(result["can_review_dispatch"] and plan.plan_type == "Open Route Stock"
+        and not plan.get("active_route_sheet") and operator.get("can_complete") and operator.get("can_override")
+        and operator.kanban_role in ("Supervisor", "Development Proxy") and plan.state != "Reconciled")
     if plan.get("dispatch_review_state"):
         result["can_start_fulfilment"] = False
         result["can_start_route_delivery"] = False

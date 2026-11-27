@@ -207,6 +207,15 @@ def validate_internal_stock_entry(doc):
     """Protect the immutable movement plan behind a Kanban-controlled Stock Entry."""
     from cfg_kanban.services.logistics_stock_identity import validate_logistics_document
     validate_logistics_document(doc)
+    validate_internal_transfer_evidence(doc)
+
+
+def validate_internal_transfer_evidence(doc):
+    """Validate immutable Manifest/ERP rows; historical settlement adds ledger evidence.
+
+    Posting must still call validate_internal_stock_entry above, including live
+    stock/certificate checks. Past transfers cannot be judged against a reused tag.
+    """
     manifest = frappe.get_doc("CFG Kanban Movement Manifest", doc.cfg_movement_manifest)
     if manifest.manifest_type != "Internal Warehouse Transfer":
         frappe.throw("A Movement Manifest Stock Entry requires an Internal Warehouse Transfer route")

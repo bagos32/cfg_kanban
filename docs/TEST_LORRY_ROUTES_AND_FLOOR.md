@@ -57,7 +57,7 @@ Kanban responsibilities.
 | Proof and cancellation | Delivered/Invoiced without completed proof cannot advance; cancelled Open Route visit follows its controlled replacement; ownership respected | Not run |
 | Existing reasoned Open Route exception | Only policy-enabled, reasoned approval permits that Open Route stop out of order; no approved sequence rewrite or proof bypass | Not run |
 | Two/three-day trip | Same route/stock remains visible across midnight and overnight; no auto-reset/release | Not run |
-| E5 close and leftovers | All Plans settled before final route closure; unvisited settled stops shown Closed Incomplete; remaining lorry stock follows the existing E5 decision | Not run |
+| Route close and leftovers | Close Route validates posted delivery/proof and Plan-only balances, settling all members atomically; unresolved leftovers retain E5. One current lorry count can back multiple pre-opened Reviews. Unvisited settled stops retain their outcome. See TEST_DISPATCH_DOCUMENT_CLOSURE.md. | Not run |
 | Concurrent requests | Two tabs/drivers/Supervisors, delivery start vs route approval/read, E3 claim and E5/proof feedback; one active scope, no duplicate stock/Session/receipt | Not run |
 | Lost response and refresh/reopen | Original action/payload/token retained; recorded read-back reopens it; Not Recorded alone stays locked; reasoned void blocks late execution | Not run |
 | Native transaction failure | Failed approval/start rolls back all related records; exact replay returns original outcome before mutable gates | Not run |

@@ -837,3 +837,20 @@ Implementation and offline verification are recorded in
 [TEST_CONSOLIDATED_CUSTOMER_ORDERS.md](TEST_CONSOLIDATED_CUSTOMER_ORDERS.md). Native migration,
 multi-user locking/rollback, ERP stock/accounting, kiosk and physical printing acceptance remain
 unrun for this extension. This does not close the existing E1–E5 or L1 acceptance gates.
+
+
+## Document-backed route closure and shared E5 count — 27 November 2026
+
+The new Close Route path supersedes a mandatory whole-lorry recount for fully documented member
+Plans: terminal visits, submitted exact delivery quantities, required proof and no unresolved
+Plan-owned quantity/posting are validated before atomic Plan settlement and Sheet closure.
+Unrelated lorry stock is untouched. Standalone Open Route Stock Close Plan may reference an exact
+completed return Manifest/Stock Entry, including a pre-review return with proven allocation/tag
+lineage; it creates no transfer. Existing audit models record Posted Documents as the basis.
+Incomplete/ambiguous evidence keeps manual E5 available; manual count/chronology checks are unchanged.
+
+One current balanced D3 count for the same Company/lorry can support multiple E5 Reviews opened
+before it. All stock movements must finish first. Trip Handover / Route Sheet guided closure
+shows these steps and carries the shared count to each remaining Review. Later stock changes or
+a Review opened after the count require a fresh count. This is local implementation, not native
+ERP/database or kiosk acceptance. See TEST_DISPATCH_DOCUMENT_CLOSURE.md for evidence and remaining checks.

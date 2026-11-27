@@ -85,6 +85,18 @@ class TestDispatchReconciliation(unittest.TestCase):
         self.b.erp_balance-=qty
         return entry
 
+    def test_one_unchanged_lorry_count_can_back_multiple_opened_plan_reviews(self):
+        self.deliver(2);self.begin();count=self.count();first=self.review()
+        second_plan=self.b.add('CFG Kanban Dispatch Plan','SECOND-PLAN',company='B',vehicle_warehouse='LORRY1')
+        second_review=self.b.add(REVIEW,'SECOND-REVIEW',opened_on=self.now-datetime.timedelta(hours=1))
+        before=(self.unit.current_qty,self.unit.reserved_qty,self.b.erp_balance,len(self.b.posted))
+        self.assertEqual(self.mod._count_evidence(self.plan,first,count.name).name,count.name)
+        self.assertEqual(self.mod._count_evidence(second_plan,second_review,count.name).name,count.name)
+        self.assertEqual(before,(self.unit.current_qty,self.unit.reserved_qty,self.b.erp_balance,len(self.b.posted)))
+        second_review.opened_on=self.now+datetime.timedelta(minutes=1)
+        with self.assertRaisesRegex(ValueError,'after the Dispatch Review'):
+            self.mod._count_evidence(second_plan,second_review,count.name)
+
     def test_begin_freezes_without_inventory_or_erp_mutation(self):
         before=(self.unit.current_qty,self.unit.reserved_qty,self.b.erp_balance)
         result=self.begin()

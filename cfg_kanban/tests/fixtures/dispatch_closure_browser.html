@@ -1,0 +1,58 @@
+<!doctype html><meta charset="utf-8"><title>Offline dispatch closure checks</title>
+<style>body{font:16px Arial;margin:20px;background:#f6f7fa}.dialog{background:white;border:1px solid #bbb;padding:18px;margin:15px 0}.btn{padding:10px;margin:4px;cursor:pointer}.form-control{display:block;padding:10px;width:95%;margin:8px 0}.alert{padding:12px;background:#e9f3ff}.btn-success{background:#2d8c53;color:white}.btn-primary{background:#285eab;color:white}table{border-collapse:collapse}td,th{padding:8px;border:1px solid #ddd}label{display:block}</style>
+<h2>Offline dispatch closure fixture</h2><p>Demo records and simulated RPC only. No ERPNext site, stock, real camera or database is connected.</p><pre id="result">Running…</pre><input id="parent" placeholder="Parent Scanner Ready"><div id="dialogs"></div>
+<script src="../../public/js/route_sheet.js"></script><script src="../../public/js/dispatch_review.js"></script><script>
+class Wrap{
+ constructor(nodes){this.nodes=nodes;nodes.forEach((n,i)=>this[i]=n);this.length=nodes.length;}
+ find(selector){return new Wrap(this.nodes.flatMap(n=>[...n.querySelectorAll(selector)]));}
+ html(value){if(value===undefined)return this.nodes[0]?.innerHTML;this.nodes.forEach(n=>n.innerHTML=value);return this;}
+ text(value){this.nodes.forEach(n=>n.textContent=value);return this;}
+ focus(){this.nodes[0]?.focus();return this;}
+ off(){this.nodes.forEach(n=>{for(const [type,fn] of n.handlers||[])n.removeEventListener(type,fn);n.handlers=[];});return this;}
+ on(events,fn){this.nodes.forEach(n=>events.split(' ').forEach(type=>{const listener=event=>fn.call(n,event);(n.handlers??=[]).push([type,listener]);n.addEventListener(type,listener);}));return this;}
+ one(type,fn){this.nodes.forEach(n=>n.addEventListener(type.split('.')[0],fn,{once:true}));return this;}
+}
+const escape=value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
+let currentDialog,camera;
+class Dialog{
+ constructor(config){currentDialog=this;this.config=config;this.fields_dict={};this.element=document.createElement('section');this.element.className='dialog';this.element.innerHTML='<h3>'+escape(config.title)+'</h3>';this.$wrapper=new Wrap([this.element]);
+  for(const df of config.fields){const wrapper=document.createElement('div');wrapper.dataset.field=df.fieldname;this.element.append(wrapper);const field={df,$wrapper:new Wrap([wrapper])};
+   if(df.fieldtype!=='HTML'){const label=document.createElement('label');label.textContent=df.label||'';wrapper.append(label);const input=document.createElement(df.fieldtype==='Button'?'button':df.fieldtype==='Small Text'?'textarea':'input');input.className=df.fieldtype==='Button'?'btn':'form-control';if(df.fieldtype==='Button'){input.textContent=df.label;input.addEventListener('click',df.click);}else input.addEventListener('change',()=>df.onchange?.());wrapper.append(input);field.$input=new Wrap([input]);}this.fields_dict[df.fieldname]=field;}
+  this.primary=document.createElement('button');this.primary.textContent=config.primary_action_label;this.primary.className='btn btn-primary primary';this.primary.addEventListener('click',config.primary_action);this.element.append(this.primary);}
+ show(){document.getElementById('dialogs').append(this.element);}hide(){this.element.remove();this.onhide?.();}
+ get_value(name){return this.fields_dict[name]?.$input?.[0]?.value;}
+ set_value(name,value){const field=this.fields_dict[name];if(field?.$input){field.$input[0].value=value??'';field.df.onchange?.();}}
+ set_df_property(name,key,value){this.fields_dict[name].df[key]=value;if(key==='hidden')this.fields_dict[name].$wrapper[0].hidden=!!value;}
+ disable_primary_action(){this.primary.disabled=true;}enable_primary_action(){this.primary.disabled=false;}get_primary_btn(){return new Wrap([this.primary]);}
+}
+const results=[],pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));function check(ok,label){if(!ok)throw new Error(label);results.push(label);}async function until(work){for(let i=0;i<100;i++){if(work())return;await pause(15);}throw new Error('Timed out: '+work);}
+window.runClosureTests=async()=>{
+ localStorage.clear();const calls=[];let event=0,failRoute=true;
+ const sheet={name:'DEMO-SHEET',state:'Ready to Close',revision:5,scope:'Combined Lorry Trip',can_start:false,can_close:true,stops:[{row_key:'A',dispatch_plan:'DEMO-PLAN',customer_scan_point:'SITE',site_name:'Demo Customer',state:'Completed'}]};
+ const f={utils:{escape_html:escape},ui:{Dialog,Scanner:class{constructor(options){this.options=options;this.dialog={$wrapper:new Wrap([document.createElement('div')])};camera=this;}hide_dialog(){}}},async call({method,args}){calls.push({method,args:structuredClone(args)});const name=method.split('.').at(-1);
+  if(name==='get_route_context')return {message:{scope_key:'V:DEMO-LORRY',sheet:structuredClone(sheet)}};
+  if(name==='save_route_sheet'){if(failRoute){failRoute=false;throw new Error('Lost response');}return {message:{scope_key:'V:DEMO-LORRY',sheet:{...sheet,state:'Completed'}}};}
+  if(name==='get_close_plan_context')return {message:{plan:{name:'DEMO-OPEN',state:'Loaded'},review:null,can_close:false,balances:[{item_code:'SKU',stock_uom:'Nos',loaded_qty:5,delivered_qty:2,remaining_qty:3}],candidates:Array.from({length:12},(_,i)=>({manifest:'KMF-DEMO-'+(i+1),destination_warehouse:'Main Warehouse'}))}};
+  if(name==='close_dispatch_plan')return {message:{plan:{name:'DEMO-OPEN',state:'Reconciled'}}};
+  throw new Error('Unexpected RPC '+name);
+ }};
+ const options={frappe:f,owner:()=> 'DEMO-SUP',token:()=> 'DEMO-TOKEN',nonce:()=> 'E-'+(++event),storage:localStorage,locks:navigator.locks,errorMessage:(error,fallback)=>error.message||fallback,onClose:()=>document.getElementById('parent').focus(),success:async()=>{},routeSaved:async()=>{}};
+ async function scan(value,key='Enter'){const input=currentDialog.fields_dict.scan.$input[0];input.value=value;input.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}));await pause(30);}
+ const route=await cfg_route_sheet.open({...options,mode:'driver',sheet:sheet.name});
+ check(currentDialog.element.querySelectorAll('.route-close').length===1,'Authorized completed route has one Close Route button');
+ currentDialog.element.querySelector('.route-close').click();await pause(30);await scan('CFG:CMD:ROUTE_SHEET_REASON');await scan('Posted documents checked','Tab');currentDialog.primary.click();await until(()=>route.controller.state.pending);
+ const original=calls.find(row=>row.method.endsWith('save_route_sheet'));check(original.args.action==='Close'&&original.args.expected_revision===5,'Touch closure submits the exact Sheet and revision');
+ await scan('CFG:CMD:CONFIRM');await until(()=>route.controller.state.closed);const retries=calls.filter(row=>row.method.endsWith('save_route_sheet'));
+ check(retries.length===2&&JSON.stringify(retries[0].args)===JSON.stringify(retries[1].args),'Lost closure reply retries the original payload and event');
+ check(!calls.some(row=>/begin_dispatch_review|route_reconciliation|create_/.test(row.method)),'Close Route creates no manual count or posting request');
+ check(document.activeElement.id==='parent','Route closure restores parent Scanner Ready focus');
+ const plan=await cfg_dispatch_review.open({...options,mode:'close',planScan:'DEMO-OPEN'});
+ check(currentDialog.fields_dict.count.$wrapper[0].hidden,'Close Plan does not ask for a lorry count');
+ await scan('CFG:CMD:NEXT_MATERIALS');await scan('CFG:SELECT:2','Tab');check(currentDialog.get_value('return_manifest')==='KMF-DEMO-12','Paged return selection updates the visible Manifest field');
+ await scan('CFG:CMD:DISPATCH_REVIEW_REASON');await scan('Exact returned quantities checked');check(!currentDialog.primary.disabled,'Completed return and reason enable one confirmation');
+ currentDialog.primary.click();await until(()=>plan.controller.state.closed);const close=calls.find(row=>row.method.endsWith('close_dispatch_plan'));
+ check(close.args.return_manifest==='KMF-DEMO-12'&&!('reconciliation_name' in close.args),'Close Plan uses selected existing Manifest without requesting stock work');
+ check(document.activeElement.id==='parent','Close Plan restores parent Scanner Ready focus');
+ const result={passed:results.length,checks:results,userAgent:navigator.userAgent,scope:'Offline UI/RPC doubles only. Native ERP/database/stock and kiosk acceptance remain pending.'};document.getElementById('result').textContent=JSON.stringify(result,null,2);return result;
+};
+</script>

@@ -38,7 +38,7 @@ class TestRouteSheets(unittest.TestCase):
         self.session=Doc(name='SESSION',terminal_user='terminal@example.com')
         self.frappe=Row(get_doc=self.get_doc,get_all=self.get_all,get_list=self.get_all,
             parse_json=json.loads,as_json=json.dumps,throw=self.throw,PermissionError=PermissionError,
-            db=Row(sql=self.db_sql,get_value=self.get_value,get_values=self.get_values,exists=self.exists))
+            db=Row(sql=self.db_sql,get_value=self.get_value,get_values=self.get_values,exists=self.exists,savepoint=Mock(),rollback=Mock()))
         self.common=dict(frappe=self.frappe,json=json,cint=lambda value:int(value or 0),
             now_datetime=lambda:datetime.datetime(2026,11,20,12),require_operator=self.require_operator,
             canonical_key=lambda ns,*args:hashlib.sha256(json.dumps([ns,*args],sort_keys=True,default=str).encode()).hexdigest(),
@@ -53,6 +53,10 @@ class TestRouteSheets(unittest.TestCase):
             _require_customer_delivery=self.require_delivery,_resolve_customer_site=self.resolve_site,get_delivery_session=lambda name,token:self.data['CFG Kanban Delivery Session'][name].as_dict())
         self.fulfilment=Row(start_prepared_delivery=Mock(side_effect=self.start_known))
         self.ns.update(_plans=lambda:self.planning,_routes=lambda:self.routes,_delivery=lambda:self.delivery,_fulfilment=lambda:self.fulfilment)
+        # Document evidence / atomicity are exercised by test_dispatch_closure. This
+        # itinerary fixture retains its pre-settled member seam for route history.
+        self.ns['_closure']=lambda:Row(report_blocker=lambda error:None,validate_group=lambda plans:None,inspect_plan=lambda plan: self.throw('Complete document settlement first') if plan.state!='Reconciled' else plan,
+                                      settle=lambda plan,*args:dict(dispatch_plan=plan.name,outcome='Already Settled'))
         self.add('Company','B');self.add('Company','A');self.add('Warehouse','LORRY',company='B',cfg_vehicle_reference='TRUCK1')
         self.add('Customer','C1',disabled=0);self.add('Customer','C2',disabled=0)
         self.add('Address','A1',address_line1='Street One',city='Town');self.add('Address','A2',address_line1='Street Two',city='Town')
@@ -265,7 +269,7 @@ class TestRouteSheets(unittest.TestCase):
         self.save();self.p1.vehicle_warehouse='OTHER'
         with self.assertRaisesRegex(ValueError,'no longer matches'):self.start()
 
-    def test_close_requires_e5_settlement_and_preserves_all_route_history(self):
+    def test_close_requires_terminal_visits_and_preserves_all_route_history(self):
         self.save()
         with self.assertRaisesRegex(ValueError,'settle|Complete'):self.save('Close',expected_revision=1,event_token='CLOSE',reason='Trip ended')
         for row in self.sheet().stops:row.state='Skipped'
