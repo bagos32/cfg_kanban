@@ -6729,6 +6729,12 @@ accepts its exact Received Movement Manifest and submitted transfer/ledger evide
 return posted before its Review opened. Ambiguous returns require an explicit selection; unsupported
 loose ownership stays in E5. No closure action posts stock or invents a customer delivery.
 
+Stock loaded loose and later tagged with **Tag Existing ERP Stock** is traced through its immutable
+Stock Adoption, activation ledger and submitted return. A whole unchanged tag can settle its
+original loose allocation when ownership is unique. Loading history stays unchanged; the closure
+audit links the tag to each original source. Competing loose stock or incomplete/changed identity
+evidence requires E5. Use the existing received Manifest rather than tagging or moving stock again.
+
 For audited leftovers use **Kanban Trip Handover → Next Guided Step**:
 **open all Reviews → complete all returns/transfers → count this Company/lorry once → reuse the
 same current count to settle each Plan → close Route / office Trip**. A Review opened after the

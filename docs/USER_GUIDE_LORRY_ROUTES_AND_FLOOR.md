@@ -264,6 +264,22 @@ or its existing E5 review. Do not make a second transfer merely to satisfy a clo
    Partial or undelivered Plans close as **Closed Incomplete**, not as a fabricated full delivery.
    The completed transfer is referenced; no new stock posting is made.
 
+**Loaded loose, tagged later:** if **Tag Existing ERP Stock** assigned a tag on this lorry after
+loading, Close Plan can follow its **Stock Adoption → original Pack / Activate ledger → received
+Manifest → submitted transfer / stock and tag location ledgers**. The return must cover the whole
+unchanged adopted tag. CFG compares its frozen Item, Batch, stock UOM, Company, lorry and quantities
+with this Plan's loose load and the deliveries actually posted before adoption. Several tags from
+the same loose pool and mixed original-tag / later-tag returns are supported. The loading allocation
+stays untagged in history; the closure audit records each new tag and its original allocation(s).
+
+Use the same Close Plan steps above and select the **existing completed return Manifest** if CFG
+does not suggest it. Do not tag again, re-reserve, alter the loading allocation or transfer again.
+Native read permission for the Stock Adoption and tag is required alongside the permissions below.
+Another Plan's competing loose stock, surplus unassigned loose stock, unrelated loose movements
+before adoption, a partial/repacked/consumed tag, or missing posting evidence prevents automatic
+closure. CFG names the blocker; keep the existing E5 review/reconciliation path for that audit.
+Later use of the stock after its completed return does not invalidate its historical return.
+
 Close Plan uses existing **Logistics Reconciliation**, **Complete**, authorized Plan responsibility,
 Supervisor **Override** and native source/document read permissions. Held/Overnight reviews,
 per-item recovery decisions, unresolved variances or uncertain ownership must use existing E5.

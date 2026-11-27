@@ -175,6 +175,14 @@ D3 recount of unrelated lorry stock. A standalone Open Route Stock **Close Plan*
 exact already-posted return, including one before Review opening, without moving stock again.
 The manual E5 procedure above retains its count, chronology and disposition safeguards.
 
+Stock loaded loose and later labelled through **Tag Existing ERP Stock** can also use Close Plan
+when the immutable Stock Adoption, activation and submitted return records establish the Plan's
+unique ownership. Select its existing Received Manifest; the whole unchanged adopted tag must
+cover the original loose remainder. Original loading reservations are retained as untagged audit
+history. Competing loose Plans, unlinked intervening loose movements, partial/changed tags or
+missing evidence stay in E5 with a specific blocker. Do not create another transfer or edit audit
+rows to force a match. See the linked operator checklist for permissions and supported cases.
+
 When that manual audit is needed for several Plans, open **all** their Reviews first, finish
 **all** stock movements, then close **one** balanced D3 count for the Company/lorry. Reuse that
 count in each Finish Review while its stock evidence remains current. Trip Handover's **Next

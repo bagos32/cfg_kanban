@@ -33,6 +33,7 @@ class Document(Doc):
 
     def as_dict(self):
         def clean(value):
+            if isinstance(value, NativeDocument): return clean(value.as_dict())
             if isinstance(value, dict): return {key: clean(item) for key, item in dict.items(value) if not key.startswith('_')}
             if isinstance(value, list): return [clean(row) for row in value]
             return value
@@ -42,6 +43,25 @@ class Document(Doc):
         if not name.startswith('__') and dict.__contains__(self, name):
             return dict.__getitem__(self, name)
         return super().__getattribute__(name)
+
+
+class NativeDocument:
+    """Frappe-shaped child: attributes/get(), deliberately no __getitem__."""
+    def __init__(self, **values):
+        self.__dict__.update(values)
+
+    def get(self, field, default=None):
+        return self.__dict__.get(field, default)
+
+    def __getattr__(self, field):
+        if field.startswith('__'): raise AttributeError(field)
+        return None
+
+    def as_dict(self):
+        return {field: value for field, value in self.__dict__.items() if not field.startswith('_')}
+
+    def update(self, values):
+        self.__dict__.update(values)
 
 
 class TestDocumentClosure(unittest.TestCase):

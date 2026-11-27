@@ -22,8 +22,9 @@ and concurrency behavior is still unverified.
   and tag location ledgers must match. A pre-review return after the load is valid. Foreign/reused
   settlement evidence, a later reuse of the same tag before the claimed return, mismatches and
   ambiguous ownership are rejected. Ambiguous valid candidates require an explicit selection.
-- Untagged historical stock needs Dispatch Allocation provenance. Selecting an arbitrary matching
-  SKU total cannot prove Plan ownership. Missing evidence retains E5 rather than manufacturing it.
+- Untagged historical stock needs Dispatch Allocation provenance, directly or through the strict
+  late Stock Adoption bridge described below. An arbitrary matching SKU total cannot prove Plan
+  ownership. Missing evidence retains E5 rather than manufacturing it.
 - Historical return identity uses frozen Manifest/ERP facts. Normal stock posting still runs its
   live certificate/tag checks before the extracted native structural transfer validator. Settlement
   does not reapply today's mutable identity or remaining quantity to a valid past return.
@@ -180,3 +181,61 @@ Frappe v15 reference: normal saves [sanitize unused unique fields to
 NULL](https://github.com/frappe/frappe/blob/v15.69.2/frappe/model/base_document.py#L406), while
 [`db_set` bypasses controller validation and calls direct database updates](https://github.com/frappe/frappe/blob/v15.69.2/frappe/model/document.py#L1228).
 The fix is in CFG's E5 persistence; no framework upgrade or index removal is needed.
+
+## Follow-up: native Manifest children and tags assigned after loose loading — 27 November 2026
+
+Base `ac49a55`. The owner confirmed the later tag was assigned with **Tag Existing ERP Stock**.
+No live Plan, Manifest, credentials or stock were accessed. The previous `_key()` used dictionary
+subscripting on native child Documents. The original HEAD function reproduces the reported
+`not subscriptable` failure with a non-dictionary Frappe-shaped child; the corrected function uses
+`get()` for every key field. Existing dictionary-derived doubles had concealed that difference.
+
+The return validator now separates physical Manifest/Stock Entry keys from logical original
+Dispatch Allocation keys. Exact physical tagged transfer checks run unchanged. A late tag can map
+to an originally untagged source only through its immutable Stock Adoption and Pack / Activate
+ledger, same Company/lorry/Item/Batch/stock UOM and chronology, and a whole unchanged tag return.
+The adoption's frozen ERP/tagged/untagged quantities must equal this Plan's loose stock at that
+time, after exact Delivery Note/SLE-backed earlier deliveries and prior adoptions in the same
+return. Competing loose obligations or unrelated intervening loose movements remain blockers.
+Current tag balances and later legitimate use after receipt do not replace historical evidence.
+
+Discovery includes later adopted tags. The closure audit adds `identity_changes` (Adoption,
+activation/custody ledgers and quantities) and `allocation_sources` (Manifest line, original source,
+physical tag, quantity and UOM). Original loading rows and adoption records are never rewritten.
+Transferred stock must still have its exact submitted direct or both transit legs, SLE and tag
+location evidence; source authorization, reason, proof, evidence-reuse and transaction/retry gates
+are retained. The action creates no new transfer, ERP document or stock movement.
+
+Changed files for this correction:
+
+- `cfg_kanban/services/dispatch_closure.py`
+- `cfg_kanban/tests/test_dispatch_closure.py` — non-subscriptable native-shaped children.
+- `cfg_kanban/tests/test_dispatch_return_adoption.py` — 24 behavioral tests, with additional
+  table-driven rejection cases, actual service functions and transaction/read dependencies doubled.
+- `docs/USER_GUIDE_LORRY_ROUTES_AND_FLOOR.md`
+- `docs/USER_GUIDE_DISPATCH_E5A.md`
+- `docs/USER_MANUAL.md`
+- This test document.
+
+Offline verification: **452 Python tests passed**, including 52 closure/adoption tests, the existing
+SQL-uniqueness regression and route/reconciliation/recovery/fulfilment/reservation/identity/schema
+regressions. Existing Node UI suites passed **70 checks** (26 Review, 25 Route Sheet, 19 Handover).
+Coverage includes native child rows, pre-review loose/adopted returns, actual partial deliveries,
+mixed original/later tags, several original loose sources, sequential adoptions, Batch/UOM,
+both transit legs, competing ownership, bad/missing/partial/changed identity, evidence reuse,
+late legitimate use, same/new-token retry, permissions and rollback after response failure.
+Success/failure/retry assertions preserve MF/SE/DN/SLE/tag quantity snapshots and original source
+and adoption records; attempted stock-document creation is prohibited in the doubles.
+
+`test_logistics_foundation` could not import because native Frappe is not installed locally; it is
+excluded from the passing total above. Native installation, MariaDB isolation/concurrency, real
+permissions and ERPNext posting feedback are not established by these offline tests. No new schema
+or data migration is required for this correction; no Frappe/ERPNext version change is needed.
+
+| Native-site acceptance after the owner deploys | Status |
+|---|---|
+| Isolated test Plan: loose load → Tag Existing ERP Stock on lorry → exact Received return → Close Plan, reload and retry | Not run |
+| Partial DN before adoption; same SKU in competing Plans; exact blocker for missing or ambiguous ownership | Not run |
+| Real child Documents, Batch/UOM/serial/certificate dimensions, direct/transit SLE and tag chronology | Not run |
+| Company/role/source reads, concurrent closure/stock activity and native rollback | Not run |
+| Compare all stock/document counts and quantities before and after closure and retries; no additional movement | Not run |

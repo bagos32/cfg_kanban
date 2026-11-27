@@ -18,6 +18,9 @@ REVIEW = 'CFG Kanban Dispatch Review'
 SESSION = 'CFG Kanban Delivery Session'
 ALLOCATION = 'CFG Kanban Delivery Allocation'
 MANIFEST = 'CFG Kanban Movement Manifest'
+SOURCE = 'CFG Kanban Dispatch Allocation'
+ADOPTION = 'CFG Kanban Stock Adoption'
+TAG_LEDGER = 'CFG Kanban Handling Unit Quantity Ledger'
 EPSILON = 0.000001
 TERMINAL = {'Completed', 'Skipped', 'Cancelled', 'Closed Incomplete'}
 
@@ -198,7 +201,8 @@ def _commands(plan, field, name):
 
 
 def _key(row):
-    return (row.get('handling_unit') or '', row['item_code'], row.get('batch_no') or '', row['stock_uom'])
+    # Native Frappe child Documents support get(), not dictionary subscripting.
+    return tuple(row.get(field) or '' for field in ('handling_unit', 'item_code', 'batch_no', 'stock_uom'))
 
 
 def _quantities(rows, quantity):
@@ -259,6 +263,201 @@ def _identity_evidence(plan, manifest, line, item):
             _fail(plan, f'Manifest {manifest.name} line {line.name} certificate dimension differs from the submitted transfer')
 
 
+def _loose_sources(plan, group):
+    return [row for row in _rows(SOURCE, {'dispatch_plan': plan.name, 'state': 'Loaded',
+            'movement_manifest': plan.movement_manifest})
+            if not row.handling_unit and _key(row)[1:] == group]
+
+
+def _loose_at(plan, sources, at):
+    """Original loose load less exact deliveries actually posted before adoption."""
+    by_name = {row.name: row for row in sources}
+    quantity = sum(flt(row.allocated_qty) for row in sources)
+    notes = set()
+    for allocation in _rows(ALLOCATION, {'dispatch_allocation': ['in', sorted(by_name)], 'state': 'Delivered'}):
+        source = by_name[allocation.dispatch_allocation]
+        if not allocation.get('delivery_note') or not allocation.get('delivery_note_item'):
+            _fail(plan, f'Allocation {allocation.name} lacks its historical Delivery Note reference')
+        note = frappe.get_doc('Delivery Note', allocation.delivery_note)
+        note.check_permission('read')
+        item = next((row for row in note.items if row.name == allocation.delivery_note_item), None)
+        if (note.docstatus != 1 or note.get('is_return') or note.company != plan.company or not item
+                or note.get('cfg_delivery_session') != allocation.delivery_session
+                or item.get('cfg_delivery_allocation') != allocation.name
+                or _key(allocation) != _key(source)
+                or _key(dict(handling_unit=item.get('cfg_handling_unit'), item_code=item.item_code,
+                             batch_no=item.get('batch_no'), stock_uom=item.stock_uom)) != _key(source)
+                or item.warehouse != plan.vehicle_warehouse
+                or flt(allocation.delivered_qty) <= EPSILON
+                or abs(flt(item.stock_qty) - flt(allocation.delivered_qty)) > EPSILON):
+            _fail(plan, f'Allocation {allocation.name} lacks exact historical loose-delivery evidence')
+        ledger = [row for row in _rows('Stock Ledger Entry', {'voucher_type': 'Delivery Note', 'voucher_no': note.name})
+                  if row.voucher_detail_no == item.name and not row.get('is_cancelled')]
+        if (not ledger or any(not row.creation or row.warehouse != plan.vehicle_warehouse
+                or row.item_code != source.item_code or row.stock_uom != source.stock_uom
+                or flt(row.actual_qty) >= 0 or get_datetime(row.creation) < get_datetime(plan.loaded_on) for row in ledger)
+                or abs(sum(flt(row.actual_qty) for row in ledger) + flt(allocation.delivered_qty)) > EPSILON):
+            _fail(plan, f'Delivery Note {note.name} lacks exact posted stock-ledger dates / quantity before tagging')
+        if max(get_datetime(row.creation) for row in ledger) <= at:
+            quantity -= flt(allocation.delivered_qty)
+            notes.add((note.name, item.name))
+    if quantity < -EPSILON:
+        _fail(plan, 'historical loose deliveries exceed the original load')
+    return quantity, notes
+
+
+def _loose_custody(plan, group, at, notes):
+    """Do not replace a Plan's loose stock with unrelated later receipts of the same SKU."""
+    load = frappe.get_doc(MANIFEST, plan.movement_manifest)
+    load_entries = {load.get('dispatch_stock_entry'), load.get('receipt_stock_entry')} - {None, ''}
+    evidence = []
+    for row in _rows('Stock Ledger Entry', {'warehouse': plan.vehicle_warehouse, 'item_code': group[0]}):
+        if row.get('is_cancelled'):
+            continue
+        if not row.creation:
+            _fail(plan, f'Stock ledger {row.name} has no custody timestamp')
+        if not get_datetime(plan.loaded_on) <= get_datetime(row.creation) <= at:
+            continue
+        if row.voucher_type not in ('Stock Entry', 'Delivery Note'):
+            _fail(plan, f'{row.voucher_type} {row.voucher_no} changes loose {group[0]} before tagging; Plan ownership is ambiguous')
+        document = frappe.get_doc(row.voucher_type, row.voucher_no)
+        document.check_permission('read')
+        item = next((line for line in document.items if line.name == row.voucher_detail_no), None)
+        if not item or document.docstatus != 1 or document.company != plan.company or item.item_code != group[0]:
+            _fail(plan, f'{row.voucher_type} {row.voucher_no} has incomplete historical custody evidence')
+        if (item.get('batch_no') or '', item.stock_uom) != group[1:]:
+            # A missing legacy Batch with a serial/batch bundle cannot prove a different Batch.
+            if item.get('serial_and_batch_bundle') and not item.get('batch_no'):
+                _fail(plan, f'{row.voucher_type} {row.voucher_no} needs Batch custody verification through E5')
+            continue
+        if item.get('cfg_handling_unit'):
+            continue
+        own_load = row.voucher_type == 'Stock Entry' and row.voucher_no in load_entries and flt(row.actual_qty) > 0
+        own_delivery = row.voucher_type == 'Delivery Note' and (row.voucher_no, item.name) in notes
+        if not own_load and not own_delivery:
+            _fail(plan, f'{row.voucher_type} {row.voucher_no} changes loose {group[0]} before tagging; Plan ownership is ambiguous')
+        evidence.append(row.name)
+    return evidence
+
+
+def _adopted_return(plan, tag, group, qty, departed_on, received_on):
+    unit = frappe.get_doc('CFG Kanban Handling Unit', tag)
+    unit.check_permission('read')
+    if unit.get('origin_reference_doctype') != ADOPTION or not unit.get('origin_reference_name'):
+        _fail(plan, f'tag {tag} differs from its loaded source and has no Tag Existing ERP Stock provenance')
+    adoption = frappe.get_doc(ADOPTION, unit.origin_reference_name)
+    adoption.check_permission('read')
+    if (adoption.handling_unit != tag or adoption.company != plan.company
+            or adoption.warehouse != plan.vehicle_warehouse or _key(adoption)[1:] != group
+            or adoption.status not in ('Adopted', 'Allocated to Cycle', 'Allocation Released')
+            or not adoption.get('adopted_on') or not plan.get('loaded_on')
+            or not get_datetime(plan.loaded_on) <= get_datetime(adoption.adopted_on) <= departed_on):
+        _fail(plan, f'Stock Adoption {adoption.name} does not prove this tag was assigned to loose stock on this Plan lorry after loading and before return')
+    quantity = flt(adoption.adopted_qty)
+    if quantity <= EPSILON or abs(quantity - qty) > EPSILON:
+        _fail(plan, f'Stock Adoption {adoption.name}: return must cover its whole unchanged tag ({quantity:g} {group[2]})')
+    erp, tagged, loose = (flt(adoption.get(field)) for field in ('erp_qty_at_adoption', 'tagged_qty_before', 'untagged_qty_before'))
+    if (tagged < -EPSILON or loose < quantity - EPSILON or abs(erp - tagged - loose) > EPSILON
+            or abs(flt(adoption.remaining_untagged_qty) - (loose - quantity)) > EPSILON):
+        _fail(plan, f'Stock Adoption {adoption.name} has inconsistent immutable untagged-stock quantities')
+    # Later production allocation/use may change status and current tag balances.
+    # Only the immutable quantity history up to receipt establishes this return.
+    events = {row.name: row for field in ('source_handling_unit', 'destination_handling_unit')
+              for row in _rows(TAG_LEDGER, {field: tag})}
+    activations = [row for row in events.values() if row.event_type == 'Pack / Activate'
+                   and row.reference_doctype == ADOPTION and row.reference_name == adoption.name
+                   and row.destination_handling_unit == tag and not row.source_handling_unit
+                   and _key(row)[1:] == group and abs(flt(row.stock_qty) - qty) <= EPSILON
+                   and abs(flt(row.destination_qty_delta) - qty) <= EPSILON
+                   and abs(flt(row.source_qty_delta)) <= EPSILON
+                   and row.destination_company == plan.company and row.destination_warehouse == plan.vehicle_warehouse
+                   and row.get('creation') and get_datetime(adoption.adopted_on) <= get_datetime(row.creation) <= departed_on]
+    if len(activations) != 1:
+        _fail(plan, f'Stock Adoption {adoption.name} is missing its exact original tag activation ledger')
+    for event in events.values():
+        if event.name == activations[0].name:
+            continue
+        changes_qty = ((event.source_handling_unit == tag and abs(flt(event.source_qty_delta)) > EPSILON)
+                       or (event.destination_handling_unit == tag and abs(flt(event.destination_qty_delta)) > EPSILON))
+        if changes_qty and (not event.get('creation') or get_datetime(event.creation) <= received_on):
+            _fail(plan, f'tag {tag} changed quantity through ledger {event.name} before this return; use its exact source history through E5')
+    return dict(handling_unit=tag, stock_adoption=adoption.name, activation_ledger=activations[0].name,
+                adopted_on=str(adoption.adopted_on), qty=quantity, group=group,
+                untagged_qty_before=loose)
+
+
+def _return_sources(plan, rows, manifest, departed_on, received_on):
+    """Bridge physical return tags to original logical allocations without rewriting either."""
+    by_source = {row['dispatch_allocation']: row for row in rows if row['remaining_qty'] > EPSILON}
+    physical = _quantities(manifest.lines, 'dispatch_qty')
+    changes = {}
+    for (tag, *parts), qty in physical.items():
+        group = tuple(parts)
+        if tag and not any(_key(row) == (tag, *group) for row in by_source.values()):
+            if not any(not row['handling_unit'] and _key(row)[1:] == group for row in by_source.values()):
+                _fail(plan, f'Manifest {manifest.name} tag {tag} has no matching original loose Plan source')
+            changes[tag] = _adopted_return(plan, tag, group, qty, departed_on, received_on)
+    prior = {}
+    for change in sorted(changes.values(), key=lambda row: (get_datetime(row['adopted_on']), row['stock_adoption'])):
+        group = change['group']; at = get_datetime(change['adopted_on'])
+        sources = _loose_sources(plan, group)
+        quantity, notes = _loose_at(plan, sources, at)
+        if any(row.get('refused_released_qty') or row.get('cancelled_released_qty') for row in rows if not row['handling_unit'] and _key(row)[1:] == group):
+            _fail(plan, f'Stock Adoption {change["stock_adoption"]} follows released loose commitments; verify their ownership through E5')
+        # Stock Adoption has no Plan FK. Reject a competing loose obligation even
+        # if the current lorry is empty or that other Plan settled after adoption.
+        others = {row.dispatch_plan for row in _rows(SOURCE, {'state': 'Loaded', 'item_code': group[0], 'stock_uom': group[2]})
+                  if not row.handling_unit and _key(row)[1:] == group and row.dispatch_plan != plan.name}
+        for name in sorted(others):
+            other = frappe.get_doc(PLAN, name)
+            if other.company != plan.company or other.vehicle_warehouse != plan.vehicle_warehouse:
+                continue
+            if other.get('loaded_on') and get_datetime(other.loaded_on) > at:
+                continue
+            other.check_permission('read')
+            if (other.state == 'Reconciled' and other.get('dispatch_review_state') == 'Settled'
+                    and other.get('active_dispatch_review')):
+                review = frappe.get_doc(REVIEW, other.active_dispatch_review)
+                if review.state == 'Completed' and review.get('closed_on') and get_datetime(review.closed_on) <= at:
+                    continue
+            if not other.get('loaded_on') or _loose_at(other, _loose_sources(other, group), at)[0] > EPSILON:
+                _fail(plan, f'Stock Adoption {change["stock_adoption"]} has ambiguous loose ownership with Plan {name}')
+        available = quantity - prior.get(group, 0)
+        if abs(available - change['untagged_qty_before']) > EPSILON:
+            _fail(plan, f'Stock Adoption {change["stock_adoption"]}: Plan loose balance was {available:g} {group[2]}, untagged snapshot was {change["untagged_qty_before"]:g}; ownership is ambiguous')
+        change['custody_stock_ledgers'] = _loose_custody(plan, group, at, notes)
+        change['prior_adopted_qty'] = prior.get(group, 0)
+        prior[group] = prior.get(group, 0) + change['qty']
+    logical = {}; assigned = {}; mappings = []
+    # Honour explicit allocation links before distributing fungible loose rows.
+    for line in sorted(manifest.lines, key=lambda row: (not bool(row.get('dispatch_allocation')), row.name)):
+        key = _key(line)
+        logical_key = ('', *key[1:]) if key[0] in changes else key
+        logical[logical_key] = logical.get(logical_key, 0) + flt(line.dispatch_qty)
+        candidates = [row for row in by_source.values() if _key(row) == logical_key
+                      and (not line.get('dispatch_allocation') or row['dispatch_allocation'] == line.dispatch_allocation)]
+        if line.get('dispatch_allocation') and not candidates:
+            _fail(plan, f'Manifest {manifest.name} line {line.name} belongs to another source allocation')
+        if not line.handling_unit and not line.get('dispatch_allocation'):
+            _fail(plan, f'Manifest {manifest.name} untagged {line.item_code} has no Plan allocation provenance')
+        if key[0] and key[0] not in changes and len(candidates) != 1:
+            _fail(plan, f'Manifest {manifest.name} tag {key[0]} has ambiguous Plan ownership')
+        remaining = flt(line.dispatch_qty)
+        for source in sorted(candidates, key=lambda row: row['dispatch_allocation']):
+            name = source['dispatch_allocation']
+            qty = min(remaining, max(source['remaining_qty'] - assigned.get(name, 0), 0))
+            if qty > EPSILON:
+                assigned[name] = assigned.get(name, 0) + qty; remaining -= qty
+                mappings.append(dict(manifest_line=line.name, handling_unit=line.handling_unit,
+                                     dispatch_allocation=name, qty=qty, stock_uom=line.stock_uom))
+        if remaining > EPSILON:
+            _fail(plan, f'Manifest {manifest.name} line {line.name} exceeds its exact remaining Plan source')
+    _exact(plan, _quantities(rows, 'remaining_qty'), logical, manifest.name)
+    if any(abs(assigned.get(name, 0) - row['remaining_qty']) > EPSILON for name, row in by_source.items()):
+        _fail(plan, f'Manifest {manifest.name} does not cover every exact remaining Plan source')
+    return dict(identity_changes=list(changes.values()), allocation_sources=mappings)
+
+
 def _returned(plan, rows, manifest_name, review=None):
     manifest = frappe.get_doc(MANIFEST, manifest_name)
     manifest.check_permission('read')
@@ -281,28 +480,13 @@ def _returned(plan, rows, manifest_name, review=None):
     if review and review.get('recovery_manifest') and review.recovery_manifest != manifest.name:
         _fail(plan, f'Review {review.name} already has recovery Manifest {review.recovery_manifest}')
     expected = _quantities(rows, 'remaining_qty')
-    _exact(plan, expected, _quantities(manifest.lines, 'dispatch_qty'), manifest.name)
-    by_source = {row['dispatch_allocation']: row for row in rows if row['remaining_qty'] > EPSILON}
-    assigned = {}
+    physical = _quantities(manifest.lines, 'dispatch_qty')
+    if all(key in expected for key in physical):
+        _exact(plan, expected, physical, manifest.name)
     for line in manifest.lines:
         if (line.state != 'Received' or flt(line.dispatch_qty) <= EPSILON
                 or abs(flt(line.received_qty) - flt(line.dispatch_qty)) > EPSILON):
             _fail(plan, f'Manifest {manifest.name} line {line.name} ({line.item_code}) is not fully received')
-        source = by_source.get(line.dispatch_allocation)
-        if line.dispatch_allocation:
-            if not source or _key(source) != _key(line):
-                _fail(plan, f'Manifest {manifest.name} line {line.name} belongs to another source allocation')
-            assigned[source['dispatch_allocation']] = assigned.get(source['dispatch_allocation'], 0) + flt(line.dispatch_qty)
-        elif not line.handling_unit:
-            # An exact SKU total alone cannot identify fungible loose stock from other Plans.
-            _fail(plan, f'Manifest {manifest.name} untagged {line.item_code} has no Plan allocation provenance')
-        else:
-            matches = [row for row in by_source.values() if _key(row) == _key(line)]
-            if len(matches) != 1:
-                _fail(plan, f'Manifest {manifest.name} tag {line.handling_unit} has ambiguous Plan ownership')
-            assigned[matches[0]['dispatch_allocation']] = assigned.get(matches[0]['dispatch_allocation'], 0) + flt(line.dispatch_qty)
-    if any(abs(assigned.get(name, 0) - row['remaining_qty']) > EPSILON for name, row in by_source.items()):
-        _fail(plan, f'Manifest {manifest.name} does not cover every exact remaining Plan source')
     entries = [manifest.dispatch_stock_entry]
     if manifest.internal_transfer_mode == 'Goods in Transit':
         entries.append(manifest.receipt_stock_entry)
@@ -331,37 +515,39 @@ def _returned(plan, rows, manifest_name, review=None):
             _identity_evidence(plan, manifest, line, item)
             key = (item.get('cfg_handling_unit') or '', item.item_code, item.batch_no or '', item.stock_uom)
             actual[key] = actual.get(key, 0) + flt(item.transfer_qty)
-        _exact(plan, expected, actual, name)
+        _exact(plan, physical, actual, name)
         submitted.append(_ledger(plan, entry))
         evidence.append(name)
+    provenance = _return_sources(plan, rows, manifest, min(submitted), max(submitted))
     # The posted location ledger proves historical custody. Later legitimate use
     # of the returned stock must not be mistaken for an unreturned Plan remainder.
     tag_ledgers=[]
-    for row in rows:
-        if row['remaining_qty'] <= EPSILON or not row['handling_unit']:
+    for key, qty in physical.items():
+        tag, item, batch, uom = key
+        if not tag:
             continue
-        for owner in _rows('CFG Kanban Dispatch Allocation', {'handling_unit': row['handling_unit'], 'state': 'Loaded'}, ['dispatch_plan']):
+        for owner in _rows(SOURCE, {'handling_unit': tag, 'state': 'Loaded'}, ['dispatch_plan']):
             if owner.dispatch_plan == plan.name:
                 continue
             later = frappe.get_doc(PLAN, owner.dispatch_plan)
             if later.get('loaded_on') and get_datetime(plan.loaded_on) <= get_datetime(later.loaded_on) <= max(submitted):
-                _fail(plan, f'Manifest {manifest.name} tag {row["handling_unit"]} was loaded again before this transfer; select its exact earlier return')
+                _fail(plan, f'Manifest {manifest.name} tag {tag} was loaded again before this transfer; select its exact earlier return')
         for index, entry_name in enumerate(entries):
             source = plan.vehicle_warehouse if index == 0 else manifest.transit_warehouse
             target = manifest.transit_warehouse if len(entries) == 2 and index == 0 else destination.name
-            transfers = _rows('CFG Kanban Handling Unit Quantity Ledger', {
-                'event_type': 'Location Transfer', 'source_handling_unit': row['handling_unit'],
+            transfers = _rows(TAG_LEDGER, {
+                'event_type': 'Location Transfer', 'source_handling_unit': tag,
                 'reference_doctype': 'Stock Entry', 'reference_name': entry_name})
-            matches=[event for event in transfers if event.item_code == row['item_code']
-                     and (event.batch_no or '') == (row['batch_no'] or '') and event.stock_uom == row['stock_uom']
-                     and abs(flt(event.stock_qty) - row['remaining_qty']) <= EPSILON
+            matches=[event for event in transfers if event.item_code == item
+                     and (event.batch_no or '') == batch and event.stock_uom == uom
+                     and abs(flt(event.stock_qty) - qty) <= EPSILON
                      and event.source_company == plan.company and event.source_warehouse == source
                      and event.destination_warehouse == target and event.destination_company == plan.company]
             if len(matches) != 1:
-                _fail(plan, f'Manifest {manifest.name} tag {row["handling_unit"]} is missing its exact posted location-transfer ledger for {entry_name}')
+                _fail(plan, f'Manifest {manifest.name} tag {tag} is missing its exact posted location-transfer ledger for {entry_name}')
             tag_ledgers.append(matches[0].name)
     # A pre-review return is valid; its real document dates are retained, never rewritten.
-    return dict(manifest=manifest.name, stock_entries=evidence, tag_ledgers=tag_ledgers, destination_warehouse=destination.name,
+    return dict(manifest=manifest.name, stock_entries=evidence, tag_ledgers=tag_ledgers, **provenance, destination_warehouse=destination.name,
                 posted_before_review=bool(manifest.get('dispatch_confirmed_on')
                     and get_datetime(manifest.dispatch_confirmed_on) < get_datetime(review.opened_on if review else now_datetime())))
 
@@ -414,6 +600,16 @@ def inspect_plan(plan, return_manifest=None, discover=False):
     names = {line.parent for line in _rows('CFG Kanban Manifest Line',
         {'dispatch_allocation': ['in', [row['dispatch_allocation'] for row in balances if row['remaining_qty'] > EPSILON]]}, ['parent'])}
     tags = [row['handling_unit'] for row in balances if row['remaining_qty'] > EPSILON and row['handling_unit']]
+    loose_groups = {_key(row)[1:] for row in balances if row['remaining_qty'] > EPSILON and not row['handling_unit']}
+    if loose_groups:
+        if not plan.get('loaded_on'):
+            _fail(plan, 'the original loose load has no confirmed loading timestamp')
+        # Historical loose loading rows deliberately remain untagged. Discover the
+        # later physical identity through immutable adoption records instead.
+        tags.extend(row.handling_unit for row in _rows(ADOPTION, {'company': plan.company, 'warehouse': plan.vehicle_warehouse,
+                    'item_code': ['in', sorted({group[0] for group in loose_groups})]})
+                    if row.handling_unit and _key(row)[1:] in loose_groups and row.get('adopted_on')
+                    and get_datetime(row.adopted_on) >= get_datetime(plan.loaded_on))
     if tags:
         names.update(line.parent for line in _rows('CFG Kanban Manifest Line', {'handling_unit': ['in', tags]}, ['parent']))
     if review and review.get('recovery_manifest'):
