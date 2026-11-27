@@ -155,3 +155,28 @@ cfg_kanban.tests.test_trip_continuation
 cfg_kanban.tests.test_installation
 cfg_kanban.tests.test_doctype_schema
 ```
+
+## Follow-up: unique empty movement reference — 27 November 2026
+
+Reported on E5 reconciliation after base `7e8beac`: `Duplicate entry '' for key
+'movement_stock_entry'`. The shared `finish_dispatch_review()` passed HTTP's empty string through
+`db_set`, bypassing native document sanitization. One completed no-transfer Review could occupy
+the unique empty-string value and block the next. The earlier in-memory stores did not enforce
+that SQL constraint.
+
+- Empty/whitespace-only movement inputs now become `None` before fingerprinting, validation and
+  direct persistence. Normal nonempty Stock Entry names and evidence-reuse guards are unchanged.
+- Post-model-sync patch `v1_11.normalize_dispatch_review_movement_reference` converts only existing
+  blank references to `NULL`, invalidates those cached Reviews, and preserves the actual unique
+  constraint, final audit fields, snapshots/hashes, timestamps, Plan state and all ERP/stock data.
+- The original HEAD function reproduced the failure against a real nullable UNIQUE column. The
+  corrected function, historical repair, valid-transfer uniqueness and document-backed multi-Plan
+  closure are covered by `test_dispatch_review_empty_reference.py` (8 tests). This uses SQLite
+  with actual application functions and dependency doubles; it is not MariaDB or live acceptance.
+- Relevant Python regression: 306 tests passed. Existing review UI: 26 checks passed. Native
+  MariaDB migration/retry/concurrency acceptance remains pending. No live records were accessed.
+
+Frappe v15 reference: normal saves [sanitize unused unique fields to
+NULL](https://github.com/frappe/frappe/blob/v15.69.2/frappe/model/base_document.py#L406), while
+[`db_set` bypasses controller validation and calls direct database updates](https://github.com/frappe/frappe/blob/v15.69.2/frappe/model/document.py#L1228).
+The fix is in CFG's E5 persistence; no framework upgrade or index removal is needed.

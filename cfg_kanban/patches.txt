@@ -11,3 +11,4 @@ cfg_kanban.patches.v1_7.release_closed_cycle_material_reservations
 cfg_kanban.patches.v1_8.backfill_delivery_allocation_kind
 cfg_kanban.patches.v1_9.backfill_route_stop_policy
 cfg_kanban.patches.v1_10.warehouse_fulfilment_defaults
+cfg_kanban.patches.v1_11.normalize_dispatch_review_movement_reference

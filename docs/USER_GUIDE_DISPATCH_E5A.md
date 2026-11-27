@@ -183,3 +183,22 @@ later or further stock changes need a fresh count. Never reuse across Companies 
 
 See [the simple operator checklist](USER_GUIDE_LORRY_ROUTES_AND_FLOOR.md#10-guided-e5-count-one-lorry-once-for-several-plans)
 and [verification / acceptance gaps](TEST_DISPATCH_DOCUMENT_CLOSURE.md).
+
+## Empty movement reference blocks Finish Review
+
+If reconciliation raises `Duplicate entry '' for key 'movement_stock_entry'`, an empty optional
+Stock Entry Link has reached the unique SQL column as an empty string. It is not evidence that
+the delivery itself was duplicated. For stock-stays, overnight and no-remainder decisions, the
+unused movement reference must be SQL `NULL` so several Reviews can have no transfer.
+
+The correction normalizes empty form values before the E5 finish action. Normal migration runs
+`cfg_kanban.patches.v1_11.normalize_dispatch_review_movement_reference`, which changes only existing
+blank movement references to `NULL`. Named Stock Entry references, the unique index, Review
+states, original closing snapshots/hashes and timestamps are preserved. It closes no Plan or Trip
+and moves no stock.
+
+After the corrected code is deployed and migrated, refresh and retry **the existing Review**.
+Its normal count, proof, quantity, authorization and movement-evidence checks still apply. When
+all Sheet visits/deliveries/proof are already finished, **Lorry Route Sheet → Close Route** is the
+existing document-backed path; it can settle an ordinary Reviewing Review without a whole-lorry
+recount. Holds, per-item recovery and unresolved evidence retain their existing controlled steps.

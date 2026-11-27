@@ -326,6 +326,10 @@ def finish_dispatch_review(dispatch_review, action, reconciliation_name, reason,
     operator,session=_authorized(operator_session_token,'complete')
     plan,review=_locked_review(dispatch_review,operator)
     reason=str(reason or '').strip()
+    # HTTP form encoding can turn JSON null into ''. db_set bypasses Frappe's
+    # get_valid_dict sanitization: an unused unique Link must be SQL NULL.
+    if not (movement_stock_entry or '').strip():
+        movement_stock_entry=None
     key=canonical_key('dispatch-review-finish',review.name,event_token)
     fingerprint=canonical_key('dispatch-review-finish-payload',action,reconciliation_name,reason,
                               movement_stock_entry or '',balance_hash or '')
