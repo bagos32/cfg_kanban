@@ -682,7 +682,10 @@ def get_dispatch_plan(dispatch_plan, operator_session_token):
         plan.state == "Loaded" and plan.plan_type == "Open Route Stock"
         and plan.fulfilment_mode == "Vehicle Delivery" and operator.can_start
         and _customer_delivery_allowed(operator))
-    if plan.plan_type == "Open Route Stock" and plan.fulfilment_mode == "Vehicle Delivery":
+    # Cancellation still returns its summary and reservation audit. Building the
+    # active route panel here rejects Cancelled and rolls back the cancel action.
+    if (plan.plan_type == "Open Route Stock" and plan.fulfilment_mode == "Vehicle Delivery"
+            and plan.state != "Cancelled"):
         from cfg_kanban.services.route_delivery import plan_context
         result["route_delivery"] = plan_context(plan, operator)
     result["can_review_dispatch"] = bool(plan.fulfilment_mode == "Vehicle Delivery" and plan.state in ("Loaded","Reconciled")

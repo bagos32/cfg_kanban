@@ -194,3 +194,41 @@ These use document/RPC/grid doubles. They do not verify live ERPNext balances, s
 Dispatch Plans, database transactions, or tablet/browser rendering. This change does not deduct
 other unfulfilled Dispatch Plans from the Sales Order preview; existing reservation controls still
 apply. Record the deployed revision and live test evidence separately before accepting this flow.
+
+## Cancelled Open Route Plan response — 27 November 2026
+
+Use test data only: an office Trip's shared **Open Route Stock / Vehicle Delivery** Plan in
+**Approved**, one **Skipped** customer stop, zero visits started/completed, 10 Nos requested for
+`WR1,5KG`, zero reserved and one historical **Released** allocation. Do not change or cancel the
+reported live `DPL-2026-00012` record as a test.
+
+An authorized cancellation with a reason must return **Cancelled** with its reservation audit.
+It must omit the active Open Route delivery panel: that panel's existing readiness guard rejects
+Cancelled Plans and previously caused the response to fail after cancellation. The same Plan must
+still open/reload as Cancelled. Its Released allocation and Skipped stop retain their original audit
+facts. Repeating cancellation must not create another cancellation audit or release. No Movement
+Manifest, Stock Entry, Delivery Note, delivery Session, ERP command or quantity/stock ledger event
+may be created for this zero-reserved case.
+
+The existing Override, responsibility, reason, event-token, Draft Start and loaded-Plan recovery
+checks remain. A separate active untagged reservation must still be cancelled once through the
+normal release function; the historical Released row is never released again.
+
+Offline regression entry points:
+
+```bash
+python3 -B -m unittest cfg_kanban.tests.test_dispatch_plan_cancellation
+node --test cfg_kanban/tests/test_dispatch_plan_cancellation_ui.cjs
+```
+
+These exercise the real cancellation/get-Plan/route guard functions and the Logistics cancel,
+reload and renderer using test document, RPC and DOM adapters. They do not establish native Frappe
+transaction commit/rollback, live-page rendering or deployment. After deploying, verify those
+behaviors with an isolated equivalent test Plan and record its deployed SHA and evidence here.
+
+Verified offline on 27 November 2026: 9 new backend cancellation tests passed; the combined related
+Python run passed 241 tests. Two new Logistics cancellation/reload UI tests and the four existing
+order-quantity, Open Route, prepared-delivery and Route Sheet UI suites passed. Before the fix, the
+reported-state test raised the exact Loaded-Plan guard error while building the cancellation
+response. No schema migration or production frontend change is required. Native-site acceptance
+remains unrun, and the live reported Plan was not accessed or changed.
