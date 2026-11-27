@@ -52,3 +52,15 @@ test('navigation commands, genealogy return and grouped operator/trip tools keep
  assert.match(read('cfg_kanban/page/kanban_operator/kanban_operator.js'),/Operator Tools/);
  assert.match(read('cfg_kanban/doctype/cfg_kanban_delivery_trip/cfg_kanban_delivery_trip.js'),/Trip Tools/);
 });
+test('field panels mount the compact switch in the native Page heading',()=>{
+ const root=path.resolve(__dirname,'..'),read=name=>fs.readFileSync(path.join(root,name),'utf8');
+ assert.match(read('cfg_kanban/page/kanban_logistics/kanban_logistics.js'),/mountSwitch\(page, "logistics"/);
+ assert.match(read('public/js/driver_route.js'),/mountSwitch\(page,'driver'/);
+ assert.match(read('public/js/field_ui.js'),/get_title_area/);
+});
+test('Trip Handover explicitly loads status helper and its own colour stylesheet',()=>{
+ const root=path.resolve(__dirname,'..'),read=name=>fs.readFileSync(path.join(root,name),'utf8');
+ const loader=read('cfg_kanban/page/kanban_trip_handover/kanban_trip_handover.js');
+ assert.match(loader,/field_ui.js/);assert.match(loader,/trip_handover.css/);
+ const page=read('public/js/trip_handover.js');assert.match(page,/choiceHTML\(row,index\+1/);assert.match(page,/planLegend\(\)/);
+});

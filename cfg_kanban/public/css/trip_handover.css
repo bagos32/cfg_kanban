@@ -4,6 +4,14 @@
 .cfg-trip-handover .handover-operator { font-weight: 600; margin-bottom: 10px; }
 .cfg-trip-handover .handover-notice { margin-top: 12px; padding: 12px; background: var(--subtle-fg, #f2f5fa); border-left: 4px solid var(--primary, #2471a3); }
 .cfg-trip-handover .handover-options .btn { min-height: 52px; overflow-wrap: anywhere; }
+.cfg-trip-handover .cfg-handover-legend { display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0; }
+.cfg-trip-handover .cfg-field-badge { display:inline-block;padding:5px 10px;border-radius:16px;font-weight:700;white-space:normal; }
+.cfg-trip-handover .cfg-handover-plan { padding:14px;margin:14px 0;border:1px solid var(--border-color,#ccc);border-left-width:5px;border-radius:8px; }
+.cfg-trip-handover .cfg-handover-choice { display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;border-left-width:5px; }
+.cfg-trip-handover .cfg-field-green { background:#e4f4e8;color:#14582a;border-color:#258444; }
+.cfg-trip-handover .cfg-field-orange { background:#fff3d8;color:#78500a;border-color:#c58a19; }
+.cfg-trip-handover .cfg-field-red { background:#fbe8e7;color:#8b2521;border-color:#bf4540; }
+.cfg-trip-handover .cfg-field-gray { background:#edf0f3;color:#4a5664;border-color:#788491; }
 .cfg-trip-handover .table-responsive { overflow-x: auto; }
 .cfg-trip-handover td, .cfg-trip-handover th { vertical-align: middle; }
 .cfg-trip-handover .handover-inputs { margin: 14px 0; }

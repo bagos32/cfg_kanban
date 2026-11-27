@@ -6828,3 +6828,49 @@ Deployment requires the normal CFG schema migration, asset build and cache clear
 site/Session policy and read-only allocation check evidence; migration does not check old goods or
 change stock. See [offline results and native acceptance](TEST_DRIVER_FIELD_WORKFLOW.md). Native
 ERPNext, physical scanner/camera and real tablet layout acceptance remain pending.
+
+## Compact field headers, readable Tools and Handover Plan colours — 27 November 2026
+
+The Driver Route / Logistics switch now sits beside the native page title. It is approximately
+210 × 34 CSS pixels on a full-width screen and 160 × 32 on narrow phones; it no longer adds a row
+above the scanner. Active-panel labels, remembered Trip and scanner navigation commands remain.
+On very narrow screens the native title can truncate to keep both switch buttons accessible.
+
+Trip Tools and Operator Tools now use the native Frappe `.custom-actions` toolbar layout. Their
+header is above the sticky scanner/identity fields, while native modal backdrops remain above the
+header. Dropdowns retain their viewport edge correction. This is scoped to the existing Trip and
+Production pages; other ERPNext forms retain their native layout.
+
+**Trip Handover** shows status colours on both its Plan summaries and the numbered Plan selection
+buttons. Its legend is **green: settled/Reconciled; amber: settlement pending; red: recovery;
+grey: Cancelled/history**. Loaded goods or a Completed Review alone do not mean settled. Text
+labels accompany the colours; selection numbers, actions, permissions and stock posting rules
+are unchanged. The page explicitly loads its status helper and its own colour stylesheet.
+
+## Auto print a newly created return custody label — 27 November 2026
+
+On the normal **CFG Kanban Customer Scan Point** form, under **Driver Documents After Delivery /
+Return Collection**, enable **Auto Print Custody Label After Creation**. It defaults off. Existing
+Stock/Sales/System Managers who can edit the Scan Point manage this option. In the Company's
+**CFG Kanban Mobile Print Profile**, select the **Custody Label Print Format** and configure the
+actual device's printer dimensions/pairing as usual.
+
+Creating a custody label at that customer's stop then prepares **one copy of that new label**
+using the configured native Print Format. With an approved/paired Label Bridge and a browser
+that permits the app launch, CFG attempts its first handoff automatically. If browser user-gesture
+permission has expired or an explicit permission rejection occurs, tap the ready Print button.
+If unpaired, the job is still prepared; pair the device and tap Print. Long labels retain the
+normal part-by-part confirmation workflow. Check the paper and confirm it; opening the companion
+is not a printer acknowledgement.
+
+This option applies to creation, not to reprints or resumed jobs. An uncertain preparation/segment
+request keeps its original identity; read back or retry that request and review its existing job.
+Recovery does not automatically resend paper. Already-open jobs and another operator's jobs retain
+the existing resume/reasoned office recovery checks. Creation and print preparation use separate
+controlled requests, so an unavailable format or printer does not invent stock or credit or erase
+the created custody label. Return/QC eligibility, exact claimed quantities, native print authority,
+operator permissions and source-document checks remain.
+
+Migrate the new default-off Scan Point field, build CFG assets, clear cache and hard-refresh the
+browser after deploying. This development is verified offline; native-site/device checks remain
+in [the field-workflow acceptance record](TEST_DRIVER_FIELD_WORKFLOW.md).

@@ -1463,11 +1463,16 @@
 		grid-template-columns: 1fr;
 	}
 }
-.cfg-panel-switch { position:relative;isolation:isolate;display:flex;width:min(100%,400px);margin:10px 0 16px;padding:4px;background:var(--subtle-fg,#eef1f5);border:1px solid var(--border-color,#cdd3db);border-radius:28px; }
-.cfg-panel-switch button { position:relative;z-index:1;flex:1;min-height:44px;border:0;border-radius:24px;background:transparent;font-weight:700;color:var(--text-color,#253040); }
+.cfg-panel-switch { position:relative;isolation:isolate;display:inline-flex;flex:0 0 210px;width:210px;max-width:100%;box-sizing:border-box;margin:0;padding:2px;background:var(--subtle-fg,#eef1f5);border:1px solid var(--border-color,#cdd3db);border-radius:18px; }
+.cfg-panel-switch button { position:relative;z-index:1;flex:1;min-width:0;min-height:28px;padding:4px 8px;border:0;border-radius:16px;background:transparent;font-size:12px;line-height:1.2;white-space:nowrap;font-weight:700;color:var(--text-color,#253040); }
 .cfg-panel-switch button[aria-pressed=true] { color:white; }
-.cfg-panel-slider { position:absolute;inset:4px auto 4px 4px;width:calc(50% - 4px);border-radius:24px;background:#1e6798;transition:transform .18s ease; }
+.cfg-panel-slider { position:absolute;inset:2px auto 2px 2px;width:calc(50% - 2px);border-radius:16px;background:#1e6798;transition:transform .18s ease; }
 .cfg-panel-switch[data-panel=logistics] .cfg-panel-slider { transform:translateX(100%);background:#237442; }
+.cfg-field-heading-row.page-head-content { height:auto;min-height:var(--page-head-height,60px);gap:8px;flex-wrap:wrap; }
+.cfg-field-heading.page-title { flex:1 1 auto;width:auto;max-width:100%;min-width:0;gap:10px; }
+.cfg-field-heading.page-title .title-area { flex:0 1 auto;width:auto;min-width:0; }
+.cfg-field-heading.page-title .title-text { max-width:none;margin-right:0; }
+.cfg-field-heading-row .page-actions { flex:0 1 auto;min-width:0;margin-left:auto; }
 .cfg-field-badge { display:inline-block;padding:5px 10px;border-radius:16px;font-weight:700;white-space:normal; }
 .cfg-field-green { background:#e4f4e8;color:#14582a;border-color:#258444; }
 .cfg-field-orange { background:#fff3d8;color:#78500a;border-color:#c58a19; }
@@ -1476,9 +1481,21 @@
 .cfg-logistics-line.cfg-scan-confirmed { background:#e4f4e8;border-left:5px solid #258444; }
 .cfg-logistics-line.cfg-scan-pending { border-left:5px solid #c58a19; }
 .cfg-handover-plan { padding:14px;margin:14px 0;border:1px solid var(--border-color,#ccc);border-left-width:5px;border-radius:8px; }
-.cfg-field-actions .inner-toolbar { display:flex;flex-wrap:wrap;gap:6px;min-width:0; }
-.cfg-field-actions .inner-toolbar .btn-group { max-width:100%;min-width:0; }
-.cfg-field-actions .inner-toolbar .btn { white-space:normal;overflow-wrap:anywhere; }
+.cfg-field-actions .page-head { z-index:40;overflow:visible; }
+.cfg-field-actions .page-head-content,.cfg-field-actions .page-actions,.cfg-field-actions .custom-actions,.cfg-field-actions .inner-group-button { overflow:visible; }
+.cfg-field-actions .page-head-content { height:auto;min-height:var(--page-head-height,60px);flex-wrap:wrap;gap:6px; }
+.cfg-field-actions .page-actions { flex-wrap:wrap;max-width:100%;gap:6px; }
+.cfg-field-actions .inner-toolbar,.cfg-field-actions .custom-actions { display:flex;flex-wrap:wrap;gap:6px;min-width:0; }
+.cfg-field-actions .inner-toolbar .btn-group,.cfg-field-actions .inner-group-button { max-width:100%;min-width:0; }
+.cfg-field-actions .inner-toolbar .btn,.cfg-field-actions .custom-actions .btn { white-space:normal;overflow-wrap:anywhere; }
 .cfg-field-actions .dropdown-menu { max-width:calc(100vw - 24px);min-width:min(160px,calc(100vw - 24px));translate:var(--cfg-menu-shift,0px) 0; }
 .cfg-field-actions .dropdown-menu .dropdown-item,.cfg-field-actions .dropdown-menu a { white-space:normal;overflow-wrap:anywhere; }
+@media (max-width:575px) {
+ .cfg-field-heading.page-title { gap:4px; }
+ .cfg-field-heading.page-title .title-area { flex:1 1 auto; }
+ .cfg-field-heading.page-title .title-area>div { min-width:0; }
+ .cfg-field-heading.page-title .title-text { font-size:16px; }
+ .cfg-field-heading .cfg-panel-switch { flex-basis:160px;width:160px; }
+ .cfg-field-heading .cfg-panel-switch button { min-height:26px;padding:4px;font-size:11px; }
+}
 @media (prefers-reduced-motion:reduce) { .cfg-panel-slider { transition:none; } }

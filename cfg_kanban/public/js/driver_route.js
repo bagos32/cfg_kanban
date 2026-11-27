@@ -240,7 +240,7 @@
         notice(state.error ? (state.stale ? tr('Not refreshed') + ': ' : '') + state.error : state.busy ? tr('Refreshing…') : '');
       },
     });
-    panelSwitch=window.cfg_field_ui?.mountSwitch(page.main,'driver',()=>({trip:app.state.selected,employee:app.state.operator?.employee}));
+    panelSwitch=window.cfg_field_ui?.mountSwitch(page,'driver',()=>({trip:app.state.selected,employee:app.state.operator?.employee}));
     routeMap=maps()?.createRouteMap({frappe,
       identity:()=>{let token;try{token=localStorage.getItem(SESSION);}catch(_){return null;}return app.state.active&&frappe.get_route()?.[0]==='kanban-driver-route'&&token&&token===app.state.token&&app.state.operator?.employee?`${token}:${app.state.operator.employee}:${app.state.selected}`:null;},
       pick:key=>{if(action||!app.session()||!app.state.active||app.state.stale||app.state.busy)return;app.viewStop(key);},

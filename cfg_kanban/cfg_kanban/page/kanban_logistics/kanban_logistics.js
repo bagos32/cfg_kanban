@@ -11,7 +11,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		recent_reconciliations: [], can_reconcile: false, reconciliation: null,
 		lookup: null, scan_mode: "lookup", live_timer: null, live_revision: null,
 		dispatch_plan_line: null, live_request: false, interaction_epoch: 0 };
-	window.cfg_field_ui?.mountSwitch(page.main, "logistics", () => ({employee: state.operator?.employee}));
+	window.cfg_field_ui?.mountSwitch(page, "logistics", () => ({employee: state.operator?.employee}));
 	const $sticky = $("<div class='cfg-logistics-sticky'></div>").appendTo(page.main);
 	const $scanner = $(`<div class="frappe-card cfg-logistics-scanner">
 		<div class="cfg-logistics-scanner-head"><div><strong>${__("Logistics Scanner")}</strong>

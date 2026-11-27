@@ -40,8 +40,12 @@
  }
  function command(raw,context){const text=String(raw||'').trim().toUpperCase();if(!text.startsWith('CFG:CMD:'))return false;const name=text.slice(8);if(!NAV[name])return false;navigate(name==='DRIVER_ROUTE'?'driver':'logistics',context);return true;}
  function switchHTML(panel){return `<nav class="cfg-panel-switch" data-panel="${esc(panel)}" aria-label="Field panels"><span class="cfg-panel-slider" aria-hidden="true"></span><button type="button" data-cfg-panel="driver" aria-pressed="${panel==='driver'}">Driver Route</button><button type="button" data-cfg-panel="logistics" aria-pressed="${panel==='logistics'}">Logistics</button></nav>`;}
- function mountSwitch(parent,panel,context){
-  const host=root.$(switchHTML(panel)).prependTo(parent);
+ function mountSwitch(page,panel,context){
+  const title=page.get_title_area?.()||page.$title_area||page.wrapper?.find?.('.title-area');
+  const heading=title?.closest('.page-title');
+  const parent=heading?.length?heading:page.main||page;
+  if(heading?.length){heading.addClass('cfg-field-heading');heading.closest('.page-head-content').addClass('cfg-field-heading-row');}
+  const host=root.$(switchHTML(panel)).appendTo(parent);
   host.on('click.cfg_panel','[data-cfg-panel]',event=>navigate(root.$(event.currentTarget).attr('data-cfg-panel'),context()));
   const sync=()=>remember(context());sync();return {sync,host};
  }

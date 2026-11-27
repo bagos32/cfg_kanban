@@ -113,3 +113,15 @@ test('guided unfinished proof opens its exact existing Delivery Session',async()
  const h=await opened();let selected;h.env.openDelivery=name=>selected=name;h.context.closure_guide={stage:0,plan:'DPL-1',delivery_session:'NEEDS-PROOF'};
  await h.c.refresh();await h.c.scan('CFG:CMD:HANDOVER_NEXT_STEP');assert.equal(selected,'NEEDS-PROOF');
 });
+
+test('numbered Plan choices show settled, pending, recovery and cancelled text with their colour',()=>{
+ global.cfg_field_ui=require('../public/js/field_ui.js');
+ for(const [state,color,label] of [['Reconciled','green','Settled'],['Loaded','orange','Settlement pending'],['Exception','red','Recovery required'],['Cancelled','gray','Cancelled']]){
+  const html=api.choiceHTML({state},2,'DPL-2 · '+state,false,true);
+  assert.match(html,new RegExp('data-plan-status="'+color+'"'));assert.match(html,new RegExp(label));assert.match(html,/data-choice="2"/);
+ }
+ const blocked=api.choiceHTML({state:'Loaded'},1,'DPL-1',true,true);assert.match(blocked,/ disabled/);
+ const trip=api.choiceHTML({state:'Planned'},1,'KTRIP-1',false,false);assert.doesNotMatch(trip,/data-plan-status/);
+ const escaped=api.choiceHTML({state:'Loaded'},1,'<unsafe>',false,true);assert.match(escaped,/&lt;unsafe&gt;/);assert.doesNotMatch(escaped,/<unsafe>/);
+ delete global.cfg_field_ui;
+});

@@ -441,6 +441,34 @@ class TestMobilePrinting(unittest.TestCase):
         self.assertEqual(label.custody_notice,'Pending QC — not available stock')
         self.assertEqual({d.doctype for d in self.inserts},{self.ns['LABEL']})
         self.assertTrue(any(dt==self.ns['CASE'] and kw.get('for_update') for dt,_,kw in self.queries))
+    def test_custody_auto_print_defaults_off_and_captures_exact_site_policy_without_stock_or_job(self):
+        self.assertFalse(self.ns['_custody_auto_print'](self.trip,self.trip.stops[0]))
+        self.trip.stops[0].customer_scan_point='SITE'
+        site=self.add('CFG Kanban Customer Scan Point','SITE',selling_company='A',customer='C1',auto_print_custody_label=0)
+        self.assertFalse(self.ns['_custody_auto_print'](self.trip,self.trip.stops[0]))
+        site.auto_print_custody_label=1
+        result=self.label()
+        self.assertTrue(result['auto_print_custody_label'])
+        self.assertEqual({doc.doctype for doc in self.inserts},{self.ns['LABEL']})
+        self.assertFalse(self.data.get(self.ns['JOB']))
+        site.auto_print_custody_label=0
+        self.assertFalse(self.ns['_custody_auto_print'](self.trip,self.trip.stops[0]))
+        self.assertTrue(result['auto_print_custody_label'])
+
+    def test_custody_auto_print_cannot_use_another_customer_or_company_policy(self):
+        self.trip.stops[0].customer_scan_point='SITE'
+        site=self.add('CFG Kanban Customer Scan Point','SITE',selling_company='OTHER',customer='C1',auto_print_custody_label=1)
+        with self.assertRaisesRegex(ValueError,'another Company/customer'):self.label()
+        site.selling_company='A';site.customer='OTHER'
+        with self.assertRaises(ValueError):self.label()
+        self.assertFalse(self.inserts)
+
+    def test_custody_auto_print_setting_is_optional_and_off_by_default(self):
+        import json
+        path=ROOT/'cfg_kanban/doctype/cfg_kanban_customer_scan_point/cfg_kanban_customer_scan_point.json'
+        field=next(row for row in json.loads(path.read_text())['fields'] if row['fieldname']=='auto_print_custody_label')
+        self.assertEqual(field['default'],'0');self.assertEqual(field['fieldtype'],'Check')
+
     def test_split_labels_cannot_exceed_returned_quantity(self):
         self.label(qty=3)
         with self.assertRaises(ValueError):self.label(qty=3)

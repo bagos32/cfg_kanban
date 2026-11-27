@@ -52,7 +52,7 @@
   let closed=false,mode='choose',context=null,controls={},fields=[],scanner=null,camera=null,cameraVersion=0,version=0,
       prefs=null,prefStore=null,job=null,frames=[],prepared=null,handed=false,loading=false,message='',requirements=null,
       jobName=null,jobStop=options.stop||null,releaseLease=null,leaseReady=false,selected=null,selectedLabel=null;
-  let automatic=Boolean(options.automatic);const attemptedTasks=new Set(),taskErrors={};
+  let automatic=Boolean(options.automatic),autoCustody=null;const attemptedTasks=new Set(),taskErrors={};
   let tail=Promise.resolve();const inputLocks=new WeakMap(),keyEntry=pairingEntry();
   const valid=()=>!closed&&options.active()&&options.owner()===owner&&options.token()===token&&erpUser()===openedUser;
   const rpc=async(method,args)=>{try{const answer=(await f.call({method,args:{...args,operator_session_token:token}})).message;if(!valid())throw new Error('Operator or page changed.');return answer;}
@@ -110,6 +110,23 @@
    finally{loading=false;update();}
   }
   function scheduleAutomatic(){if(automatic&&valid()&&!c.state.pending)setTimeout(()=>queue(runNext),0);}
+  async function printCreatedCustodyLabel(){
+   if(!autoCustody||!valid()||loading||c.state.busy||c.state.pending)return;
+   const entry=context.documents.find(row=>row.doctype==='CFG Kanban Return Custody Label'&&row.name===autoCustody.name);
+   if(!entry){autoCustody=null;message='Custody label was created. Refresh Documents to print it; automatic preparation could not find its authorized entry.';update();return;}
+   const existing=context.active_jobs?.find(row=>row.document_type===entry.doctype&&row.document_name===entry.name);
+   if(existing){autoCustody=null;if(existing.can_resume===false){message='Custody label was created. Its unfinished print belongs to another operator; use office print recovery.';update();return;}await lease();await showJob(existing.name);return;}
+   try{
+    await lease();
+    const receipt=await c.mutate(context,'Prepare Mobile Print',{doctype:entry.doctype,name:entry.name,print_format:entry.default_format,copies:1,no_letterhead:0,reason:'',printer_settings:{dpi:prefs.dpi,printable_width:prefs.printable_width,paper_width_mm:prefs.paper_width_mm}});
+    if(!valid()||!autoCustody)return;
+    if(receipt?.status!=='Recorded'||!job||job.document_name!==autoCustody.name){autoCustody=null;return;}
+    autoCustody.job=job.name;
+    if(!signer.paired()){autoCustody=null;message='Custody label prepared as one copy. Pair Label Bridge, then tap Print.';update();return;}
+    await stageNext();
+    autoCustody=null;
+   }catch(error){autoCustody=null;throw error;}
+  }
   async function runNext(chosen){
    if(!valid()||loading||c.state.busy||c.state.pending||mode!=='choose')return;
    const task=chosen?context?.stop_documents?.find(row=>row.name===chosen):nextStopDocument(context?.stop_documents,attemptedTasks);
@@ -150,12 +167,20 @@
    if(receipt.action==='Record Print Segment'){
     if(result.job_status==='Operator Confirmed'){message='All segments were confirmed by the operator. This is not a printer acknowledgement.';job=null;frames=[];jobName=null;await load();scheduleAutomatic();return;}
     await showJob(result.print_job);
-    if(result.outcome==='Awaiting Confirmation'&&frames.length){const page=nextPage(job,frames);prepared=await signer.prepare(frames[page-1].payload);handed=false;draw();}
+    if(result.outcome==='Awaiting Confirmation'&&frames.length){const page=nextPage(job,frames);prepared=await signer.prepare(frames[page-1].payload);handed=false;draw();
+     if(autoCustody?.job===job.name){const expectedJob=job.name,expectedPrepared=prepared;autoCustody=null;
+      setTimeout(()=>queue(async()=>{if(!valid()||job?.name!==expectedJob||prepared!==expectedPrepared||c.state.pending)return;
+       if(root.navigator?.userActivation&&!root.navigator.userActivation.isActive){message='Custody label is ready. Tap Print to allow this browser to open Label Bridge.';update();return;}
+       openBridge(true);
+      }),0);
+     }
+    }
     return;
    }
    if(receipt.action==='Close Mobile Print'){job=null;frames=[];jobName=null;await load();return;}
    await options.refresh();if(!valid())return;
    await load();
+   if(result.custody_label&&result.auto_print_custody_label){autoCustody={name:result.custody_label};message='Custody label created. Preparing one copy with its configured Print Format…';update();setTimeout(()=>queue(printCreatedCustodyLabel),0);return;}
    message=result.invoice?`Invoice ${result.invoice} · ${result.docstatus===1?'Submitted':'Draft'}${result.existing_draft?' · existing office draft reused':''}`:result.custody_label?`Custody label ${result.custody_label} created. Select it below to print.`:'Action recorded.';
    update();
   }
@@ -219,7 +244,7 @@
     if(requirements)for(const df of invoiceERPFields())field(df,'.cfg-mobile-erp-fields');
     confirmButton.text(context.invoice_mode==='Automatic Submission'?'Create and Submit Invoice':'Create Invoice Draft');
    }else if(mode==='label'){
-    body.html('<div class="alert alert-info"><strong>Create a return custody label</strong><p>Choose the collected Item below and enter the quantity for this label.</p>Old customer return custody only. Pending QC — not available stock. This creates neither ERP stock nor customer credit.</div>');
+    body.html('<div class="alert alert-info"><strong>Create a return custody label</strong><p>Choose the collected Item below and enter the quantity for this label.</p>Old customer return custody only. Pending QC — not available stock. This creates neither ERP stock nor customer credit.</div>'+`<p>Auto print after creation: <b>${context.auto_print_custody_label?'On — one copy':'Off'}</b> (Customer Scan Point setting).</p>`);
     field({fieldname:'return_line',label:'Collected return Item row',fieldtype:'Select',options:[{label:'Choose a returned Item',value:'0'},...(context.custody_lines||[]).map((row,index)=>({label:(index+1)+'. '+row.return_case+' · '+row.item_code+' · '+row.remaining_qty+' '+row.stock_uom+' · '+(row.batch_no||'No Batch')+' · '+(row.expiry_date||'No expiry'),value:String(index+1)}))],default:context.custody_lines.length===1?'1':'0',change:custodySelection});
     field({fieldname:'qty',label:'Quantity on this custody label (stock UOM)',fieldtype:'Float'});custodySelection();confirmButton.text('Create Custody Label');
    }else if(mode==='job'){
@@ -299,7 +324,7 @@
   function scan(raw){if(String(raw||'').trim().toUpperCase()==='CFG:CMD:DRIVER_CURRENT_CUSTOMER'){options.currentCustomer?.();return Promise.resolve();}if(String(raw||'').trim().toUpperCase()==='CFG:CMD:PRINT_OPEN'){if(mode==='pair')openPairing();else openBridge();return Promise.resolve();}return queue(async()=>{const text=String(raw||'').trim(),upper=text.toUpperCase();if(!text)return;
    const names={PRINT_STOP_DOCUMENTS:'auto',MOBILE_PRINT_BACK:'back',PRINT_SETUP:'setup',CREATE_DRIVER_INVOICE:'invoice',CREATE_RETURN_LABEL:'label',PRINT_PAIR:'pair',PRINT_PAIR_BROWSER:'browser',PRINT_PAIR_LEGACY:'legacy',PRINT_FORGET:'forget',PRINT_CONFIRM:'printed',PRINT_UNKNOWN:'unknown',PRINT_SEND:'confirm',CONFIRM:'confirm',REFRESH:mode==='pair'?'confirm':'readback',CANCEL:'close',DELIVERY_CAMERA:'camera'};
    const key=upper.replace(/^CFG:CMD:/,'');if(names[key])return command(names[key]);
-   if(key==='HELP'){message='PRINT_STOP_DOCUMENTS resumes the saved customer checklist; two copies pause for separate Print taps. DRIVER_CURRENT_CUSTOMER scrolls to the selected customer, which stays selected after delivery. You can move freely. PRINT_SETUP opens printer settings. PRINT_PAIR starts browser approval (or pairs an explicitly selected legacy key); PRINT_PAIR_BROWSER explicitly selects browser approval. PRINT_OPEN opens the six-digit approval in pairing mode or the ready copy in print mode. Confirm/Refresh checks approval. PRINT_PAIR_LEGACY selects the older app key input; use CFG:SELECT:1–10 to choose inputs, then scan values. PRINT_FORGET removes local browser pairing/key; remove device trust inside Label Bridge too. After checking paper PRINT_CONFIRM stages the next part/copy, waiting for PRINT_OPEN. No automatic resend. Cancel closes safely.';update();return;}
+   if(key==='HELP'){message='CREATE_RETURN_LABEL opens collected-return labelling. Customer Scan Point may auto print one new custody label; pairing/browser permission may require a Print tap. Check paper before PRINT_CONFIRM; recovery never automatically resends it. PRINT_STOP_DOCUMENTS resumes the saved customer checklist; two copies pause for separate Print taps. DRIVER_CURRENT_CUSTOMER scrolls to the selected customer, which stays selected after delivery. You can move freely. PRINT_SETUP opens printer settings. PRINT_PAIR starts browser approval (or pairs an explicitly selected legacy key); PRINT_PAIR_BROWSER explicitly selects browser approval. PRINT_OPEN opens the six-digit approval in pairing mode or the ready copy in print mode. Confirm/Refresh checks approval. PRINT_PAIR_LEGACY selects the older app key input; use CFG:SELECT:1–10 to choose inputs, then scan values. PRINT_FORGET removes local browser pairing/key; remove device trust inside Label Bridge too. After checking paper PRINT_CONFIRM stages the next part/copy, waiting for PRINT_OPEN. No automatic resend. Cancel closes safely.';update();return;}
    if(key==='PRINT_NATIVE'){const href=host.find('.cfg-mobile-native').attr('href');if(!href)throw new Error('Choose a document and Print Format.');root.open(href,'_blank','noopener');return;}
    if(loading||c.state.busy||c.state.pending)throw new Error('Resolve the original request before editing or scanning another document.');
    const matches=context.documents.map((row,index)=>({row,index})).filter(({row})=>row.scan_code===text||row.name===text);
@@ -307,13 +332,13 @@
    if(mode==='choose'&&matches.length>1)throw new Error('More than one document matches this scan. Choose its exact document type.');
    if(upper.startsWith('CFG:CMD:')||/^CFG:SELECT:/.test(upper)||scanner?.state?.field)return scanner?.scan(text);
    throw new Error('Choose an input with a numbered scanner label, then scan its value.');});}
-  function close(){if(closed)return;closed=true;version++;stopCamera();stopPairPoll();pairNote=null;browserPair?.dispose();root.document?.removeEventListener('visibilitychange',returnedToBrowser);root.removeEventListener?.('focus',returnedToBrowser);keyEntry.clear();if(!options.active()||options.owner()!==owner||options.token()!==token)forget();else if(signer!==memoryKey?.signer)signer.forget();prepared=null;frames=[];job=null;
+  function close(){if(closed)return;closed=true;autoCustody=null;version++;stopCamera();stopPairPoll();pairNote=null;browserPair?.dispose();root.document?.removeEventListener('visibilitychange',returnedToBrowser);root.removeEventListener?.('focus',returnedToBrowser);keyEntry.clear();if(!options.active()||options.owner()!==owner||options.token()!==token)forget();else if(signer!==memoryKey?.signer)signer.forget();prepared=null;frames=[];job=null;
    releaseLease?.();releaseLease=null;c.close();host.off('.cfg_mobile').empty();options.onClose();}
   host.on('click.cfg_mobile','[data-mobile]',event=>{const node=event.currentTarget,name=$(node).attr('data-mobile');event.preventDefault();queue(()=>command(name,node));});
   host.on('click.cfg_mobile','.cfg-mobile-native',event=>{if(!valid()||loading||c.state.pending||!host.find('.cfg-mobile-native').attr('href'))event.preventDefault();});
-  function openBridge(){try{if(!valid()||loading||c.state.busy||c.state.pending||handed||!leaseReady)throw new Error('Prepare the current operator’s print handoff first.');
+  function openBridge(automaticHandoff=false){const original=prepared;try{if(!valid()||loading||c.state.busy||c.state.pending||handed||!leaseReady)throw new Error('Prepare the current operator’s print handoff first.');
     const uri=signer.current(prepared);handed=true;prepared=null;message='Label Bridge opened; physical outcome is unknown. Check the paper, then confirm or record Outcome Unknown.';draw();root.location.href=uri;
-   }catch(error){message=options.error(error);update();}finally{focus();}}
+   }catch(error){if(automaticHandoff&&['NotAllowedError','SecurityError'].includes(error.name)){prepared=original;handed=false;message='Browser requires a tap. Use Print to open Label Bridge for this ready custody label.';draw();}else{message=options.error(error);update();}}finally{focus();}}
   host.on('click.cfg_mobile','.cfg-mobile-open-bridge',event=>{event.preventDefault();openBridge();});
   function openPairing(){try{if(!valid()||mode!=='pair'||!pairNote?.uri||Date.now()>pairNote.expires)throw new Error('Pairing request expired. Start a fresh request.');root.location.href=pairNote.uri;}catch(error){message=options.error(error);update();}finally{focus();}}
   host.on('click.cfg_mobile','.cfg-mobile-open-pair',event=>{event.preventDefault();openPairing();});

@@ -69,7 +69,8 @@ show **DRAFT — NOT POSTED** on drafts.
 6. Choose **Prepare Print**. It saves and previews the job, then prepares the first part when the
    browser is approved. On first use, approval or legacy **Pair Key** also prepares that part. There is no separate normal
    "prepare segment" click. Inspect the image and click **Print Recipient copy · Open Label Bridge**
-   (or the displayed copy/part button). It opens the companion only on this fresh click/scan.
+   (or the displayed copy/part button). Ordinary printing opens the companion on this fresh click/scan;
+   the optional custody-label creation policy below can attempt its first handoff automatically.
 7. Check the paper and choose **Recipient copy printed** / **Confirm This Part Printed**. CFG
    prepares the next part or office copy, but waits for its own Print button. Tear off the complete
    recipient copy before clicking **Print Office copy · Open Label Bridge**. Confirm the office
@@ -407,3 +408,24 @@ those labels from Documents. Company-owned refusals and returns already received
 their separate workflow. No stock or credit is created by a custody label. Offline Chrome and
 Firefox tests cover synchronous Select initialization and lost-response readback; live device and
 printer checks remain pending. See [field acceptance](TEST_DRIVER_FIELD_WORKFLOW.md).
+
+## Optional custody-label auto print — 27 November 2026
+
+Office enables **Customer Scan Point → Driver Documents After Delivery / Return Collection →
+Auto Print Custody Label After Creation** for the exact site. It defaults off. Set the Company's
+**Mobile Print Profile → Custody Label Print Format** to the desired ERPNext Print Format.
+
+On Create Custody Label, the driver sees whether this policy is On or Off. On creation, an enabled
+policy prepares one copy of exactly that new label. A paired/approved Label Bridge receives the
+first handoff automatically when browser permissions permit. Otherwise use the ready Print button;
+an unpaired device must pair first. Check the physical output and confirm Printed. Extra long
+labels retain normal segment confirmations. This is the only creation-time automatic handoff in
+this print panel; ordinary documents and reprints retain their explicit Print buttons.
+
+A label that was created remains available if print setup or rendering fails. Do not create the
+same physical label again to work around a print failure. Recover its existing job from Documents.
+Lost-response recovery never automatically resends a label. Native permissions, Return Case/Item
+quantity checks, reprint reasons and unfinished-job ownership remain. No stock or credit is posted.
+
+Deploy with normal CFG migration/build/cache clear, then hard-refresh the browser. Real Android/
+Label Bridge/physical-printer and live ERPNext acceptance remain pending.

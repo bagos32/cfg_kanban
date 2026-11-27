@@ -104,3 +104,60 @@ Do not equate fixture results with native stock posting or live-site verificatio
   parsed as JSON. Checkout application and whitespace/hash checks are recorded during final review.
 
 These are offline results. They do not close any native-site/device acceptance row above.
+
+## Follow-up: native headers, menu stacking, Plan choices and custody auto print
+
+Prepared above `66d4623`, 27 November 2026. The owner's screenshots showed a body-mounted large
+switch, a Tools menu behind the sticky identity fields, and uncoloured numbered Handover Plans.
+The earlier fixture checked viewport edges but did not model the native header's stacking context.
+
+The expanded field fixture uses Frappe v15.69.2's real class hierarchy (`page-head`, `title-area`,
+`custom-actions`, `inner-group-button`), header z-index 6 and CFG scanner z-index 30. Sources:
+[Page template](https://github.com/frappe/frappe/blob/v15.69.2/frappe/public/js/frappe/ui/page.html),
+[Page API source](https://github.com/frappe/frappe/blob/v15.69.2/frappe/public/js/frappe/ui/page.js),
+[Page styles](https://github.com/frappe/frappe/blob/v15.69.2/frappe/public/scss/desk/page.scss).
+It verifies title/switch row geometry, compact size, phone/tablet width, actual `elementFromPoint`
+menu hit-testing over the scanner, a dispatched pointer click and native modal priority. It remains
+a DOM/Bootstrap-event double, not a complete native Desk. The Handover fixture colours four actual
+Plan choice buttons without the global app stylesheet, while exercising existing scanner/recovery
+selection and focus.
+
+Custody auto-print coverage includes the off-by-default site setting, Company/customer scope,
+separate label creation and native print preparation, exact new label identity/format/one copy,
+paired first handoff, absent user gesture, explicit browser rejection, unpaired fallback and lost
+preparation readback without paper resend. No test uses a live Return Case, device or printer.
+
+Additional native acceptance (all **Not run**):
+
+- Actual Logistics and Driver Route title rows at desktop/tablet/phone widths and browser zoom.
+- Operator Tools and Trip Tools items clickable above all native sticky fields; rotation, native
+  toolbar collapse, dialogs and other ERPNext forms still work.
+- This exact Trip Handover page shows its legend, coloured summaries and numbered Plan buttons,
+  including Loaded/pending and Cancelled audit rows, after refresh/deep link.
+- New Scan Point field defaults off after migration. On/Off creation policy at the exact site;
+  configured native custody format, paired Android companion, phone browser app-launch permission,
+  one physical copy, printer failure, paper confirmation, interrupted preparation and explicit reprint.
+
+Final regression counts for this follow-up are recorded below after validation. Old acceptance
+results above remain evidence for that revision, not live acceptance of this update.
+
+Follow-up offline results, 27 November 2026:
+
+- **201 Python tests passed**: mobile printing, stop document policies, schema, Trip Handover and
+  driver actions. New tests cover the default-off custody option and reject another Company/customer
+  policy before label creation; creation itself still inserts only its custody record.
+- **199 Node test entries passed**, including the existing E4A/E4B/E4C script checks; printing
+  contracts passed again after updating Scanner Help.
+- **38 field browser checks passed** in Chrome at 320, 768 and 1280 CSS pixels and Firefox at
+  1366 pixels. The fixture now includes actual header geometry and menu hit-testing over a sticky
+  scanner, rather than only menu edge coordinates.
+- **27 Handover browser checks passed in each of Chrome and Firefox**, including the exact
+  numbered Plan choices and colours from the page's own stylesheet.
+- **133 printing browser checks passed in each of Chrome and Firefox**, covering custody policy
+  off, one-copy auto preparation and paired first handoff, unpaired fallback, absent transient
+  gesture, explicit browser rejection and retained original preparation after a lost response.
+- Changed Python/JavaScript/JSON sources passed syntax/parsing checks. An offline desktop screenshot
+  was inspected to confirm the compact switches appear beside the titles.
+
+No site, physical scanner/camera, Label Bridge app or printer was used. These results do not mark
+any of the native acceptance cases as passed.

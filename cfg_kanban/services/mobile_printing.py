@@ -276,6 +276,7 @@ def get_mobile_print_context(trip_name, operator_session_token, stop_key=None):
         profile=profile.name, profile_version=str(profile.modified), defaults=dict(paper_width_mm=profile.paper_width_mm, printable_width=profile.printable_width,
             dpi=profile.dpi), documents=entries, invoice_sources=invoice_sources, invoice_mode=profile.invoice_mode,
         custody_lines=_custody_lines(trip, stop),
+        auto_print_custody_label=_custody_auto_print(trip, stop),
         active_jobs=_unfinished_jobs(trip, stop_key, operator, entries),
         stop_documents=_stop_documents(trip, stop_key, operator))
 
@@ -406,6 +407,16 @@ def _prepare(trip, stop_key, values, operator, session, key):
     return dict(print_job=job.name)
 
 
+def _custody_auto_print(trip, stop):
+    if not stop or not stop.get('customer_scan_point'):
+        return False
+    site = frappe.get_doc('CFG Kanban Customer Scan Point', stop.customer_scan_point)
+    enabled = bool(cint(site.get('auto_print_custody_label')))
+    if enabled and (site.selling_company != trip.company or site.customer != stop.customer):
+        frappe.throw('Custody label print policy belongs to another Company/customer')
+    return enabled
+
+
 def _label(trip, stop, values, operator, session, key):
     case = return_case(trip, stop, values.get('return_case'), current=True)
     if (case.state != 'Awaiting QC Receipt' or not case.collected_on or cint(case.stock_already_owned)
@@ -423,6 +434,7 @@ def _label(trip, stop, values, operator, session, key):
         frappe.throw('Custody label quantity must fit the unlabelled returned quantity and UOM precision')
     if frappe.db.get_value('UOM', line.stock_uom, 'must_be_whole_number') and qty != int(qty):
         frappe.throw('This custody label UOM requires a whole quantity')
+    auto_print = _custody_auto_print(trip, stop)
     label = frappe.get_doc(dict(doctype=LABEL, delivery_trip=trip.name, stop_key=stop.stop_key,
         company=trip.company, operator=operator.employee, operator_session=session.name,
         idempotency_key=key, request_hash=canonical_key('return-custody', values),
@@ -431,7 +443,7 @@ def _label(trip, stop, values, operator, session, key):
         custody_notice='Pending QC — not available stock'))
     label.flags.cfg_mobile_control = True
     label.insert(ignore_permissions=True)
-    return dict(custody_label=label.name, return_case=case.name)
+    return dict(custody_label=label.name, return_case=case.name, auto_print_custody_label=auto_print)
 
 
 def _job(trip, name, operator, current=False):
