@@ -10,6 +10,8 @@ expected/actual quantities and evidence after owner-managed migration/build.
   and permitted terminal/native Desk users. Do not reuse production deliveries for acceptance.
 - Template/Trip: enable **Generate Dispatch on Mark Planned**, select Customer Order and Shared
   Open Route **Vehicle Delivery** Profiles with matching Company/source and valid Dispatch Cards.
+- On the Trip, explicitly select **Allow Sales from Existing Lorry Stock** for optional sales with
+  no extra goods. Also test its default-off behavior with empty extra goods and Visit Only Sites.
 - Configure both approval choices, both stop sequence choices, Site-QR/selection policies and
   normal Draft/auto-submit DN plus proof policies. Open Profile Route/Territory must cover Sites.
 - Stops: known-order customer A, Visit Only B, Visit Only C; include a repeated Customer Site for
@@ -22,11 +24,14 @@ expected/actual quantities and evidence after owner-managed migration/build.
 | Case | Expected evidence | Result |
 | --- | --- | --- |
 | Load Template | Full DocType form inherits generation/Profile defaults, captured revision and stable stops; no popup or mutation of old Trips | Not run |
-| Save Draft then Mark Planned | One Customer Order Plan per SO + stop with exact SO Item/quantity; one shared Open Route Plan and exact native visits | Not run |
+| Save Draft then Mark Planned | Exact Customer Order requests; one shared Open Route Plan only for extra goods or explicit existing-lorry sales, with exact native sale visits | Not run |
 | Generate on Draft, reload, Mark Planned | Fresh Desk/server request accepts the unchanged generation timestamp as JSON text versus the database datetime; Trip becomes Planned using the same Plan/visit IDs and no new stock posting | Not run |
 | Generated-field integrity across browser saves | Notes/status save succeeds with unchanged links/date, including fractional seconds and an empty optional pool; changed/cleared timestamp or Plan link and forged insert facts remain rejected | Not run |
 | Warehouse work already started | Mark Planned retains generated Plans, allocations, Manifest and load history; source/quantity changes remain protected by existing execution guards | Not run |
-| Existing lorry stock only | Empty extra-goods table creates controlled request, no Manifest/Stock Entry/reservation; approval + actual lorry needed for Ready for Fulfilment | Not run |
+| Informational visits | Empty extra goods and default-off existing-lorry sales create no empty Open Route Plan, require no Open Route Profile/approval and preserve Visit Only stops | Not run |
+| Existing lorry stock only | Explicit office checkbox + eligible Visit Only Sites create controlled request, no Manifest/Stock Entry/reservation; approval + actual lorry needed for Ready for Fulfilment | Not run |
+| Cancelled unused empty context | Reload driver page and start loaded customer route; no binding/reapproval/recreation of cancelled Plan, no extra documents or stock moves; retained audit/reference | Not run |
+| Cancelled context with history | Real quantities/reservations, Manifest, Session, active visit/pack/review, unresolved Exception or active Sheet reject with recovery diagnostic; customer loading/approval/driver gates still apply | Not run |
 | Extra goods | One shared loading request with Item/Batch/UOM quantities; E3 actual reservation/loading/submitted transfer remains required | Not run |
 | Approval | Both Profiles retain Awaiting Approval when configured; required request/route approval cannot be skipped at departure | Not run |
 | Repeated save/refresh/two office tabs | Same requests/visits reused; stale modified timestamp rejected; no duplicates or partial parent/child commit | Not run |
@@ -80,3 +85,67 @@ requests, visits and loaded Manifest references are retained on the status chang
 adapters. This includes eight new generation/save regression cases. Python syntax and patch
 whitespace checks passed. These tests use offline database/framework/UI substitutes; native Desk,
 database rollback/concurrency and live-site Mark Planned acceptance remain **Not run**.
+
+### Explicit optional sales and cancelled empty request — 27 November 2026
+
+Prepared above `bd56dab` with the pending ad hoc SO correction preserved. The owner chose: create
+the shared pool for extra route goods or an explicit office option. Ordinary Visit Only stops must
+not force an empty stock request. The original functions reproduced both reported failures offline:
+default-off/empty extra goods still generated a pool, and preparing a cancelled empty context raised
+`Approve the shared existing-stock request before starting the route`.
+
+`Allow Sales from Existing Lorry Stock` is a new default-off Check on the normal Delivery Trip form.
+Extra goods still create a real shared loading request independently of that checkbox. Explicitly
+enabled existing-stock sales retain Profile approval and lorry/route checks. An already-generated
+active request is not discarded merely by reading an older Trip with the new option unset; started
+route hashes retain compatibility when the option is absent/zero. Office request regeneration and
+replacement still use existing permissions, source guards and audit.
+
+A cancelled empty pool is ignored only when its header has no quantities/commitments, active
+visit/session/pack/review, unresolved Exception or active Route Sheet; there must also be no
+Manifest, Session, active reservation, executing visit or noncancelled Loose Tag behind the header.
+Completed/cancelled Sheet and resolved Exception references remain valid history. Native document
+read and Trip/Company ownership checks still apply. Plans with real goods or activity remain blocked
+with a recovery diagnostic. Required customer loading, source authorization, driver action permission
+and operational Sheet approval are unchanged.
+
+The same check governs optional-sale projection, departure snapshot/vehicle binding and the office
+unused-request save path. An unused cancelled Plan is not rebound, approved, recreated or mutated;
+its old lorry cannot conflict with the actual customer load. Its Trip reference, reason, actor,
+visits and released reservation audit remain intact during departure. A safe pre-execution Generate /
+Refresh may clear the obsolete link; records remain linked back to their office Trip. Cancelling the
+last optional visit retains its existing pool and skipped history for reconciliation.
+
+Changed files for this correction:
+
+- `cfg_kanban/services/trip_dispatch.py`
+- `cfg_kanban/services/trip_sales.py`
+- `cfg_kanban/services/driver_routes.py`
+- `cfg_kanban/services/driver_route_actions.py`
+- `cfg_kanban/services/delivery_trips.py`
+- `cfg_kanban/cfg_kanban/doctype/cfg_kanban_delivery_trip/cfg_kanban_delivery_trip.json`
+- `cfg_kanban/cfg_kanban/doctype/cfg_kanban_delivery_trip/cfg_kanban_delivery_trip.js`
+- `cfg_kanban/tests/test_trip_dispatch.py` — shared-pool fixture explicitly opts into sales.
+- `cfg_kanban/tests/test_optional_route_pool.py`
+- `cfg_kanban/tests/test_office_delivery_trip_ui.cjs`
+- `docs/USER_GUIDE_OFFICE_DELIVERY_TRIP.md`
+- `docs/USER_MANUAL.md`
+- This test document.
+
+Offline verification: **406 Python tests passed**, including 19 new optional-pool cases and the
+pending 17 ad hoc SO cases. Coverage includes generation, office save, cancellation, loaded mixed
+customer departure, view/lorry projection, repeated Start Route, no-sale completion, unchanged
+Plan/visit/released-audit/stock snapshots, approval and operator denials, and refusal to hide real
+stock or unfinished records. Existing dispatch, consolidated, driver, trip scope/sales, handover,
+continuation and schema regressions passed. **132 Node tests passed** across office, consolidated
+and driver view/action suites. No site or live document was accessed.
+
+Migration: the owner must run the normal CFG update, **site migrate**, asset build, cache clear and
+Desk reload to add/show the checkbox. No ERPNext/Frappe upgrade is needed. There is no stock
+backfill, Plan cancellation, header rewrite or audit cleanup during migration. Older active requests
+remain subject to their saved approval/stock policy; no live request is automatically approved.
+
+All native-site cases above remain **Not run**. In particular, verify the real cancelled-empty case,
+Company/driver permissions, approval policies, MariaDB current reads/rollback/concurrent start,
+native Desk checkbox behavior and unchanged ERP/tag balances after the owner deploys. Offline
+document/DB/RPC doubles are not native ERPNext acceptance.

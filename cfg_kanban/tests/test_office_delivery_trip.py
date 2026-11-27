@@ -26,7 +26,7 @@ def document(value):
 class TestOfficeDeliveryTrip(unittest.TestCase):
     def setUp(self):
         self.data = {}; self.queries = []; self.reads = []; self.fulfilled = []; self.roles = ['Stock Manager']
-        self.frappe = Row(get_doc=self.get_doc, get_list=self.get_list, throw=self.throw,
+        self.frappe = Row(get_doc=self.get_doc, get_list=self.get_list, throw=self.throw, _dict=Doc, parse_json=json.loads,
             as_json=json.dumps, only_for=self.only_for, session=Row(user='planner@example.com'),
             db=Row(sql=self.sql, table_exists=lambda name:True, exists=self.exists, get_value=self.get_value,get_values=self.get_values))
         self.ns = load('services/delivery_trips.py', dict(frappe=self.frappe, json=json, math=math, re=re, uuid=uuid,
@@ -66,6 +66,9 @@ class TestOfficeDeliveryTrip(unittest.TestCase):
         return True
     def get_list(self,doctype,filters=None,fields=None,pluck=None,**kw):
         rows=[doc for doc in self.data.get(doctype,{}).values() if self.matches(doc,filters) and not doc.get('_hidden')]
+        if kw.get('or_filters'):
+            rows=[doc for doc in rows if any(self.matches(doc,{field:[op,value] if op == 'is' else value})
+                  for field,op,value in kw['or_filters'])]
         if pluck:
             start=kw.get('limit_start',0);rows=rows[start:start+kw.get('limit_page_length',50)]
             return [row[pluck] for row in rows]

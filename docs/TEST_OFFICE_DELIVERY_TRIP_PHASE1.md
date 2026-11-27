@@ -74,3 +74,55 @@ acceptance records remain independent and open.
 These use local document/DB/RPC doubles. They do not execute Frappe migrations, native Desk grids,
 MariaDB locks/concurrent posting, device operation or the development server. Every native
 acceptance case above remains **Not run**. Base HEAD was `2e4bdeb`; changes remain uncommitted.
+
+## Follow-up: ad hoc Trip stops and SOs without a preset route — 27 November 2026
+
+Base `bd56dab`. The owner confirmed this case has a **Sales Order awaiting delivery**, rather than
+only an unpaid Sales Invoice. The original inbox and `_order()` guard both required an SO's
+`cfg_delivery_route` to equal the template. That prevented a legitimate ad hoc Trip stop from
+selecting an unrouted SO, even though the Trip already held its exact Customer/Site.
+
+- The Trip inbox scopes to validated Delivery Sites in the current form, including unsaved new
+  stops, and reads same-Company open SOs with either this route or no route. Native `get_list` and
+  per-document read checks remain; Site/Company/Customer/address are rederived and checked server-side.
+- The reusable Route Template inbox retains its strict preset-route filter. An SO explicitly routed
+  elsewhere is excluded and cannot bypass the guard by manually inserting an assignment row.
+- Trip save permits an unrouted SO only for its exact validated Delivery stop. Existing current
+  SO locks, cross-Trip quantity/stock-UOM limits, status, duplicate-row, source, execution-freeze
+  and template-snapshot rules remain. No source SO route or reusable template is updated.
+- Cancelled and Visit Only stops cannot take assignments. Late inbox responses are discarded when
+  Company/route/Trip identity or the current stop scope changes. Site selection refreshes the inbox.
+- Existing dispatch generation is reused in separate-Plan and Consolidated Customer Orders modes.
+  Both retain exact SO Item identities and quantities, and planning creates no ERP stock movement.
+
+Changed files:
+
+- `cfg_kanban/services/delivery_trips.py`
+- `cfg_kanban/public/js/office_delivery_trip.js`
+- `cfg_kanban/cfg_kanban/doctype/cfg_kanban_delivery_trip/cfg_kanban_delivery_trip.js`
+- `cfg_kanban/tests/test_office_delivery_trip.py`
+- `cfg_kanban/tests/test_ad_hoc_trip_orders.py`
+- `cfg_kanban/tests/test_office_delivery_trip_ui.cjs`
+- `docs/USER_GUIDE_OFFICE_DELIVERY_TRIP.md`
+- `docs/USER_MANUAL.md`
+- This acceptance document.
+
+Offline verification: **332 Python tests passed**, including 17 ad hoc inbox/save/generation tests
+plus office planning, dispatch generation, consolidated dispatch, fulfilment, driver actions, route
+scope, direct lorry sales, stop cancellation, continuation and schema regressions. **50 Node tests
+passed** across office, consolidated and continuation UI suites; 29 exercise office form/helpers.
+Tests cover unrouted ad hoc SOs before/after saving, strict template/foreign-route filters, source
+permissions, Company/address/status, current quantity/conversion, cross-template overbooking,
+pagination, cancelled/Visit Only scope, forged/malformed inputs, stale responses and generated demand.
+
+No new schema or data migration is required. Deploy the Python and Desk JavaScript together, build
+CFG assets, clear cache and reload Desk using the owner's existing procedure. No live records were
+accessed. These results do not establish native Frappe permissions, SQL isolation or ERP posting.
+
+| Additional native-site case | Result |
+|---|---|
+| Customer absent from template, submitted SO with no route: add an unsaved Trip Delivery Site, refresh inbox, assign/save/reload/Mark Planned | Not run |
+| Repeat using separate and Consolidated Customer Orders; load through E3 and deliver with native SO Item/UOM feedback | Not run |
+| Restricted Company/Site/SO users; wrong address/route, cancelled/Visit Only stop and Draft/closed SO rejection | Not run |
+| Two planners assign an unrouted SO through different templates; native current-read/rollback/stale-save protection | Not run |
+| Confirm no SO/template rewrite, duplicate Plan, stock reservation or ERP movement from inbox/planning | Not run |

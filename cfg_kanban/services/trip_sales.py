@@ -36,7 +36,16 @@ def pool(trip,current=False):
     doc=_read('CFG Kanban Dispatch Plan',trip.open_route_plan,current)
     if doc.office_delivery_trip!=trip.name or doc.company!=trip.company or doc.plan_type!='Open Route Stock':
         frappe.throw('Shared route pool no longer belongs to this Trip/Company')
+    if doc.state=='Cancelled':
+        from cfg_kanban.services.trip_dispatch import cancelled_empty_pool
+        if cancelled_empty_pool(doc):return None
     return doc
+
+
+def _cancelled_pool_blocker(doc):
+    if doc.state=='Cancelled':
+        detail='Route Sheet '+doc.active_route_sheet if doc.get('active_route_sheet') else 'recorded stock, reservations or execution history'
+        frappe.throw('Cancelled shared Plan %s still has %s; resolve it through Supervisor route / recovery controls before departure' % (doc.name,detail))
 
 
 def visit(trip,stop,current=False):
@@ -66,6 +75,7 @@ def session(trip,stop,operator,current=False):
 def snapshot(trip,operator,vehicle):
     doc=pool(trip)
     if not doc:return None
+    _cancelled_pool_blocker(doc)
     from cfg_kanban.services.trip_dispatch import route_ready,existing_pool
     _routes()._planning()._assert_plan_authorized(doc,operator)
     if not route_ready(doc) or doc.get('dispatch_review_state') not in (None,''):
@@ -163,7 +173,7 @@ def projection(trip,stops,operator):
         if stop.stop_purpose!='Visit Only':continue
         row=visit(trip,stop)
         target=stops[stop.stop_key]
-        target['can_open_sale']=bool(row and not stop.get('cancellation_request') and not stop.driver_completed_on and trip.driver_route_state=='In Progress')
+        target['can_open_sale']=bool(row and doc.state not in ('Cancelled','Reconciled') and not stop.get('cancellation_request') and not stop.driver_completed_on and trip.driver_route_state=='In Progress')
         if not row:continue
         delivery=session(trip,stop,operator)
         if doc.get('has_loose_tags'):
@@ -213,6 +223,7 @@ def sheet_target(trip,source):
 def prepare_pool(trip,operator):
     doc=pool(trip,current=True)
     if not doc:return
+    _cancelled_pool_blocker(doc)
     from cfg_kanban.services.trip_dispatch import bind_existing_pool, existing_pool
     if not existing_pool(doc):return
     _routes()._planning()._assert_plan_authorized(doc,operator)

@@ -37,6 +37,7 @@
   "consolidated_customer_orders",
   "dispatch_profile",
   "open_route_profile",
+  "allow_existing_lorry_sales",
   "route_stock",
   "open_route_plan",
   "dispatch_generated_on",
@@ -352,7 +353,7 @@
    "label": "Generate Dispatch on Mark Planned",
    "fieldtype": "Check",
    "default": "0",
-   "description": "Creates linked preparation requests for assigned SO quantities and one shared Open Route pool. No stock is reserved or posted."
+   "description": "Creates preparation requests for assigned SO quantities. A shared Open Route Plan is created only for extra goods or explicitly enabled existing-lorry sales. No stock is reserved or posted."
   },
   {
    "fieldname": "dispatch_profile",
@@ -365,6 +366,13 @@
    "label": "Shared Open Route Dispatch Profile",
    "fieldtype": "Link",
    "options": "CFG Kanban Dispatch Profile"
+  },
+  {
+   "fieldname": "allow_existing_lorry_sales",
+   "label": "Allow Sales from Existing Lorry Stock",
+   "fieldtype": "Check",
+   "default": "0",
+   "description": "Enable optional sales at Visit Only Customer Sites using eligible stock already on the lorry. Creates a shared request subject to its Profile approval. Leave clear for information-only visits."
   },
   {
    "fieldname": "route_stock",

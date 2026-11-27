@@ -16,6 +16,7 @@ frappe.ui.form.on('CFG Kanban Delivery Trip', {
   async refresh(frm) {
     await frappe.require('/assets/cfg_kanban/js/office_delivery_trip.js');
     const ui = window.cfg_office_delivery_trip;
+    frm.set_df_property?.('allow_existing_lorry_sales','read_only',!ui.editable(frm)||['In Progress','Completed','Closed Incomplete'].includes(frm.doc.driver_route_state));
     frm.set_df_property?.('consolidated_customer_orders','read_only',!ui.editable(frm)||Boolean(frm.doc.dispatch_generated_on||(frm.doc.dispatch_plans||[]).length||frm.doc.follow_on_of));
     if(!frm.is_new() && frm.perm?.[0]?.write){
       await frappe.require('/assets/cfg_kanban/js/trip_continuation.js');
@@ -30,7 +31,7 @@ frappe.ui.form.on('CFG Kanban Delivery Trip', {
     if (!frm.is_new() && (frappe.user_roles||[]).some(role=>['Stock Manager','Manufacturing Manager','System Manager'].includes(role))) frm.add_custom_button(__('Supervisor Live Map'), () => frappe.set_route('kanban-trip-monitor', frm.doc.name));
     if (!frm.is_new()) frm.add_custom_button(__('Driver Route'), () => frappe.set_route('kanban-driver-route', frm.doc.name));
     if (!frm.is_new()) frm.add_custom_button(__('Trip Handover'), () => frappe.set_route('kanban-trip-handover', frm.doc.name));
-    frm.fields_dict.planning_help.$wrapper.html(`<p class="text-muted">${__('Assign orders and extra route stock here. Enable Generate Dispatch on Mark Planned to create linked warehouse work automatically. Select Consolidated Customer Orders before generation for one shared Customer Order Plan with exact customer demand. Leave it clear for separate Plans. One shared Open Route pool serves optional-sale visits. Load the last delivery stop first.')}</p>`);
+    frm.fields_dict.planning_help.$wrapper.html(`<p class="text-muted">${__('Assign orders and extra route stock here. Enable Generate Dispatch on Mark Planned to create linked warehouse work automatically. Select Consolidated Customer Orders before generation for one shared Customer Order Plan with exact customer demand. Leave it clear for separate Plans. Extra goods create a shared Open Route Plan. For optional Visit Only sales using stock already on the lorry, select Allow Sales from Existing Lorry Stock; otherwise those visits remain informational. Load the last delivery stop first.')}</p>`);
     if (ui.editable(frm)) frm.add_custom_button(__('Load Route Template'), () => ui.loadTemplate(frm));
     frm.add_custom_button(__('Refresh SO Inbox'), () => ui.inbox(frm, 'order_inbox', true));
     if (!frm.is_new()) frm.add_custom_button(__('Refresh Loading Details'), () => ui.loading(frm));
@@ -80,7 +81,11 @@ frappe.ui.form.on('CFG Kanban Delivery Trip Stop', {
   stops_add(frm, cdt, cdn) { locals[cdt][cdn].stop_key = 'S' + frappe.utils.get_random(20); window.cfg_office_delivery_trip?.renumber(frm); },
   stops_move(frm) { window.cfg_office_delivery_trip?.renumber(frm); },
   stops_remove(frm) { window.cfg_office_delivery_trip?.renumber(frm); },
-  customer_scan_point(frm, cdt, cdn) { return window.cfg_office_delivery_trip.site(frm, cdt, cdn); },
+  async customer_scan_point(frm, cdt, cdn) {
+    const ui = window.cfg_office_delivery_trip;
+    await ui.site(frm, cdt, cdn);
+    return ui.inbox(frm, 'order_inbox', true);
+  },
 });
 frappe.ui.form.on('CFG Kanban Delivery Trip Plan', {
   stop_sequence(frm, cdt, cdn) {

@@ -14,8 +14,13 @@
   }
   function stopOptions(frm, row) {
     return (frm.doc.stops || []).filter(stop => (stop.stop_purpose || 'Delivery') === 'Delivery' &&
-      stop.customer === row.customer && stop.customer_scan_point &&
+      !stop.cancellation_request && stop.customer === row.customer && stop.customer_scan_point &&
       (!row.customer_address || stop.customer_address === row.customer_address));
+  }
+  function inboxStops(frm) {
+    return JSON.stringify((frm.doc.stops || []).map(row => Object.fromEntries(
+      ['stop_key', 'stop_purpose', 'customer_scan_point', 'customer', 'customer_address', 'cancellation_request']
+        .map(field => [field, row[field] || null]))));
   }
   function assign(frm, source, qty, stopKey) {
     if (!editable(frm) || !source.assignable) throw new Error(__('This order is not assignable'));
@@ -46,12 +51,15 @@
     }
     const token = (frm.__cfg_inbox_epoch || 0) + 1; frm.__cfg_inbox_epoch = token;
     const company = frm.doc.company;
+    const stops = trip ? inboxStops(frm) : null;
+    const tripName = trip && !frm.is_new() ? frm.doc.name : null;
     const data = await call('get_route_order_inbox', { route_template: route, company,
-      trip_name: trip && !frm.is_new() ? frm.doc.name : null, start, page_length: 30 });
-    if (frm.__cfg_inbox_epoch !== token || frm.doc.company !== company || (trip ? frm.doc.route_template : frm.doc.name) !== route) return;
+      trip_name: tripName, ...(trip ? { trip_stops: stops } : {}), start, page_length: 30 });
+    if (frm.__cfg_inbox_epoch !== token || frm.doc.company !== company || (trip ? frm.doc.route_template : frm.doc.name) !== route ||
+        (trip && (terminal(frm) || (frm.is_new() ? null : frm.doc.name) !== tripName || inboxStops(frm) !== stops))) return;
     frm.__cfg_inbox = data;
     const rows = data.rows || [];
-    wrapper.html(`<div class="mb-3"><strong>${__('SO Route Inbox')}</strong><p class="text-muted">${__('Saved drafts are shown for information. Only submitted open orders can be assigned. Quantities are in stock UOM; assignment does not reserve ERP stock.')}</p>
+    wrapper.html(`<div class="mb-3"><strong>${__(trip ? 'SO Inbox for Trip Stops' : 'SO Route Inbox')}</strong><p class="text-muted">${trip ? __('Delivery stops include matching Sales Orders with this preset route or no preset route. Add the Customer Site to the Trip, then refresh orders. Orders for another preset route remain excluded.') + ' ' : ''}${__('Saved drafts are shown for information. Only submitted open orders can be assigned. Quantities are in stock UOM; assignment does not reserve ERP stock.')}</p>
       <button class="btn btn-default btn-sm" data-action="refresh">${__('Refresh Orders')}</button>
       ${!trip && frappe.model.can_create('CFG Kanban Delivery Trip') ? `<button class="btn btn-primary btn-sm" data-action="new">${__('New Delivery Trip')}</button>` : ''}</div>
       <div class="table-responsive"><table class="table table-bordered"><thead><tr>
@@ -62,7 +70,7 @@
         const choices = trip ? stopOptions(frm, row) : [];
         const existing = (frm.doc.orders || []).find(item => item.sales_order === row.sales_order && item.sales_order_item === row.sales_order_item);
         const selected = existing?.stop_key || (choices.length === 1 ? choices[0].stop_key : '');
-        return `<tr data-index="${index}"><td><a href="/app/sales-order/${encodeURIComponent(row.sales_order)}">${e(row.sales_order)}</a><br>${e(row.customer_po || '—')}<br><small>${e(row.status)}</small></td>
+        return `<tr data-index="${index}"><td><a href="/app/sales-order/${encodeURIComponent(row.sales_order)}">${e(row.sales_order)}</a><br>${e(row.customer_po || '—')}<br><small>${e(row.status)}</small><br><small>${e(row.standard_route || __('No preset route'))}</small></td>
         <td>${e(row.customer_name)}<br><strong>${e(row.item_code)}</strong> ${e(row.item_name)}</td><td>${e(row.delivery_date)}<br>${e(row.stock_uom)}</td>
         <td>${e(row.ordered_qty)} / ${e(row.delivered_qty)}</td><td>${e(row.assigned_elsewhere)} / ${e(row.assigned_here)}</td><td>${e(row.unassigned_qty)}</td>
         ${trip ? `<td><select class="form-control cfg-stop"><option value="">${__('Choose stop')}</option>${choices.map(stop => `<option value="${e(stop.stop_key)}"${stop.stop_key === selected ? ' selected' : ''}>${e((frm.doc.stops || []).indexOf(stop) + 1)} · ${e(stop.site_name || stop.customer)} · ${e(stop.customer_address || '')}</option>`).join('')}</select></td>

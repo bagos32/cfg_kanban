@@ -208,8 +208,9 @@ def _build_snapshot(doc, context, operator):
         linked = {row.dispatch_plan: row.stop_key for row in doc.dispatch_plans}
     vehicles = {plan.vehicle_warehouse for name,plan in plans.items() if plan.vehicle_warehouse and linked[name] not in cancelled}
     if doc.get('open_route_plan'):
-        shared=_read('CFG Kanban Dispatch Plan',doc.open_route_plan)
-        if shared.vehicle_warehouse:vehicles.add(shared.vehicle_warehouse)
+        from cfg_kanban.services.trip_sales import pool
+        shared=pool(doc)
+        if shared and shared.vehicle_warehouse:vehicles.add(shared.vehicle_warehouse)
     if doc.vehicle_warehouse:
         vehicles.add(doc.vehicle_warehouse)
     for vehicle in sorted(vehicles):
@@ -306,7 +307,7 @@ def _build_snapshot(doc, context, operator):
     if doc.get('open_route_plan'):
         from cfg_kanban.services.trip_sales import snapshot
         shared=snapshot(doc,operator,next(iter(vehicles)) if vehicles else None)
-        extra['open_pool']=shared
+        if shared:extra['open_pool']=shared
     return dict(scope_hash=_core(doc), stop_order=order, policies=policies, sheets=signatures, allocations=allocations,**extra,
         strict=bool(doc.sequence_policy == 'Planned Order' or any(s['sequence_policy'] == 'Planned Order' for s in signatures.values())
                     or bool(extra.get('open_pool',{}).get('sheet') and extra['open_pool']['sheet']['sequence_policy']=='Planned Order')),

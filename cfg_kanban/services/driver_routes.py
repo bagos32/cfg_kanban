@@ -344,7 +344,8 @@ def _route_order(doc, stops, plans, cache, warnings):
     if doc.get('consolidated_customer_orders'):
         from cfg_kanban.services.consolidated_dispatch import linked
         expected_count=len(linked(doc))
-    if doc.get('open_route_plan'):
+    has_shared = bool(doc.get('open_route_plan') and doc.open_route_plan in plans)
+    if has_shared:
         expected_count+=sum(1 for r in doc.stops if r.stop_purpose=='Visit Only' and r.customer_scan_point)
     approved = []; projected = None
     for name in names:
@@ -360,7 +361,7 @@ def _route_order(doc, stops, plans, cache, warnings):
             if plans.get(row.dispatch_plan) and plans[row.dispatch_plan].get('consolidated_customer_orders'):
                 from cfg_kanban.services.consolidated_dispatch import sheet_target
                 key=sheet_target(doc,row)
-            if row.dispatch_plan==doc.get('open_route_plan'):
+            if has_shared and row.dispatch_plan==doc.open_route_plan:
                 from cfg_kanban.services.trip_sales import sheet_target
                 key=sheet_target(doc,row)
             if not key or stops[key]['customer_site'] != row.customer_scan_point:
@@ -376,9 +377,9 @@ def _route_order(doc, stops, plans, cache, warnings):
             for key in rows:
                 if not distinct or distinct[-1] != key:
                     distinct.append(key)
-            delivery_keys = {key for key, stop in stops.items() if stop['purpose'] == 'Delivery' or (doc.get('open_route_plan') and stop['customer_site'])}
+            delivery_keys = {key for key, stop in stops.items() if stop['purpose'] == 'Delivery' or (has_shared and stop['customer_site'])}
             if (None not in rows and set(rows) == delivery_keys and len(distinct) == len(set(distinct))
-                    and (len(delivery_keys) == len(stops) or bool(doc.get('open_route_plan')))
+                    and (len(delivery_keys) == len(stops) or has_shared)
                     and {row.dispatch_plan for row in sheet.stops} == set(plans)
                     and len(sheet.stops) == expected_count
                     and all(plan.active_route_sheet == sheet.name for plan in plans.values())):
@@ -435,9 +436,11 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
         if plan.vehicle_warehouse:
             vehicles.add(plan.vehicle_warehouse)
         _allocations(plan, session, posted, stop, groups, cache)
+    shared=None
     if doc.get('open_route_plan'):
-        shared=_cached(cache,'CFG Kanban Dispatch Plan',doc.open_route_plan)
-        if shared.vehicle_warehouse:vehicles.add(shared.vehicle_warehouse)
+        from cfg_kanban.services.trip_sales import pool
+        shared=pool(doc)
+        if shared and shared.vehicle_warehouse:vehicles.add(shared.vehicle_warehouse)
     departure_vehicle=trip_vehicle_warehouse(doc)
     if departure_vehicle:
         vehicles.add(departure_vehicle)
@@ -451,7 +454,7 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
             item['unprepared_qty'] = max(0, item['planned_qty'] - item['prepared_qty']) if item['is_stock_item'] else 0
         stop['state'] = _stop_state(stop)
     open_pool=None
-    if doc.get('open_route_plan'):
+    if shared:
         from cfg_kanban.services.trip_sales import projection
         open_pool=projection(doc,stops,operator)
         plans[shared.name]=shared

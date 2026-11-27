@@ -56,7 +56,7 @@ class TestTripDispatch(unittest.TestCase):
                 return doc
         controller=load('cfg_kanban/doctype/cfg_kanban_delivery_trip/cfg_kanban_delivery_trip.py',dict(common,validate_trip=self.office.validate_trip))['CFGKanbanDeliveryTrip']
         self.trip=TripDoc(self.b.doc);self.b.doc=self.trip;self.trip.flags=base.Doc()
-        self.trip.update(auto_generate_dispatch=1,dispatch_profile='CUSTOMER',open_route_profile='OPEN',route_stock=[],vehicle_warehouse='LORRY',state='Planned')
+        self.trip.update(auto_generate_dispatch=1,dispatch_profile='CUSTOMER',open_route_profile='OPEN',allow_existing_lorry_sales=1,route_stock=[],vehicle_warehouse='LORRY',state='Planned')
     def profile(self,name,kind):
         self.b.add('CFG Kanban Card',name+'-CARD',active=1,blocked=0,card_type='Location Card',location_purpose='Dispatch Operations',company='A',current_warehouse='SOURCE')
         return self.b.add('CFG Kanban Dispatch Profile',name,active=1,company='A',revision=1,plan_type=kind,fulfilment_mode='Vehicle Delivery',

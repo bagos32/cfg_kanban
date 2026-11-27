@@ -6005,6 +6005,13 @@ Delivery or Visit Only stops and their default order on a normal Desk form. Sale
 PO reference appear in the route inbox; office staff explicitly assign submitted open SO quantities
 to a dated **CFG Kanban Delivery Trip**.
 
+For an ad hoc delivery, add its Customer Site as a **Delivery** stop on the Trip and refresh the
+**SO Inbox for Trip Stops**. Matching submitted open SOs with **no Standard Delivery Route** are
+also available, even when the Customer is absent from the reusable template. Unsaved added stops
+can be selected. Company, Customer/address, exact SO row, planning balance and source permissions
+remain checked. An SO explicitly routed elsewhere requires its normal route-change/release process.
+The SO and reusable template are not rewritten; the ordinary template inbox stays route-specific.
+
 The trip uses full-form tabs for stops, inline SO inbox, assignments, existing Dispatch Plan links,
 and **LIFO Loading Sequence**. Last delivery stop loads first. Visit-only and non-stock Items create
 no loading lines. Saved Draft/Planned quantities are planning commitments, checked against native
@@ -6100,8 +6107,10 @@ On the normal **Route Template / Delivery Trip** form, enable **Generate Dispatc
 and choose Company-matching **Customer Order Dispatch Profile** / **Shared Open Route Dispatch
 Profile**, both Vehicle Delivery. Template loading copies these defaults. Add submitted SO rows
 to their exact stops and optional **Extra Goods for Shared Open Route**, save Draft, then Mark
-Planned. This creates one native Customer Order request per SO/stop and one shared Open Route
-request for every no-order Visit Only stop with a Customer Site. The office no longer needs to
+Planned. This creates one native Customer Order request per SO/stop. A shared Open Route request
+is created for extra route goods, or when **Allow Sales from Existing Lorry Stock** is explicitly
+selected on the Trip for eligible Visit Only Sites. That checkbox defaults off; informational
+visits do not create empty stock requests. The office no longer needs to
 create those Plans separately. Repeated saves reuse them; unused revisions preserve cancelled
 history. Manual links remain supported with automatic mode off.
 
@@ -6117,9 +6126,16 @@ GPS binding. Driver status and **Current Lorry Stock** also resolve that recorde
 historical loading quantities are not treated as current stock or added to the ERP balance.
 
 The Profile's normal approval/picking/loading controls remain mandatory. LIFO lists ordered stock
-last-stop-first and shared extra stock as an accessible common pool. With no extra goods, the pool
-uses eligible stock already on the actual lorry: **Ready for Fulfilment**, with no fabricated
+last-stop-first and shared extra stock as an accessible common pool. When existing-lorry sales
+are explicitly enabled without extra goods, the pool uses eligible stock already on the actual
+lorry: **Ready for Fulfilment**, with no fabricated
 Manifest/Stock Entry. Generation posts/reserves no stock and approves no operational Route Sheet.
+
+An unused empty optional request already **Cancelled** does not block **Start Route**. Reload the
+driver page after deployment and start against the actual loaded customer Plans. The cancelled
+Plan/reference and audit are retained; it is not rebound, approved or recreated. Quantities,
+reservations, Manifest/Session/activity, unresolved Exception/review or active Route Sheet still
+require Supervisor recovery. Actual loading, driver authorization and approval gates remain intact.
 
 On **Driver Route**, a no-order customer may **Sell from Lorry → Add Product / Scan Stock → Finish
 Selection / Create DN**. Native prepared/unassigned tagged and untagged source checks, DN, pricing,

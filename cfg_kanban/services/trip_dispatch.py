@@ -37,6 +37,31 @@ def route_ready(plan):
     return plan.state == 'Loaded' or (existing_pool(plan) and plan.state == 'Ready for Fulfilment')
 
 
+def cancelled_empty_pool(plan):
+    """A cancelled, unused optional-sales context is history, not a departure dependency."""
+    if plan.state != 'Cancelled' or not existing_pool(plan):
+        return False
+    if any(plan.get(field) for field in ('active_route_stop', 'delivery_session',
+            'delivery_note', 'active_dispatch_review', 'dispatch_review_state', 'has_loose_tags')):
+        return False
+    if plan.get('active_route_sheet') and frappe.db.get_value('CFG Kanban Route Sheet',plan.active_route_sheet,'state') not in ('Completed','Cancelled'):
+        return False
+    if plan.get('exception') and frappe.db.get_value('CFG Kanban Exception',plan.exception,'status') not in ('Resolved','Closed','Cancelled'):
+        return False
+    if any(abs(flt(plan.get(field))) > 0.000001 for field in ('total_requested_qty', 'total_reserved_qty',
+            'total_loaded_qty', 'total_delivered_qty', 'visits_started', 'visits_completed',
+            'prepared_stock_commitment', 'route_stock_commitment')):
+        return False
+    checks = (
+        ('CFG Kanban Dispatch Allocation', {'dispatch_plan': plan.name, 'state': ['not in', ['Released', 'Cancelled']]}),
+        ('CFG Kanban Delivery Session', {'dispatch_plan': plan.name}),
+        ('CFG Kanban Movement Manifest', {'dispatch_plan': plan.name}),
+        ('CFG Kanban Route Stop', {'dispatch_plan': plan.name, 'state': ['not in', ['Planned', 'Skipped', 'Cancelled']]}),
+        ('CFG Kanban Loose Tag', {'dispatch_plan': plan.name, 'state': ['not in', ['Cancelled']]}),
+    )
+    return not any(frappe.db.exists(doctype, filters) for doctype, filters in checks)
+
+
 def _profile(name, trip, kind):
     if not name:
         frappe.throw('Select the %s Dispatch Profile on this Delivery Trip' % kind)
@@ -104,7 +129,14 @@ def _specs(trip):
                 item_name=row.item_name, requested_qty=flt(row.planned_qty), sales_order_item=row.sales_order_item,
                 batch_no=None, reserved_qty=0, loaded_qty=0, line_state='Open'))
     visits = [r for r in trip.stops if r.stop_purpose == 'Visit Only' and r.customer_scan_point and not r.get('cancellation_request')]
-    if visits or trip.get('route_stock') or (trip.get('open_route_plan') and any(r.stop_purpose=='Visit Only' and r.get('cancellation_request') for r in trip.stops)):
+    # Retain an already-generated pool for cancelled-visit audit/reconciliation;
+    # cancellation of a visit must not discard the pool's remaining stock/history.
+    prior_visits = trip.get('open_route_plan') and any(r.stop_purpose=='Visit Only' and r.get('cancellation_request') for r in trip.stops)
+    optional_sales = bool(cint(trip.get('allow_existing_lorry_sales')) and (visits or prior_visits))
+    if optional_sales and trip.get('open_route_plan'):
+        previous = _office()._read(PLAN, trip.open_route_plan)
+        optional_sales = not cancelled_empty_pool(previous)
+    if trip.get('route_stock') or optional_sales:
         policy = _profile(trip.open_route_profile, trip, 'Open Route Stock')
         key = ('open', '', '')
         groups[key] = dict(kind='open', key=key, policy=policy, stop_key=None, site=None, sales_order=None,

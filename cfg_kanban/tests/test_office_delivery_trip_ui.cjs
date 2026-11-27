@@ -218,3 +218,72 @@ test('consolidation is configured on the normal Trip form and locked after gener
  frm.doc.dispatch_generated_on='2026-11-27';await form.refresh(frm);assert.equal(props['consolidated_customer_orders:read_only'],true);
  frm.doc.dispatch_generated_on=null;frm.doc.follow_on_of='SOURCE';await form.refresh(frm);assert.equal(props['consolidated_customer_orders:read_only'],true);
 });
+
+test('unsaved ad hoc Delivery stop is sent to inbox and can receive an unrouted SO',async()=>{
+ const {frm,source,calls}=harness();frm.newRecord=true;
+ frm.doc.stops.push({stop_key:'ADHOC_STOP',stop_purpose:'Delivery',customer:'C3',customer_scan_point:'SITE3',customer_address:'ADDR3'});
+ Object.assign(source,{customer:'C3',customer_address:'ADDR3',standard_route:null});
+ await ui.inbox(frm,'order_inbox',true);
+ assert.equal(calls[0].args.trip_name,null);
+ const stops=JSON.parse(calls[0].args.trip_stops);
+ assert.equal(stops[2].customer_scan_point,'SITE3');assert.equal(stops[2].customer,'C3');
+ const html=frm.fields_dict.order_inbox.$wrapper.text;
+ assert.match(html,/SO Inbox for Trip Stops/);assert.match(html,/No preset route/);assert.match(html,/ADHOC_STOP/);
+ assert.doesNotMatch(html,/data-action="assign" disabled/);
+ const row=ui.assign(frm,source,3,'ADHOC_STOP');assert.equal(row.stop_sequence,3);assert.equal(frm.changed,true);
+ assert.equal(frm.doc.route_template,'NORTH');assert.equal(source.standard_route,null);
+});
+
+test('Route Template inbox retains its preset-route request with no Trip stop scope',async()=>{
+ const {frm,calls}=harness();frm.doc.name='NORTH';frm.doc.active=1;
+ await ui.inbox(frm,'order_inbox');
+ assert.equal(calls[0].args.route_template,'NORTH');assert.equal(calls[0].args.trip_name,null);
+ assert.equal(Object.hasOwn(calls[0].args,'trip_stops'),false);
+ assert.match(frm.fields_dict.order_inbox.$wrapper.text,/SO Route Inbox/);
+ assert.doesNotMatch(frm.fields_dict.order_inbox.$wrapper.text,/SO Inbox for Trip Stops/);
+});
+
+test('late inbox response cannot restore results for edited or removed customer stops',async()=>{
+ for(const change of [frm=>frm.doc.stops[0].customer_scan_point='OTHER',frm=>frm.doc.stops[0].customer='OTHER',
+   frm=>frm.doc.stops[0].customer_address='OTHER',frm=>frm.doc.stops[0].stop_purpose='Visit Only',
+   frm=>frm.doc.stops[0].cancellation_request='CANCEL',frm=>frm.doc.stops.pop(),frm=>frm.doc.stops.reverse()]){
+  const {frm,response}=harness();let finish;frappe.call=()=>new Promise(resolve=>{finish=resolve;});
+  const pending=ui.inbox(frm,'order_inbox',true);change(frm);finish({message:response});await pending;
+  assert.equal(frm.fields_dict.order_inbox.$wrapper.text,'');
+ }
+});
+
+test('late inbox response cannot overwrite a different Trip or newly saved Trip',async()=>{
+ for(const wasNew of [false,true]){
+  const {frm,response}=harness();frm.newRecord=wasNew;let finish;
+  frappe.call=()=>new Promise(resolve=>{finish=resolve;});const pending=ui.inbox(frm,'order_inbox',true);
+  frm.doc.name='DIFFERENT-TRIP';frm.newRecord=false;finish({message:response});await pending;
+  assert.equal(frm.fields_dict.order_inbox.$wrapper.text,'');
+ }
+});
+
+test('cancelled Delivery stop is excluded from choices and cannot receive an assignment',()=>{
+ const {frm,source}=harness();frm.doc.stops[0].cancellation_request='CANCEL';
+ assert.equal(ui.stopOptions(frm,source).length,0);assert.throws(()=>ui.assign(frm,source,1,'STOP_KEY_1'),/exact customer/);
+ assert.equal(frm.doc.orders.length,0);
+});
+
+test('selecting an ad hoc Site refreshes inbox after its actual Customer and address resolve',async()=>{
+ const {frm,handlers,calls,source}=harness();locals.STOP.ROW=frm.doc.stops[0];locals.STOP.ROW.customer_scan_point='SITE3';
+ frappe.db.get_value=async()=>({message:{customer:'C3',customer_address:'ADDR3',site_name:'New customer'}});
+ Object.assign(source,{customer:'C3',customer_address:'ADDR3',standard_route:null});
+ vm.runInThisContext(fs.readFileSync(formPath,'utf8'));
+ await handlers['CFG Kanban Delivery Trip Stop'].customer_scan_point(frm,'STOP','ROW');
+ const scope=JSON.parse(calls.at(-1).args.trip_stops);
+ assert.equal(scope[0].customer,'C3');assert.equal(scope[0].customer_address,'ADDR3');assert.equal(scope[0].customer_scan_point,'SITE3');
+ assert.match(frm.fields_dict.order_inbox.$wrapper.text,/No preset route/);
+});
+
+test('optional existing-lorry sales is an explicit office checkbox and freezes after departure',async()=>{
+ const {frm,handlers}=harness();const props={};frm.set_df_property=(field,key,value)=>props[field+':'+key]=value;
+ vm.runInThisContext(fs.readFileSync(formPath,'utf8'));const form=handlers['CFG Kanban Delivery Trip'];
+ await form.refresh(frm);assert.equal(props['allow_existing_lorry_sales:read_only'],false);
+ assert.match(frm.fields_dict.planning_help.$wrapper.text,/Allow Sales from Existing Lorry Stock/);
+ frm.doc.driver_route_state='In Progress';await form.refresh(frm);
+ assert.equal(props['allow_existing_lorry_sales:read_only'],true);
+});

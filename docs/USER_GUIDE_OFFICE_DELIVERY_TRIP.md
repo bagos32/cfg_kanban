@@ -41,8 +41,9 @@ lorry. Several trips can use the same standard route.
    stock rotation, QR, proof and route-sheet policies on those Profiles.
 6. Drag the table rows into sequence and save.
 
-Visit Only records an office visit without a Sales Order. With automatic generation and a
-Customer Site, it can optionally sell from the Trip shared pool. Without a Site it remains an
+Visit Only records an office visit without a Sales Order. With a Customer Site and extra route
+goods or **Allow Sales from Existing Lorry Stock**, it can optionally sell from the Trip shared
+pool. An ordinary Visit Only stop creates no empty Dispatch Plan. Without a Site it remains an
 informational visit. Merely planning a visit creates no stock allocation or delivery. Customers may occur more than once at distinct stops. A Customer Address
 must actually belong to that Customer. Disabled Customers/Addresses and wrong-Company Sites fail
 validation.
@@ -66,6 +67,15 @@ Orders and their Items, customer PO, delivery date, ordered/delivered quantities
 assignments and unassigned balances. Quantities use stock UOM, including the SO conversion factor.
 Saved Draft orders are visible for information. Assignment requires a submitted, open order.
 
+The Route Template inbox remains limited to orders with that preset route. The **Delivery Trip's
+SO Inbox for Trip Stops** also includes matching orders whose **Standard Delivery Route is empty**.
+For an ad hoc customer, add a **Delivery** stop, select its active same-Company **Customer Site**,
+then use **Refresh SO Inbox**. Selecting the Site also refreshes the inbox after resolving its
+Customer/address. A new unsaved stop can be used; the reusable template and SO preset route are
+not changed. The SO must match the stop's Customer and its shipping address when one is specified.
+Orders explicitly assigned to another route stay excluded; release any existing trip assignment
+and change that SO's route through its normal form if it needs a different route.
+
 Selecting a route never silently selects a dated trip. The office makes that assignment below.
 Route, Company, Customer or shipping-address changes are blocked while that SO has active trip
 assignments; release the planning first. Ordinary native delivered-quantity/accounting feedback
@@ -84,8 +94,11 @@ continues when those identity fields have not changed, even if the old template 
    and linked Plans if replacing the route on an existing trip.
 4. In **Customer Stops**, customize instructions, add/remove visits and drag rows into delivery
    order. Customer stops keep stable identities, so moving a row does not change an order's customer.
-5. In **SO Route Inbox**, choose the exact matching delivery stop and enter stock quantity, then
+5. In **SO Inbox for Trip Stops**, choose the exact matching delivery stop and enter stock quantity, then
    **Assign / Update**. Ambiguous repeated Customer/Site stops require an explicit choice.
+   Orders for ad hoc stops may have no preset route. Draft SOs are informational; submitted open
+   SOs are required for assignment. Visit Only, cancelled, wrong-Company or mismatched-address
+   stops cannot receive an SO assignment. This inbox reads Sales Orders, not unpaid Sales Invoices.
 6. Review **Order Assignments** and save. Quantities can be edited there; remove an unused row to
    release its planning quantity before dispatch execution. Use the inbox to change its stop.
 7. Use **Planning Status → Mark Planned** when the office plan is ready.
@@ -105,16 +118,21 @@ source joins are not counted twice. Native SO delivery balances remain authorita
 Enable **Generate Dispatch on Mark Planned** on the Trip or inherit it from the Route Template.
 Under **Linked Dispatch Plans**, select the two Profiles as applicable and enter any **Extra Goods
 for Shared Open Route** in stock UOM (optional Batch). Save the Trip as Draft, then **Mark Planned**.
+Leave **Allow Sales from Existing Lorry Stock** clear for information-only visits. Select it
+before generating if Visit Only customers may buy eligible unassigned stock already on the lorry.
 The office no longer needs to prepare separate Plans before assigning the Trip:
 
 - Each exact **Sales Order + customer stop** creates one linked Customer Order Plan, limited to
   this Trip's assigned SO rows and quantities. Repeated Items on different SO rows remain distinct.
   This remains the default. The optional **Consolidated Customer Orders** setting described below
   creates one Customer Order Plan for the whole Trip instead.
-- All **Visit Only** stops with a Customer Site share **one Open Route Plan**. Extra goods become
+- Extra route goods create **one shared Open Route Plan**. Visit Only stops with a Customer Site
+  use that shared pool when configured. Extra goods become
   its warehouse preparation lines. Warehouse staff reserve, select the actual lorry and load them
   through existing E3 controls, alongside the customer orders.
-- If there are no extra goods, the shared request uses **existing lorry stock only**. Approval is
+- With no extra goods, a shared request is created only when **Allow Sales from Existing Lorry
+  Stock** is selected and there is an eligible Visit Only Site. Otherwise no empty request or
+  optional-sales approval is needed. An explicitly enabled request uses **existing lorry stock only**. Approval is
   still required when configured. Assign the actual lorry on the Trip, or inherit it at departure
   from the loaded customer Plans. It becomes **Ready for Fulfilment** without a Manifest or invented
   loading Stock Entry. Eligible unassigned lorry stock is checked when a customer buys.
@@ -125,6 +143,27 @@ Repeated saved planning reuses the same requests/visits. **Generate / Refresh Di
 on a saved, clean Draft or Planned Trip, before execution. Unused changes replace requests while
 retaining cancelled history. Reservations/loading/route approval freeze the sources; use existing
 controlled release/cancellation/reconciliation after execution begins. Keep loaded stock unchanged.
+
+### Existing empty shared Plan was cancelled and Start Route is blocked
+
+After updating/migrating/building CFG and reloading Desk:
+
+1. If the unused empty Plan is already **Cancelled**, retain its cancellation/history and its Trip
+   reference. Reload **Driver Route** and select **Start Route**. No replacement Plan or stock
+   transfer is needed solely for that cancelled optional context.
+2. If it is still active and optional sales are not needed, an authorized operator uses the existing
+   **Cancel Plan**, supplies a reason, then reloads Driver Route. Cancellation permissions remain.
+3. Real customer Plans must still be Loaded, use the correct lorry and have their required approved
+   Route Sheet. An active unapproved optional-sales request also still needs its normal approval.
+4. A cancelled Plan with quantities, reservations, Manifest, Session, active visit/pack/review,
+   unresolved Exception or active Route Sheet remains blocked. Use the named Supervisor route or
+   recovery controls; resolve/reapprove its Sheet or finish stock recovery as appropriate.
+
+Only a demonstrably unused cancelled empty context is ignored. Its Plan, cancellation reason,
+actor, visits and released reservation audit remain unchanged. A controlled Generate / Refresh
+before execution may clear the obsolete link without recreating the cancelled request. Once real
+loading has begun, keep its existing sources; this departure fix does not require regenerating them.
+Existing active shared requests remain subject to their saved policy, including on older Trips.
 
 ### Consolidated Customer Orders — 27 November 2026
 

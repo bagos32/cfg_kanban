@@ -184,9 +184,10 @@ def _delivered_assignments(order_names, current=False):
     return result
 
 
-def _order(name, company, route, allow_draft=False, current=False):
+def _order(name, company, route, allow_draft=False, current=False, allow_unrouted=False):
     order = _read('Sales Order', name, current=current)
-    if order.company != company or order.get('cfg_delivery_route') != route:
+    selected_route = order.get('cfg_delivery_route') or ''
+    if order.company != company or (selected_route != route and not (allow_unrouted and not selected_route)):
         frappe.throw('Sales Order must belong to this Company and Standard Route')
     if order.docstatus != 1:
         if not (allow_draft and order.docstatus == 0):
@@ -219,8 +220,40 @@ def _quantity(value, uom):
     return qty
 
 
+def _matches_stop(order, stop):
+    return (order.customer == stop.customer and (not order.get('shipping_address_name')
+            or order.shipping_address_name == stop.get('customer_address')))
+
+
+def _inbox_stops(company, current, trip_stops):
+    """Validate the current form's sites without saving or rewriting its Trip/template."""
+    if isinstance(trip_stops, str):
+        try:
+            trip_stops = frappe.parse_json(trip_stops)
+        except (TypeError, ValueError):
+            frappe.throw('Trip inbox stops must be a list of customer stops')
+    if trip_stops is not None and (not isinstance(trip_stops, list)
+            or any(not isinstance(row, dict) for row in trip_stops)):
+        frappe.throw('Trip inbox stops must be a list of customer stops')
+    source = trip_stops if trip_stops is not None else (current.stops if current else [])
+    cancelled = {row.stop_key for row in (current.stops if current else []) if row.get('cancellation_request')}
+    stops = []
+    for row in source:
+        purpose = row.get('stop_purpose') or 'Delivery'
+        if purpose not in ('Delivery', 'Visit Only'):
+            frappe.throw('Stop Purpose must be Delivery or Visit Only')
+        if (purpose != 'Delivery' or not row.get('customer_scan_point') or row.get('cancellation_request')
+                or row.get('stop_key') in cancelled):
+            continue
+        stops.append(frappe._dict({field: row.get(field) for field in
+            ('stop_purpose', 'customer_scan_point', 'customer', 'customer_address')}))
+    if stops:
+        validate_stops(frappe._dict(company=company, stops=stops), assign_keys=False)
+    return stops
+
+
 @frappe.whitelist()
-def get_route_order_inbox(route_template, company=None, trip_name=None, start=0, page_length=50):
+def get_route_order_inbox(route_template, company=None, trip_name=None, start=0, page_length=50, trip_stops=None):
     template = _template(route_template, company)
     current = None
     if trip_name:
@@ -228,9 +261,19 @@ def get_route_order_inbox(route_template, company=None, trip_name=None, start=0,
         if current.company != template.company or current.route_template != template.name:
             frappe.throw('Trip does not match the selected Standard Route')
     start = max(0, cint(start)); size = max(1, min(cint(page_length) or 50, 100))
-    names = frappe.get_list('Sales Order', filters={
-        'company': template.company, 'cfg_delivery_route': template.name,
-        'docstatus': ['in', [0, 1]], 'status': ['not in', ['Closed', 'Cancelled', 'Completed', 'On Hold']]},
+    trip_scope = current is not None or trip_stops is not None
+    stops = _inbox_stops(template.company, current, trip_stops) if trip_scope else []
+    if trip_scope and not stops:
+        return dict(rows=[], start=start, page_length=size, has_more=False)
+    filters = {'company': template.company,
+        'docstatus': ['in', [0, 1]], 'status': ['not in', ['Closed', 'Cancelled', 'Completed', 'On Hold']]}
+    query = {}
+    if trip_scope:
+        filters['customer'] = ['in', sorted({row.customer for row in stops})]
+        query['or_filters'] = [['cfg_delivery_route', '=', template.name], ['cfg_delivery_route', 'is', 'not set']]
+    else:
+        filters['cfg_delivery_route'] = template.name
+    names = frappe.get_list('Sales Order', filters=filters, **query,
         pluck='name', order_by='delivery_date asc, transaction_date asc, name asc',
         limit_start=start, limit_page_length=size + 1)
     quantities = _assignments(names[:size], current.name if current else None)
@@ -241,7 +284,9 @@ def get_route_order_inbox(route_template, company=None, trip_name=None, start=0,
            if not next((r.get('cancellation_request') for r in current.stops if r.stop_key==row.stop_key),False)}
     rows = []
     for name in names[:size]:
-        order = _order(name, template.company, template.name, allow_draft=True)
+        order = _order(name, template.company, template.name, allow_draft=True, allow_unrouted=trip_scope)
+        if trip_scope and not any(_matches_stop(order, stop) for stop in stops):
+            continue
         for item in (order.get('items') or []):
             source, remaining = _line(order, item.name)
             if remaining <= EPSILON:
@@ -252,6 +297,7 @@ def get_route_order_inbox(route_template, company=None, trip_name=None, start=0,
             rows.append(dict(sales_order=name, sales_order_item=item.name, item_code=source.item_code,
                 item_name=source.item_name, stock_uom=source.stock_uom, customer=order.customer,
                 customer_name=order.get('customer_name') or order.customer,
+                standard_route=order.get('cfg_delivery_route') or None,
                 customer_po=order.get('po_no'), customer_address=order.get('shipping_address_name'),
                 delivery_date=str(source.get('delivery_date') or order.get('delivery_date') or ''),
                 ordered_qty=flt(source.qty) * flt(source.conversion_factor),
@@ -357,6 +403,9 @@ def _business(doc):
             route_stock=[(r.item_code,r.batch_no,flt(r.qty),r.stock_uom) for r in doc.get('route_stock') or []])
     if doc.get('consolidated_customer_orders'):
         result['consolidated_customer_orders']=1
+    # Preserve older departure hashes when the new default-off option is absent.
+    if cint(doc.get('allow_existing_lorry_sales')):
+        result['allow_existing_lorry_sales']=1
     return result
 
 
@@ -561,8 +610,10 @@ def validate_trip(doc):
         return
     if before and before.get('open_route_plan'):
         pool=_read('CFG Kanban Dispatch Plan',before.open_route_plan,current=True)
-        unused_existing=(pool.get('existing_lorry_stock_only') and pool.state=='Ready for Fulfilment' and not pool.get('active_route_sheet')
-            and not frappe.db.exists('CFG Kanban Delivery Session',{'dispatch_plan':pool.name}))
+        from cfg_kanban.services.trip_dispatch import cancelled_empty_pool
+        unused_existing=(cancelled_empty_pool(pool) or (pool.get('existing_lorry_stock_only')
+            and pool.state=='Ready for Fulfilment' and not pool.get('active_route_sheet')
+            and not frappe.db.exists('CFG Kanban Delivery Session',{'dispatch_plan':pool.name})))
         if ((pool.state not in ('Draft','Awaiting Approval','Approved') and not unused_existing) or pool.get('movement_manifest') or pool.get('active_route_stop')) and _business(doc)!=_business(before):
             frappe.throw('Shared route stock execution has started; retain this Trip snapshot')
     if before:
@@ -618,11 +669,10 @@ def validate_trip(doc):
         if stop.get('cancellation_request'):
             continue
         if row.sales_order not in orders:
-            orders[row.sales_order] = _order(row.sales_order, doc.company, doc.route_template, current=True)
+            orders[row.sales_order] = _order(row.sales_order, doc.company, doc.route_template, current=True, allow_unrouted=True)
         order = orders[row.sales_order]
         source, remaining = _line(order, row.sales_order_item)
-        if (order.customer != stop.customer or (order.get('shipping_address_name') and
-                order.shipping_address_name != stop.customer_address)):
+        if not _matches_stop(order, stop):
             frappe.throw('Trip stop must match the Sales Order Customer and delivery address')
         item = _read('Item', source.item_code)
         if item.disabled:
