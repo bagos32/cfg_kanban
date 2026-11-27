@@ -38,6 +38,20 @@ class TestDispatchReconciliation(unittest.TestCase):
         self.plan.route_stock_commitment=1;self.plan.prepared_stock_commitment=0
         self.b.posted.clear()
 
+    def test_open_movement_still_blocks_balanced_route_closure_until_resolved(self):
+        self.b.frappe.db.get_value=Mock(return_value=None)
+        self.b.frappe.db.sql=Mock(return_value=[['KMF-2026-00066']])
+        doc=Row(company='B',vehicle_warehouse='LORRY1',state='Ready to Close')
+        with self.assertRaisesRegex(ValueError,'KMF-2026-00066'):
+            self.counts._assert_no_open_vehicle_work(doc)
+        query,params=self.b.frappe.db.sql.call_args.args
+        self.assertIn('source_warehouse=%s or destination_warehouse=%s',query)
+        self.assertEqual(params,('LORRY1','LORRY1'))
+        self.assertIn("'Received'",query);self.assertIn("'Cancelled'",query)
+        self.assertNotIn("'Draft'",query)
+        self.b.frappe.db.sql.return_value=[]
+        self.counts._assert_no_open_vehicle_work(doc)
+
     def begin(self,event='OPEN'):
         return self.mod.begin_dispatch_review('PLAN',event,'SESSION')
     def review(self):return self.data[REVIEW][self.plan.active_dispatch_review]

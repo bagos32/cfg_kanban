@@ -36,9 +36,12 @@ it does not create another delivery or stock-posting engine.
    to **one destination**. This creates a Draft Manifest and no stock withdrawal.
 4. Scan each physical Stock Tag. If it is inside a reusable container, scan that container; every
    contained tag must belong to this recovery. Each exact source turns **Confirmed**.
-5. For each loose-stock row, select its number, physically count the Item/Batch in its stock UOM,
-   enter that exact quantity and Confirm. Tagged and loose rows can be confirmed in either order.
-   A changed quantity requires investigation; this action cannot change the reviewed balance.
+5. Untagged ERP stock has no Stock Tag QR. Select the numbered **Enter Count** row to enable
+   **Physically Counted Loose Quantity**. Type the actual counted quantity in that Item/Batch's
+   stock UOM and click **Confirm Counted Loose Quantity**. Manual typing updates readiness without
+   waiting for blur or moving focus away; scanner quantities use the same state. The expected
+   amount is never filled in as an actual count. Tagged and loose rows can be confirmed in either
+   order. A difference from the reviewed amount requires investigation before preparation.
 6. **Prepare and Reserve** after every source is confirmed. Tags use the existing quantity ledger;
    loose stock retains its existing Plan commitment, without a second reservation or an invented tag.
 7. Review the destination and **Post / Create ERP Movement**, then Confirm. Mandatory ERP fields
@@ -117,3 +120,33 @@ Review settlement still apply. Whole tags/held sources stay together; old return
 QC receipt, with no duplicate receipt/credit. Office closure now requires old-return physical receipt,
 while inspection/accounting may continue. See [E5B2 setup and scanner guide](USER_GUIDE_DISPATCH_E5B2.md)
 and [acceptance checklist](TEST_DISPATCH_E5B2_RECOVERY.md). Implementation does not establish live acceptance.
+
+## Open Manifest blocks Close Balanced Route
+
+A balanced D3 count does not complete a recovery movement. If route closure names an open
+`KMF-...`, reopen that exact Manifest through **Return / Transfer Dispatch Leftovers**. A green
+Stock Tag row confirms that source; each red **ERP stock** row still needs its own physical count.
+
+1. Select the numbered **Enter Count** row for the untagged Item/Batch.
+2. Type its actual quantity and **Confirm Counted Loose Quantity**. The row turns green only
+   after the saved confirmation succeeds. Until this typing correction is deployed, the existing
+   scanner path is `CFG:SELECT:n`, `CFG:QTY:MATERIAL:q`, then `CFG:CMD:CONFIRM`.
+3. When all sources are confirmed, choose **Prepare Confirmed Sources**, then **Prepare and Reserve**.
+4. Choose **Post / Create ERP Movement**, review its required inputs and confirm. If an ERP Draft
+   is created, have an authorized user submit that saved Stock Entry, then **Refresh Recorded Recovery**.
+5. Wait for Manifest **Received**. Refresh the D3 count and recount the stock physically remaining
+   on the lorry; remove old tag scans or update loose counts for goods that have moved. Evaluate,
+   resolve any variance, and **Close Balanced Route**. Then **Finish Dispatch Review** using its
+   matching movement and fresh closed count.
+
+If the transfer is no longer intended, an authorized Supervisor can choose **Cancel Unused
+Recovery**, enter a reason and confirm only while there is no ERP command or Stock Entry. A
+per-item destination group is cancelled with its entire unused decision set from **Trip Handover
+→ Cancel Unused Decisions**, before any group begins ERP work. Resolve existing ERP work through
+its saved document workflow. Cancelling an unused recovery does not settle the Plan: finish or
+resume its Review according to where the goods physically remain. Do not edit statuses or delete
+records to remove the closure guard.
+
+The manual-entry correction requires the app asset build/cache refresh. It adds no schema change
+and performs no data repair on existing Manifests; reopen the same Draft and continue. Native
+ERPNext/tablet/scanner acceptance remains separate from offline checks.

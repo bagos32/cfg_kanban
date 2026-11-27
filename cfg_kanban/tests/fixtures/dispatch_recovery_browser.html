@@ -1,0 +1,86 @@
+<!doctype html><meta charset="utf-8"><title>Offline recovery quantity typing checks</title>
+<style>body{font:15px Arial;margin:20px;background:#f4f5f6}.dialog{background:white;max-width:1000px;padding:20px;margin:auto}.btn{padding:10px;margin:4px;border:1px solid #aaa;border-radius:4px}.field{margin:12px 0}input,textarea{box-sizing:border-box;width:100%;padding:10px}label{display:block;font-weight:bold}.text-success{color:green}.text-danger{color:#a22}table{width:100%;border-collapse:collapse}td,th{border:1px solid #ddd;padding:8px}.alert{padding:10px;background:#fff3cd}</style>
+<h2>Offline recovery quantity fixture</h2><p>Demo RPC and field controls only. No ERPNext site or physical stock is connected.</p><pre id="result">Running…</pre><div id="host"></div>
+<script>
+class Wrap{
+ constructor(nodes){this.nodes=nodes;nodes.forEach((n,i)=>this[i]=n);this.length=nodes.length;}
+ find(s){return new Wrap(this.nodes.flatMap(n=>[...n.querySelectorAll(s)]));}
+ html(value){this.nodes.forEach(n=>n.innerHTML=value);return this;}
+ text(value){if(value===undefined)return this.nodes[0]?.textContent;this.nodes.forEach(n=>n.textContent=value);return this;}
+ attr(name,value){this.nodes.forEach(n=>n.setAttribute(name,value));return this;}
+ focus(){this.nodes[0]?.focus();return this;}
+ on(events,selector,work){if(typeof selector==='function'){work=selector;selector=null;}for(const name of events.split(' ')){const type=name.split('.')[0];this.nodes.forEach(n=>n.addEventListener(type,event=>{const target=selector?event.target.closest(selector):n;if(target&&n.contains(target))work.call(target,event);}));}return this;}
+}
+window.$=value=>new Wrap(typeof value==='string'?[...document.querySelectorAll(value)]:[value]);
+window.runRecoveryTests=async()=>{
+ const checks=[],check=(value,note)=>{if(!value)throw new Error(note);checks.push(note);},pause=ms=>new Promise(r=>setTimeout(r,ms));
+ const until=async work=>{for(let n=0;n<200;n++){if(work())return;await pause(10);}throw new Error('Timed out: '+work);};
+ await until(()=>typeof window.cfg_dispatch_recovery?.open==='function');
+ const calls=[],dialogs=[];let ctx,view,loss=null,owner='SUP',timers=[];
+ const escape=value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+ class Dialog{
+  constructor(config){this.config=config;this.fields_dict={};this.closed=false;this.wrapper=document.createElement('section');this.wrapper.className='dialog';
+   for(const df of config.fields){const wrap=document.createElement('div');wrap.className='field';const label=document.createElement('label');label.textContent=df.label||'';wrap.append(label);const input=document.createElement(df.fieldtype==='Small Text'?'textarea':df.fieldtype==='Button'?'button':'input');input.dataset.field=df.fieldname;
+    if(df.fieldtype==='Button'){input.className='btn';input.textContent=df.label;input.addEventListener('click',()=>df.click?.());}else if(df.fieldtype!=='HTML')wrap.append(input);
+    if(df.fieldtype==='Button')wrap.append(input);const description=document.createElement('small');wrap.append(description);this.wrapper.append(wrap);
+    const field={df,value:'',$input:$(input),$wrapper:$(wrap),input,description,wrap};this.fields_dict[df.fieldname]=field;
+    if(['Data','Small Text'].includes(df.fieldtype)){
+     let timer;
+     const nativeChange=()=>{clearTimeout(timer);if(this.closed)return;field.value=input.value;Promise.resolve(df.onchange?.()).catch(error=>{throw error;});};
+     input.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(nativeChange,500);timers.push(timer);});
+     input.addEventListener('change',nativeChange);
+    }
+   }
+   this.primary=document.createElement('button');this.primary.className='btn primary';this.primary.textContent=config.primary_action_label;this.primary.addEventListener('click',()=>config.primary_action());this.wrapper.append(this.primary);dialogs.push(this);
+  }
+  show(){document.getElementById('host').append(this.wrapper);}
+  hide(){if(this.closed)return;this.closed=true;this.wrapper.remove();this.onhide?.();}
+  get_value(name){const f=this.fields_dict[name];return f.df.read_only?f.value:f.input.value;}
+  async set_value(name,value){const f=this.fields_dict[name],text=String(value??'');if(f.value===text)return;f.value=text;f.input.value=text;await f.df.onchange?.();}
+  set_df_property(name,key,value){const f=this.fields_dict[name];f.df[key]=value;f.wrap.hidden=!!f.df.hidden;f.input.disabled=!!f.df.read_only;f.input.value=f.value;f.description.innerHTML=f.df.description||'';}
+  enable_primary_action(){this.primary.disabled=false;}
+  disable_primary_action(){this.primary.disabled=true;}
+  get_primary_btn(){return $(this.primary);}
+ }
+ const f={utils:{escape_html:escape},ui:{Dialog},require:async()=>{},set_route(){},async call({method,args}){
+  const name=method.split('.').at(-1);calls.push({name,args:structuredClone(args)});
+  if(name==='get_dispatch_recovery_context')return {message:structuredClone(ctx)};
+  if(name==='get_dispatch_requirements')return {message:{fields:[]}};
+  if(name==='confirm_dispatch_recovery_loose'){
+   if(loss){const error=loss;loss=null;throw error;}
+   check(args.line_name==='ERP-LINE','Confirmed the exact untagged Manifest line');check(args.qty===ctx.recovery_manifest.lines[1].dispatch_qty,'Used the exact manually counted quantity');ctx.recovery_manifest.lines[1].loading_confirmed=1;
+  }else if(name==='prepare_dispatch_recovery')ctx.recovery_manifest.state='Prepared';
+  else if(name==='post_dispatch_recovery'){ctx.recovery_manifest.state='Received';ctx.recovery_manifest.dispatch_stock_entry='STE-DEMO';}
+  else throw new Error('Unexpected RPC '+name);
+  return {message:structuredClone(ctx)};
+ }};
+ async function start(qty=1,uom='Nos'){
+  view?.close();for(const timer of timers)clearTimeout(timer);timers=[];ctx={plan:{name:'DPL-DEMO'},review:{name:'KDR-DEMO',state:'Reviewing'},balance_hash:'HASH',recovery_routes:[],recovery_manifest:{name:'KMF-DEMO',state:'Draft',source_warehouse:'LORRY',destination_warehouse:'DEST',logistics_route:'ROUTE',recovery_reason:'Breakdown',auto_submit_internal_dispatch:1,lines:[{name:'TAG-LINE',handling_unit:'TAG',visible_code:'TAG-DEMO',item_code:'PRODUCT',stock_uom:'Nos',dispatch_qty:2,loading_confirmed:1},{name:'ERP-LINE',handling_unit:null,item_code:'PRODUCT',stock_uom:uom,dispatch_qty:qty,loading_confirmed:0}]}};
+  view=await window.cfg_dispatch_recovery.open({frappe:f,planScan:'KMF-DEMO',owner:()=>owner,token:()=> 'TOKEN',nonce:()=>crypto.randomUUID(),errorMessage:(error,fallback)=>error.message||fallback,onClose(){},finish(){}});
+  return dialogs.at(-1);
+ }
+ const choose=async d=>{d.wrapper.querySelector('.recovery-choice').click();await until(()=>view.controller.state.line==='ERP-LINE');return d.fields_dict.qty.input;};
+ const type=async(input,value)=>{input.value=value;input.dispatchEvent(new InputEvent('input',{bubbles:true,data:value,inputType:'insertText'}));await until(()=>view.controller.state.qty===value);};
+ let d=await start();check(!d.fields_dict.qty.wrap.hidden,'Quantity field is discoverable before selecting the loose row');check(d.fields_dict.qty.input.disabled,'A physical source must be selected explicitly');
+ let input=await choose(d);input.focus();await type(input,'1');check(!d.primary.disabled,'Raw typing enables Confirm without blur or a scanner');check(document.activeElement===input,'Manual input retains focus');
+ await pause(650);check(document.activeElement===input&&input.value==='1','Delayed native onchange preserves the typed count and focus');
+ const before=calls.filter(r=>r.name==='confirm_dispatch_recovery_loose').length;d.primary.click();await until(()=>ctx.recovery_manifest.lines[1].loading_confirmed===1&&!view.controller.state.busy);
+ check(calls.filter(r=>r.name==='confirm_dispatch_recovery_loose').length===before+1,'One touch confirmation saves the manually typed loose quantity once');
+ check(document.activeElement===d.fields_dict.scan.input,'Successful count restores Scanner Ready focus');
+ d.fields_dict.prepare.input.click();await pause(0);d.primary.click();await until(()=>ctx.recovery_manifest.state==='Prepared'&&!view.controller.state.busy);
+ d.fields_dict.post.input.click();await pause(0);d.primary.click();await until(()=>ctx.recovery_manifest.state==='Received'&&!view.controller.state.busy);
+ check(!!ctx.recovery_manifest.dispatch_stock_entry,'Confirmed manual count permits prepare and existing ERP movement feedback');
+ d=await start(12.5,'Kg');input=await choose(d);input.focus();
+ for(const value of ['1','12','12.','12.5']){await type(input,value);check(input.value===value&&document.activeElement===input,'Preserved decimal typing '+value);}
+ await pause(650);check(!d.primary.disabled&&input.value==='12.5'&&document.activeElement===input,'Decimal remains ready after native debounce');
+ d=await start();input=await choose(d);input.focus();await type(input,'2');check(d.primary.disabled,'Mismatched quantity is rejected before posting');
+ const mismatchCalls=calls.length;d.primary.click();await pause(20);check(calls.length===mismatchCalls,'A disabled mismatched count creates no request');
+ await type(input,'1');loss=new Error('Lost response');d.primary.click();await until(()=>!!view.controller.state.pending&&!view.controller.state.busy);
+ check(d.fields_dict.qty.input.disabled,'Uncertain confirmation locks the original typed value');const request=calls.at(-1).args;
+ d.primary.click();await until(()=>!view.controller.state.pending&&!view.controller.state.busy);check(JSON.stringify(calls.at(-1).args)===JSON.stringify(request),'Retry retains original source, quantity and event identity');
+ d=await start();input=await choose(d);input.focus();await type(input,'1');const cancelled=calls.length;await view.scan('CFG:CMD:CANCEL');check(calls.length===cancelled,'Cancel after typing submits no count or movement');
+ for(const timer of timers)clearTimeout(timer);
+ const result={passed:checks.length,checks,userAgent:navigator.userAgent,scope:'Offline DOM and Frappe-like 500ms input/model refresh with RPC doubles; no native site, stock or scanner acceptance'};document.getElementById('result').textContent=JSON.stringify(result,null,2);return result;
+};
+</script>
+<script src="../../public/js/dispatch_recovery.js"></script>

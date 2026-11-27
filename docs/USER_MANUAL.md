@@ -5859,9 +5859,18 @@ Begin an E5A Dispatch Review, then select **Return / Transfer Leftovers** or sca
 and both chosen-route responsibilities explicitly selects an approved same-Company Direct Transfer
 route from the original lorry. Confirm its reason to create the recovery checklist. Scan each tag
 or full reusable container; select each loose row, enter its exact counted Item/Batch/stock-UOM
-quantity and Confirm. Confirm **Prepare and Reserve**, then **Post / Create ERP Movement**.
+quantity and Confirm. Untagged ERP stock has no QR: choose its numbered **Enter Count** row,
+then type **Physically Counted Loose Quantity** and click **Confirm Counted Loose Quantity**.
+The input updates immediately while typing, keeps focus for multi-digit/decimal values, and also
+shows scanner-entered quantities. Confirm **Prepare and Reserve**, then **Post / Create ERP Movement**.
 Native Stock Entry submission moves stock and updates tag/container locations. If the route creates
 an ERP Draft, submit that existing document through authorized ERP review and Refresh.
+
+If **Close Balanced Route** names an open Movement Manifest, complete that recovery until its
+Manifest is **Received**, or use the authorized unused-recovery cancellation before ERP work starts.
+Then recount the stock actually remaining on the lorry, evaluate and close the D3 count, and finish
+its Dispatch Review. A loose count in D3 does not confirm a loose pick in the recovery Manifest.
+See [the recovery troubleshooting steps](USER_GUIDE_DISPATCH_E5B1.md#open-manifest-blocks-close-balanced-route).
 
 The scanner flow uses `RECOVERY_REASON`, `RECOVERY_SOURCE`, `RECOVERY_PREPARE`, `RECOVERY_POST`,
 `RECOVERY_CANCEL`, `RECOVERY_REFRESH` and `RECOVERY_CAMERA` with the `CFG:CMD:` prefix. Use numbered

@@ -65,3 +65,37 @@ This increment covers the entire prepared remainder to one destination. Mixed pe
 movements, receiving recovery Plans/reassignment, wider known-customer partial/refused fulfilment
 and guided damage/write-off decisions are not implemented by this increment. Package L1 and the
 other unrecorded acceptance gates remain open.
+
+## Manual untagged quantity entry — 26 November 2026
+
+Correction: the recovery dialog now offers an explicit **Enter Count** choice and a discoverable
+quantity control. Raw manual input immediately updates the same controller as scanner entry;
+unchanged field properties no longer trigger native refresh, and typing does not restore scanner
+focus until an action completes. Native delayed onchange and multi-digit/decimal input are covered.
+No expected amount is prefilled as a physical count. Pending requests retain their original value.
+The D3 open-movement closure guard remains mandatory.
+
+Offline checks include the actual controller/dialog with RPC/UI doubles and a standalone browser
+fixture with real DOM events plus Frappe-like 500 ms change/model refresh. Run
+`node cfg_kanban/tests/run_dispatch_recovery_browser.mjs` in Chrome, or prefix with
+`CFG_BROWSER=firefox` for Firefox. No native ERPNext site or stock is connected.
+
+Live acceptance for this correction remains **Not run**:
+
+- Reopen an existing Draft recovery with one confirmed tag and one untagged row. Select Enter Count,
+  type its exact physical quantity, and confirm with touch; use no stock QR for that ERP row.
+- Type a multi-digit decimal for a fractional stock UOM; the caret/focus and quantity must survive
+  a pause longer than 500 ms. The primary button must enable at the exact valid quantity.
+- Complete the same row by scanner, and verify its quantity is mirrored into the visible field.
+- A mismatch cannot prepare stock. An uncertain response locks the original value and identity.
+- Prepare and post through existing native controls, submit a saved Draft if required, and wait
+  for Received. Recount remaining lorry stock, evaluate/close D3 and finish the matching Review.
+- A still-open Manifest must continue blocking Close Balanced Route. Cancel only through the
+  authorized unused recovery or complete per-item decision-set action before ERP work begins.
+
+Offline result for this correction: **103 Python regression tests**, **35 recovery UI checks**
+and **29 related UI checks** passed. The DOM fixture passed **22 checks in Chrome and 22 in
+Firefox**, covering typed quantities before blur, retained focus through the native-style delay,
+multi-digit decimals, exact source confirmation, prepare/post feedback, mismatch rejection,
+unknown-result retry and safe Cancel. These results do not verify the development site's Manifest,
+native ERPNext posting/rollback, actual permissions or physical stock.

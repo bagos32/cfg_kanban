@@ -10,7 +10,7 @@
    s.context=context;s.line='';s.qty='';s.page=0;s.action='';s.arm='';
    const m=manifest();s.route=m&&m.state!=='Cancelled'?m.logistics_route:'';s.reason=m&&m.state!=='Cancelled'?m.recovery_reason:'';
    s.message=!m||m.state==='Cancelled'?'Choose an approved destination route and enter a Supervisor reason. Confirm creates the recovery checklist.':
-    m.state==='Draft'?'Scan each Stock Tag or its container. Select each loose row and confirm its exact physical quantity; then Prepare.':
+    m.state==='Draft'?'Scan Stock Tags or containers. Untagged ERP stock has no QR: select Enter Count below, type its physical quantity, then Confirm Counted Loose Quantity. Prepare only after all sources are green.':
     m.state==='Received'?'Movement posted. Close a fresh balanced D3 lorry count, then Finish Dispatch Review using this Stock Entry. Do this before using the recovered stock.':
     m.state==='Dispatch Document Pending'?'Read back the ERP document. Submit a saved Draft through authorized ERP review, then Refresh.':
     'All sources confirmed and reserved. Review the destination, then confirm the movement.';
@@ -82,7 +82,7 @@
   async function scan(raw){
    const value=String(raw||'').trim(),upper=value.toUpperCase();if(!value||s.closed)return;
    if(upper==='CFG:CMD:CANCEL'){s.closed=true;env.close();return;}
-   if(upper==='CFG:CMD:HELP'){s.message='Scan DPL/KDR/KMF. Select route 1–10, RECOVERY_REASON, reason, Confirm. Scan sources; select loose row, CFG:QTY:MATERIAL:n, Confirm. Prepare then Post with Confirm. RECOVERY_CANCEL cancels an unused recovery after a reason; CANCEL only closes. Refresh reads recorded status. After posting use a fresh D3 count and Finish Dispatch Review.';changed();return;}
+   if(upper==='CFG:CMD:HELP'){s.message='Scan DPL/KDR/KMF. Select route 1–10, RECOVERY_REASON, reason, Confirm. Stock Tags: scan their QR or container. Untagged ERP stock: select a numbered Enter Count row, type its physical quantity or scan CFG:QTY:MATERIAL:n, then Confirm Counted Loose Quantity. Prepare then Post with Confirm. RECOVERY_CANCEL cancels an unused recovery after a reason; CANCEL only closes. Refresh reads recorded status. After posting use a fresh D3 count and Finish Dispatch Review.';changed();return;}
    if(['CFG:CMD:RECOVERY_CAMERA','CFG:CMD:DISPATCH_REVIEW_CAMERA'].includes(upper))return env.camera();
    if(upper==='CFG:CMD:CONFIRM')return confirm();
    edit();
@@ -114,9 +114,24 @@
   else{result.tables[row.table_field]??=[];result.tables[row.table_field][row.row_index]??={};result.tables[row.table_field][row.row_index][row.fieldname]=value;}
  });return result;}
  async function open(options){
-  const f=options.frappe,e=f.utils.escape_html,openedOwner=options.owner();let dialog,controller,camera=null,child=null,childDialog=null,nextAction=null,renderedContext=null,renderedLine=null,renderedAction=null,tail=Promise.resolve();
+  const f=options.frappe,e=f.utils.escape_html,openedOwner=options.owner();let dialog,controller,camera=null,child=null,childDialog=null,nextAction=null,tail=Promise.resolve();
   const focus=()=>{if(child)return child.focus();if(!controller.state.closed)dialog.fields_dict.scan.$input.focus();};
-  function queue(work){tail=tail.then(work).catch(error=>{controller.state.message=options.errorMessage(error,error.message||'Recovery failed.');render(controller.state);}).finally(focus);return tail;}
+  function queue(work,restoreFocus=true){tail=tail.then(work).catch(error=>{controller.state.message=options.errorMessage(error,error.message||'Recovery failed.');render(controller.state);}).finally(()=>{if(restoreFocus)focus();});return tail;}
+  function quantityInput(raw){
+   if(!controller||controller.state.closed)return;
+   const line=controller.state.line,value=String(raw??'');
+   if(!line||controller.state.action!=='loose'||value===controller.state.qty)return;
+   return queue(async()=>{
+    if(controller.state.closed||controller.state.line!==line||controller.state.action!=='loose')return;
+    controller.set('qty',value);
+    // Commit the same value to Frappe before a later click changes field state.
+    // Its delayed native onchange then sees an already synchronized controller.
+    await dialog.set_value('qty',controller.state.qty);
+   },false);
+  }
+  function property(name,key,value){
+   if(dialog.fields_dict[name]?.df[key]!==value)dialog.set_df_property?.(name,key,value);
+  }
   function stopCamera(){const old=camera;camera=null;old?.hide_dialog?.();}
   function startCamera(){
    if(camera||controller.state.closed)return;if(!f.ui.Scanner)throw new Error('Camera scanning is unavailable; use the Scanner field.');
@@ -140,18 +155,25 @@
   }
   function render(s){
    const m=s.context?.recovery_manifest,active=m&&m.state!=='Cancelled';
+   const looseEntry=m?.state==='Draft'&&(m.lines||[]).some(row=>!row.handling_unit);
+   const selected=(m?.lines||[]).find(row=>row.name===s.line&&!row.handling_unit);
    const rows=(m?.lines||[]).map(row=>`<tr class="${row.loading_confirmed?'text-success':'text-danger'}"><td>${e(row.item_code)} / ${e(row.batch_no||'No Batch')}</td><td>${e(row.container_visible_code||row.visible_code||'ERP stock')}</td><td>${row.dispatch_qty} ${e(row.stock_uom)}</td><td>${row.loading_confirmed?'Confirmed':'Scan / confirm quantity'}</td></tr>`).join('');
-   const choices=controller.choices().slice(s.page*10,s.page*10+10).map((row,index)=>`<button type="button" class="btn btn-default btn-block text-left recovery-choice" data-number="${index+1}">${index+1}. ${e(active?`${row.item_code} / ${row.batch_no||'No Batch'} · ${row.dispatch_qty} ${row.stock_uom}`:`${row.name} → ${row.destination_warehouse} · ${row.action}`)}${[s.route,s.line].includes(row.name)?' ✓':''}</button>`).join('');
+   const choices=controller.choices().slice(s.page*10,s.page*10+10).map((row,index)=>`<button type="button" class="btn btn-default btn-block text-left recovery-choice" data-number="${index+1}">${index+1}. ${active&&m.state==='Draft'?'Enter Count: ':''}${e(active?`${row.item_code} / ${row.batch_no||'No Batch'} · ${row.dispatch_qty} ${row.stock_uom}`:`${row.name} → ${row.destination_warehouse} · ${row.action}`)}${[s.route,s.line].includes(row.name)?' ✓':''}</button>`).join('');
    dialog.fields_dict.summary.$wrapper.html(`<div class="alert ${controller.ready()?'alert-success':'alert-warning'}">${e(s.message)}</div><p>${e(s.context?.plan.name||'')} · ${e(s.context?.review.name||'')} · ${e(m?.name||'')} · ${e(m?.state||'')}</p><p>${e(m?.source_warehouse||s.context?.plan.vehicle_warehouse||'')} → ${e(m?.destination_warehouse||'Select a route')}</p><p>${e(s.route)} · ${e(s.reason)}</p>${s.line?`<p>Counted loose quantity: <strong>${e(s.qty||'Enter quantity')}</strong></p>`:''}${m?`<table class="table table-bordered"><tr><th>Item / Batch</th><th>Physical source</th><th>Quantity</th><th>Ready</th></tr>${rows}</table>`:''}${choices}<p>Page ${s.page+1}; numbered choices 1–10. ${active?'Select a loose row, enter its exact counted quantity, then Confirm.':'Choose the approved route explicitly.'}</p>${s.pending?`<div class="alert alert-warning">Retry original action: ${e(JSON.stringify(s.pending.args))}</div>`:''}${m?.dispatch_stock_entry?`<p>Stock Entry: <a class="recovery-entry" href="#">${e(m.dispatch_stock_entry)}</a> · ${e(m.dispatch_document_status||'Read ERP status')}</p>`:''}`);
    dialog.fields_dict.summary.$wrapper.find('.recovery-choice').on('click',function(){queue(()=>controller.select(Number(this.dataset.number)));});
    dialog.fields_dict.summary.$wrapper.find('.recovery-entry').on('click',event=>{event.preventDefault();f.set_route('Form','Stock Entry',m.dispatch_stock_entry);});
-   if(renderedContext!==s.context||renderedLine!==s.line||renderedAction!==s.action){
-    renderedContext=s.context;renderedLine=s.line;renderedAction=s.action;
-    for(const name of ['reason','qty'])if(String(dialog.get_value(name)||'')!==s[name])dialog.set_value(name,s[name]);
-   }
-   dialog.set_df_property?.('reason','hidden',active&&s.action!=='cancel'?1:0);
-   dialog.set_df_property?.('qty','hidden',s.line?0:1);
-   dialog.set_df_property?.('finish','hidden',m?.state==='Received'?0:1);
+   // Keep typed and scanned values in the same visible control, including scanner
+   // quantities entered after selecting a row without changing the context.
+   for(const name of ['reason','qty'])if(String(dialog.get_value(name)??'')!==s[name])dialog.set_value(name,s[name]);
+   // Native set_df_property refreshes the control even when the property is unchanged.
+   // Refresh only transitions so typing retains its value, caret and focus.
+   property('reason','hidden',active&&s.action!=='cancel'?1:0);
+   property('qty','hidden',looseEntry?0:1);
+   property('qty','read_only',!selected||s.action!=='loose'||s.busy||!!s.pending?1:0);
+   property('qty','description',selected?
+    `Selected ${e(selected.item_code)} / ${e(selected.batch_no||'No Batch')}; expected ${e(String(selected.dispatch_qty))} ${e(selected.stock_uom)}. Enter the quantity physically counted, then Confirm Counted Loose Quantity. Investigate any difference before preparing.`:
+    'Select a numbered Enter Count row above to enable this field. Untagged ERP stock does not require a QR scan.');
+   property('finish','hidden',m?.state==='Received'?0:1);
    if(controller.ready())dialog.enable_primary_action();else dialog.disable_primary_action();
    const labels={create:'Create Recovery Checklist',loose:'Confirm Counted Loose Quantity',prepare:'Prepare and Reserve',post:m?.auto_submit_internal_dispatch?'Post Recovery Movement':'Create Recovery Draft',cancel:'Cancel Unused Recovery',source:'Retry Source Confirmation'};
    dialog.get_primary_btn?.().text(labels[controller.step()]||'Confirm');
@@ -163,7 +185,7 @@
    {fieldname:'previous',label:'Previous Choices',fieldtype:'Button',click:()=>queue(()=>controller.scan('CFG:CMD:PREVIOUS_MATERIALS'))},
    {fieldname:'next',label:'Next Choices',fieldtype:'Button',click:()=>queue(()=>controller.scan('CFG:CMD:NEXT_MATERIALS'))},
    {fieldname:'reason',label:'Supervisor Reason',fieldtype:'Small Text',onchange:()=>{const value=dialog.get_value('reason');if(String(value??'')!==controller.state.reason)return queue(()=>controller.set('reason',value));}},
-   {fieldname:'qty',label:'Physically Counted Loose Quantity',fieldtype:'Data',onchange:()=>{const value=dialog.get_value('qty');if(String(value??'')!==controller.state.qty)return queue(()=>controller.set('qty',value));}},
+   {fieldname:'qty',label:'Physically Counted Loose Quantity',fieldtype:'Data',onchange:()=>quantityInput(dialog.get_value('qty'))},
    {fieldname:'prepare',label:'Prepare Confirmed Sources',fieldtype:'Button',click:()=>queue(()=>controller.action('prepare'))},
    {fieldname:'post',label:'Post / Create ERP Movement',fieldtype:'Button',click:()=>queue(()=>controller.action('post'))},
    {fieldname:'cancel_recovery',label:'Cancel Unused Recovery',fieldtype:'Button',click:()=>queue(()=>controller.action('cancel'))},
@@ -179,7 +201,13 @@
    const value=String(dialog.get_value('scan')||'').trim();if(event.key==='Tab'&&!value)return;
    event.preventDefault();event.stopPropagation();dialog.set_value('scan','');if(value)queue(()=>controller.scan(value));
   });
-  dialog.show();render(controller.state);focus();if(options.planScan)await queue(()=>controller.load(options.planScan));
+  dialog.show();
+  const qtyInput=dialog.fields_dict.qty.$input;
+  qtyInput.attr?.('inputmode','decimal');
+  const typed=event=>{if(event.isComposing||event.originalEvent?.isComposing)return;return quantityInput(event.currentTarget?.value??dialog.get_value('qty'));};
+  qtyInput.on('input.cfg_dispatch_recovery',typed);
+  qtyInput.on('compositionend.cfg_dispatch_recovery',typed);
+  render(controller.state);focus();if(options.planScan)await queue(()=>controller.load(options.planScan));
   return controller.state.closed?null:{scan:value=>child?child.scan(value):queue(()=>controller.scan(value)),focus,controller,close:()=>dialog.hide()};
  }
  const api={createController,open,erpFields,erpValues};if(typeof module!=='undefined'&&module.exports)module.exports=api;

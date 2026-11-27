@@ -6,13 +6,13 @@ function fixture(options={}){
  let owner='EMP',failure=null,once=false,n=0,closed=0,finished=0,inputCalls=0;
  const routes=Array.from({length:options.routes||2},(_,i)=>({name:'ROUTE-'+(i+1),destination_warehouse:'WH-'+(i+1),action:'Returned to Warehouse',auto_submit:1}));
  const context={plan:{name:'DPL-1',state:'Loaded',vehicle_warehouse:'LORRY1'},review:{name:'KDR-1',state:'Reviewing'},balance_hash:'HASH',recovery_routes:routes,recovery_manifest:null};
- const calls=[],lines=[{name:'TAG-LINE',handling_unit:'TAG',visible_code:'TAG1',item_code:'ITEM',batch_no:'LOT',stock_uom:'Nos',dispatch_qty:3,loading_confirmed:0},
-  {name:'LOOSE-LINE',handling_unit:null,item_code:'BAG',batch_no:'BAGLOT',stock_uom:'Nos',dispatch_qty:5,loading_confirmed:0}];
+ const calls=[],lines=[{name:'TAG-LINE',handling_unit:'TAG',visible_code:'TAG1',item_code:'ITEM',batch_no:'LOT',stock_uom:'Nos',dispatch_qty:options.tagQty??3,loading_confirmed:0},
+  {name:'LOOSE-LINE',handling_unit:null,item_code:'BAG',batch_no:'BAGLOT',stock_uom:'Nos',dispatch_qty:options.looseQty??5,loading_confirmed:0}];
  function mutate(method,args){
   if(method==='create_dispatch_recovery')context.recovery_manifest={name:'KMF-1',state:'Draft',logistics_route:args.logistics_route,recovery_reason:args.reason,source_warehouse:'LORRY1',destination_warehouse:routes.find(r=>r.name===args.logistics_route).destination_warehouse,lines:structuredClone(lines),auto_submit_internal_dispatch:1};
   const m=context.recovery_manifest;
   if(method==='scan_dispatch_recovery'){assert.equal(args.scan_value,'TAG1');m.lines[0].loading_confirmed=1;}
-  if(method==='confirm_dispatch_recovery_loose'){assert.equal(args.line_name,'LOOSE-LINE');assert.equal(args.qty,5);m.lines[1].loading_confirmed=1;}
+  if(method==='confirm_dispatch_recovery_loose'){const row=m.lines.find(r=>r.name===args.line_name&&!r.handling_unit);assert(row,'loose source identity required');assert.equal(args.qty,row.dispatch_qty);row.loading_confirmed=1;}
   if(method==='prepare_dispatch_recovery')m.state='Prepared';
   if(method==='post_dispatch_recovery'){m.state='Received';m.dispatch_stock_entry='MAT-STE-1';m.dispatch_document_status='Submitted';}
   if(method==='cancel_dispatch_recovery')m.state='Cancelled';
@@ -150,6 +150,69 @@ const tick=()=>new Promise(resolve=>setImmediate(resolve));
   const a=panel.indexOf('\tasync function process_scan(value)'),b=panel.indexOf('\n\tasync function lookup_tag(',a);let observed;
   const run=new Function('$scanner','state','open_dispatch_review','command',`let active_loose_tag=null,opening_loose_tag=false,active_route_count_action=null,active_dispatch_review=null,opening_dispatch_review=false,active_delivery_action=null,opening_delivery_action=false,active_route_delivery=null,opening_route_delivery=false,active_prepared_delivery=null,opening_prepared_delivery=false,active_isolation=null,opening_isolation=false,active_repack=null,opening_repack=false;\n`+panel.slice(a,b)+'\nreturn process_scan(command);');
   await run({find:()=>({val(){}})},{lookup:{dispatch_plan:{name:'DPL-1'}}},(...args)=>{observed=args;},'CFG:CMD:RECOVER_DISPATCH');assert.deepEqual(observed,['recovery','DPL-1']);
+ });
+ await test('existing Draft with a confirmed tag exposes untagged count entry without a fake stock scan',async()=>{
+  const f=adapter({tagQty:2,looseQty:1}),view=await f.launch(),d=f.dialogs[0];await create({c:view.controller});await view.scan('TAG1');
+  assert.equal(d.fields_dict.qty.df.hidden,0);assert.equal(d.fields_dict.qty.df.read_only,1);assert.match(d.summary,/Enter Count:/);
+  assert.match(d.fields_dict.qty.df.description,/does not require a QR/);
+  await view.scan('CFG:SELECT:1');assert.equal(d.fields_dict.qty.df.read_only,0);assert.equal(String(d.values.qty??''),'');
+  assert.equal(d.label,'Confirm Counted Loose Quantity');assert.match(d.fields_dict.qty.df.description,/expected 1 Nos/);
+  d.values.qty='1';d.fields_dict.qty.df.onchange();await d.config.primary_action();
+  const confirmed=f.calls.find(row=>row.method==='confirm_dispatch_recovery_loose');assert.equal(confirmed.args.qty,1);assert.equal(confirmed.args.line_name,'LOOSE-LINE');
+  assert.equal(f.calls.filter(row=>row.method==='scan_dispatch_recovery').length,1);
+  assert.equal(d.label,'Prepare and Reserve');assert.equal(d.enabled,true);
+  d.fields_dict.prepare.df.click();await d.config.primary_action();assert.equal(f.context.recovery_manifest.state,'Prepared');
+  assert.equal(d.fields_dict.qty.df.hidden,1);
+  d.fields_dict.post.df.click();await d.config.primary_action();assert.equal(f.context.recovery_manifest.state,'Received');
+ });
+ await test('scanner quantity is mirrored into the visible count field for the selected row',async()=>{
+  const f=adapter({looseQty:1}),view=await f.launch(),d=f.dialogs[0];await create({c:view.controller});
+  await view.scan('CFG:SELECT:1');await view.scan('CFG:QTY:MATERIAL:1');
+  assert.equal(d.values.qty,'1');assert.equal(d.fields_dict.qty.df.read_only,0);assert.equal(view.controller.state.line,'LOOSE-LINE');
+  await view.scan('CFG:CMD:CONFIRM');assert.equal(f.context.recovery_manifest.lines[1].loading_confirmed,1);
+ });
+ await test('loose entry never preselects a row or fills the expected amount as a physical count',async()=>{
+  const f=adapter(),view=await f.launch(),d=f.dialogs[0];await create({c:view.controller});
+  assert.equal(view.controller.state.line,'');assert.equal(view.controller.state.qty,'');assert.equal(d.fields_dict.qty.df.read_only,1);
+  await view.scan('CFG:SELECT:1');assert.equal(String(d.values.qty??''),'');assert.equal(d.enabled,false);
+  d.values.qty='4';d.fields_dict.qty.df.onchange();await d.config.primary_action();
+  assert.equal(f.calls.filter(row=>row.method==='confirm_dispatch_recovery_loose').length,0);assert.equal(d.enabled,false);
+ });
+ await test('unknown loose confirmation freezes the visible quantity and retries the original identity',async()=>{
+  const f=adapter({looseQty:1}),view=await f.launch(),d=f.dialogs[0];await create({c:view.controller});await view.scan('CFG:SELECT:1');await view.scan('CFG:QTY:MATERIAL:1');
+  f.failure(new Error('Lost response'));await d.config.primary_action();const original=f.calls.at(-1).args;
+  assert.equal(d.fields_dict.qty.df.read_only,1);assert(view.controller.state.pending);
+  d.values.qty='2';d.fields_dict.qty.df.onchange();await tick();assert.equal(d.values.qty,'1');
+  f.failure(null);await d.config.primary_action();assert.deepEqual(f.calls.at(-1).args,original);
+ });
+ await test('recovery quantity descriptions escape source metadata',async()=>{
+  const f=adapter(),view=await f.launch(),d=f.dialogs[0];await create({c:view.controller});
+  f.context.recovery_manifest.lines[1].item_code='<img src=x>';await view.scan('KMF-1');await view.scan('CFG:SELECT:1');
+  assert(!d.fields_dict.qty.df.description.includes('<img'));assert(d.fields_dict.qty.df.description.includes('&lt;img'));
+ });
+ await test('raw manual input enables quantity confirmation without waiting for blur or native onchange',async()=>{
+  const f=adapter({looseQty:1}),view=await f.launch(),d=f.dialogs[0];await create({c:view.controller});await view.scan('TAG1');await view.scan('CFG:SELECT:1');
+  const before=f.focused();await d.fields_dict.qty['input.cfg_dispatch_recovery']({currentTarget:{value:'1'}});
+  assert.equal(view.controller.state.qty,'1');assert.equal(d.values.qty,'1');assert.equal(d.enabled,true);assert.equal(f.focused(),before);
+  await d.config.primary_action();assert.equal(f.calls.at(-1).method,'confirm_dispatch_recovery_loose');assert.equal(f.calls.at(-1).args.qty,1);
+ });
+ await test('manual multi-digit decimals keep focus and only become ready at the exact quantity',async()=>{
+  const f=adapter({looseQty:12.5});f.lines[1].stock_uom='Kg';const view=await f.launch(),d=f.dialogs[0];await create({c:view.controller});await view.scan('TAG1');await view.scan('CFG:SELECT:1');
+  const before=f.focused();for(const raw of ['1','12','12.','12.5']){
+   await d.fields_dict.qty['input.cfg_dispatch_recovery']({currentTarget:{value:raw}});
+   assert.equal(view.controller.state.qty,raw);assert.equal(d.values.qty,raw);assert.equal(d.enabled,raw==='12.5');
+  }
+  assert.equal(f.focused(),before);await d.config.primary_action();assert.equal(f.calls.at(-1).args.qty,12.5);
+ });
+ await test('delayed native change after typing cannot steal focus or replace the count',async()=>{
+  const f=adapter({looseQty:1}),view=await f.launch(),d=f.dialogs[0];await create({c:view.controller});await view.scan('CFG:SELECT:1');
+  await d.fields_dict.qty['input.cfg_dispatch_recovery']({currentTarget:{value:'1'}});const before=f.focused();
+  await d.fields_dict.qty.df.onchange();assert.equal(d.values.qty,'1');assert.equal(f.focused(),before);assert.equal(view.controller.state.qty,'1');
+ });
+ await test('unchanged quantity properties do not refresh the field while typing',async()=>{
+  const f=adapter({looseQty:1}),view=await f.launch(),d=f.dialogs[0];await create({c:view.controller});await view.scan('CFG:SELECT:1');
+  let refreshes=0;const original=d.set_df_property.bind(d);d.set_df_property=(name,key,value)=>{if(name==='qty')refreshes++;original(name,key,value);};
+  await d.fields_dict.qty['input.cfg_dispatch_recovery']({currentTarget:{value:'1'}});assert.equal(refreshes,0);
  });
  console.log(`${checks} E5 recovery UI checks passed`);
 })().catch(error=>{console.error(error);process.exitCode=1;});
