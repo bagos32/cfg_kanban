@@ -72,6 +72,7 @@
   function field(df,target='.cfg-mobile-fields'){const node=$('<div class="mt-3"></div>').appendTo(host.find(target));const control=f.ui.form.make_control({parent:node,df,render_input:true});controls[df.fieldname]=control;fields.push({...df,name:df.fieldname,control});if(df.default!==undefined)control.set_value(df.default);if(df.fieldname==='signing_key')keyEntry.bind(control.$input?.[0]||node[0]?.querySelector('input'),options.nonce());return control;}
   function value(key){const control=controls[key];return control?.df.fieldtype==='Table'?(control.grid?.get_data?.()||control.get_value?.()||[]):control?.get_value?.();}
   function values(){return Object.fromEntries(fields.filter(row=>row.name!=='signing_key').map(row=>[row.name,value(row.name)]));}
+  function custodySelection(){const index=Number(value('return_line'))-1;selectedLabel=Number.isInteger(index)&&index>=0?(context?.custody_lines||[])[index]||null:null;if(controls.qty)controls.qty.set_value(selectedLabel?selectedLabel.remaining_qty:null);}
   function selectedEntry(){const index=Number(value('document'))-1;return value('document')!==''&&Number.isInteger(index)?context.documents[index]:null;}
   function update(){if(!valid())return;
    host.find('.cfg-mobile-message').text(message||c.state.message||'');
@@ -218,9 +219,9 @@
     if(requirements)for(const df of invoiceERPFields())field(df,'.cfg-mobile-erp-fields');
     confirmButton.text(context.invoice_mode==='Automatic Submission'?'Create and Submit Invoice':'Create Invoice Draft');
    }else if(mode==='label'){
-    body.html('<div class="alert alert-warning">Old customer return custody only. Pending QC — not available stock. This creates neither ERP stock nor customer credit.</div>');
-    field({fieldname:'return_line',label:'Collected return Item row',fieldtype:'Select',options:[{label:'Choose a returned Item',value:''},...context.custody_lines.map((row,index)=>({label:(index+1)+'. '+row.return_case+' · '+row.item_code+' · '+row.remaining_qty+' '+row.stock_uom+' · '+(row.batch_no||'No Batch')+' · '+(row.expiry_date||'No expiry'),value:String(index+1)}))],default:'',change:()=>{selectedLabel=value('return_line')!==''?context.custody_lines[Number(value('return_line'))-1]:null;if(selectedLabel)controls.qty.set_value(selectedLabel.remaining_qty);}});
-    field({fieldname:'qty',label:'Quantity on this custody label (stock UOM)',fieldtype:'Float'});confirmButton.text('Create Custody Label');
+    body.html('<div class="alert alert-info"><strong>Create a return custody label</strong><p>Choose the collected Item below and enter the quantity for this label.</p>Old customer return custody only. Pending QC — not available stock. This creates neither ERP stock nor customer credit.</div>');
+    field({fieldname:'return_line',label:'Collected return Item row',fieldtype:'Select',options:[{label:'Choose a returned Item',value:'0'},...(context.custody_lines||[]).map((row,index)=>({label:(index+1)+'. '+row.return_case+' · '+row.item_code+' · '+row.remaining_qty+' '+row.stock_uom+' · '+(row.batch_no||'No Batch')+' · '+(row.expiry_date||'No expiry'),value:String(index+1)}))],default:context.custody_lines.length===1?'1':'0',change:custodySelection});
+    field({fieldname:'qty',label:'Quantity on this custody label (stock UOM)',fieldtype:'Float'});custodySelection();confirmButton.text('Create Custody Label');
    }else if(mode==='job'){
     body.html(`<p>${e(jobName)} · ${e(job?.document_name||'')} · ${e(job?.print_format||'')}</p><p>Label Bridge does not acknowledge paper output. After opening it, check the receipt and confirm this segment before continuing. An uncertain result is never retried automatically.</p>`);
     field({fieldname:'reason',label:'Reason for retry or closing an unfinished job',fieldtype:'Small Text'});
@@ -290,7 +291,7 @@
    if(name==='setup'){mode='setup';draw();return;}
    if(name==='reset'){setupDraft=null;prefStore.reset();prefs=prefStore.load(context.defaults);message='Device settings reset to office defaults.';draw();return;}
    if(name==='invoice'){if(!options.stop||!context.invoice_sources.length)throw new Error('Select a stop with a submitted Delivery Note and authorized Invoice policy.');mode='invoice';requirements=null;draw();if(value('delivery_note'))await invoiceFields();return;}
-   if(name==='label'){if(!options.stop||!context.custody_lines.length)throw new Error('This stop has no unlabelled collected returns awaiting QC.');mode='label';draw();return;}
+   if(name==='label'){if(!options.stop||!context.custody_lines.length)throw new Error('Select the customer stop where the old goods were collected. New labels require unlabelled collected returns awaiting QC receipt; use Documents to reprint an existing label.');mode='label';draw();return;}
    if(name==='resume'){await lease();return showJob($(node).attr('data-job'));}
    if(name==='printed'){const result=await segment('Operator Confirmed');if(result?.status==='Recorded')return stageNext();return result;}if(name==='unknown')return segment('Outcome Unknown');
    if(name==='abandon'){if(!jobName)throw new Error('Select an unfinished job.');return c.mutate({...context,stop_key:jobStop},'Close Mobile Print',{print_job:jobName,reason:value('reason')||''});}

@@ -9,7 +9,7 @@ from cfg_kanban.services.operator_auth import require_operator
 
 TRIP = 'CFG Kanban Delivery Trip'
 MOBILE_ACTIONS = ('Run Stop Document', 'Create Sales Invoice', 'Create Custody Label', 'Prepare Mobile Print', 'Record Print Segment', 'Close Mobile Print')
-ACTIONS = MOBILE_ACTIONS + ('Request Stop Cancellation','Cancel Customer Stop','Release GPS','Start GPS', 'Start Route', 'Begin Delivery', 'Confirm Allocations', 'Create Delivery Note',
+ACTIONS = MOBILE_ACTIONS + ('Request Stop Cancellation','Cancel Customer Stop','Release GPS','Start GPS', 'Start Route', 'Begin Delivery', 'Verify Delivery Goods', 'Confirm Allocations', 'Create Delivery Note',
            'Open Proof', 'Submit Proof', 'Complete Stop', 'Collect Old Return', 'Release Refused Stock', 'Begin Open Sale', 'Add Assistant', 'Change Route Order', 'Request Route Change', 'Cancel Route Change', 'Decide Route Change')
 PAYLOAD_FIELDS = {
     'Run Stop Document': {'document_task'},
@@ -27,6 +27,7 @@ PAYLOAD_FIELDS = {
     'Decide Route Change': {'request_name','decision','approval_mode','reason','goods_hash','stock_disposition'},
     'Add Assistant': {'employee'},
     'Begin Open Sale': {'customer_scan', 'quantities'},
+    'Verify Delivery Goods': {'scan_value','delivery_allocation','item_code','qty'},
     'Start Route': set(), 'Begin Delivery': {'customer_scan', 'quantities'}, 'Confirm Allocations': set(),
     'Create Delivery Note': {'required_erp_inputs'}, 'Open Proof': set(),
     'Submit Proof': {'proof_name', 'disposition', 'recipient_name', 'unattended_reason',
@@ -500,7 +501,11 @@ def driver_action_context(trip_name, operator_session_token, stop_key=None, oper
         if state == 'Closed':
             continue
         result.update(dispatch_plan=plan.name, delivery_session=delivery['name'], session_state=state,
-            auto_submit_delivery_note=delivery['auto_submit_delivery_note'])
+            auto_submit_delivery_note=delivery['auto_submit_delivery_note'],
+            product_verification=delivery.get('product_verification'))
+        check = delivery.get('product_verification')
+        if check and check['required'] and not check['ready'] and state in ('Allocating Stock','Awaiting Confirmation','ERP Document Pending'):
+            return dict(result, next_step='Verify Delivery Goods')
         if state == 'Allocating Stock':
             return dict(result, next_step='Confirm Allocations')
         if state in ('Awaiting Confirmation', 'ERP Document Pending'):
@@ -565,7 +570,7 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
         return _record(doc,operator,session,key,request,result)
     if action in ('Collect Old Return','Release Refused Stock'):
         return _special_action(doc,request,operator,session,operator_session_token,key)
-    require_operator(operator_session_token, 'start' if action in ('Start Route', 'Begin Delivery', 'Begin Open Sale', 'Add Assistant', 'Change Route Order', 'Request Route Change', 'Cancel Route Change') else 'complete')
+    require_operator(operator_session_token, 'start' if action in ('Start Route', 'Begin Delivery', 'Begin Open Sale', 'Verify Delivery Goods', 'Add Assistant', 'Change Route Order', 'Request Route Change', 'Cancel Route Change') else 'complete')
     draft_withdrawal=bool(action=='Cancel Route Change' and doc.state=='Draft' and
         _read('CFG Kanban Route Change Request',request['payload'].get('request_name')).get('request_type')=='Cancel Customer Stop')
     if (doc.state != 'Planned' and not draft_withdrawal) or request['scope_hash'] != _core(doc) or request['expected_revision'] != cint(doc.driver_route_revision):
@@ -662,7 +667,10 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
             result['stop_completed'] = True
         else:
             delivery = _session(plan, operator, stop)
-            if action == 'Confirm Allocations':
+            if action == 'Verify Delivery Goods':
+                from cfg_kanban.services.delivery_product_scans import verify
+                result.update(verify(delivery, values, operator, session, key))
+            elif action == 'Confirm Allocations':
                 _delivery().confirm_delivery_allocations(delivery.name, key, operator_session_token)
             elif action == 'Create Delivery Note':
                 _delivery().create_customer_delivery_document(delivery.name, key, operator_session_token,

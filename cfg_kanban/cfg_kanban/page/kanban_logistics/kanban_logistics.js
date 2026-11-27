@@ -11,6 +11,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		recent_reconciliations: [], can_reconcile: false, reconciliation: null,
 		lookup: null, scan_mode: "lookup", live_timer: null, live_revision: null,
 		dispatch_plan_line: null, live_request: false, interaction_epoch: 0 };
+	window.cfg_field_ui?.mountSwitch(page.main, "logistics", () => ({employee: state.operator?.employee}));
 	const $sticky = $("<div class='cfg-logistics-sticky'></div>").appendTo(page.main);
 	const $scanner = $(`<div class="frappe-card cfg-logistics-scanner">
 		<div class="cfg-logistics-scanner-head"><div><strong>${__("Logistics Scanner")}</strong>
@@ -63,7 +64,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	$actions.find(".release-container-stock").on("click", () => open_container_repack(null,true));
 	$actions.find(".repack-help").on("click", repack_scanner_help);
 	$actions.find(".view-lorry-route").on("click", () => open_lorry_route("driver"));
-	$actions.find(".driver-route").on("click", () => frappe.set_route("kanban-driver-route"));
+	$actions.find(".driver-route").on("click", () => window.cfg_field_ui ? window.cfg_field_ui.navigate("driver", {employee: state.operator?.employee}) : frappe.set_route("kanban-driver-route"));
 	$actions.find(".customer-return-qc").on("click", () => frappe.set_route("kanban-return-qc"));
 	$actions.find(".direct-customer-return").on("click", () => open_direct_customer_return());
 	$actions.find(".new-manifest").on("click", new_manifest_dialog);
@@ -414,14 +415,15 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (state.scan_mode === "receipt") mode_notice = `<div class="alert alert-success"><strong>${__("RECEIPT SCANNING ARMED")}</strong> · ${e(m.name)} · ${__("Only tags listed on this Manifest will be accepted.")}</div>`;
 		const rendered_container_actions = new Set();
 		const lines = (m.lines || []).map((row) => {
+			const scan_status = window.cfg_field_ui?.manifestStatus(row, m);
 			const show_container_remove = row.container_handling_unit &&
 				!rendered_container_actions.has(row.container_handling_unit);
 			if (show_container_remove) rendered_container_actions.add(row.container_handling_unit);
-			return `<div class="cfg-logistics-line">
+			return `<div class="cfg-logistics-line${scan_status ? (scan_status.color === "green" ? " cfg-scan-confirmed" : " cfg-scan-pending") : ""}" data-manifest-line="${e(row.name)}">
 			<div><strong>${e(row.visible_code || row.line_kind || __("ERP Stock"))}</strong><small>${e(row.item_code)} · ${e(row.batch_no || __("No Batch"))}</small><small>${__("Certificate Set")}: ${e(row.process_certificate_set || "-")} · ${__("Expiry")}: ${e(row.expiry_date || "-")}</small>${certificate_printing_details_html(row)}
 				${row.container_visible_code ? `<small>${__("Inside container")}: <strong>${e(row.container_visible_code)}</strong></small>` : ""}</div>
 			<div><strong>${format_number(row.dispatch_qty)} ${e(row.stock_uom)}</strong>
-				<small>${row.receipt_scanned ? __("Receipt scan confirmed") :
+				<small>${scan_status ? window.cfg_field_ui.badge(scan_status) : row.receipt_scanned ? __("Receipt scan confirmed") :
 					plan_loading ? (row.loading_confirmed ? __("Physical loading confirmed") : __("Awaiting loading confirmation")) : e(row.state)}</small></div>
 				${!m.dispatch_recovery && plan_loading && m.state === "Draft" && row.line_kind === "ERP Stock without Physical Tag" && !row.loading_confirmed ? `<button class="btn btn-xs btn-primary confirm-plan-untagged" data-line="${e(row.name)}">${__("Confirm Physical Pick")}</button>` : ""}
 				${!plan_loading && m.state === "Draft" && state.scan_mode === "dispatch" && row.handling_unit && (!row.container_handling_unit || show_container_remove) ? `<button class="btn btn-xs btn-danger remove-line" data-unit="${e(row.handling_unit)}" data-line="${e(row.name)}">${row.container_visible_code ? __("Remove Container") : __("Remove")}</button>` : ""}
@@ -2223,6 +2225,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 				${delivery.route_stop && ["Customer Identified","Allocating Stock"].includes(delivery.state) ? `<button class="btn btn-primary allocate-route-stock">${__("Add Route Stock")}</button>` : ""}
 				${can_scan ? (state.scan_mode === "delivery" ? `<button class="btn btn-warning stop-delivery-scan">${__("Stop Allocation Scanning")}</button>` : `<button class="btn btn-primary arm-delivery">${__("Start Allocation Scanning")}</button>`) : ""}
 				${delivery.state === "Allocating Stock" && active_allocations.length && state.scan_mode !== "delivery" ? `<button class="btn btn-success confirm-allocations">${__("Confirm Customer Allocation")}</button>` : ""}
+				${delivery.product_verification?.required && ["Allocating Stock","Awaiting Confirmation","ERP Document Pending"].includes(delivery.state) ? `<button class="btn ${delivery.product_verification.ready ? "btn-success" : "btn-warning"} verify-delivery-goods">${delivery.product_verification.ready ? __("Product Checks Complete") : __("Verify Delivery Goods")}</button>` : ""}
 				${delivery_action}
 				${proof_action}
 				${return_action}
@@ -2239,6 +2242,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		$lookup.find(".arm-delivery").on("click", () => { state.scan_mode = "delivery"; render_delivery_session(delivery); update_scanner_state(); focus_scanner(); });
 		$lookup.find(".stop-delivery-scan").on("click", () => { state.scan_mode = "lookup"; render_delivery_session(delivery); update_scanner_state(); focus_scanner(); });
 		$lookup.find(".release-allocation").on("click", function () { release_delivery_allocation($(this).data("name")); });
+		$lookup.find(".verify-delivery-goods").on("click", () => verify_delivery_goods(delivery));
 		$lookup.find(".confirm-allocations").on("click", () => confirm_delivery_allocations(delivery));
 		$lookup.find(".prepare-customer-dn").on("click", () => prepare_customer_delivery_note(delivery));
 		$lookup.find(".capture-delivery-proof").on("click", () => open_delivery_proof(delivery));
@@ -2687,7 +2691,26 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		} finally {opening_delivery_action=false;}
 	}
 
+	async function verify_delivery_goods(delivery) {
+        if (active_delivery_action || opening_delivery_action) return active_delivery_action?.focus();
+        if (active_dispatch_review || active_route_delivery || active_prepared_delivery || active_repack || active_isolation)
+            return scanner_error(__("Close the current transaction action before verifying customer goods."));
+        if (!state.operator || !state.token || state.scan_mode!=="lookup") return scanner_error(__("Identify an operator and stop transaction scanning first."));
+        const owner=state.operator.employee, token=state.token;opening_delivery_action=true;
+        try {
+            await frappe.require("/assets/cfg_kanban/js/delivery_product_checks.js");
+            if(state.operator?.employee!==owner || state.token!==token) return;
+            active_delivery_action=window.cfg_delivery_product_checks.open({frappe,delivery,
+                owner:()=>state.operator?.employee,token:()=>state.token,nonce:unique_token,
+                active:()=>frappe.get_route()?.[0]==="kanban-logistics"&&localStorage.getItem(session_key)===state.token,
+                error:error=>server_error_message(error,error.message||__("Product check failed")),
+                updated:result=>{state.lookup={delivery_session:result};render_lookup();},
+                onClose:()=>{active_delivery_action=null;focus_scanner();}});
+        } finally {opening_delivery_action=false;}
+    }
+
 	function confirm_delivery_allocations(delivery) {
+        if(delivery.product_verification?.required&&!delivery.product_verification.ready) return verify_delivery_goods(delivery);
 		return delivery_action_dialog({delivery,title:__("Confirm Customer Allocation"),label:__("Confirm Allocations"),
 			fields:[{fieldtype:"HTML",options:__("Confirm these exact tagged/untagged quantities for this customer. They remain reserved until the Delivery Note is submitted.")}],
 			submit:async(values,event_token)=>{await frappe.call({
@@ -2696,6 +2719,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	}
 
 	async function prepare_customer_delivery_note(delivery) {
+        if(delivery.product_verification?.required&&!delivery.product_verification.ready) return verify_delivery_goods(delivery);
 		const expectedOwner=state.operator?.employee;
 		const response = await frappe.call({
 			method: "cfg_kanban.services.customer_delivery.get_customer_delivery_requirements",
@@ -3051,6 +3075,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (opening_isolation) return scanner_error(__("Wait for Isolation to open, then scan again."));
 		if (active_repack) return active_repack.scan(raw);
 		if (opening_repack) return scanner_error(__("Wait for Move / Repack to open, then scan again."));
+		if (globalThis.cfg_field_ui?.command(raw, {employee: state.operator?.employee})) return;
         if(['CFG:CMD:PACK_LOOSE_TAG','CFG:CMD:CANCEL_LOOSE_TAG'].includes(raw.toUpperCase())||raw.startsWith('CFG:LOOSE:'))return open_loose_tag(raw);
         const countCommand=raw.toUpperCase();
         if(countCommand==='CFG:CMD:START_ROUTE_COUNT')return reconciliation_dialog();
@@ -3080,7 +3105,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		if (raw.toUpperCase()==="CFG:CMD:ROUTE_CAMERA") {await open_route_action();return active_route_delivery?.scan(raw);}
 		if (["CFG:CMD:START_PREPARED_DELIVERY","CFG:CMD:START_WAREHOUSE_DELIVERY"].includes(raw.toUpperCase())) return open_prepared_delivery(
 			state.lookup?.dispatch_plan?.name || null, state.lookup?.customer_site?.site_code || null);
-		const customerActions={CONFIRM_CUSTOMER_ALLOCATION:confirm_delivery_allocations,CREATE_CUSTOMER_DELIVERY_NOTE:prepare_customer_delivery_note,
+		const customerActions={VERIFY_DELIVERY_GOODS:verify_delivery_goods,CONFIRM_CUSTOMER_ALLOCATION:confirm_delivery_allocations,CREATE_CUSTOMER_DELIVERY_NOTE:prepare_customer_delivery_note,
 			CAPTURE_DELIVERY_PROOF:open_delivery_proof,ACKNOWLEDGE_PICKUP:open_delivery_proof};
 		const customerAction=customerActions[raw.toUpperCase().replace(/^CFG:CMD:/,"")];
 		if (raw.toUpperCase().startsWith("CFG:CMD:") && customerAction) {

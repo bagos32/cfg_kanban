@@ -2,7 +2,7 @@
 (function(root){
  'use strict';
  const prefix='cfg_kanban.services.driver_route_actions.';
- const actions=['Run Stop Document','Create Sales Invoice','Create Custody Label','Prepare Mobile Print','Record Print Segment','Close Mobile Print','Request Stop Cancellation','Cancel Customer Stop','Release GPS','Start GPS','Start Route','Begin Delivery','Confirm Allocations','Create Delivery Note','Open Proof','Submit Proof','Complete Stop','Collect Old Return','Release Refused Stock','Begin Open Sale','Add Assistant','Change Route Order','Request Route Change','Cancel Route Change','Decide Route Change'];
+ const actions=['Run Stop Document','Create Sales Invoice','Create Custody Label','Prepare Mobile Print','Record Print Segment','Close Mobile Print','Request Stop Cancellation','Cancel Customer Stop','Release GPS','Start GPS','Start Route','Begin Delivery','Verify Delivery Goods','Confirm Allocations','Create Delivery Note','Open Proof','Submit Proof','Complete Stop','Collect Old Return','Release Refused Stock','Begin Open Sale','Add Assistant','Change Route Order','Request Route Change','Cancel Route Change','Decide Route Change'];
  function controller(env){
   const s={trip:null,pending:null,busy:false,closed:false,baseline:null,message:''};
   const fail=text=>{throw new Error(text);};
@@ -69,10 +69,10 @@
   const f=options.frappe,e=f.utils.escape_html,host=options.host,tr=value=>typeof __==='function'?__(value):value;
   const owner=options.owner(),token=options.token();
   let context=null,inputs={},inputScanner=null,camera=null,cameraVersion=0,closed=false,loading=false,tools=null,epoch=0,arrival='',automatic=false,returnReview=null,quantityReview=null;
-  let stockChild=null,routeOrder=null,routeSelected=null,draggedStop=null,routePage=0;
+  let productCheck=null,stockChild=null,routeOrder=null,routeSelected=null,draggedStop=null,routePage=0;
   let tail=Promise.resolve();
   const valid=()=>!closed&&options.owner()===owner&&options.token()===token&&options.active();
-  const focus=()=>{if(stockChild)return stockChild.focus();if(valid())host.find('.driver-action-scan').trigger('focus');};
+  const focus=()=>{if(stockChild)return stockChild.focus();if(productCheck&&context?.next_step==='Verify Delivery Goods')return productCheck.focus();if(valid())host.find('.driver-action-scan').trigger('focus');};
   const rpc=async(method,args)=>(await f.call({method,args})).message;
   function queue(work){tail=tail.then(work).catch(async error=>{if(valid()){host.find('.driver-action-message').text(options.error(error));automatic=false;}}).finally(focus);return tail;}
   function stopCamera(){cameraVersion++;camera?.stop_scan?.();camera?.hide_dialog?.();camera?.dialog?.hide?.();camera=null;}
@@ -80,7 +80,7 @@
    if(!valid()||loading||c.state.pending)return;
    if(quantityReview||returnReview)throw new Error('Return to Edit before refreshing an unsubmitted review.');
    loading=true;const version=++epoch;
-   try{const next=await rpc(prefix+'driver_action_context',{trip_name:options.trip,stop_key:options.stop||null,operation:options.operation||null,outcome_name:options.outcome||null,operator_session_token:options.token()});if(!valid()||version!==epoch)return;context=next;render();}
+   try{const next=await rpc(prefix+'driver_action_context',{trip_name:options.trip,stop_key:options.stop||null,operation:options.operation||null,outcome_name:options.outcome||null,operator_session_token:options.token()});if(!valid()||version!==epoch)return;if(next.product_verification?.required){await f.require('/assets/cfg_kanban/js/delivery_product_checks.js');if(!valid()||version!==epoch)return;}context=next;render();}
    finally{loading=false;update();focus();}
   }
   async function recorded(result){
@@ -100,7 +100,7 @@
   function packSummary(packs){return packs.map(p=>`<div class="alert ${p.state==='Scanned'?'alert-success':'alert-warning'}"><strong>${e(p.name)} · ${e(p.state)}</strong>${p.lines.map(r=>`<div>${e(r.item_code)} / ${e(r.batch_no||'—')} · ${e(r.qty)} ${e(r.stock_uom)} · ${e(r.source_visible_code)}</div>`).join('')}</div>`).join('');}
   function update(){
    if(!valid())return;const pending=c.state.pending,own=!pending||pending.actor===owner;
-   host.find('.driver-action-confirm').text(tr(pending?'Retry original request':context?.next_step==='Done'?'Recorded':context?.next_step==='Request Stop Cancellation'?'Request Supervisor Cancellation':context?.next_step==='Cancel Customer Stop'?'Cancel This Customer Stop':context?.next_step==='Start Route'?'Start Route':context?.next_step==='Edit Route Order'?(context.setup.enforced?'Request Supervisor Approval':'Save Stop Order'):context?.next_step==='Decide Route Change'?'Record Route Decision':context?.next_step==='Cancel Route Change'?'Cancel Route Request':context?.next_step==='Add Assistant'?'Add Assistant Driver':context?.next_step==='Collect Old Return'?(returnReview?'Issue Temporary Return Note':'Review Collected Return'):context?.next_step==='Release Refused Stock'?'Release Selected Refused Stock':context?.next_step==='Submit Proof'?'Submit delivery proof':context?.next_step==='Begin Open Sale'?'Open Customer Sale':context?.next_step==='Select Route Stock'?'Finish Selection / Create DN':context?.next_step==='Create Delivery Note'?'Confirm document details':context?.next_step==='Begin Delivery'?(quantityReview?'Confirm Accepted / Refused':'Deliver Accepted Quantities'):'Complete Stop'))
+   host.find('.driver-action-confirm').text(tr(pending?'Retry original request':context?.next_step==='Done'?'Recorded':context?.next_step==='Request Stop Cancellation'?'Request Supervisor Cancellation':context?.next_step==='Cancel Customer Stop'?'Cancel This Customer Stop':context?.next_step==='Start Route'?'Start Route':context?.next_step==='Edit Route Order'?(context.setup.enforced?'Request Supervisor Approval':'Save Stop Order'):context?.next_step==='Decide Route Change'?'Record Route Decision':context?.next_step==='Cancel Route Change'?'Cancel Route Request':context?.next_step==='Add Assistant'?'Add Assistant Driver':context?.next_step==='Collect Old Return'?(returnReview?'Issue Temporary Return Note':'Review Collected Return'):context?.next_step==='Release Refused Stock'?'Release Selected Refused Stock':context?.next_step==='Submit Proof'?'Submit delivery proof':context?.next_step==='Begin Open Sale'?'Open Customer Sale':context?.next_step==='Select Route Stock'?'Finish Selection / Create DN':context?.next_step==='Verify Delivery Goods'?'Confirm product check':context?.next_step==='Confirm Allocations'?'Confirm Allocations':context?.next_step==='Create Delivery Note'?'Confirm document details':context?.next_step==='Begin Delivery'?(quantityReview?'Confirm Accepted / Refused':'Deliver Accepted Quantities'):'Complete Stop'))
     .prop('disabled',c.state.busy||loading||!own||(!pending&&(context?.loose_tags||[]).some(p=>p.state!=='Scanned'))||(!pending&&(!context||['Blocked','Await ERP','Done'].includes(context.next_step)||(context.next_step==='Select Route Stock'&&!(context.selected_stock||[]).some(r=>['Reserved','Delivery Pending'].includes(r.state))))));
    host.find('.driver-action-fields :input').prop('disabled',c.state.busy||Boolean(pending)||Boolean(returnReview)||Boolean(quantityReview));
    host.find('.driver-order-row').attr?.('draggable',!(c.state.busy||pending));
@@ -122,7 +122,7 @@
   }
   function moveOrder(key,delta){orderEditable();routeOrder.shift(key,delta);routeSelected=key;routePage=Math.floor(routeOrder.keys().indexOf(key)/10);drawOrder();}
   function render(){
-   if(!valid())return;tools?.close?.();tools=null;inputs={};inputScanner=null;
+   if(!valid())return;tools?.close?.();tools=null;productCheck?.close?.();productCheck=null;inputs={};inputScanner=null;
    const detail=options.detail(),stop=(detail?.stops||[]).find(row=>row.stop_key===(c.state.pending?c.state.pending.request.stop_key:context?.stop_key||options.stop));
    const pending=c.state.pending,owned=!pending||pending.actor===owner;
    host.html(`<section class="frappe-card p-4 mt-3 driver-action-panel"><h3>${tr(options.operation||'Driver route action')}</h3><div class="driver-action-summary"></div>
@@ -204,9 +204,17 @@
      {fieldname:'details',label:'Details',fieldtype:'Small Text'},
     ]});
    }
+   if(context?.product_verification?.required&&['Verify Delivery Goods','Confirm Allocations'].includes(step)){
+    const parent=$('<div class="driver-product-checks"></div>').appendTo(host.find('.driver-action-fields'));
+    productCheck=window.cfg_delivery_product_checks.mount({frappe:f,parent,check:context.product_verification,
+     valid:()=>valid()&&!c.state.busy&&!c.state.pending,error:options.error,
+     submit:async payload=>{automatic=false;return c.mutate(context,'Verify Delivery Goods',payload);}});
+   }
+   if(step==='Verify Delivery Goods'&&context.open_sale)host.find('.driver-action-fields').append(`<button class="btn btn-default driver-action-add-stock">${tr('Add Product / Scan Stock')}</button>`);
    if(step==='Select Route Stock'){
     host.find('.driver-action-fields').html(`<p>${tr('Select prepared route stock or eligible unassigned lorry stock. Customer-order stock and QC-held goods remain protected.')}</p><button class="btn btn-primary driver-action-add-stock">${tr('Add Product / Scan Stock')}</button>`+(context.selected_stock||[]).map(r=>`<p>${e(r.visible_code||r.item_code)} · ${e(r.batch_no||'')} · ${e(r.allocated_qty)} ${e(r.stock_uom)} · ${e(r.state)}</p>`).join(''));
    }
+   if(step==='Select Route Stock'&&context.product_verification?.ready)host.find('.driver-action-fields').append(window.cfg_delivery_product_checks.checklist(context.product_verification));
    if(step==='Release Refused Stock'){
     field({fieldname:'release_rows',label:'Select held refused stock',fieldtype:'Table',cannot_add_rows:true,cannot_delete_rows:true,in_place_edit:true,data:context.setup.rows,fields:[
      {fieldname:'line_name',fieldtype:'Data',read_only:1,hidden:1},{fieldname:'selected',label:'Release',fieldtype:'Check',in_list_view:1,columns:1},
@@ -245,6 +253,7 @@
    if(!context||['Blocked','Await ERP','Done'].includes(context.next_step))return;
    if(tools?.busy?.())throw new Error('Wait until proof evidence has finished uploading.');
    let payload={},v=values(),step=context.next_step;
+   if(step==='Verify Delivery Goods')return productCheck.submit();
    if(!auto)automatic=!['Start Route','Add Assistant'].includes(step);
    if(!c.state.pending&&(context.loose_tags||[]).some(p=>p.state!=='Scanned'))throw new Error('Scan every assigned Loose Tag at this customer stop before confirming.');
    if(['Begin Delivery','Begin Open Sale'].includes(step)&&context.quantities?.length)payload.quantities=(v.quantities||inputs.quantities.df.data||[]).map(row=>({dispatch_allocation:row.dispatch_allocation,accepted_qty:row.accepted_qty,refusal_reason:row.refusal_reason||'',condition:row.condition||'Good / Unwanted'}));
@@ -307,8 +316,10 @@
    const text=String(value||'').trim(),upper=text.toUpperCase();if(!text||!valid())return;
    if(upper==='CFG:CMD:CANCEL')return close();if(upper==='CFG:CMD:CONFIRM')return submit();
    if(['CFG:CMD:REFRESH','CFG:CMD:ROUTE_SHEET_REFRESH'].includes(upper))return c.state.pending?c.reconcile():load();
-   if(upper==='CFG:CMD:HELP'){host.find('.driver-action-message').text(context?.next_step==='Edit Route Order'?'Numbered choices select customers. ROUTE_MOVE_UP / ROUTE_MOVE_DOWN changes their order. NEXT_MATERIALS / PREVIOUS_MATERIALS pages the customer choices. ROUTE_REASON selects the reason. Confirm saves or requests approval; Cancel closes safely.':'DRIVER_CURRENT_CUSTOMER scrolls to customer details. After completing delivery, close this action and scan PRINT_STOP_DOCUMENTS to resume the saved document checklist; each copy waits for Print. Open Route goods: ALLOCATE_ROUTE_STOCK opens Add Product / Scan Stock in this Session. Scan the source or Item, select the source, enter stock UOM quantity and Confirm; repeat, then Confirm on the stop screen creates its DN. Loose Tag: scan CFG:LOOSE: QR once at its assigned customer stop; review every packed Item/Batch/source and Accepted quantity. Reduce a refused quantity with reason/condition, Confirm, then continue native DN/proof. For customer cancellation, STOP_CANCEL_REASON arms the reason; STOP_STOCK_DISPOSITION selects Keep Reserved for Return or Release for Same-trip Sale using numbered choices. Drivers request; Supervisors approve. Confirm submits reviewed details. Scan Customer Site when required. CFG:SELECT:1–10 arms a field; scan its value. DELIVERY_RECIPIENT and ERP table-row commands are supported. Cancel closes while retaining unknown results. Refresh reads back the saved outcome.');return;}
+   if(upper==='CFG:CMD:HELP'){host.find('.driver-action-message').text(context?.next_step==='Edit Route Order'?'Numbered choices select customers. ROUTE_MOVE_UP / ROUTE_MOVE_DOWN changes their order. NEXT_MATERIALS / PREVIOUS_MATERIALS pages the customer choices. ROUTE_REASON selects the reason. Confirm saves or requests approval; Cancel closes safely.':'VERIFY_DELIVERY_GOODS opens the current customer product checklist. Scan each allocated Stock Tag / box or loaded bin; for untagged stock use SELECT 1–10, CFG:QTY:MATERIAL:<count>, then CONFIRM. Green means the server saved that exact check; it does not mean ERP stock was posted. DRIVER_CURRENT_CUSTOMER scrolls to customer details. After completing delivery, close this action and scan PRINT_STOP_DOCUMENTS to resume the saved document checklist; each copy waits for Print. Open Route goods: ALLOCATE_ROUTE_STOCK opens Add Product / Scan Stock in this Session. Scan the source or Item, select the source, enter stock UOM quantity and Confirm; repeat, then Confirm on the stop screen creates its DN. Loose Tag: scan CFG:LOOSE: QR once at its assigned customer stop; review every packed Item/Batch/source and Accepted quantity. Reduce a refused quantity with reason/condition, Confirm, then continue native DN/proof. For customer cancellation, STOP_CANCEL_REASON arms the reason; STOP_STOCK_DISPOSITION selects Keep Reserved for Return or Release for Same-trip Sale using numbered choices. Drivers request; Supervisors approve. Confirm submits reviewed details. Scan Customer Site when required. CFG:SELECT:1–10 arms a field; scan its value. DELIVERY_RECIPIENT and ERP table-row commands are supported. Cancel closes while retaining unknown results. Refresh reads back the saved outcome.');return;}
    if(c.state.pending)throw new Error('Retry or reconcile the original request before editing.');
+   if(['CFG:CMD:ALLOCATE_ROUTE_STOCK','CFG:CMD:ROUTE_ALLOCATE_STOCK'].includes(upper)&&context?.open_sale&&context?.next_step==='Verify Delivery Goods')return addStock();
+   if(context?.next_step==='Verify Delivery Goods')return productCheck.scan(text);
    if(text.startsWith('CFG:LOOSE:')){
     if(!['Begin Delivery','Begin Open Sale'].includes(context?.next_step))throw new Error('Open the assigned customer stop before scanning its unused Loose Tag.');
     if(quantityReview)throw new Error('Return to Edit before scanning another pack.');
@@ -330,7 +341,7 @@
    if(upper==='CFG:CMD:RETURN_EDIT'){returnReview=null;quantityReview=null;host.find('.driver-action-edit-return').toggle(false);update();return;}
    if(returnReview||quantityReview)throw new Error('Use Return to Edit before changing reviewed quantities.');
    if(context?.next_step==='Begin Delivery'&&context.require_scan&&!inputScanner?.state.table&&inputScanner?.state.field==='customer_scan'&&!upper.startsWith('CFG:')){await inputs.customer_scan.set_value(text);return;}
-   if(['CFG:CMD:ALLOCATE_ROUTE_STOCK','CFG:CMD:ROUTE_ALLOCATE_STOCK'].includes(upper)&&context?.next_step==='Select Route Stock')return addStock();
+   if(['CFG:CMD:ALLOCATE_ROUTE_STOCK','CFG:CMD:ROUTE_ALLOCATE_STOCK'].includes(upper)&&['Select Route Stock','Verify Delivery Goods'].includes(context?.next_step))return addStock();
    if(upper==='CFG:CMD:RETURN_CAMERA')return startCamera();
    if(upper==='CFG:CMD:STOP_CANCEL_REASON')return inputScanner.field('reason');
    if(upper==='CFG:CMD:STOP_STOCK_DISPOSITION')return inputScanner.field('stock_disposition');
@@ -345,14 +356,14 @@
   function startCamera(){if(camera||closed)return;if(!f.ui.Scanner)throw new Error('Camera unavailable; use the Scanner field.');const version=cameraVersion;let accepted=false;
    camera=new f.ui.Scanner({dialog:true,multiple:false,on_scan:data=>{if(accepted||version!==cameraVersion||!valid())return;accepted=true;stopCamera();queue(()=>scan(data.decodedText));}});camera.dialog?.$wrapper?.one?.('hidden.bs.modal.cfg_driver_action',()=>{cameraVersion++;camera=null;focus();});}
   async function addStock(){
-   if(!valid()||stockChild||c.state.pending||context?.next_step!=='Select Route Stock')return;
+   if(!valid()||stockChild||c.state.pending||!['Select Route Stock','Verify Delivery Goods'].includes(context?.next_step))return;
    await f.require('/assets/cfg_kanban/js/route_delivery.js');if(!valid())return;
    stockChild=await window.cfg_route_delivery.open({frappe:f,mode:'stock',deliverySession:context.delivery_session,
     owner:options.owner,token:options.token,nonce:options.nonce,errorMessage:(_err,fallback)=>fallback,
     success:async()=>{stockChild=null;if(valid())await load();},onClose:()=>{stockChild=null;focus();}});
    if(!valid()){stockChild?.close?.();stockChild=null;}
   }
-  function close(){if(closed)return;stockChild?.close?.();stockChild=null;closed=true;epoch++;c.close();tools?.close?.();stopCamera();host.empty();options.onClose();}
+  function close(){if(closed)return;productCheck?.close?.();productCheck=null;stockChild?.close?.();stockChild=null;closed=true;epoch++;c.close();tools?.close?.();stopCamera();host.empty();options.onClose();}
   host.off('.cfg_driver_action').on('click.cfg_driver_action','.driver-action-add-stock',()=>queue(addStock)).on('click.cfg_driver_action','.driver-action-edit-return',()=>{if(c.state.pending||c.state.busy)return;returnReview=null;quantityReview=null;host.find('.driver-action-edit-return').toggle(false);update();focus();}).on('click.cfg_driver_action','.driver-action-confirm',()=>queue(submit))
    .on('click.cfg_driver_action','.driver-action-readback',()=>queue(()=>c.state.pending?c.reconcile():load()))
    .on('click.cfg_driver_action','.driver-action-camera',()=>queue(startCamera)).on('click.cfg_driver_action','.driver-action-cancel',close)

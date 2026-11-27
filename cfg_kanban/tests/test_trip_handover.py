@@ -71,6 +71,12 @@ class TestTripHandover(unittest.TestCase):
         self.assertTrue(result['lorry_stock']);self.assertIn(('Company','B'),self.reads)
         self.assertIn(('Warehouse','LORRY'),self.reads);self.assertIn(('CFG Kanban Handling Unit','TAG'),self.reads)
 
+    def test_plan_summary_carries_actual_settlement_and_fulfilment_states_for_colour_cues(self):
+        self.plan.update(state='Loaded',fulfilment_status='Completed',dispatch_review_state='Completed')
+        plan=self.read()['plans'][0]
+        self.assertEqual((plan['state'],plan['fulfilment_status'],plan['dispatch_review_state']),('Loaded','Completed','Completed'))
+        self.plan.state='Reconciled';self.assertEqual(self.read()['plans'][0]['state'],'Reconciled')
+
     def test_assistant_allowed_unassigned_driver_rejected(self):
         self.trip.driver='LEAD'
         with self.assertRaisesRegex(ValueError,'not assigned'):self.read()

@@ -253,7 +253,11 @@ def action_context(trip,stop,operator,result,token,force=False):
     if delivery.state in ('Closed','Cancelled'):return None
     engine=_routes()._engine();view=engine.get_delivery_session(delivery.name,token)
     base=dict(result,dispatch_plan=trip.open_route_plan,delivery_session=delivery.name,session_state=delivery.state,
-        auto_submit_delivery_note=view['auto_submit_delivery_note'],open_sale=True)
+        auto_submit_delivery_note=view['auto_submit_delivery_note'],open_sale=True,
+        product_verification=view.get('product_verification'))
+    check=view.get('product_verification')
+    if check and check['required'] and check['rows'] and not check['ready'] and delivery.state in ('Allocating Stock','Awaiting Confirmation','ERP Document Pending'):
+        return dict(base,next_step='Verify Delivery Goods',selected_stock=view.get('allocations') or [])
     if delivery.state in ('Customer Identified','Allocating Stock') and not view.get('delivery_note'):
         # Native Open Route start identifies the customer before any goods are allocated.
         # Resume the same Session; state advances only when native allocation succeeds.

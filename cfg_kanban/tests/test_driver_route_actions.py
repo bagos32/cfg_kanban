@@ -142,6 +142,26 @@ class TestDriverRouteActions(unittest.TestCase):
     def proof_submit(self,n=1):
         return self.act(n=n,proof_name=self.context(n)['proof']['name'],disposition='Attended',recipient_name='Recipient')
 
+    def test_required_product_check_is_a_driver_step_before_confirmation_and_uses_original_receipt(self):
+        import sys, types
+        from unittest.mock import patch
+        self.start();self.begin_stop();delivery=self.data[views.SESSION][self.v.p1.delivery_session]
+        delivery.product_verification=dict(required=True,ready=False,rows=[dict(name='ALLOC',tagged=True,confirmed=False)])
+        self.assertEqual(self.context()['next_step'],'Verify Delivery Goods')
+        scans=types.ModuleType('cfg_kanban.services.delivery_product_scans')
+        def verify(doc,values,operator,session,key):
+            self.calls.append(('check',doc.name,values));doc.product_verification['ready']=True
+            return dict(changed=['ALLOC'])
+        scans.verify=verify
+        self.operator.can_complete=0
+        with patch.dict(sys.modules,{scans.__name__:scans}):
+            request=self.request('Verify Delivery Goods',scan_value='TAG1')
+            self.perform(request);self.perform(request)
+        self.assertEqual(sum(row[0]=='check' for row in self.calls),1)
+        self.assertEqual(self.context()['next_step'],'Confirm Allocations')
+        self.assertFalse(self.data.get(views.NOTE))
+        with self.assertRaises(PermissionError):self.act('Confirm Allocations')
+
     def test_start_only_records_departure_and_keeps_native_delivery_untouched(self):
         r=self.start();self.assertEqual(r['status'],'Recorded');self.assertTrue(r['result']['route_started'])
         self.assertEqual(self.trip.driver_route_state,'In Progress');self.assertEqual(self.trip.driver_route_revision,1)

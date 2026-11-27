@@ -1,7 +1,7 @@
 {
  "doctype":"DocType","name":"CFG Kanban Delivery Allocation","module":"CFG Kanban","autoname":"KDA-.YYYY.-.#####","title_field":"visible_code","track_changes":0,
  "search_fields":"delivery_session,visible_code,item_code,batch_no,delivery_note",
- "field_order":["state","delivery_session","identity_section","handling_unit","visible_code","container_handling_unit","container_visible_code","item_code","batch_no","stock_uom","quantity_section","allocated_qty","delivered_qty","source_warehouse","erp_section","delivery_note","delivery_note_item","audit_section","reserved_by_operator","operator_session","reserved_on","movement_state_before_reservation","reservation_ledger","reservation_key","active_handling_unit_key","released_on","release_reason","release_ledger","release_key","allocation_kind","dispatch_allocation","sales_order_item","route_stop","route_source_kind","route_request_key","route_request_hash"],
+ "field_order":["state","delivery_session","identity_section","handling_unit","visible_code","container_handling_unit","container_visible_code","item_code","batch_no","stock_uom","quantity_section","allocated_qty","delivered_qty","drop_scan_confirmed","drop_scan_evidence","source_warehouse","erp_section","delivery_note","delivery_note_item","audit_section","reserved_by_operator","operator_session","reserved_on","movement_state_before_reservation","reservation_ledger","reservation_key","active_handling_unit_key","released_on","release_reason","release_ledger","release_key","allocation_kind","dispatch_allocation","sales_order_item","route_stop","route_source_kind","route_request_key","route_request_hash"],
  "fields":[
   {"fieldname":"state","label":"Allocation State","fieldtype":"Select","options":"Reserved\nDelivery Pending\nDelivered\nReleased\nCancelled\nException","default":"Reserved","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"delivery_session","label":"Delivery Session","fieldtype":"Link","options":"CFG Kanban Delivery Session","reqd":1,"read_only":1,"in_list_view":1,"in_standard_filter":1,"search_index":1},
@@ -16,6 +16,8 @@
   {"fieldname":"quantity_section","label":"Allocated Quantity","fieldtype":"Section Break"},
   {"fieldname":"allocated_qty","label":"Allocated Qty","fieldtype":"Float","reqd":1,"read_only":1,"in_list_view":1},
   {"fieldname":"delivered_qty","label":"ERP-confirmed Delivered Qty","fieldtype":"Float","read_only":1,"in_list_view":1},
+  {"fieldname":"drop_scan_confirmed","label":"Customer Drop Product Checked","fieldtype":"Check","default":"0","read_only":1},
+  {"fieldname":"drop_scan_evidence","label":"Customer Drop Check Evidence","fieldtype":"Long Text","read_only":1,"hidden":1},
   {"fieldname":"source_warehouse","label":"Lorry Warehouse","fieldtype":"Link","options":"Warehouse","reqd":1,"read_only":1,"in_standard_filter":1},
   {"fieldname":"erp_section","label":"ERPNext Delivery Evidence","fieldtype":"Section Break"},
   {"fieldname":"delivery_note","label":"Delivery Note","fieldtype":"Link","options":"Delivery Note","read_only":1,"in_standard_filter":1},

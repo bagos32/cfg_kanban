@@ -238,7 +238,7 @@ def _custody_lines(trip, stop):
     if not stop:
         return rows
     for name in frappe.get_list(CASE, filters={'driver_trip': trip.name, 'driver_stop_key': stop.stop_key,
-            'state': 'Awaiting QC Receipt', 'stock_already_owned': 0}, pluck='name', limit_page_length=0):
+            'state': 'Awaiting QC Receipt', 'stock_already_owned': 0, 'return_flow': 'Customer Return for QC'}, pluck='name', limit_page_length=0):
         case = return_case(trip, stop, name)
         if not case.collected_on:
             continue

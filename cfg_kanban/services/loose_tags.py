@@ -469,6 +469,9 @@ def assert_scanned(plan, stop_key=None):
 def bind_delivery(plan, delivery, stop_key=None):
     for pack in packs_for_plan(plan, stop_key):
         pack.db_set(dict(state='In Delivery', delivery_session=delivery.name), update_modified=True)
+        if delivery.get('require_delivery_product_scan'):
+            from cfg_kanban.services.delivery_product_scans import adopt_loose_scan
+            adopt_loose_scan(delivery, pack)
 
 
 def sync_delivery(delivery):

@@ -137,14 +137,14 @@ function adapter(){
  });
  await test('warehouse command and pickup action route through actual global dispatcher',async()=>{
   const start=panel.indexOf('\tasync function process_scan(value)'),end=panel.indexOf('\n\tasync function lookup_tag(',start);const actions=[];
-  const code=`let active_route_count_action=null,active_dispatch_review=null,opening_dispatch_review=false,active_delivery_action=null,opening_delivery_action=false,active_route_delivery=null,opening_route_delivery=false,active_prepared_delivery=null,opening_prepared_delivery=false,active_isolation=null,opening_isolation=false,active_repack=null,opening_repack=false;\n`+panel.slice(start,end)+'\nreturn process_scan(command);';
-  const run=new Function('$scanner','state','open_prepared_delivery','confirm_delivery_allocations','prepare_customer_delivery_note','open_delivery_proof','command',code);
-  const args=[{find:()=>({val(){}})},{lookup:{delivery_session:{name:'KDS',fulfilment_mode:'Customer Pickup'},dispatch_plan:{name:'DPL'}}},(...v)=>actions.push(['start',...v]),()=>{},()=>{},v=>actions.push(['proof',v.name])];
-  await run(...args,'CFG:CMD:START_WAREHOUSE_DELIVERY');await run(...args,'CFG:CMD:ACKNOWLEDGE_PICKUP');assert.deepEqual(actions,[['start','DPL',null],['proof','KDS']]);
+  const code=`let active_route_count_action=null,active_loose_tag=null,opening_loose_tag=false,active_dispatch_review=null,opening_dispatch_review=false,active_delivery_action=null,opening_delivery_action=false,active_route_delivery=null,opening_route_delivery=false,active_prepared_delivery=null,opening_prepared_delivery=false,active_isolation=null,opening_isolation=false,active_repack=null,opening_repack=false;\n`+panel.slice(start,end)+'\nreturn process_scan(command);';
+  const run=new Function('$scanner','state','open_prepared_delivery','confirm_delivery_allocations','prepare_customer_delivery_note','open_delivery_proof','verify_delivery_goods','command',code);
+  const args=[{find:()=>({val(){}})},{lookup:{delivery_session:{name:'KDS',fulfilment_mode:'Customer Pickup'},dispatch_plan:{name:'DPL'}}},(...v)=>actions.push(['start',...v]),()=>{},()=>{},v=>actions.push(['proof',v.name]),v=>actions.push(['check',v.name])];
+  await run(...args,'CFG:CMD:START_WAREHOUSE_DELIVERY');await run(...args,'CFG:CMD:ACKNOWLEDGE_PICKUP');await run(...args,'CFG:CMD:VERIFY_DELIVERY_GOODS');assert.deepEqual(actions,[['start','DPL',null],['proof','KDS'],['check','KDS']]);
  });
  await test('new commands have catalogue entries and Production entry routing',async()=>{
   const catalogue=fs.readFileSync(path.join(root,'api/operator.py'),'utf8'),production=fs.readFileSync(path.join(root,'cfg_kanban/page/kanban_operator/kanban_operator.js'),'utf8');
-  for(const name of ['START_WAREHOUSE_DELIVERY','ACKNOWLEDGE_PICKUP','CONFIRM_CUSTOMER_ALLOCATION','CREATE_CUSTOMER_DELIVERY_NOTE','CAPTURE_DELIVERY_PROOF']){assert(catalogue.includes('CFG:CMD:'+name));assert(production.includes(name));}
+  for(const name of ['VERIFY_DELIVERY_GOODS','START_WAREHOUSE_DELIVERY','ACKNOWLEDGE_PICKUP','CONFIRM_CUSTOMER_ALLOCATION','CREATE_CUSTOMER_DELIVERY_NOTE','CAPTURE_DELIVERY_PROOF']){assert(catalogue.includes('CFG:CMD:'+name));assert(production.includes(name));}
   for(const name of ['DELIVERY_RECIPIENT','DELIVERY_CAMERA'])assert(catalogue.includes('CFG:CMD:'+name));
  });
  console.log(`${count} E4C UI checks passed`);

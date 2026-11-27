@@ -393,3 +393,17 @@ Run the normal app migration/build/cache steps to install the new task DocType a
 fields. No ERPNext/Frappe upgrade, document renumbering or stock conversion is needed. Live native
 ERPNext, multi-tab/multi-operator, signature, Bluetooth and kiosk acceptance remain separate from
 offline development tests; record them in [the acceptance checklist](TEST_CUSTOMER_STOP_DOCUMENTS.md).
+
+## Return custody form controls — 27 November 2026
+
+**Create Return Custody Label** now completes its form even when the native Select fires a change
+while controls are still being constructed. The notice is informational. Beneath it, choose the
+collected return Item and enter its stock-UOM label quantity. A single eligible Item is selected
+and its remaining unlabelled quantity is suggested; several Items need an explicit choice.
+
+Open the exact customer stop where the goods were collected. Only old customer-return goods
+Awaiting QC Receipt are eligible. Existing custody labels reduce the unlabelled balance; reprint
+those labels from Documents. Company-owned refusals and returns already received by QC retain
+their separate workflow. No stock or credit is created by a custody label. Offline Chrome and
+Firefox tests cover synchronous Select initialization and lost-response readback; live device and
+printer checks remain pending. See [field acceptance](TEST_DRIVER_FIELD_WORKFLOW.md).

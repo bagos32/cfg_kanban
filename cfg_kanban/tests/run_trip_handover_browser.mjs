@@ -10,7 +10,7 @@ const chrome=process.env.CFG_CHROME||'/Applications/Google Chrome.app/Contents/M
 const mode=process.env.CFG_BROWSER||'chrome';
 const firefox=process.env.CFG_FIREFOX||'/Applications/Firefox.app/Contents/MacOS/firefox';
 let finishFirefox;const firefoxResult=new Promise(resolve=>finishFirefox=resolve);
-const files=['cfg_kanban/tests/fixtures/trip_handover_browser.html','cfg_kanban/public/js/trip_handover.js','cfg_kanban/public/css/trip_handover.css'];
+const files=['cfg_kanban/tests/fixtures/trip_handover_browser.html','cfg_kanban/public/js/trip_handover.js','cfg_kanban/public/css/trip_handover.css','cfg_kanban/public/js/field_ui.js','cfg_kanban/public/css/kanban_operator.css'];
 const server=http.createServer(async(req,res)=>{
  const rel=new URL(req.url,'http://localhost').pathname.slice(1);
  if(mode==='firefox'&&rel==='cfg-fixture-result'&&req.method==='POST'){

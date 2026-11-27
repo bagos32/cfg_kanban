@@ -424,6 +424,17 @@ class TestMobilePrinting(unittest.TestCase):
         hashes=['a'*64,'b'*64]*2
         self.segment(job,frame_hashes=hashes)
         with self.assertRaises(ValueError):self.segment(job,frame_hashes=['a'*64]*4)
+    def test_custody_picker_shows_only_collected_old_goods_at_exact_stop_with_unlabelled_quantity(self):
+        rows=self.ns['_custody_lines'](self.trip,self.trip.stops[0])
+        self.assertEqual([(r['return_case'],r['return_line'],r['remaining_qty']) for r in rows],[('CASE','RL',5)])
+        self.add(self.ns['LABEL'],'L1',return_case='CASE',return_line='RL',qty=2)
+        self.assertEqual(self.ns['_custody_lines'](self.trip,self.trip.stops[0])[0]['remaining_qty'],3)
+        self.assertEqual(self.ns['_custody_lines'](self.trip,None),[])
+        for field,value in [('return_flow','Delivery Note Correction'),('stock_already_owned',1),('collected_on',None),('driver_stop_key','OTHER'),('state','QC Completed')]:
+            old=self.case.get(field);setattr(self.case,field,value)
+            self.assertEqual(self.ns['_custody_lines'](self.trip,self.trip.stops[0]),[],field)
+            setattr(self.case,field,old)
+
     def test_custody_label_preserves_identity_and_posts_no_stock_or_credit(self):
         result=self.label();label=self.data[self.ns['LABEL']][result['custody_label']]
         self.assertEqual((label.return_line,label.item_code,label.batch_no,label.expiry_date,label.stock_uom,label.qty),('RL','ITEM','BATCH','2027-01-01','Kg',3))

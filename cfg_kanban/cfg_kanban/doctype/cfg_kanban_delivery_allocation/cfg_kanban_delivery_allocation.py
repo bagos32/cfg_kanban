@@ -1,6 +1,6 @@
 import frappe
 from frappe.model.document import Document
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 
 class CFGKanbanDeliveryAllocation(Document):
@@ -17,6 +17,8 @@ class CFGKanbanDeliveryAllocation(Document):
             frappe.throw("Allocated Qty must be positive")
         if flt(self.delivered_qty) < 0 or flt(self.delivered_qty) > flt(self.allocated_qty):
             frappe.throw("Delivered Qty must be between zero and Allocated Qty")
+        if self.is_new() and (cint(self.get("drop_scan_confirmed")) or self.get("drop_scan_evidence")):
+            frappe.throw("Customer drop checks must use the controlled scan action")
         if not self.is_new():
             before = self.get_doc_before_save()
             if before:
@@ -28,7 +30,7 @@ class CFGKanbanDeliveryAllocation(Document):
                     "batch_no", "stock_uom", "allocated_qty", "source_warehouse",
                     "reserved_by_operator", "operator_session", "reserved_on",
                     "movement_state_before_reservation", "reservation_ledger",
-                    "reservation_key",
+                    "reservation_key", "drop_scan_confirmed", "drop_scan_evidence",
                 ):
                     if before.get(fieldname) != self.get(fieldname):
                         frappe.throw(

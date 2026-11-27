@@ -114,6 +114,25 @@ class TestTripSales(unittest.TestCase):
         self.assertEqual(self.r.unit.current_qty,3);self.assertEqual(self.r.unit.reserved_qty,0)
         self.assertTrue(self.trip.stops[0].driver_completed_on)
 
+    def test_customer_product_check_in_open_sale_follows_selection_and_keeps_existing_posting_flow(self):
+        from cfg_kanban.tests.test_delivery_product_scans import install
+        service,events,container=install(self,self.b)
+        self.b.site.require_delivery_product_scan=1
+        self.start();self.begin(customer_scan='SITE-QR')
+        key=self.trip.stops[0].stop_key
+        self.assertEqual(self.act.driver_action_context('TRIP','TOKEN',key)['next_step'],'Select Route Stock')
+        self.r.allocate(2)
+        context=self.act.driver_action_context('TRIP','TOKEN',key)
+        self.assertEqual(context['next_step'],'Verify Delivery Goods')
+        before=len(self.b.posted)
+        self.run_action('Verify Delivery Goods',scan_value=self.r.unit.handling_unit_id)
+        self.assertEqual(len(self.b.posted),before)
+        self.assertTrue(service.context(self.delivery())['ready'])
+        self.assertEqual(self.act.driver_action_context('TRIP','TOKEN',key)['next_step'],'Select Route Stock')
+        self.run_action('Confirm Allocations');self.run_action('Create Delivery Note')
+        self.assertEqual(len(self.data['Delivery Note']),1)
+        self.assertTrue(self.trip.stops[0].driver_completed_on)
+
     def test_identified_resume_retains_operator_scope(self):
         self.start();self.begin();self.operator.employee='ANOTHER'
         with self.assertRaises(PermissionError):

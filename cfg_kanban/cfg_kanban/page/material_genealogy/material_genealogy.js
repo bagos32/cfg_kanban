@@ -31,6 +31,7 @@ frappe.pages["material-genealogy"].on_page_load = function (wrapper) {
 	$scanner.find(".camera-genealogy").on("click", camera_scan);
 	page.set_primary_action(__("Scan with Camera"), camera_scan, "scan");
 	page.add_inner_button(__("Clear"), clear_result);
+	page.add_inner_button(__("Back to Logistics"), () => frappe.set_route("kanban-logistics"));
 
 	function route_scan_value() {
 		const route = frappe.get_route();
@@ -55,6 +56,7 @@ frappe.pages["material-genealogy"].on_page_load = function (wrapper) {
 	async function load_scan(value) {
 		const $input = $scanner.find(".genealogy-scan-input");
 		const raw = String(value || $input.val() || "").trim();
+		if (raw.toUpperCase() === "CFG:CMD:LOGISTICS_PANEL") return frappe.set_route("kanban-logistics");
 		if (!raw) return focus_scanner();
 		$input.val(raw);
 		const request_serial = ++state.request_serial;

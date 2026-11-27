@@ -220,11 +220,12 @@
       <button class="btn btn-default cfg-driver-current-customer">${tr('Current Customer')}</button><button class="btn btn-default cfg-driver-change">${tr('Change Operator')}</button><button class="btn btn-default cfg-driver-refresh">${tr('Refresh')}</button></div>
       <label class="mt-2"><input type="checkbox" class="cfg-driver-closed"> ${tr('Show closed trips')}</label><div class="cfg-driver-notice" role="status" aria-live="polite"></div></section>
       <div class="cfg-driver-gps-host"></div><div class="cfg-driver-layout"><aside class="cfg-driver-list"></aside><main><div class="cfg-driver-detail"></div><div class="cfg-driver-print-launch mt-3"></div><div class="cfg-driver-action-host"></div></main></div>`);
-    const input = $root.find('.cfg-driver-scan'); let camera = null, cameraEpoch = 0, timer = null, action = null, routeMap = null, gps = null, pendingDocuments = null;
+    const input = $root.find('.cfg-driver-scan'); let camera = null, cameraEpoch = 0, timer = null, action = null, routeMap = null, gps = null, pendingDocuments = null, panelSwitch = null;
     const notice = text => $root.find('.cfg-driver-notice').text(text || '');
     const app = controller({ storage: localStorage,
       call: async (method, args) => (await frappe.call({ method, args })).message,
       notify: notice, render(state) {
+        panelSwitch?.sync();
         if(!state.active||!state.token||!state.operator||!state.detail||state.stale)window.cfg_driver_mobile_print?.forget?.();
         if (action && (!state.active || !state.token || !state.operator || !state.detail || state.stale)) action.close();
         $root.find('.cfg-driver-identity').text(state.operator ? `${state.operator.employee_name || state.operator.employee} · ${state.operator.employee}` : tr('Sign in with your operator credential'));
@@ -239,6 +240,7 @@
         notice(state.error ? (state.stale ? tr('Not refreshed') + ': ' : '') + state.error : state.busy ? tr('Refreshing…') : '');
       },
     });
+    panelSwitch=window.cfg_field_ui?.mountSwitch(page.main,'driver',()=>({trip:app.state.selected,employee:app.state.operator?.employee}));
     routeMap=maps()?.createRouteMap({frappe,
       identity:()=>{let token;try{token=localStorage.getItem(SESSION);}catch(_){return null;}return app.state.active&&frappe.get_route()?.[0]==='kanban-driver-route'&&token&&token===app.state.token&&app.state.operator?.employee?`${token}:${app.state.operator.employee}:${app.state.selected}`:null;},
       pick:key=>{if(action||!app.session()||!app.state.active||app.state.stale||app.state.busy)return;app.viewStop(key);},
@@ -259,9 +261,11 @@
     $root.on('click.cfg_driver','.cfg-driver-current-customer',currentCustomer);
     async function submit(value) {
       const shortcut=String(value??input.val()).trim().toUpperCase();
-      if(shortcut==='CFG:CMD:HELP'&&!action){input.val('');notice(tr('DRIVER_CURRENT_CUSTOMER scrolls to the selected customer below the map. The completed customer stays selected; choose another stop freely. MOBILE_PRINT opens its documents; PRINT_STOP_DOCUMENTS resumes its automatic checklist. PRINT_OPEN and PRINT_CONFIRM handle each copy separately.'));return focus();}
+      if(shortcut==='CFG:CMD:HELP'&&!action){input.val('');notice(tr('DRIVER_ROUTE / LOGISTICS_PANEL switches panels. VERIFY_DELIVERY_GOODS opens the current stop checklist: tags or box QR, or numbered untagged Item, CFG:QTY:MATERIAL:<count>, CONFIRM. DRIVER_CURRENT_CUSTOMER scrolls to the selected customer below the map. The completed customer stays selected; choose another stop freely. MOBILE_PRINT opens its documents; PRINT_STOP_DOCUMENTS resumes its automatic checklist. PRINT_OPEN and PRINT_CONFIRM handle each copy separately.'));return focus();}
       if(shortcut==='CFG:CMD:DRIVER_CURRENT_CUSTOMER'){input.val('');return currentCustomer();}
+      if(shortcut==='CFG:CMD:VERIFY_DELIVERY_GOODS'&&!action){input.val('');return execute(app.state.stop||app.state.detail?.next_stop_key);}
       if(shortcut==='CFG:CMD:PRINT_STOP_DOCUMENTS'&&!action){input.val('');return printDocuments(null,true);}
+      if(!action&&window.cfg_field_ui?.command(value??input.val(),{trip:app.state.selected,employee:app.state.operator?.employee})){input.val('');return;}
       const loose=String(value??input.val()).trim();
       if(loose.startsWith('CFG:LOOSE:')&&!action){
         input.val('');const key=app.state.stop||app.state.detail?.next_stop_key;

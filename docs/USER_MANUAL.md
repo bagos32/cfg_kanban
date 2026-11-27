@@ -6761,3 +6761,70 @@ See [the operator steps and permissions](USER_GUIDE_LORRY_ROUTES_AND_FLOOR.md#8-
 and [verification / live acceptance](TEST_DISPATCH_DOCUMENT_CLOSURE.md). Migrate adds the Review
 settlement-basis and document-evidence fields; build the app assets and clear cache through the
 owner's normal deployment workflow. No records or stock are automatically closed by migration.
+
+## Driver field workflow and customer product checks — 27 November 2026
+
+A Stock Manager, Sales Manager or System Manager edits the normal **CFG Kanban Customer Scan
+Point** form. Enable **Require Product Check Before Delivery** for customers who require a drop
+check. It defaults off and is captured when a **new Delivery Session** starts. Changing the site
+later does not rewrite an active or historical Session's policy.
+
+On **Driver Route → Complete Stop**, review accepted/refused quantities as usual. Before allocation
+confirmation, the required product checklist lists every accepted Item/Batch, quantity, stock UOM
+and assigned tag/container. Scan each Stock Tag; its saved check turns that exact row green. A
+loaded Quantity Bin or complete mixed container can confirm its allocated contents. If a mixed
+container includes goods outside this delivery, scan its individual assigned tags. A multi-SKU
+**Loose Tag** already scanned at this stop covers its accepted lines without a second box scan.
+For untagged goods, select the numbered Item/Batch, enter the **exact physically checked quantity
+in stock UOM**, then Confirm. Counts are not prefilled. Wrong-stop tags and mismatched quantities
+are rejected. Checks acknowledge identity/quantity only; normal ERP stock, expiry, reservation,
+Company, customer, driver/team, document and proof controls still decide delivery.
+
+The driver needs existing **Customer Delivery** responsibility and **Start** authority to record
+checks. Allocation confirmation and DN creation retain **Complete** authority and native ERP
+permissions. The server enforces the check on both the normal allocation/DN path and manual
+submission of a linked ERPNext Draft DN. Ordinary non-Kanban Delivery Notes and correction returns
+retain their existing workflows. No scan itself reserves, consumes, transfers or delivers stock.
+Released allocation history stays in the audit; replacement allocations require fresh checks.
+
+Use `CFG:CMD:VERIFY_DELIVERY_GOODS` from Driver Route or an open Customer Delivery Session in
+Logistics. Untagged scanner sequence: `CFG:SELECT:1` through `CFG:SELECT:10`,
+`CFG:QTY:MATERIAL:<count>`, then `CFG:CMD:CONFIRM`. Next/Previous Material Choices pages the Item
+list. Scan with Camera uses the same identity validation. Cancel closes safely and returns scanner
+focus. On an uncertain driver response, Retry retains the original request; Refresh/readback
+reconciles it. Do not create a new delivery to work around a pending outcome.
+
+The **Driver Route / Logistics** sliding switch identifies the current panel and remembers the
+Trip per ERP user/operator in this browser tab. Commands `CFG:CMD:DRIVER_ROUTE` and
+`CFG:CMD:LOGISTICS_PANEL` provide scanner access. Switching does not change the logged-in operator.
+Finish or cancel an active dialog first; existing unresolved action records remain available for
+recovery. Material Genealogy Explorer now has **Back to Logistics**, also available with
+`CFG:CMD:LOGISTICS_PANEL`.
+
+Manifest rows show a saved scan badge: green means this exact tag was registered or physically
+confirmed for loading; receiving requires its separate receipt scan. Untagged loading becomes
+green only after its physical quantity is confirmed. Scanning another tag or receiving a toast
+alone does not confirm a row. Green scanning is not ERP posting confirmation.
+
+For collected old goods, select their **customer stop → Create Return Custody Label**. The Item
+selector and stock-UOM quantity appear below the information notice; a sole eligible Item is
+selected automatically. Multiple Items require explicit selection. Already-labelled quantities
+are deducted, and existing labels can be reprinted from Documents. Only collected old customer
+returns **Awaiting QC Receipt** are eligible. Company-owned refusals, uncollected notes, other
+stops and QC-received goods do not become new custody labels. The label remains **Pending QC —
+not available stock** and creates neither stock nor credit.
+
+Trip Handover highlights **green = Reconciled/settled**, **amber = still needs settlement**,
+**red = Exception/recovery**, and **grey = Cancelled/history retained**. A Completed Review or
+completed customer delivery alone does not mean its Plan is settled. Continue with **Next Guided
+Step** for remaining work.
+
+On the normal Delivery Trip form, secondary actions are grouped under **Trip Tools**. Production
+uses **Operator Tools** for session/camera/help/recovery actions. Existing action names and scanner
+commands remain. The scoped toolbar wraps and its dropdown stays inside the viewport; ordinary
+ERPNext forms are not restyled.
+
+Deployment requires the normal CFG schema migration, asset build and cache clear. It adds the
+site/Session policy and read-only allocation check evidence; migration does not check old goods or
+change stock. See [offline results and native acceptance](TEST_DRIVER_FIELD_WORKFLOW.md). Native
+ERPNext, physical scanner/camera and real tablet layout acceptance remain pending.

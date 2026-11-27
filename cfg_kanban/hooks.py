@@ -10,6 +10,7 @@ app_include_css = "/assets/cfg_kanban/css/kanban_operator.css"
 app_include_js = [
     "/assets/cfg_kanban/js/map_defaults.js",
     "/assets/cfg_kanban/js/cfg_kanban_navigation.js",
+    "/assets/cfg_kanban/js/field_ui.js",
 ]
 
 doctype_js = {
@@ -133,6 +134,7 @@ doc_events = {
         "before_submit": [
             "cfg_kanban.services.logistics_stock_identity.validate_logistics_document",
             "cfg_kanban.services.dispatch_fulfilment.validate_prepared_delivery_note",
+            "cfg_kanban.services.delivery_product_scans.validate_delivery_note",
         ],
         "on_submit": "cfg_kanban.integrations.logistics_feedback.on_delivery_note_submit",
         "on_cancel": "cfg_kanban.integrations.logistics_feedback.on_delivery_note_cancel",

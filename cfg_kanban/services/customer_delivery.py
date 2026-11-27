@@ -107,6 +107,7 @@ def _start_delivery_session(site, source_warehouse, event_token, profile, operat
         "vehicle_reference": vehicle.vehicle_reference,
         "price_list": price_list,
         "auto_submit_delivery_note": site.auto_submit_delivery_note,
+        "require_delivery_product_scan": site.get("require_delivery_product_scan") or 0,
         "proof_policy": site.proof_policy,
         "require_recipient_name": site.require_recipient_name,
         "require_signature": site.require_signature,
@@ -156,6 +157,9 @@ def get_delivery_session(delivery_session, operator_session_token):
         order_by="reserved_on asc",
         limit_page_length=500,
     )
+    if delivery.get("require_delivery_product_scan"):
+        from cfg_kanban.services.delivery_product_scans import context
+        result["product_verification"] = context(delivery)
     result["delivery_note_status"] = None
     if delivery.delivery_note and frappe.db.exists("Delivery Note", delivery.delivery_note):
         result["delivery_note_status"] = frappe.db.get_value(
@@ -306,6 +310,9 @@ def confirm_delivery_allocations(delivery_session, event_token,
     _validate_confirmed_container_groups(allocation_rows, delivery) if delivery.get('driver_delivery_outcome') else _validate_confirmed_container_groups(allocation_rows)
     from cfg_kanban.services.dispatch_fulfilment import validate_prepared_allocations
     validate_prepared_allocations(delivery)
+    if delivery.get("require_delivery_product_scan"):
+        from cfg_kanban.services.delivery_product_scans import assert_verified
+        assert_verified(delivery)
     for name in names:
         frappe.db.set_value(
             "CFG Kanban Delivery Allocation", name,
@@ -652,6 +659,9 @@ def _customer_delivery_payload(delivery, required_erp_inputs=None):
         validate_prepared_allocations, validate_untagged_delivery_stock, apply_sales_order_payload, assert_delivery_tag_expiry,
     )
     validate_prepared_allocations(delivery, allocations)
+    if delivery.get("require_delivery_product_scan"):
+        from cfg_kanban.services.delivery_product_scans import assert_verified
+        assert_verified(delivery)
     items = []
     for row in allocations:
         if not row.handling_unit:

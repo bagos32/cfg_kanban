@@ -142,6 +142,7 @@ def get_trip_handover(scan_value=None,operator_session_token=None,start=0,return
                 row['refused_qty']=declared_source_qty(row['dispatch_allocation'])
         review=_read(review_service.REVIEW,plan.active_dispatch_review) if plan.get('active_dispatch_review') else None
         result['plans'].append(dict(name=plan.name,customer=plan.customer,state=plan.state,
+            fulfilment_status=plan.get('fulfilment_status'),dispatch_review_state=plan.get('dispatch_review_state'),
             active_route_sheet=plan.get('active_route_sheet'),
             review=review.name if review else None,review_state=review.state if review else None,
             review_opened_on=review.opened_on if review else None,

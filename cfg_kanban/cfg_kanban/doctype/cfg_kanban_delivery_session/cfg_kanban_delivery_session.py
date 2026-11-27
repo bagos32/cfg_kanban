@@ -33,7 +33,7 @@ class CFGKanbanDeliverySession(Document):
             "driver_delivery_outcome", "customer_scan_point", "site_code", "site_name", "selling_company",
             "customer", "customer_address", "territory", "route_reference",
             "source_warehouse", "vehicle_reference", "price_list", "proof_policy",
-            "auto_submit_delivery_note",
+            "auto_submit_delivery_note", "require_delivery_product_scan",
             "require_recipient_name", "require_signature", "require_photo", "require_gps",
             "unattended_reason_required", "started_by_operator", "operator_session",
             "started_on", "idempotency_key", "dispatch_plan", "sales_order", "sales_order_context_json", "route_stop", "fulfilment_mode", "pickup_acknowledgement",

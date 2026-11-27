@@ -643,3 +643,25 @@ a different identity while a request is unresolved.
 
 If the Batch input is armed after Item selection, scan `CFG:CMD:ROUTE_SOURCE` to return to
 physical-source scanning before scanning a reusable container.
+
+## Customer product check and field navigation — 27 November 2026
+
+Office can enable **Customer Scan Point → Require Product Check Before Delivery** for new
+Delivery Sessions. Complete Stop then presents the accepted allocation checklist before DN
+confirmation. Scan assigned Stock Tags/box or eligible loaded-bin QRs; explicitly select each
+untagged Item/Batch and confirm its exact physical quantity in stock UOM. Green indicates a saved
+check, not stock posting. One previously scanned multi-SKU Loose Tag covers all its accepted lines.
+Keep the existing refusal, DN and proof steps. Wrong tags, replaced allocations and mismatched
+counts cannot bypass the server check, including manual Draft DN submission.
+
+Scanner entry: `CFG:CMD:VERIFY_DELIVERY_GOODS`. Untagged: `CFG:SELECT:1–10`,
+`CFG:QTY:MATERIAL:<count>`, `CFG:CMD:CONFIRM`. Camera, Next/Previous Material Choices and safe
+Cancel are available. Unknown driver outcomes keep their original request for Retry/readback.
+
+Use the sliding **Driver Route / Logistics** control, or `CFG:CMD:DRIVER_ROUTE` /
+`CFG:CMD:LOGISTICS_PANEL`. The driver/operator's current Trip is remembered in this tab. Genealogy
+provides **Back to Logistics**. Finish/cancel the current transaction dialog before changing panels.
+Handover Plan colours distinguish Reconciled (green), pending settlement (amber), recovery (red)
+and Cancelled (grey). A completed delivery or Review alone remains amber until Plan settlement.
+See [the setup and permission details](USER_MANUAL.md#driver-field-workflow-and-customer-product-checks--27-november-2026)
+and [acceptance checklist](TEST_DRIVER_FIELD_WORKFLOW.md).
