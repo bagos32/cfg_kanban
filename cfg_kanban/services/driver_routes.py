@@ -245,11 +245,14 @@ def _plan_state(plan, session):
 
 def _plan(doc, link, stop, operator, cache):
     plan = _cached(cache, PLAN, link.dispatch_plan)
+    if plan.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import scoped
+        plan=scoped(plan,link.stop_key)
     if (plan.company != doc.company or plan.plan_type != 'Customer Order'
             or plan.fulfilment_mode != 'Vehicle Delivery' or plan.customer_site != stop['customer_site']
-            or plan.customer != stop['customer'] or not plan.sales_order):
+            or plan.customer != stop['customer'] or (not plan.sales_order and not plan.get('consolidated_customer_orders'))):
         frappe.throw('Linked Dispatch Plan does not match this trip stop')
-    if plan.sales_order not in {source['sales_order'] for item in stop['items'] for source in item['orders']}:
+    if not plan.get('consolidated_customer_orders') and plan.sales_order not in {source['sales_order'] for item in stop['items'] for source in item['orders']}:
         frappe.throw('Linked Dispatch Plan has no assigned Sales Order at this stop')
     _warehouse(cache, plan.source_warehouse, doc.company)
     _warehouse(cache, plan.vehicle_warehouse, doc.company)
@@ -271,7 +274,8 @@ def _plan(doc, link, stop, operator, cache):
 
 def _allocations(plan, session, posted, stop, groups, cache):
     # Permission-check every named source: a restricted query must not silently understate a load.
-    names = frappe.get_all(ALLOCATION, filters={'dispatch_plan': plan.name,
+    scope_filter={'dispatch_plan_line':['in',[row.name for row in plan.lines]]} if plan.get('consolidated_customer_orders') else {}
+    names = frappe.get_all(ALLOCATION, filters={**scope_filter,'dispatch_plan': plan.name,
         'state': ['not in', ['Released', 'Cancelled']]}, pluck='name', order_by='name asc', limit_page_length=0)
     allocations = [_cached(cache, ALLOCATION, name) for name in names]
     delivered = {}
@@ -336,6 +340,12 @@ def _route_order(doc, stops, plans, cache, warnings):
     required = any(plan.route_approval_required or plan.route_sequence_scope == 'Combined Lorry Trip' or plan.active_route_sheet
                    for plan in plans.values())
     by_plan = {link.dispatch_plan: link.stop_key for link in doc.dispatch_plans}
+    expected_count=len(doc.dispatch_plans)
+    if doc.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import linked
+        expected_count=len(linked(doc))
+    if doc.get('open_route_plan'):
+        expected_count+=sum(1 for r in doc.stops if r.stop_purpose=='Visit Only' and r.customer_scan_point)
     approved = []; projected = None
     for name in names:
         sheet = _cached(cache, SHEET, name)
@@ -347,6 +357,9 @@ def _route_order(doc, stops, plans, cache, warnings):
         rows = []
         for row in sheet.stops:
             key = by_plan.get(row.dispatch_plan)
+            if plans.get(row.dispatch_plan) and plans[row.dispatch_plan].get('consolidated_customer_orders'):
+                from cfg_kanban.services.consolidated_dispatch import sheet_target
+                key=sheet_target(doc,row)
             if row.dispatch_plan==doc.get('open_route_plan'):
                 from cfg_kanban.services.trip_sales import sheet_target
                 key=sheet_target(doc,row)
@@ -367,7 +380,7 @@ def _route_order(doc, stops, plans, cache, warnings):
             if (None not in rows and set(rows) == delivery_keys and len(distinct) == len(set(distinct))
                     and (len(delivery_keys) == len(stops) or bool(doc.get('open_route_plan')))
                     and {row.dispatch_plan for row in sheet.stops} == set(plans)
-                    and len(sheet.stops) == (len(doc.dispatch_plans)+sum(1 for r in doc.stops if r.stop_purpose=='Visit Only' and r.customer_scan_point) if doc.get('open_route_plan') else len(plans))
+                    and len(sheet.stops) == expected_count
                     and all(plan.active_route_sheet == sheet.name for plan in plans.values())):
                 projected = distinct
     source = 'Office plan'
@@ -400,12 +413,19 @@ def get_driver_trip(trip_name, operator_session_token, interactive=0):
         else:stops[row.stop_key] = _stop(doc, row, cache)
     groups = _items(doc, stops, cache)
     plans = {}; vehicles = set()
-    for link in doc.dispatch_plans:
+    links=doc.dispatch_plans
+    if doc.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import linked
+        links=linked(doc)
+    for link in links:
         stop = stops.get(link.stop_key)
-        if not stop or link.dispatch_plan in plans:
+        if not stop or (link.dispatch_plan in plans and not plans[link.dispatch_plan].get('consolidated_customer_orders')):
             frappe.throw('Trip Dispatch Plan links need office review')
         if stop.get('cancelled'):
             plan=_cached(cache,PLAN,link.dispatch_plan)
+            if plan.get('consolidated_customer_orders'):
+                from cfg_kanban.services.consolidated_dispatch import scoped
+                plan=scoped(plan,link.stop_key)
             if plan.company!=doc.company or plan.stop_cancellation!=stop['cancellation_request']:frappe.throw('Cancelled stop Plan no longer matches its decision')
             plans[plan.name]=plan
             stop['plans'].append(dict(name=plan.name,state=plan.state,sales_order=plan.sales_order))

@@ -42,6 +42,9 @@ def prepared_plans(site_name, operator):
         quantities={}
         for line in lines:quantities[line.stock_uom]=quantities.get(line.stock_uom,0)+flt(line.loaded_qty)
         row['quantity_summary']=' / '.join(f'{qty:g} {uom}' for uom,qty in sorted(quantities.items()))
+    if frappe.db.exists('CFG Kanban Dispatch Plan',{'consolidated_customer_orders':1,'state':'Loaded'}):
+        from cfg_kanban.services.consolidated_dispatch import prepared_choices
+        eligible += prepared_choices(site_name,operator)
     return eligible
 
 
@@ -54,6 +57,9 @@ def prepared_delivery_context(scan_value, operator_session_token):
     if value.upper().startswith('DPL-') or frappe.db.exists('CFG Kanban Dispatch Plan', value):
         plan = frappe.get_doc('CFG Kanban Dispatch Plan', value)
         _planning_services()._assert_plan_authorized(plan, operator)
+        if plan.get('consolidated_customer_orders'):
+            from cfg_kanban.services.consolidated_dispatch import prepared_choices
+            return {'plans':prepared_choices(None,operator,plan),'customer_scan':None}
         if plan.get('fulfilment_mode') in ('Direct Warehouse Delivery','Customer Pickup'):
             from cfg_kanban.services.warehouse_fulfilment import _assert_plan
             _assert_plan(plan)
@@ -92,7 +98,7 @@ def validate_prepared_loading(plan):
 
 
 @frappe.whitelist()
-def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_session_token):
+def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_session_token, customer_dispatch_stop=None):
     if not str(event_token or '').strip():
         frappe.throw('A stable prepared-delivery event token is required')
     operator, session = require_operator(operator_session_token, 'start')
@@ -109,6 +115,11 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
         from cfg_kanban.services.route_sheets import lock_plan_route_scope, check_plan_route_scope
         route_scope_lock=lock_plan_route_scope(candidate,operator)
     plan = planning._locked_authorized_plan(dispatch_plan, operator)
+    if plan.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import for_scan
+        plan=for_scan(plan,customer_scan,customer_dispatch_stop)
+    if plan.get('consolidated_customer_orders') and plan.root.get('active_route_stop') and plan.root.active_route_stop!=plan.customer_dispatch_stop.name:
+        frappe.throw('Complete or recover the active consolidated customer delivery before starting another')
     if plan.get('stop_cancellation'):frappe.throw('This customer stop was cancelled; its goods follow the recorded Supervisor disposition')
     if sequence_trip(frappe,plan)!=sequence_name:frappe.throw('Trip assignment changed; refresh before starting customer delivery')
     if route_scope_lock:check_plan_route_scope(plan,route_scope_lock)
@@ -116,7 +127,7 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
         from cfg_kanban.services.warehouse_fulfilment import start_warehouse_delivery
         return start_warehouse_delivery(plan,customer_scan,event_token,operator,session,operator_session_token)
     # A Plan lock serializes creation; the Session also has a unique active Plan key.
-    request_token = canonical_key('prepared-customer-delivery', plan.name, event_token)
+    request_token = canonical_key('prepared-customer-delivery', plan.name, event_token) if not plan.get('consolidated_customer_orders') else canonical_key('consolidated-customer-delivery', plan.name, plan.customer_dispatch_stop.name, event_token)
     replay = frappe.db.get_value('CFG Kanban Delivery Session',
         {'idempotency_key': canonical_key('customer-delivery-session', plan.customer_site,
                                         plan.vehicle_warehouse, request_token)}, 'name')
@@ -126,7 +137,7 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
         identity = engine.resolve_logistics_scan(customer_scan)
         if not identity or identity.get('identity_type') != 'Customer Scan Point' or identity['name'] != result.customer_scan_point:
             frappe.throw('Scan the Customer Site assigned to this prepared delivery')
-        if result.dispatch_plan != plan.name or not engine._can_view_delivery(operator, result):
+        if result.dispatch_plan != plan.name or (plan.get('consolidated_customer_orders') and result.get('customer_dispatch_stop')!=plan.customer_dispatch_stop.name) or not engine._can_view_delivery(operator, result):
             frappe.throw('Prepared Delivery Session belongs to another Plan or operator')
         return engine.get_delivery_session(result.name, operator_session_token)
     if plan.get('dispatch_review_state'):
@@ -137,10 +148,10 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
     if (site.name != plan.customer_site or site.selling_company != plan.company or
             site.customer != plan.customer or site.customer_address != plan.customer_address):
         frappe.throw('Scanned Customer Site does not match the prepared Plan Company, Customer and address')
-    sequence_target=native_target(plan,site.name,operator=operator,token=operator_session_token) if sequence_name else None
+    sequence_target=native_target(plan,site.name,plan.customer_dispatch_stop.name if plan.get('consolidated_customer_orders') else None,operator=operator,token=operator_session_token) if sequence_name else None
     if plan.get('route_approval_required') or plan.get('route_sequence_scope')=='Combined Lorry Trip' or plan.get('active_route_sheet'):
         from cfg_kanban.services.route_sheets import assert_visit_allowed
-        assert_visit_allowed(plan,site.name)
+        assert_visit_allowed(plan,site.name,plan.customer_dispatch_stop.name if plan.get('consolidated_customer_orders') else None)
     validate_prepared_loading(plan)
     allocations = _loaded_allocations(plan)
     if plan.get('has_loose_tags'):
@@ -161,9 +172,11 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
     if policy not in {'Required', 'Optional', 'Unattended Delivery Allowed', 'No Proof Required'}:
         frappe.throw('Unsupported prepared-delivery proof policy')
     snapshot = json.loads(plan.profile_snapshot_json)
-    extra = {'dispatch_plan': plan.name, 'active_dispatch_plan_key': plan.name,
+    extra = {'dispatch_plan': plan.name, 'active_dispatch_plan_key': (plan.name+':'+plan.customer_dispatch_stop.name) if plan.get('consolidated_customer_orders') else plan.name,
              'sales_order': plan.sales_order, 'proof_policy': policy,
              'auto_submit_delivery_note': cint(snapshot.get('auto_submit_delivery_note'))}
+    if plan.get('consolidated_customer_orders'):
+        extra['customer_dispatch_stop']=plan.customer_dispatch_stop.name
     if order:
         price_list=order.selling_price_list or site.default_price_list
         if price_list:
@@ -198,6 +211,8 @@ def start_prepared_delivery(dispatch_plan, customer_scan, event_token, operator_
         bind_delivery(plan, created)
     if outcome:
         _driver_outcomes().activate(outcome, created, operator, session)
+    if plan.get('consolidated_customer_orders'):
+        plan.db_set({'delivery_session':created.name,'fulfilment_status':'In Progress'},update_modified=True)
     validate_prepared_allocations(created)
     plan.db_set({'delivery_session': created.name, 'fulfilment_status': 'In Progress', 'prepared_stock_commitment': 1}, update_modified=True)
     if outcome:
@@ -218,6 +233,8 @@ def _loaded_allocations(plan, for_update=False):
         if existing_pool(plan):return []
         frappe.throw('Existing-stock context cannot have a loading Manifest or planned quantities')
     filters = {'dispatch_plan': plan.name, 'movement_manifest': plan.movement_manifest, 'state': 'Loaded'}
+    if plan.get('consolidated_customer_orders') and getattr(plan,'customer_dispatch_stop',None):
+        filters['dispatch_plan_line']=['in',[row.name for row in plan.lines]]
     fields = ['name', 'dispatch_plan_line', 'allocation_kind', 'handling_unit', 'item_code',
               'batch_no', 'stock_uom', 'allocated_qty', 'load_confirmed']
     rows = (frappe.db.get_values('CFG Kanban Dispatch Allocation', filters, fields,
@@ -233,9 +250,10 @@ def _loaded_allocations(plan, for_update=False):
         if (row.allocation_kind == 'Tagged Stock') != bool(row.handling_unit):
             frappe.throw('Loaded allocation physical identity is inconsistent')
         by_line[row.dispatch_plan_line] = by_line.get(row.dispatch_plan_line, 0) + flt(row.allocated_qty)
-    if not rows or set(by_line) != {row.name for row in plan.lines}:
+    if not rows or set(by_line) != {row.name for row in plan.lines if not row.get('cancelled_before_loading')}:
         frappe.throw('Prepared Plan loading allocations do not match its Item lines')
     for line in plan.lines:
+        if line.get('cancelled_before_loading'):continue
         if abs(by_line[line.name] - flt(line.loaded_qty)) > 0.000001:
             frappe.throw('Prepared Plan loaded quantities do not match its allocation audit')
         if any(row.item_code != line.item_code or row.stock_uom != line.stock_uom or
@@ -245,7 +263,10 @@ def _loaded_allocations(plan, for_update=False):
     return rows
 
 
-def _order_assignments(plan, allocations):
+def _order_assignments(plan, allocations, consolidated=True):
+    if consolidated and plan.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import order_assignments
+        return order_assignments(plan,allocations)
     if not plan.sales_order:
         return None, {}
     frappe.db.sql('select name from `tabSales Order` where name=%s for update', plan.sales_order)
@@ -308,6 +329,11 @@ def _reserve_untagged(delivery, source, event_token, operator, session, snapshot
         frappe.throw('Untagged delivery quantity must respect whole-number UOM')
     available = planning._untagged_available(delivery.selling_company, delivery.source_warehouse,
                                             source.item_code, source.batch_no, exclude_prepared_plan=delivery.dispatch_plan if prepared else None)
+    if prepared and delivery.get('customer_dispatch_stop'):
+        from cfg_kanban.services.consolidated_dispatch import scoped, other_untagged_commitment
+        root=frappe.get_doc('CFG Kanban Dispatch Plan',delivery.dispatch_plan)
+        scope=scoped(root,native_stop=delivery.customer_dispatch_stop)
+        available-=other_untagged_commitment(root,scope.office_stop_key,source.item_code,source.batch_no,current=True)
     if flt(source.allocated_qty) > available + 0.000001:
         frappe.throw(f'Untagged source stock available for {source.item_code} is {available}')
     return frappe.get_doc({'doctype':'CFG Kanban Delivery Allocation', 'state':'Reserved',
@@ -340,6 +366,9 @@ def validate_prepared_allocations(delivery, allocations=None):
         from cfg_kanban.services.warehouse_fulfilment import validate_warehouse_allocations
         return validate_warehouse_allocations(delivery,allocations)
     plan = frappe.get_doc('CFG Kanban Dispatch Plan', delivery.dispatch_plan)
+    if plan.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import for_delivery
+        plan=for_delivery(plan,delivery)
     if (plan.state != 'Loaded' or plan.customer_site != delivery.customer_scan_point or
             plan.company != delivery.selling_company or plan.customer != delivery.customer or
             plan.customer_address != delivery.customer_address or plan.vehicle_warehouse != delivery.source_warehouse):
@@ -369,7 +398,10 @@ def validate_prepared_allocations(delivery, allocations=None):
         frappe.throw('Every loaded allocation is required; release all and cancel the empty Session to restart')
 
 
-def apply_sales_order_payload(delivery, payload, allocations):
+def apply_sales_order_payload(delivery, payload, allocations, consolidated=True):
+    if consolidated and delivery.get('customer_dispatch_stop'):
+        from cfg_kanban.services.consolidated_dispatch import apply_order_payload
+        return apply_order_payload(delivery,payload,allocations)
     if not delivery.get('sales_order'):
         return
     order=frappe.get_doc('Sales Order',delivery.sales_order)
@@ -411,6 +443,9 @@ def sync_plan_delivery(delivery):
     # while creating a new Session; it never locks an existing Session during replay.
     frappe.db.sql('select name from `tabCFG Kanban Dispatch Plan` where name=%s for update',delivery.dispatch_plan)
     plan=frappe.get_doc('CFG Kanban Dispatch Plan',delivery.dispatch_plan)
+    if plan.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import for_delivery
+        plan=for_delivery(plan,delivery)
     if plan.delivery_session and plan.delivery_session != delivery.name:
         frappe.throw('Dispatch Plan is linked to a different Delivery Session')
     state=delivery.state
@@ -485,15 +520,19 @@ def assert_prepared_tag_scope(handling_unit, delivery,current=False):
             as_dict=True,for_update=True,order_by='name')
         for allocation in allocations:
             plan=frappe.db.get_value('CFG Kanban Dispatch Plan',allocation.dispatch_plan,
-                ['state','plan_type','fulfilment_mode','prepared_stock_commitment','route_stock_commitment','fulfilment_status'],
+                ['state','plan_type','fulfilment_mode','prepared_stock_commitment','route_stock_commitment','fulfilment_status','consolidated_customer_orders'],
                 as_dict=True,for_update=True)
             if not plan or plan.state!='Loaded' or plan.fulfilment_mode!='Vehicle Delivery':continue
-            waiting=(plan.plan_type=='Customer Order' and plan.prepared_stock_commitment and plan.fulfilment_status not in ('Completed','Delivered')) or (plan.plan_type=='Open Route Stock' and plan.route_stock_commitment)
+            waiting=(plan.plan_type=='Customer Order' and plan.prepared_stock_commitment and (plan.get('consolidated_customer_orders') or plan.fulfilment_status not in ('Completed','Delivered'))) or (plan.plan_type=='Open Route Stock' and plan.route_stock_commitment)
             if not waiting:continue
             picked=frappe.db.get_values('CFG Kanban Delivery Allocation',{'dispatch_allocation':allocation.name,
                 'state':['in',['Reserved','Delivery Pending','Exception','Delivered']]},['allocated_qty'],
                 as_dict=True,for_update=True,order_by='name')
-            if flt(allocation.allocated_qty)>sum(flt(row.allocated_qty) for row in picked)+0.000001:
+            excluded=0
+            if plan.get('consolidated_customer_orders'):
+                from cfg_kanban.services.cancelled_stop_stock import released_source_qty
+                excluded=released_source_qty(allocation.name,current=True)+_driver_outcomes().declared_source_qty(allocation.name,current=True)
+            if flt(allocation.allocated_qty)>sum(flt(row.allocated_qty) for row in picked)+excluded+0.000001:
                 rows.append((allocation.dispatch_plan,plan.plan_type))
     else:
         rows=frappe.db.sql("""
@@ -503,9 +542,12 @@ def assert_prepared_tag_scope(handling_unit, delivery,current=False):
         where allocation.handling_unit=%s and allocation.state='Loaded' and plan.state='Loaded'
           and plan.fulfilment_mode='Vehicle Delivery'
           and ((plan.plan_type='Customer Order' and plan.prepared_stock_commitment=1
-                and ifnull(plan.fulfilment_status,'Not Started') not in ('Completed','Delivered'))
+                and (plan.consolidated_customer_orders=1 or ifnull(plan.fulfilment_status,'Not Started') not in ('Completed','Delivered')))
                or (plan.plan_type='Open Route Stock' and plan.route_stock_commitment=1))
-          and allocation.allocated_qty > coalesce((select sum(picked.allocated_qty)
+          and allocation.allocated_qty > (case when plan.consolidated_customer_orders=1 then
+               coalesce((select sum(refused.refused_qty) from `tabCFG Kanban Delivery Outcome Line` refused where refused.dispatch_allocation=allocation.name),0) +
+               coalesce((select sum(cancelled.qty) from `tabCFG Kanban Cancelled Stop Stock` cancelled where cancelled.dispatch_allocation=allocation.name and cancelled.stock_state='Released for Sale'),0)
+               else 0 end) + coalesce((select sum(picked.allocated_qty)
                from `tabCFG Kanban Delivery Allocation` picked
                where picked.dispatch_allocation=allocation.name
                  and picked.state in ('Reserved','Delivery Pending','Exception','Delivered')),0) + 0.000001
@@ -520,14 +562,14 @@ def waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclu
     condition='and allocation.batch_no=%(batch)s' if batch_no else "and ifnull(allocation.batch_no,'')=''"
     if current:
         rows = frappe.db.sql(f"""
-        select allocation.name, allocation.allocated_qty
+        select allocation.name, allocation.allocated_qty, plan.consolidated_customer_orders
         from `tabCFG Kanban Dispatch Allocation` allocation
         inner join `tabCFG Kanban Dispatch Plan` plan on plan.name=allocation.dispatch_plan
         where allocation.allocation_kind='Untagged ERP Stock' and allocation.state='Loaded'
           and plan.state='Loaded' and plan.fulfilment_mode='Vehicle Delivery' and plan.company=%(company)s
           and plan.vehicle_warehouse=%(warehouse)s and allocation.item_code=%(item)s
           and ((plan.plan_type='Customer Order' and plan.prepared_stock_commitment=1
-                and ifnull(plan.fulfilment_status,'Not Started') not in ('Completed','Delivered'))
+                and (plan.consolidated_customer_orders=1 or ifnull(plan.fulfilment_status,'Not Started') not in ('Completed','Delivered')))
                or (plan.plan_type='Open Route Stock' and plan.route_stock_commitment=1))
           and (%(excluded)s is null or plan.name!=%(excluded)s) {condition}
         order by allocation.name for update
@@ -541,9 +583,10 @@ def waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclu
                     ['dispatch_allocation','allocated_qty'], as_dict=True, for_update=True, order_by='name'):
                 picked[row.dispatch_allocation] = picked.get(row.dispatch_allocation, 0) + flt(row.allocated_qty)
         refusals = {r.name:_driver_outcomes().declared_source_qty(r.name, current=True) for r in rows} if frappe.db.exists('DocType','CFG Kanban Delivery Outcome') else {}
-        return sum(max(flt(row.allocated_qty)-picked.get(row.name, 0)-refusals.get(row.name,0), 0) for row in rows) + held_refused_untagged_qty(company,warehouse,item_code,batch_no,current=True,exclude_outcome=exclude_refusal_outcome)
+        return sum(max(flt(row.allocated_qty)-picked.get(row.name, 0)-refusals.get(row.name,0)-(_cancelled_released_source_qty(row.name,current=True) if row.get('consolidated_customer_orders') else 0), 0) for row in rows) + held_refused_untagged_qty(company,warehouse,item_code,batch_no,current=True,exclude_outcome=exclude_refusal_outcome)
     return flt(frappe.db.sql(f"""
-        select coalesce(sum(greatest(allocation.allocated_qty - coalesce((select sum(refused.refused_qty) from `tabCFG Kanban Delivery Outcome Line` refused where refused.dispatch_allocation=allocation.name),0) - coalesce((
+        select coalesce(sum(greatest(allocation.allocated_qty - (case when plan.consolidated_customer_orders=1 then
+            coalesce((select sum(cancelled.qty) from `tabCFG Kanban Cancelled Stop Stock` cancelled where cancelled.dispatch_allocation=allocation.name and cancelled.stock_state='Released for Sale'),0) else 0 end) - coalesce((select sum(refused.refused_qty) from `tabCFG Kanban Delivery Outcome Line` refused where refused.dispatch_allocation=allocation.name),0) - coalesce((
             select sum(picked.allocated_qty) from `tabCFG Kanban Delivery Allocation` picked
             where picked.dispatch_allocation=allocation.name
               and picked.state in ('Reserved','Delivery Pending','Exception','Delivered')
@@ -554,7 +597,7 @@ def waiting_prepared_untagged_qty(company, warehouse, item_code, batch_no, exclu
           and plan.state='Loaded' and plan.fulfilment_mode='Vehicle Delivery' and plan.company=%(company)s
           and plan.vehicle_warehouse=%(warehouse)s and allocation.item_code=%(item)s
           and ((plan.plan_type='Customer Order' and plan.prepared_stock_commitment=1
-                and ifnull(plan.fulfilment_status,'Not Started') not in ('Completed','Delivered'))
+                and (plan.consolidated_customer_orders=1 or ifnull(plan.fulfilment_status,'Not Started') not in ('Completed','Delivered')))
                or (plan.plan_type='Open Route Stock' and plan.route_stock_commitment=1))
           and (%(excluded)s is null or plan.name!=%(excluded)s) {condition}
         """,{'company':company,'warehouse':warehouse,'item':item_code,'batch':batch_no,
@@ -576,3 +619,8 @@ def held_refused_untagged_qty(company, warehouse, item_code, batch_no, current=F
     if not frappe.db.exists('DocType','CFG Kanban Delivery Outcome'):
         return 0
     return _driver_outcomes().held_untagged(company,warehouse,item_code,batch_no,current=current,exclude_outcome=exclude_outcome)
+
+
+def _cancelled_released_source_qty(name, current=False):
+    from cfg_kanban.services.cancelled_stop_stock import released_source_qty
+    return released_source_qty(name,current=current)

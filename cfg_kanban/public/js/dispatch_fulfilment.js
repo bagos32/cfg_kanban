@@ -17,7 +17,7 @@
    if(s.closed)return;
    if(env.owner()!==env.openedOwner){s.plans=[];s.plan=null;s.customerScan='';changed();fail('Operator changed; close this dialog and identify the intended operator.');}
    if(result.customer_scan && s.plan){
-    const match=result.plans.find(p=>p.name===s.plan.name);
+    const match=result.plans.find(p=>p.name===s.plan.name && p.customer_dispatch_stop===s.plan.customer_dispatch_stop);
     if(!match)fail('This Customer Site has no matching prepared Plan for the selected load.');
     s.plans=result.plans;s.plan=match;s.customerScan=result.customer_scan;
    }else{
@@ -35,6 +35,7 @@
    s.busy=true;changed();
    try{
     s.pending=s.pending||{dispatch_plan:s.plan.name,customer_scan:s.customerScan,event_token:env.nonce(),operator_session_token:env.token()};
+    if(s.plan.customer_dispatch_stop)s.pending.customer_dispatch_stop=s.plan.customer_dispatch_stop;
     const result=await env.rpc('start_prepared_delivery',s.pending);
     s.completed=true;
     if(env.owner()!==env.openedOwner||env.token()!==s.pending.operator_session_token){
@@ -52,7 +53,7 @@
    if(upper==='CFG:CMD:CANCEL'){s.closed=true;env.close();return;}
    if(upper==='CFG:CMD:CONFIRM')return confirm();
    if(upper==='CFG:CMD:PREPARED_DELIVERY_CAMERA')return env.camera();
-   if(upper==='CFG:CMD:HELP'){s.message='Scan a Plan or Customer Site, choose CFG:SELECT:1–10 when needed, then Confirm. Next/Previous Material Choices page Plans. Cancel closes safely. No quantity re-entry is required.';changed();return;}
+   if(upper==='CFG:CMD:HELP'){s.message='Scan a Plan or Customer Site, choose CFG:SELECT:1–10 when needed, then Confirm. A consolidated Plan lists each customer stop separately; verify its site before confirming. Next/Previous Material Choices page Plans. Cancel closes safely. No quantity re-entry is required.';changed();return;}
    if(s.pending)fail('Retry the original prepared delivery before changing it.');
    if(upper==='CFG:CMD:PREPARED_DELIVERY_SOURCE'){s.plan=null;s.customerScan='';s.plans=[];s.page=0;s.message='Scan another prepared Plan or Customer Site.';changed();return;}
    if(upper==='CFG:CMD:NEXT_MATERIALS'||upper==='CFG:CMD:PREVIOUS_MATERIALS'){
@@ -87,7 +88,7 @@
   }
   function render(s){
    const rows=s.plans.slice(s.page*10,s.page*10+10).map((plan,i)=>
-    `<button type="button" class="btn btn-default btn-block text-left prepared-plan-choice" data-number="${i+1}">${i+1}. ${e(plan.name)} · ${e(plan.business_label||'')} · ${e(plan.fulfilment_mode||'Vehicle Delivery')} · ${e(plan.vehicle_reference||plan.vehicle_warehouse||plan.source_warehouse||'')} · ${e(summary(plan))}${s.plan?.name===plan.name?' ✓':''}</button>`).join('');
+    `<button type="button" class="btn btn-default btn-block text-left prepared-plan-choice" data-number="${i+1}">${i+1}. ${e(plan.name)} · ${e(plan.business_label||'')} · ${e(plan.fulfilment_mode||'Vehicle Delivery')} · ${e(plan.vehicle_reference||plan.vehicle_warehouse||plan.source_warehouse||'')} · ${e(summary(plan))}${s.plan?.name===plan.name && s.plan?.customer_dispatch_stop===plan.customer_dispatch_stop?' ✓':''}</button>`).join('');
    dialog.fields_dict.review.$wrapper.html(`<p>${e(s.message)}</p>${rows}<p>${e(s.customerScan||'Customer Site scan required')}</p>`);
    dialog.fields_dict.review.$wrapper.find('.prepared-plan-choice').on('click',function(){const n=Number(this.dataset.number);enqueue(()=>controller.select(n));});
    if(s.busy||!s.plan||!s.customerScan)dialog.disable_primary_action();else dialog.enable_primary_action();

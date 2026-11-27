@@ -70,6 +70,9 @@ def assert_held_tag_unload(unit,token):
     plan=frappe.get_doc('CFG Kanban Dispatch Plan',row.dispatch_plan);plan.check_permission('read')
     for dt,name in (('Company',row.company),('Warehouse',row.current_warehouse)):
         frappe.get_doc(dt,name).check_permission('read')
+    if plan.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import scoped
+        plan=scoped(plan,decision.target_stop_key)
     if (decision.state!='Approved' or decision.request_type!='Cancel Customer Stop' or
             plan.get('stop_cancellation')!=row.parent or plan.state!='Loaded' or
             not plan.prepared_stock_commitment or row.company!=unit.inventory_company or
@@ -78,7 +81,7 @@ def assert_held_tag_unload(unit,token):
 
 
 def assert_review_action(plan,action):
-    if not plan.get('stop_cancellation'):return
+    if not plan.get('stop_cancellation') and not plan.get('consolidated_customer_orders'):return
     outstanding=rows({'dispatch_plan':plan.name,'stock_state':['in',[HELD,RECOVERY]]},True)
     if outstanding and action not in ('Continue Same Plan Overnight','Returned to Warehouse','Transferred to Another Lorry','Mixed Leftover Dispositions'):
         frappe.throw('Cancelled customer goods are reserved for return; complete their controlled recovery or continue the same Plan overnight')

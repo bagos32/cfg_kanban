@@ -3,7 +3,7 @@
  "name":"CFG Kanban Dispatch Plan Line",
  "module":"CFG Kanban",
  "istable":1,
- "field_order":["item_code","item_name","batch_no","stock_uom","requested_qty","reserved_qty","loaded_qty","line_state","sales_order_item"],
+ "field_order":["item_code","item_name","batch_no","stock_uom","requested_qty","reserved_qty","loaded_qty","line_state","sales_order_item","office_stop_key","customer","customer_site","sales_order","cancelled_before_loading"],
  "fields":[
   {"fieldname":"item_code","label":"Item","fieldtype":"Link","options":"Item","reqd":1,"in_list_view":1},
   {"fieldname":"item_name","label":"Item Name","fieldtype":"Data","read_only":1},
@@ -13,6 +13,11 @@
   {"fieldname":"reserved_qty","label":"Reserved Qty","fieldtype":"Float","default":"0","read_only":1,"in_list_view":1},
   {"fieldname":"loaded_qty","label":"Loaded Qty","fieldtype":"Float","default":"0","read_only":1,"in_list_view":1},
   {"fieldname":"line_state","label":"Line State","fieldtype":"Select","options":"Open\nPartially Reserved\nReserved\nLoading\nLoading Confirmed\nLoaded\nIn Fulfilment\nFulfilled\nReleased\nCancelled","default":"Open","read_only":1,"in_list_view":1},
-  {"fieldname":"sales_order_item","label":"Sales Order Item Row","fieldtype":"Data","read_only":1}
+  {"fieldname":"sales_order_item","label":"Sales Order Item Row","fieldtype":"Data","read_only":1},
+  {"fieldname":"office_stop_key","label":"Customer Stop Identity","fieldtype":"Data","read_only":1},
+  {"fieldname":"customer","label":"Customer","fieldtype":"Link","options":"Customer","read_only":1,"in_list_view":1},
+  {"fieldname":"customer_site","label":"Customer Site","fieldtype":"Link","options":"CFG Kanban Customer Scan Point","read_only":1},
+  {"fieldname":"sales_order","label":"Sales Order","fieldtype":"Link","options":"Sales Order","read_only":1,"in_list_view":1},
+  {"fieldname":"cancelled_before_loading","label":"Cancelled Before Loading","fieldtype":"Check","default":"0","read_only":1}
  ]
 }

@@ -668,7 +668,7 @@ def get_dispatch_plan(dispatch_plan, operator_session_token):
         (plan.state in RESERVABLE_STATES and cint(operator.get("can_override")))
     )
     result["suggested_tags_by_line"] = {
-        row.name: _suggested_tags(plan, row) for row in plan.lines
+        row.name: _suggested_tags(plan, row) for row in plan.lines if not row.get('cancelled_before_loading')
     } if plan.state in RESERVABLE_STATES and plan.tag_policy in ("Tagged", "Mixed") else {}
     from cfg_kanban.services.customer_delivery import _customer_delivery_allowed
     result["can_start_fulfilment"] = bool(
@@ -731,8 +731,9 @@ def dispatch_point_plans(card, operator):
         for line in frappe.get_all(
                 "CFG Kanban Dispatch Plan Line",
                 filters={"parent": ["in", [row.name for row in rows]]},
-                fields=["parent", "stock_uom", "requested_qty", "reserved_qty"],
+                fields=["parent", "stock_uom", "requested_qty", "reserved_qty", "cancelled_before_loading"],
                 limit_page_length=0):
+            if line.get("cancelled_before_loading"):continue
             values = by_plan.setdefault(line.parent, {}).setdefault(
                 line.stock_uom, {"requested": 0, "reserved": 0}
             )
@@ -1186,6 +1187,7 @@ def _confirm_allocation_loading(allocation_name, manifest_line, manifest, plan,
     )
     plan.db_set("state", "Loading", update_modified=True)
     for line in plan.lines:
+        if line.get('cancelled_before_loading'):continue
         line_allocations = frappe.get_all(
             "CFG Kanban Dispatch Allocation",
             filters={"dispatch_plan_line": line.name, "state": "Reserved"},
@@ -1462,8 +1464,8 @@ def _assert_reservable(plan, kind):
 
 def _plan_line(plan, line_name):
     line = next((row for row in plan.lines if row.name == line_name), None)
-    if not line:
-        frappe.throw("Selected Dispatch Plan line does not belong to this Plan")
+    if not line or line.get('cancelled_before_loading'):
+        frappe.throw("Selected Dispatch Plan line does not belong to this active customer demand")
     return line
 
 
@@ -1516,7 +1518,7 @@ def _assert_not_in_open_manifest(handling_unit):
 def _current_reservation_lines(plan):
     rows=frappe.db.get_values('CFG Kanban Dispatch Plan Line',
         {'parent':plan.name,'parenttype':'CFG Kanban Dispatch Plan','parentfield':'lines'},
-        ['name','item_code','item_name','batch_no','stock_uom','sales_order_item','requested_qty','reserved_qty','loaded_qty','line_state'],
+        ['name','item_code','item_name','batch_no','stock_uom','sales_order_item','requested_qty','reserved_qty','loaded_qty','line_state','office_stop_key','sales_order','customer','customer_site','cancelled_before_loading'],
         as_dict=True,for_update=True,order_by='idx')
     if not rows:frappe.throw('Dispatch Plan has no current Item lines to reserve')
     plan.set('lines',rows)
@@ -1571,6 +1573,7 @@ def _refresh_plan_totals(plan_name):
     total = 0
     complete = True
     for line in plan.lines:
+        if line.get('cancelled_before_loading'):continue
         reserved = _active_line_reserved(line.name,current=True)
         total += reserved
         if reserved <= 0.000001:

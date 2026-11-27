@@ -815,3 +815,25 @@ requests; storage errors after recording keep their receipt available for readba
 See [combined E5 acceptance](TEST_DISPATCH_E5_COMBINED.md). Native concurrency/rollback, actual
 posting and kiosk/tablet acceptance remain unrun; the owner's live-test deferral is unchanged.
 Optional E6 remains after E1–E5 end-to-end acceptance.
+
+## Consolidated Customer Orders — approved extension, 27 November 2026
+
+Owner approved a configurable consolidated known-customer Plan on the office Trip. The historical
+default remains one Customer Order Plan per exact Sales Order + stop. A new Trip may instead select
+**Consolidated Customer Orders** before generation, together with automatic dispatch generation.
+One real Customer Order Plan owns the warehouse reservations, lorry claim, loading Manifest and E5.
+Immutable demand lines retain stop, Customer/Site, SO and SO item; each native Route Stop stores the
+customer's prepared-delivery facts. Delivery Sessions use a separate consolidated customer-scope
+reference, preserving the Open Route visit/allocation engine and its stock-selection rules.
+
+Customer delivery, order pricing/UOM, refusal/QC, proof, document printing, assistant access and
+stop cancellation use that scope. A stop cannot consume/release another's allocation. The shared
+commitment lasts through E5, including outstanding held quantities after accepted deliveries close.
+Open Route extras remain a separate shared pool. Legacy records and confirmed carry-in requests are
+not converted. Unused corrections and loaded stock decisions preserve existing reservation,
+Manifest, cancellation, ERP feedback and recovery controls.
+
+Implementation and offline verification are recorded in
+[TEST_CONSOLIDATED_CUSTOMER_ORDERS.md](TEST_CONSOLIDATED_CUSTOMER_ORDERS.md). Native migration,
+multi-user locking/rollback, ERP stock/accounting, kiosk and physical printing acceptance remain
+unrun for this extension. This does not close the existing E1–E5 or L1 acceptance gates.

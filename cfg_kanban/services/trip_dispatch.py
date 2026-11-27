@@ -64,6 +64,10 @@ def validate_setup(doc, before=None):
                 original=get_datetime(original) if original else None
             if current != original:
                 frappe.throw('Generated Dispatch links and audit facts are controlled; use Generate / Refresh Dispatch')
+    if before and cint(doc.get('consolidated_customer_orders')) != cint(before.get('consolidated_customer_orders')) and (before.dispatch_plans or before.get('dispatch_generated_on')):
+        frappe.throw('Choose Consolidated Customer Orders before generating Dispatch Plans; retain existing Plan history')
+    if cint(doc.get('consolidated_customer_orders')) and not cint(doc.get('auto_generate_dispatch')):
+        frappe.throw('Consolidated Customer Orders requires automatic Trip dispatch generation')
     seen = set()
     for row in doc.get('route_stock') or []:
         item=_office()._read('Item',row.item_code)
@@ -92,10 +96,11 @@ def _specs(trip):
         profile = _profile(trip.dispatch_profile, trip, 'Customer Order')
         for row in stock:
             stop = stops[row.stop_key]
-            key = ('customer', row.stop_key, row.sales_order)
+            consolidated = bool(cint(trip.get('consolidated_customer_orders')))
+            key = ('consolidated', '', '') if consolidated else ('customer', row.stop_key, row.sales_order)
             spec = groups.setdefault(key, dict(kind='customer', key=key, policy=profile,
                 stop_key=row.stop_key, site=stop.customer_scan_point, sales_order=row.sales_order, lines=[]))
-            spec['lines'].append(dict(item_code=row.item_code, stock_uom=row.stock_uom,
+            spec['lines'].append(dict(**(dict(office_stop_key=row.stop_key, customer=stop.customer, customer_site=stop.customer_scan_point, sales_order=row.sales_order) if consolidated else {}), item_code=row.item_code, stock_uom=row.stock_uom,
                 item_name=row.item_name, requested_qty=flt(row.planned_qty), sales_order_item=row.sales_order_item,
                 batch_no=None, reserved_qty=0, loaded_qty=0, line_state='Open'))
     visits = [r for r in trip.stops if r.stop_purpose == 'Visit Only' and r.customer_scan_point and not r.get('cancellation_request')]
@@ -138,6 +143,10 @@ def _create(trip,spec,digest):
     policy=spec['policy']
     context=_planning()._business_context(policy,customer_site=spec['site'],sales_order=spec['sales_order'],
         required_date=trip.trip_date,trip_date=trip.trip_date)
+    if spec['key'][0]=='consolidated':
+        for line in spec['lines']:
+            _planning()._business_context(policy, customer_site=line['customer_site'], sales_order=line['sales_order'], required_date=trip.trip_date, trip_date=trip.trip_date)
+        context.update(customer_site=None, customer=None, customer_address=None, sales_order=None, territory=policy.territory or None)
     key=canonical_key('office-dispatch-create',trip.name,spec['key'],digest)
     while True:
         existing=frappe.db.get_value(PLAN,{'idempotency_key':key},'name',for_update=True)
@@ -154,13 +163,17 @@ def _create(trip,spec,digest):
         template_data=dict(name=trip.route_template,revision=trip.template_revision,company=trip.company,
             office_delivery_trip=trip.name,stops=[dict(customer_scan_point=r.customer_scan_point,instructions=r.instructions or '') for r in trip.stops if r.customer_scan_point]))
     stop=next((r for r in trip.stops if r.stop_key==spec['stop_key']),None)
-    plan.business_label=(trip.name+' / '+(str(stop.delivery_sequence)+'. '+stop.customer if stop else 'Shared Open Route Stock'))[:140]
-    plan.office_delivery_trip=trip.name;plan.office_stop_key=spec['stop_key'];plan.office_source_hash=digest
+    plan.business_label=(trip.name+' / '+('Consolidated Customer Orders' if spec['key'][0]=='consolidated' else str(stop.delivery_sequence)+'. '+stop.customer if stop else 'Shared Open Route Stock'))[:140]
+    plan.consolidated_customer_orders=int(spec['key'][0]=='consolidated')
+    plan.office_delivery_trip=trip.name;plan.office_stop_key=None if plan.consolidated_customer_orders else spec['stop_key'];plan.office_source_hash=digest
     plan.existing_lorry_stock_only=int(spec['kind']=='open' and not spec['lines'])
     plan.state='Awaiting Approval' if cint(policy.approval_required) else 'Approved'
     plan.submitted_on=now_datetime()
     plan.flags.cfg_office_dispatch=True
     plan.insert(ignore_permissions=True)
+    if plan.consolidated_customer_orders:
+        from cfg_kanban.services.consolidated_dispatch import seed
+        seed(trip,plan)
     record('Office Trip Dispatch Request Created',reference_doctype=PLAN,reference_name=plan.name,
         previous_state=None,new_state=plan.state,terminal_user=frappe.session.user,
         idempotency_key=canonical_key('office-dispatch-created',plan.name),notes=trip.name+'; no stock reserved or posted')
@@ -222,7 +235,7 @@ def generate(doc, explicit=False, save=True):
         return
     specs=_specs(doc)
     if not specs and (any(not next((s.get('cancellation_request') for s in doc.stops if s.stop_key==r.stop_key),False) for r in doc.orders) or doc.get('route_stock')):frappe.throw('No physical stock quantities are available for dispatch generation')
-    by_key={('open','','') if p.plan_type=='Open Route Stock' else ('customer',p.office_stop_key,p.sales_order):p for p in existing if p.state!='Cancelled'}
+    by_key={('open','','') if p.plan_type=='Open Route Stock' else ('consolidated','','') if p.get('consolidated_customer_orders') else ('customer',p.office_stop_key,p.sales_order):p for p in existing if p.state!='Cancelled'}
     cancelled_keys={r.stop_key for r in doc.stops if r.get('cancellation_request')}
     retained=[dict(dispatch_plan=r.dispatch_plan,stop_key=r.stop_key) for r in doc.dispatch_plans if r.stop_key in cancelled_keys]
     made=[];known=[];pool=None
@@ -233,7 +246,7 @@ def generate(doc, explicit=False, save=True):
         if not plan:plan=_create(doc,spec,digest)
         made.append(plan)
         if spec['kind']=='open':pool=plan;_seed_visits(doc,pool)
-        else:known.append(dict(dispatch_plan=plan.name,stop_key=spec['stop_key']))
+        else:known.append(dict(dispatch_plan=plan.name,stop_key=None if plan.get('consolidated_customer_orders') else spec['stop_key']))
     for key,plan in by_key.items():
         if key not in specs and plan.get('office_stop_key') not in cancelled_keys:_retire(plan,doc)
     doc.flags.cfg_generating_trip_dispatch=True;doc.flags.cfg_trip_dispatch=True

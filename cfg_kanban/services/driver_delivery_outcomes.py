@@ -97,6 +97,7 @@ def quantities(plan, submitted, sources=None):
 
 
 def declare(trip, stop, plan, submitted, operator, session, event_token):
+    scoped_stop=plan.office_stop_key if plan.get('consolidated_customer_orders') else None
     rows = quantities(plan, submitted)
     if not rows or not any(row['refused_qty'] > EPS for row in rows):
         return None
@@ -108,6 +109,9 @@ def declare(trip, stop, plan, submitted, operator, session, event_token):
         check_plan_route_scope(plan,scope)
     else:
         plan=planning._locked_authorized_plan(plan.name,operator)
+    if scoped_stop:
+        from cfg_kanban.services.consolidated_dispatch import scoped
+        plan=scoped(plan,scoped_stop,current=True)
     rows=quantities(plan,submitted)
     for item in sorted({r['item_code'] for r in rows}):planning._lock_erp_bin(item,plan.vehicle_warehouse)
     if plan.get('driver_delivery_outcome'):
@@ -123,7 +127,7 @@ def declare(trip, stop, plan, submitted, operator, session, event_token):
     if policy not in (HOLD, RELEASE):
         frappe.throw('Unsupported sound-refusal release policy')
     doc = frappe.get_doc(dict(doctype=OUTCOME, state='Declared', delivery_trip=trip.name,
-        stop_key=stop.stop_key, dispatch_plan=plan.name, active_plan_key=plan.name,
+        stop_key=stop.stop_key, dispatch_plan=plan.name, active_plan_key=(plan.name+':'+scoped_stop) if scoped_stop else plan.name,
         company=plan.company, customer=plan.customer, customer_site=plan.customer_site,
         vehicle_warehouse=plan.vehicle_warehouse, sound_refusal_policy=policy,
         declared_on=now_datetime(), declared_by=operator.employee, operator_session=session.name,

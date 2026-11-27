@@ -162,14 +162,15 @@ def _delivered_assignments(order_names, current=False):
         return {}
     placeholders = ','.join(['%s'] * len(order_names))
     rows = frappe.db.sql(f"""
-        SELECT links.parent AS trip, delivery.sales_order, item.so_detail AS sales_order_item,
+        SELECT links.parent AS trip, item.against_sales_order AS sales_order, item.so_detail AS sales_order_item,
                item.name AS delivery_note_item, item.stock_qty
         FROM `tabCFG Kanban Delivery Trip Plan` links
         INNER JOIN `tabCFG Kanban Delivery Session` delivery ON delivery.dispatch_plan=links.dispatch_plan
         INNER JOIN `tabDelivery Note` note ON note.name=delivery.delivery_note
         INNER JOIN `tabDelivery Note Item` item ON item.parent=note.name
         WHERE links.parenttype=%s AND links.parentfield='dispatch_plans'
-          AND delivery.sales_order IN ({placeholders}) AND item.against_sales_order=delivery.sales_order
+          AND item.against_sales_order IN ({placeholders})
+          AND (item.against_sales_order=delivery.sales_order OR IFNULL(delivery.customer_dispatch_stop,'')!='')
           AND item.parenttype='Delivery Note' AND note.docstatus=1 AND coalesce(note.is_return,0)=0
         {'FOR UPDATE' if current else ''}
     """, tuple([TRIP] + list(order_names)), as_dict=True)
@@ -286,6 +287,22 @@ def _plans(doc, current=False):
     prior = {row.dispatch_plan for row in before.dispatch_plans} if before else set()
     seen = set()
     for row in doc.dispatch_plans:
+        candidate = _read('CFG Kanban Dispatch Plan',row.dispatch_plan,current=current)
+        if candidate.get('consolidated_customer_orders'):
+            from cfg_kanban.services.consolidated_dispatch import assert_request
+            if not doc.get('consolidated_customer_orders'):
+                frappe.throw('Consolidated Plan requires its saved office Trip consolidation mode')
+            if current and row.dispatch_plan not in prior and candidate.state in ('Reconciled','Cancelled'):
+                frappe.throw('A settled or cancelled Dispatch Plan cannot be newly assigned to a Delivery Trip')
+            if row.stop_key or candidate.name in seen:
+                frappe.throw('Link the consolidated Plan once for the entire Trip')
+            assert_request(doc,candidate)
+            if (doc.vehicle_warehouse and candidate.vehicle_warehouse and doc.vehicle_warehouse != candidate.vehicle_warehouse) or (doc.source_warehouse and candidate.source_warehouse != doc.source_warehouse):
+                frappe.throw('Consolidated Dispatch Plan uses a different source or lorry Warehouse')
+            seen.add(candidate.name); result[candidate.name]=(row,candidate)
+            row.consolidated_customer_orders=1;row.stop_sequence=0;row.sales_order=None
+            row.plan_state=candidate.state; row.vehicle_warehouse=candidate.vehicle_warehouse
+            continue
         if not row.stop_key:
             stop = next((stop for stop in doc.stops if stop.delivery_sequence == cint(row.stop_sequence)), None)
             row.stop_key = stop.stop_key if stop else None
@@ -317,7 +334,7 @@ def _plans(doc, current=False):
         row.stop_sequence, row.plan_state = stop.delivery_sequence, plan.state
         row.sales_order, row.vehicle_warehouse = plan.sales_order, plan.vehicle_warehouse
         result[plan.name] = (row, plan)
-    vehicles = {plan.vehicle_warehouse for row, plan in result.values() if plan.vehicle_warehouse and not stops[row.stop_key].get('cancellation_request')}
+    vehicles = {plan.vehicle_warehouse for row, plan in result.values() if plan.vehicle_warehouse and (row.stop_key is None or not stops[row.stop_key].get('cancellation_request'))}
     if len(vehicles) > 1:
         frappe.throw('A trip cannot combine different lorry Warehouses')
     return result
@@ -338,6 +355,8 @@ def _business(doc):
         result.update(auto_generate_dispatch=cint(doc.get('auto_generate_dispatch')),dispatch_profile=doc.get('dispatch_profile'),
             open_route_profile=doc.get('open_route_profile'),open_route_plan=doc.get('open_route_plan'),
             route_stock=[(r.item_code,r.batch_no,flt(r.qty),r.stock_uom) for r in doc.get('route_stock') or []])
+    if doc.get('consolidated_customer_orders'):
+        result['consolidated_customer_orders']=1
     return result
 
 
@@ -365,10 +384,13 @@ def _source_rows(doc, plans):
         budgets[key] = budgets.get(key, 0) + flt(row.planned_qty)
     requested = {}; covered = {}; rows = []
     for name, (link, plan) in plans.items():
-        if plan.state == 'Cancelled' or next((r.get('cancellation_request') for r in doc.stops if r.stop_key==link.stop_key),False):
+        if plan.state == 'Cancelled' or (not plan.get('consolidated_customer_orders') and next((r.get('cancellation_request') for r in doc.stops if r.stop_key==link.stop_key),False)):
             continue
+        line_scope = {r.name:r for r in plan.lines}
         for line in plan.lines:
-            key = (link.stop_key, plan.sales_order, line.item_code, line.stock_uom)
+            target = line.get('office_stop_key') if plan.get('consolidated_customer_orders') else link.stop_key
+            if next((r.get('cancellation_request') for r in doc.stops if r.stop_key==target),False):continue
+            key = (target, line.get('sales_order') if plan.get('consolidated_customer_orders') else plan.sales_order, line.item_code, line.stock_uom)
             requested[key] = requested.get(key, 0) + flt(line.requested_qty)
             if requested[key] > budgets.get(key, 0) + EPSILON:
                 frappe.throw('Linked Dispatch Plan quantities exceed the trip orders; adjust the planning or link the correct Plan')
@@ -378,11 +400,16 @@ def _source_rows(doc, plans):
                     'item_code', 'batch_no', 'stock_uom', 'allocated_qty', 'state', 'load_confirmed'],
             order_by='name asc', limit_page_length=0)
         for allocation in allocations:
-            key = (link.stop_key, plan.sales_order, allocation.item_code, allocation.stock_uom)
+            line = line_scope.get(allocation.dispatch_plan_line)
+            if not line:frappe.throw('Dispatch allocation has no exact demand line')
+            target = line.get('office_stop_key') if plan.get('consolidated_customer_orders') else link.stop_key
+            if next((r.get('cancellation_request') for r in doc.stops if r.stop_key==target),False):continue
+            source_order = line.get('sales_order') if plan.get('consolidated_customer_orders') else plan.sales_order
+            key = (target, source_order, allocation.item_code, allocation.stock_uom)
             covered[key] = covered.get(key, 0) + flt(allocation.allocated_qty)
             if covered[key] > requested.get(key, 0) + EPSILON:
                 frappe.throw('Dispatch allocation quantities exceed their linked Plan')
-            rows.append(dict(stop_key=link.stop_key, sales_order=plan.sales_order,
+            rows.append(dict(stop_key=target, sales_order=source_order,
                 item_code=allocation.item_code, stock_uom=allocation.stock_uom,
                 qty=flt(allocation.allocated_qty), dispatch_plan=name, dispatch_allocation=allocation.name,
                 handling_unit=allocation.handling_unit, tag_code=allocation.visible_code,
@@ -474,6 +501,8 @@ def validate_trip(doc):
     if any(doc.get(f) or (before and before.get(f)) for f in ('follow_on_of','follow_on_trip','follow_on_key','follow_on_request_key','follow_on_snapshot_json')):
         from cfg_kanban.services.trip_continuation import protect_trip
         protect_trip(doc,before)
+    if before and cint(doc.get('consolidated_customer_orders')) != cint(before.get('consolidated_customer_orders')) and (before.dispatch_plans or before.get('dispatch_generated_on')):
+        frappe.throw('Choose Consolidated Customer Orders before generating dispatch work')
     _protect_driver_execution(doc, before)
     doc.team_revision = cint(before.get('team_revision')) if before else 0
     if doc.get('assistant_drivers') or (before and before.get('assistant_drivers')):

@@ -102,6 +102,9 @@ def _proposal(doc,values):
 def _target_plans(doc,key):
     stop=next(r for r in doc.stops if r.stop_key==key)
     names={r.dispatch_plan for r in doc.dispatch_plans if r.stop_key==key}
+    if doc.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import linked
+        names.update(r.dispatch_plan for r in linked(doc,key))
     if stop.stop_purpose=='Visit Only' and stop.customer_scan_point and doc.get('open_route_plan'):names.add(doc.open_route_plan)
     return [_read('CFG Kanban Dispatch Plan',name) for name in sorted(names)]
 
@@ -282,7 +285,7 @@ def native_target(plan,site_name,route_stop=None,operator=None,token=None):
         live=_actions()._execution(doc,operator,_views().get_driver_trip(doc.name,token))
         if canonical_key('driver-snapshot',live)!=canonical_key('driver-snapshot',saved):
             frappe.throw('Saved Trip sources or approved route changed; reconcile before visiting this customer')
-    if plan.name==doc.get('open_route_plan'):
+    if plan.name==doc.get('open_route_plan') or plan.get('consolidated_customer_orders'):
         if not route_stop:frappe.throw('Select the exact saved Trip visit')
         native=_read('CFG Kanban Route Stop',route_stop)
         keys=[native.office_stop_key] if native.dispatch_plan==plan.name else []

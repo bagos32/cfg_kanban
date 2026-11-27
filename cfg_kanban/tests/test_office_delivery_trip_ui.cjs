@@ -209,3 +209,12 @@ test('follow-on setup opens on the saved native Trip form and keeps existing loa
  vm.runInThisContext(fs.readFileSync(formPath,'utf8'));await handlers['CFG Kanban Delivery Trip'].refresh(frm);
  assert.equal(buttons['Generate / Refresh Dispatch'],undefined);await buttons['Plan Follow-on Trip']();assert.deepEqual(calls.at(-1),{follow_on:'TRIP'});
 });
+
+test('consolidation is configured on the normal Trip form and locked after generation', async()=>{
+ const {frm,handlers}=harness();const props={};frm.set_df_property=(field,key,value)=>props[field+':'+key]=value;
+ vm.runInThisContext(fs.readFileSync(formPath,'utf8'));const form=handlers['CFG Kanban Delivery Trip'];
+ await form.refresh(frm);assert.equal(props['consolidated_customer_orders:read_only'],false);
+ assert.match(frm.fields_dict.planning_help.$wrapper.text,/Consolidated Customer Orders/);
+ frm.doc.dispatch_generated_on='2026-11-27';await form.refresh(frm);assert.equal(props['consolidated_customer_orders:read_only'],true);
+ frm.doc.dispatch_generated_on=null;frm.doc.follow_on_of='SOURCE';await form.refresh(frm);assert.equal(props['consolidated_customer_orders:read_only'],true);
+});

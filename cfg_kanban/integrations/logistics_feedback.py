@@ -874,17 +874,17 @@ def _validate_customer_delivery_rows(doc, delivery, allocations):
             frappe.throw(f"Delivery Note warehouse differs for Stock Tag {allocation.visible_code}")
         if row.stock_uom != allocation.stock_uom:
             frappe.throw(f"Delivery Note UOM differs for Stock Tag {allocation.visible_code}")
-        if delivery.get("sales_order"):
+        if delivery.get("sales_order") or delivery.get("customer_dispatch_stop"):
             order_row=frappe.db.get_value("Sales Order Item", allocation.sales_order_item,
                 ["parent","uom","conversion_factor"], as_dict=True)
-            if (not order_row or order_row.parent != delivery.sales_order or row.uom != order_row.uom
+            if (not order_row or (delivery.get("sales_order") and order_row.parent != delivery.sales_order) or row.uom != order_row.uom
                     or abs(flt(row.conversion_factor)-flt(order_row.conversion_factor))>0.000001):
                 frappe.throw("Delivery Note UOM/conversion differs from its Sales Order row")
         elif row.uom != allocation.stock_uom:
             frappe.throw(f"Delivery Note UOM differs for Stock Tag {allocation.visible_code}")
         if abs(flt(row.stock_qty) - flt(allocation.allocated_qty)) > 0.000001:
             frappe.throw(f"Delivery Note quantity differs for Stock Tag {allocation.visible_code}")
-        if delivery.get("sales_order") and (row.get("against_sales_order") != delivery.sales_order
+        if (delivery.get("sales_order") or delivery.get("customer_dispatch_stop")) and (row.get("against_sales_order") != (delivery.sales_order or order_row.parent)
                 or row.get("so_detail") != allocation.sales_order_item):
             frappe.throw("Delivery Note Sales Order reference differs from the prepared allocation")
         if row.get("cfg_handling_unit") != allocation.handling_unit:

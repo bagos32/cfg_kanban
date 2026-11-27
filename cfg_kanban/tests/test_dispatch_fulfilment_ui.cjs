@@ -109,7 +109,7 @@ function ui(options={}){
   for(const command of ['START_PREPARED_DELIVERY','PREPARED_DELIVERY_SOURCE','PREPARED_DELIVERY_CAMERA'])assert(catalogue.includes('CFG:CMD:'+command));
   assert(panel.includes('if (active_prepared_delivery) return active_prepared_delivery.scan(raw);'));
   const start=panel.indexOf('\tasync function process_scan(value)'),end=panel.indexOf('\n\tasync function lookup_tag(',start);let called;
-  const run=new Function('$scanner','active_dispatch_review','opening_dispatch_review','active_delivery_action','opening_delivery_action','active_route_delivery','opening_route_delivery','active_prepared_delivery','opening_prepared_delivery','active_isolation','opening_isolation','active_repack','opening_repack','scanner_error','repack_scanner_help','open_prepared_delivery','state','let active_route_count_action=null;\n'+panel.slice(start,end)+'\nreturn process_scan("CFG:CMD:START_PREPARED_DELIVERY");');
+  const run=new Function('$scanner','active_dispatch_review','opening_dispatch_review','active_delivery_action','opening_delivery_action','active_route_delivery','opening_route_delivery','active_prepared_delivery','opening_prepared_delivery','active_isolation','opening_isolation','active_repack','opening_repack','scanner_error','repack_scanner_help','open_prepared_delivery','state','let active_route_count_action=null, active_loose_tag=null, opening_loose_tag=false;\n'+panel.slice(start,end)+'\nreturn process_scan("CFG:CMD:START_PREPARED_DELIVERY");');
   await run({find:()=>({val(){}})},null,false,null,false,null,false,null,false,null,false,null,false,()=>{},()=>{},(...args)=>{called=args;},{lookup:{dispatch_plan:{name:'DPL-1'}}});
   assert.equal(called[0],'DPL-1');
  });
@@ -121,6 +121,31 @@ function ui(options={}){
   const f=ui({planScan:'DPL-1'});let resolve;f.env.rpc=()=>new Promise(r=>{resolve=r;});
   const loading=f.launch();await Promise.resolve();f.dialog().hide();resolve({plans:[f.plan],customer_scan:null});
   assert.equal(await loading,null);assert.equal(f.success(),0);
+ });
+
+ await test('one consolidated Plan requires the exact numbered customer scope',async()=>{
+  const f=fixture();const scopes=[{...f.plan,customer_dispatch_stop:'CS1'},{...f.plan,customer_dispatch_stop:'CS2'}];
+  f.env.rpc=async(method,args)=>{f.calls.push({method,args:structuredClone(args)});
+   if(method==='prepared_delivery_context')return {plans:args.scan_value==='SITE2'?[scopes[1]]:scopes,customer_scan:args.scan_value==='SITE2'?'SITE2':null};
+   return {name:'DEL2'};};
+  await f.c.scan('DPL-1');assert.equal(f.c.state.plan,null);await f.c.scan('CFG:SELECT:2');
+  await f.c.scan('SITE2');await f.c.scan('CFG:CMD:CONFIRM');assert.equal(f.calls.at(-1).args.customer_dispatch_stop,'CS2');
+ });
+ await test('same Plan name at another customer does not replace the selected scope',async()=>{
+  const f=fixture();f.plan.customer_dispatch_stop='CS1';await f.c.scan('DPL-1');
+  f.env.rpc=async()=>({plans:[{...f.plan,customer_dispatch_stop:'CS2'}],customer_scan:'WRONG'});
+  await assert.rejects(()=>f.c.scan('WRONG'),/no matching prepared Plan/);assert.equal(f.c.state.customerScan,'');
+ });
+ await test('consolidated scope is preserved with its original request across an uncertain retry',async()=>{
+  const f=fixture();f.plan.customer_dispatch_stop='CS1';await ready(f);f.failure(new Error('network'));
+  await assert.rejects(()=>f.c.confirm(),/network/);const original=f.calls.at(-1).args;
+  assert.throws(()=>f.c.select(1),/Retry the original/);f.failure(null);await f.c.confirm();
+  assert.deepEqual(f.calls.at(-1).args,original);assert.equal(original.customer_dispatch_stop,'CS1');
+ });
+ await test('office setting defaults off and consolidated links cover all stops',async()=>{
+  const root=path.resolve(__dirname,'../..');const schema=name=>JSON.parse(fs.readFileSync(path.join(root,'cfg_kanban/cfg_kanban/doctype',name,name+'.json'),'utf8'));
+  const trip=schema('cfg_kanban_delivery_trip');assert.equal(trip.fields.find(r=>r.fieldname==='consolidated_customer_orders').default,'0');
+  const link=schema('cfg_kanban_delivery_trip_plan');assert.match(link.fields.find(r=>r.fieldname==='stop_sequence').mandatory_depends_on,/consolidated_customer_orders/);
  });
  console.log(`${checks} E4A UI checks passed`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -196,7 +196,16 @@ def _build_snapshot(doc, context, operator):
     plans = {row.dispatch_plan: _read('CFG Kanban Dispatch Plan', row.dispatch_plan) for row in doc.dispatch_plans}
     if len(plans) != len(doc.dispatch_plans):
         frappe.throw('Duplicate Dispatch Plan links require office review')
-    linked = {row.dispatch_plan: row.stop_key for row in doc.dispatch_plans}
+    links=_customer_links(doc)
+    if doc.get('consolidated_customer_orders'):
+        plans={};linked={}
+        for link in links:
+            plan=_customer_plan(link.dispatch_plan,link.stop_key)
+            identity=_policy_key(plan,link.stop_key)
+            if identity in plans:frappe.throw('Duplicate consolidated customer scopes require office review')
+            plans[identity]=plan;linked[identity]=link.stop_key
+    else:
+        linked = {row.dispatch_plan: row.stop_key for row in doc.dispatch_plans}
     vehicles = {plan.vehicle_warehouse for name,plan in plans.items() if plan.vehicle_warehouse and linked[name] not in cancelled}
     if doc.get('open_route_plan'):
         shared=_read('CFG Kanban Dispatch Plan',doc.open_route_plan)
@@ -211,7 +220,7 @@ def _build_snapshot(doc, context, operator):
     if len(vehicles) > 1:
         frappe.throw('Trip sources belong to different lorries')
     for row in deliveries:
-        if not any(link.stop_key == row.stop_key for link in doc.dispatch_plans):
+        if not any(link.stop_key == row.stop_key for link in links):
             frappe.throw('Prepare every Delivery stop, or configure an information-only stop as Visit Only')
     for stop in context['stops']:
         if stop['purpose'] == 'Delivery':
@@ -242,15 +251,15 @@ def _build_snapshot(doc, context, operator):
             if sheet.name not in signatures:
                 seen = set(); keys = []; rows = []
                 for source in sheet.stops:
-                    target = linked.get(source.dispatch_plan)
-                    identity=source.dispatch_plan
+                    identity=_sheet_source(doc,source,plans)
+                    target = linked.get(identity)
                     if source.dispatch_plan==doc.get('open_route_plan'):
                         from cfg_kanban.services.trip_sales import sheet_target
                         target=sheet_target(doc,source);identity=source.source_route_stop
                     if not target or identity in seen or source.customer_scan_point != by_stop[target].customer_scan_point:
                         frappe.throw('The approved route must map exactly to this trip; reconcile ambiguous or outside stops')
                     seen.add(identity); keys.append(target)
-                    rows.append((source.row_key, source.dispatch_plan, source.customer_scan_point))
+                    rows.append((source.row_key, _sheet_source(doc,source,plans), source.customer_scan_point))
                 distinct = []
                 for value in keys:
                     if not distinct or distinct[-1] != value:
@@ -259,7 +268,7 @@ def _build_snapshot(doc, context, operator):
                     frappe.throw('Separate interleaved visits before starting this driver route')
                 signatures[sheet.name] = dict(revision=cint(sheet.revision), rows=rows,
                     sequence_policy=sheet.sequence_policy, verification_policy=sheet.verification_policy)
-            matches = [row for row in sheet.stops if row.dispatch_plan == name]
+            matches = [row for row in sheet.stops if _sheet_source(doc,row,plans) == name]
             if len(matches) != 1:
                 frappe.throw('Each loaded Plan needs one exact approved route stop')
             policies[name] = dict(sheet=sheet.name, row_key=matches[0].row_key,
@@ -287,8 +296,13 @@ def _build_snapshot(doc, context, operator):
                           for stop in context['stops'] for row in stop['sources']])
     if cancelled and saved:
         cancelled_plans={name for name,key in linked.items() if key in cancelled}
-        allocations=sorted([tuple(r) for r in allocations]+[tuple(r) for r in saved.get('allocations',[]) if r[0] in cancelled_plans])
+        source_scope=saved.get('customer_sources',{})
+        allocations=sorted([tuple(r) for r in allocations]+[tuple(r) for r in saved.get('allocations',[]) if r[0] in cancelled_plans or source_scope.get(r[1]) in cancelled])
     extra={}
+    if doc.get('consolidated_customer_orders'):
+        source_scope={row['dispatch_allocation']:stop['stop_key'] for stop in context['stops'] for row in stop['sources']}
+        source_scope.update({name:key for name,key in saved.get('customer_sources',{}).items() if key in cancelled})
+        extra['customer_sources']=source_scope
     if doc.get('open_route_plan'):
         from cfg_kanban.services.trip_sales import snapshot
         shared=snapshot(doc,operator,next(iter(vehicles)) if vehicles else None)
@@ -325,11 +339,11 @@ def _is_ready(doc, stop, operator, token):
             from cfg_kanban.services.trip_sales import finish_visit
             return finish_visit(doc,stop,operator)
         return True
-    links = [row for row in doc.dispatch_plans if row.stop_key == stop.stop_key]
+    links = _customer_links(doc,stop.stop_key)
     if not links:
         return False
     for link in links:
-        plan = _read('CFG Kanban Dispatch Plan', link.dispatch_plan)
+        plan = _customer_plan(link.dispatch_plan,stop.stop_key)
         if not plan.delivery_session:
             return False
         delivery = _session(plan, operator)
@@ -468,9 +482,9 @@ def driver_action_context(trip_name, operator_session_token, stop_key=None, oper
             sale=action_context(doc,stop,operator,result,operator_session_token,force=operation=='Sell from Lorry')
             if sale:return sale
         return dict(result, next_step='Complete Stop')
-    rows = [row for row in doc.dispatch_plans if row.stop_key == key]
+    rows = _customer_links(doc,key)
     for row in rows:
-        plan = _read('CFG Kanban Dispatch Plan', row.dispatch_plan)
+        plan = _customer_plan(row.dispatch_plan,key)
         _planning()._assert_plan_authorized(plan, operator)
         if not plan.delivery_session:
             packs = []
@@ -478,7 +492,7 @@ def driver_action_context(trip_name, operator_session_token, stop_key=None, oper
                 from cfg_kanban.services.loose_tags import driver_context
                 packs = driver_context(plan)
             return dict(result, next_step='Begin Delivery', dispatch_plan=plan.name, loose_tags=packs,
-                require_scan=snapshot['policies'][plan.name]['require_scan'],
+                require_scan=snapshot['policies'][_policy_key(plan,key)]['require_scan'],
                 quantities=[dict(dispatch_allocation=r.name,item_code=r.item_code,source_label=' · '.join(filter(None,[r.item_code,frappe.db.get_value('CFG Kanban Handling Unit',r.handling_unit,'handling_unit_id') if r.handling_unit else 'Untagged ERP stock',r.batch_no])),batch_no=r.batch_no,stock_uom=r.stock_uom,prepared_qty=r.allocated_qty,accepted_qty=r.allocated_qty,refusal_reason='',condition='Good / Unwanted') for r in _prepared()._loaded_allocations(plan)])
         delivery = _delivery().get_delivery_session(plan.delivery_session, operator_session_token)
         state = delivery['state']
@@ -604,9 +618,9 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
         if canonical_key('driver-snapshot', snapshot) != canonical_key('driver-snapshot', saved):
             frappe.throw('The saved execution route changed; Supervisor must reconcile it before continuing')
         stop = _target(doc, request, snapshot)
-        links = {row.dispatch_plan for row in doc.dispatch_plans if row.stop_key == stop.stop_key}
+        links = {row.dispatch_plan for row in _customer_links(doc,stop.stop_key)}
         if stop.stop_purpose=='Visit Only' and doc.get('open_route_plan'):links.add(doc.open_route_plan)
-        plan = _read('CFG Kanban Dispatch Plan', dispatch_plan) if dispatch_plan else None
+        plan = _customer_plan(dispatch_plan,stop.stop_key) if dispatch_plan else None
         if action != 'Complete Stop' and (not plan or plan.name not in links):
             frappe.throw('Select an exact prepared Plan belonging to this trip stop')
         if action == 'Begin Open Sale':
@@ -619,15 +633,15 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
                 delivery=begin(doc,stop,values.get('customer_scan'),key,operator,operator_session_token)
             result['delivery_session']=delivery['name']
         elif action == 'Begin Delivery':
-            for link in doc.dispatch_plans:
-                if link.dispatch_plan == plan.name:
+            for link in _customer_links(doc):
+                if link.dispatch_plan == plan.name and (not plan.get('consolidated_customer_orders') or link.stop_key==stop.stop_key):
                     continue
-                other = _read('CFG Kanban Dispatch Plan', link.dispatch_plan)
+                other = _customer_plan(link.dispatch_plan,link.stop_key)
                 if other.delivery_session:
                     active = _read('CFG Kanban Delivery Session', other.delivery_session)
                     if active.state not in ('Closed', 'Cancelled'):
                         frappe.throw('Complete the existing customer Delivery Note and proof before starting another delivery')
-            policy = snapshot['policies'][plan.name]
+            policy = snapshot['policies'][_policy_key(plan,stop.stop_key)]
             scan = str(values.get('customer_scan') or '').strip()
             if policy['require_scan'] and not scan:
                 frappe.throw('Scan the assigned Customer Site QR before confirming this stop')
@@ -638,7 +652,7 @@ def perform_driver_action(trip_name, action, event_token, operator_session_token
                 delivery = _sheets().start_route_sheet_stop(policy['sheet'], policy['row_key'], key, operator_session_token, scan or None)
             else:
                 site = _delivery()._resolve_customer_site(scan or stop.customer_scan_point)
-                delivery = _prepared().start_prepared_delivery(plan.name, site.site_code, key, operator_session_token)
+                delivery = _prepared().start_prepared_delivery(plan.name, site.site_code, key, operator_session_token, **({'customer_dispatch_stop':plan.customer_dispatch_stop.name} if plan.get('consolidated_customer_orders') else {}))
             doc.db_set('driver_active_stop_key', stop.stop_key, update_modified=True)
             result['delivery_session'] = delivery['name']
         elif action == 'Complete Stop':
@@ -727,9 +741,36 @@ def preview_driver_quantities(trip_name,stop_key,dispatch_plan,quantities,operat
     doc=_views()._trip(trip_name,operator)
     saved=json.loads(doc.driver_route_snapshot_json or '{}')
     _target(doc,dict(stop_key=stop_key),saved)
-    if dispatch_plan not in {r.dispatch_plan for r in doc.dispatch_plans if r.stop_key==stop_key}:
+    if dispatch_plan not in {r.dispatch_plan for r in _customer_links(doc,stop_key)}:
         frappe.throw('Select the exact prepared Plan for this stop')
-    plan=_read('CFG Kanban Dispatch Plan',dispatch_plan)
+    plan=_customer_plan(dispatch_plan,stop_key)
     _planning()._assert_plan_authorized(plan,operator)
     from cfg_kanban.services.driver_delivery_outcomes import quantities as validate_quantities
     return validate_quantities(plan,quantities)
+
+
+def _customer_links(doc, stop_key=None):
+    if doc.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import linked
+        return linked(doc,stop_key)
+    return [r for r in doc.dispatch_plans if stop_key is None or r.stop_key==stop_key]
+
+
+def _customer_plan(name, stop_key):
+    plan=_read('CFG Kanban Dispatch Plan',name)
+    if plan.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import scoped
+        return scoped(plan,stop_key)
+    return plan
+
+
+def _policy_key(plan, stop_key):
+    return plan.name+':'+stop_key if plan.get('consolidated_customer_orders') else plan.name
+
+
+def _sheet_source(doc, source, plans):
+    plan=next((p for p in plans.values() if p.name==source.dispatch_plan),None)
+    if plan and plan.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import sheet_target
+        return plan.name+':'+sheet_target(doc,source)
+    return source.dispatch_plan

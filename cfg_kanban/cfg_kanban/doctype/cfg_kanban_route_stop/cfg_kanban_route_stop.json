@@ -42,7 +42,11 @@
   "active_stop_key",
   "actual_sequence_key",
   "office_delivery_trip",
-  "office_stop_key"
+  "office_stop_key",
+  "fulfilment_status",
+  "total_delivered_qty",
+  "driver_delivery_outcome",
+  "stop_cancellation"
  ],
  "fields": [
   {
@@ -57,7 +61,7 @@
   },
   {
    "fieldname": "dispatch_plan",
-   "label": "Open Route Dispatch Plan",
+   "label": "Dispatch Plan",
    "fieldtype": "Link",
    "reqd": 1,
    "read_only": 1,
@@ -301,6 +305,32 @@
    "fieldtype": "Data",
    "read_only": 1,
    "hidden": 1
+  },
+  {
+   "fieldname": "fulfilment_status",
+   "label": "Prepared Customer Fulfilment",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_delivered_qty",
+   "label": "Submitted Delivered Qty",
+   "fieldtype": "Float",
+   "read_only": 1
+  },
+  {
+   "fieldname": "driver_delivery_outcome",
+   "label": "Prepared Quantity Outcome",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Delivery Outcome",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stop_cancellation",
+   "label": "Customer Stop Cancellation",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Route Change Request",
+   "read_only": 1
   }
  ],
  "permissions": [

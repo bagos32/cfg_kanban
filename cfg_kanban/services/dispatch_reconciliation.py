@@ -82,11 +82,11 @@ def _balances(plan, current=False):
             as_dict=True, for_update=current)
         delivered = sum(flt(row.delivered_qty) for row in allocations)
         released = 0
-        if plan.get('driver_delivery_outcome') or plan.get('has_loose_tags'):
+        if plan.get('driver_delivery_outcome') or plan.get('has_loose_tags') or plan.get('consolidated_customer_orders'):
             from cfg_kanban.services.driver_delivery_outcomes import released_source_qty
             released = released_source_qty(source.name, current=current)
         cancelled_released=0
-        if plan.get('stop_cancellation'):
+        if plan.get('stop_cancellation') or plan.get('consolidated_customer_orders'):
             from cfg_kanban.services.cancelled_stop_stock import released_source_qty as cancelled_release
             cancelled_released=cancelled_release(source.name,current)
         remaining = flt(source.allocated_qty) - delivered - released - cancelled_released
@@ -236,6 +236,12 @@ def _at_source(plan, rows,current=False):
         available = _planning()._untagged_available(plan.company, plan.vehicle_warehouse, item, batch or None,
                                                     exclude_prepared_plan=plan.name,current=current,
                                                     **({'exclude_refusal_outcome':plan.driver_delivery_outcome} if plan.get('driver_delivery_outcome') else {}))
+        if plan.get('consolidated_customer_orders'):
+            from cfg_kanban.services.consolidated_dispatch import other_untagged_commitment, own_held_untagged
+            if plan.get('office_stop_key'):
+                available-=other_untagged_commitment(plan,plan.office_stop_key,item,batch or None,current=current)
+            else:
+                available+=own_held_untagged(plan,item,batch or None,current=current)
         if qty>available+EPSILON:
             frappe.throw('Prepared loose stock is missing or committed elsewhere; resolve the variance or movement')
 
@@ -332,7 +338,7 @@ def finish_dispatch_review(dispatch_review, action, reconciliation_name, reason,
     if action not in ACTIONS + ('Mixed Leftover Dispositions',) or not reason:
         frappe.throw('Choose a valid leftover-stock action and provide its reason')
     _no_open_delivery(plan)
-    if plan.get('stop_cancellation'):
+    if plan.get('stop_cancellation') or plan.get('consolidated_customer_orders'):
         from cfg_kanban.services.cancelled_stop_stock import assert_review_action
         assert_review_action(plan,action)
     rows=_balances(plan,current=True)
@@ -466,10 +472,10 @@ def protect_review_movement_cancellation(doc, method=None):
 def _refusal_reserve(plan,row):
     if not row.get('handling_unit'):return 0
     held=0
-    if plan.get('driver_delivery_outcome') or plan.get('has_loose_tags'):
+    if plan.get('driver_delivery_outcome') or plan.get('has_loose_tags') or plan.get('consolidated_customer_orders'):
         from cfg_kanban.services.driver_delivery_outcomes import held_tag_qty
         held+=held_tag_qty(row['handling_unit'])
-    if plan.get('stop_cancellation'):
+    if plan.get('stop_cancellation') or plan.get('consolidated_customer_orders'):
         from cfg_kanban.services.cancelled_stop_stock import held_tag_qty
-        held+=held_tag_qty(row['handling_unit'],dispatch_plan=plan.name,parent=plan.stop_cancellation)
+        held+=held_tag_qty(row['handling_unit'],dispatch_plan=plan.name,parent=plan.stop_cancellation if not plan.get('consolidated_customer_orders') else None)
     return held

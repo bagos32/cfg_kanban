@@ -22,12 +22,12 @@ class CFGKanbanDispatchPlan(Document):
             frappe.throw('Loose Tag dispatch tracking is controlled by Pack Loose Tag')
         if (self.get('follow_on_trip') or None)!=((before.get('follow_on_trip') or None) if before else None) and not self.flags.get('cfg_follow_on'):
             frappe.throw('Existing-stock provenance is controlled by the follow-on action')
-        for field in ('office_delivery_trip','office_stop_key','office_source_hash','existing_lorry_stock_only'):
+        for field in ('office_delivery_trip','office_stop_key','office_source_hash','existing_lorry_stock_only','consolidated_customer_orders'):
             if (self.get(field) or None)!=((before.get(field) or None) if before else None) and not (getattr(self,'flags',None) or {}).get('cfg_office_dispatch'):
                 frappe.throw('Office dispatch provenance is immutable; generate it from the Trip')
         if before and self.get('office_delivery_trip'):
             fields=('company','dispatch_profile','source_warehouse','plan_type','fulfilment_mode','customer_site','sales_order','required_date','trip_date')
-            request=lambda doc:[(r.item_code,r.batch_no or '',r.stock_uom,flt(r.requested_qty),r.sales_order_item or '') for r in doc.lines]
+            request=lambda doc:[(r.item_code,r.batch_no or '',r.stock_uom,flt(r.requested_qty),r.sales_order_item or '', r.get('office_stop_key') or '', r.get('sales_order') or '', r.get('customer') or '', r.get('customer_site') or '') for r in doc.lines]
             if any(self.get(f)!=before.get(f) for f in fields) or request(self)!=request(before):
                 frappe.throw('Change generated dispatch quantities and sources on its office Delivery Trip before execution')
         if self.get('stop_cancellation') != (before.get('stop_cancellation') if before else None):
@@ -38,7 +38,9 @@ class CFGKanbanDispatchPlan(Document):
             frappe.throw(f"Unsupported Dispatch Plan state {self.state}")
         if self.priority not in {"Low", "Normal", "High", "Urgent"}:
             frappe.throw("Priority must be Low, Normal, High or Urgent")
-        if self.plan_type == "Customer Order" and not self.customer_site:
+        if self.get('consolidated_customer_orders') and (not self.get('office_delivery_trip') or self.fulfilment_mode != 'Vehicle Delivery' or self.plan_type != 'Customer Order' or self.customer_site or self.sales_order):
+            frappe.throw('Consolidation is generated only by an office Trip for Vehicle Customer Orders')
+        if self.plan_type == "Customer Order" and not self.customer_site and not self.get('consolidated_customer_orders'):
             frappe.throw("Customer Order Dispatch Plan requires a Customer Site")
         if self.plan_type == "Customer Order" and not self.required_date:
             frappe.throw("Customer Order Dispatch Plan requires a Required Date")
@@ -63,7 +65,8 @@ class CFGKanbanDispatchPlan(Document):
                     f"{row.batch_no or 'No Batch'} into one line"
                 )
             seen.add(key)
-            requested += flt(row.requested_qty)
+            if not row.get('cancelled_before_loading'):
+                requested += flt(row.requested_qty)
         self.total_requested_qty = requested
         if flt(self.total_reserved_qty) > requested + 0.000001:
             frappe.throw("Reserved quantity cannot exceed requested quantity")

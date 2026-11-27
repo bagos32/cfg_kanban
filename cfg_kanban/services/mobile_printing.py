@@ -114,10 +114,17 @@ def _sessions(trip, stop, operator):
     from cfg_kanban.services import trip_sales
     from cfg_kanban.services.customer_delivery import _can_view_delivery
     result = []
-    for link in trip.dispatch_plans:
+    links=trip.dispatch_plans
+    if trip.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import linked
+        links=linked(trip,stop.stop_key)
+    for link in links:
         if link.stop_key != stop.stop_key:
             continue
         plan = _read('CFG Kanban Dispatch Plan', link.dispatch_plan)
+        if plan.get('consolidated_customer_orders'):
+            from cfg_kanban.services.consolidated_dispatch import scoped
+            plan=scoped(plan,stop.stop_key)
         if plan.company != trip.company or plan.customer != stop.customer:
             frappe.throw('Dispatch Plan no longer matches this Trip customer')
         if plan.delivery_session:

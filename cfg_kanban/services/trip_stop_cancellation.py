@@ -61,7 +61,11 @@ def _stamp(doc,stop):
 
 
 def _plans(doc,stop,operator,current=False):
-    names=sorted({r.dispatch_plan for r in doc.dispatch_plans if r.stop_key==stop.stop_key})
+    links=doc.dispatch_plans
+    if doc.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import linked
+        links=linked(doc,stop.stop_key)
+    names=sorted({r.dispatch_plan for r in links if r.stop_key==stop.stop_key})
     candidates=[_read('CFG Kanban Dispatch Plan',name) for name in names]
     # Match the existing Route Sheet -> Plan lock order after the parent Trip.
     if current:
@@ -69,10 +73,13 @@ def _plans(doc,stop,operator,current=False):
         for plan in candidates:
             if plan.get('active_route_sheet'):route_sheets.lock_plan_route_scope(plan,operator)
         candidates=[_read('CFG Kanban Dispatch Plan',name,True) for name in names]
+    if doc.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import scoped
+        candidates=[scoped(p,stop.stop_key,current=current) if p.get('consolidated_customer_orders') else p for p in candidates]
     orders={r.sales_order for r in doc.orders if r.stop_key==stop.stop_key}
     for plan in candidates:
         if (plan.company!=doc.company or plan.plan_type!='Customer Order' or plan.fulfilment_mode!='Vehicle Delivery'
-                or plan.customer!=stop.customer or plan.customer_site!=stop.customer_scan_point or plan.customer_address!=stop.customer_address or plan.sales_order not in orders):
+                or plan.customer!=stop.customer or plan.customer_site!=stop.customer_scan_point or plan.customer_address!=stop.customer_address or (plan.sales_order not in orders and not (plan.get('consolidated_customer_orders') and {r.sales_order for r in plan.lines}<=orders))):
             frappe.throw('Customer cancellation must retain the exact Trip Company, customer, Sales Order and Plan')
         if plan.get('office_delivery_trip') and (plan.office_delivery_trip!=doc.name or plan.office_stop_key!=stop.stop_key):
             frappe.throw('Generated dispatch belongs to another Trip/customer stop')
@@ -84,7 +91,7 @@ def _plans(doc,stop,operator,current=False):
 def _unstarted(plan):
     if plan.get('delivery_session') or plan.get('driver_delivery_outcome') or plan.get('active_route_stop'):
         frappe.throw('Customer delivery/quantity reporting has started; use existing delivery, proof or refusal recovery before cancelling this stop')
-    if frappe.db.exists('CFG Kanban Delivery Session',{'dispatch_plan':plan.name}):
+    if frappe.db.exists('CFG Kanban Delivery Session',dict(dispatch_plan=plan.name,**({'customer_dispatch_stop':plan.customer_dispatch_stop.name} if plan.get('consolidated_customer_orders') else {}))):
         frappe.throw('This Plan has delivery history; retain it and use the existing delivery/return recovery')
     if plan.get('dispatch_review_state') and plan.state!='Reconciled':frappe.throw('Resolve this Plan Dispatch Review before cancelling the stop')
 
@@ -139,7 +146,7 @@ def _preview(doc,stop,operator,current=False):
             for item in sorted({r.item_code for r in plan.lines}):_planning()._lock_erp_bin(item,plan.vehicle_warehouse or plan.source_warehouse)
         allocations=(_prepared()._loaded_allocations(plan,for_update=current) if plan.state=='Loaded' else
             [_read('CFG Kanban Dispatch Allocation',name,current) for name in frappe.get_all('CFG Kanban Dispatch Allocation',
-                filters={'dispatch_plan':plan.name,'state':'Reserved'},pluck='name',order_by='name',limit_page_length=0)])
+                filters={'dispatch_plan':plan.name,'state':'Reserved',**({'dispatch_plan_line':['in',[r.name for r in plan.lines]]} if plan.get('consolidated_customer_orders') else {})},pluck='name',order_by='name',limit_page_length=0)])
         if plan.state=='Loaded':_prepared().validate_prepared_loading(plan)
         sources=[]
         for source in allocations:
@@ -158,7 +165,7 @@ def _preview(doc,stop,operator,current=False):
             if plan.state=='Loaded':stock.append(identity)
         if plan.state=='Loaded' and doc.driver_route_state=='In Progress':
             saved=json.loads(doc.driver_route_snapshot_json or '{}')
-            expected=sorted(tuple(r) for r in saved.get('allocations',[]) if r[0]==plan.name)
+            expected=sorted(tuple(r) for r in saved.get('allocations',[]) if r[0]==plan.name and (not plan.get('consolidated_customer_orders') or saved.get('customer_sources',{}).get(r[1])==stop.stop_key))
             actual=sorted((plan.name,r['dispatch_allocation'],r['item_code'],r['stock_uom'],r['batch_no'],r['visible_code'],r['qty']) for r in sources)
             if expected!=actual:frappe.throw('Loaded sources differ from the frozen departure record; reconcile them before cancellation')
         if plan.state=='Loaded':
@@ -166,7 +173,7 @@ def _preview(doc,stop,operator,current=False):
             _at_source(plan,_balances(plan,current=current),current=current)
         if plan.get('active_route_sheet'):
             sheet=_read('CFG Kanban Route Sheet',plan.active_route_sheet,current)
-            matches=[r for r in sheet.stops if r.dispatch_plan==plan.name]
+            matches=[r for r in sheet.stops if r.dispatch_plan==plan.name and (not plan.get('consolidated_customer_orders') or r.source_route_stop==plan.customer_dispatch_stop.name)]
             if (sheet.company!=doc.company or sheet.vehicle_warehouse!=plan.vehicle_warehouse or len(matches)!=1
                     or route_sheets._status(matches[0])['state']!='Planned'):
                 frappe.throw('The approved customer visit has progressed or changed; reconcile it before cancellation')
@@ -256,16 +263,20 @@ def _apply(doc,row,values,operator,session,token):
         for source in stock:_assert_resalable(frappe._dict(source))
     # Preserve posted loading evidence. Only an entirely unused E3 claim can be released here.
     for plan in plans:
-        if plan.state not in ('Loaded','Reconciled','Cancelled'):
+        if plan.get('consolidated_customer_orders'):
+            from cfg_kanban.services.consolidated_dispatch import cancel_customer
+            cancel_customer(plan,row,operator,session,values['reason'],row.name)
+        elif plan.state not in ('Loaded','Reconciled','Cancelled'):
             if plan.movement_manifest:
                 _planning().release_vehicle_claim(_read('CFG Kanban Movement Manifest',plan.movement_manifest,True),
                     operator,session,values['reason'],row.name+':claim')
             _planning()._cancel_unposted_plan(plan,operator,session,values['reason'],row.name+':unloaded',supervisor_cancel=True)
-        plan.db_set(dict(stop_cancellation=row.name,**({'prepared_stock_commitment':int(disposition==HOLD)} if plan.state=='Loaded' else {})),update_modified=True)
+        if not plan.get('consolidated_customer_orders'):
+            plan.db_set(dict(stop_cancellation=row.name,**({'prepared_stock_commitment':int(disposition==HOLD)} if plan.state=='Loaded' else {})),update_modified=True)
         if plan.get('active_route_sheet'):
             sheet=_read('CFG Kanban Route Sheet',plan.active_route_sheet,True)
             for native in sheet.stops:
-                if native.dispatch_plan==plan.name:native.db_set('state','Cancelled',update_modified=False)
+                if native.dispatch_plan==plan.name and (not plan.get('consolidated_customer_orders') or native.source_route_stop==plan.customer_dispatch_stop.name):native.db_set('state','Cancelled',update_modified=False)
     if visit:
         visit.db_set(dict(state='Skipped',skip_reason=values['reason'],skipped_by=operator.employee,
             skipped_on=now_datetime()),update_modified=True)

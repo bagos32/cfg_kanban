@@ -7,7 +7,8 @@
  "search_fields":"business_label,dispatch_profile,company,source_warehouse,customer,sales_order,logistics_route,state",
  "track_changes":1,
  "field_order":["has_loose_tags","state","identity_section","business_label","dispatch_profile","profile_revision","profile_snapshot_json","profile_snapshot_hash","policy_section","dispatch_point","company","source_warehouse","plan_type","fulfilment_mode","tag_policy","stock_rotation_policy","approval_required","allow_supervisor_override","auto_submit_stock_transfer","dispatch_responsibility","destination_assignment_policy","destination_warehouse","staging_warehouse","transit_warehouse","proof_policy","request_section","customer_site","customer","customer_address","territory","logistics_route","sales_order","required_date","trip_date","priority","lines_section","lines","total_requested_qty","total_reserved_qty","total_loaded_qty","vehicle_section","vehicle_warehouse","vehicle_reference","movement_manifest","claim_key","claimed_by_operator","claimed_operator_session","claimed_on","loading_confirmed_on","dispatch_started_on","loaded_on","audit_section","created_by_operator","created_operator_session","created_by_user","created_on","submitted_by_operator","submitted_on","approved_by_operator","approved_operator_session","approved_on","ready_on","cancelled_by_operator","cancelled_operator_session","cancelled_on","cancellation_reason","idempotency_key","fulfilment_status","delivery_session","delivery_note","delivery_proof","total_delivered_qty","fulfilment_completed_on","prepared_stock_commitment","route_stop_section","stop_sequence_policy","delivery_route_reference","active_route_stop","actual_stop_count","completed_stop_count","unassigned_delivered_qty","route_stock_commitment","dispatch_review_state","active_dispatch_review","route_sequence_scope","route_template","route_approval_required","customer_verification","route_template_snapshot_json","active_route_sheet","driver_delivery_outcome","office_delivery_trip","office_stop_key","office_source_hash","existing_lorry_stock_only","stop_cancellation",
-  "follow_on_trip"
+  "follow_on_trip",
+  "consolidated_customer_orders"
  ],
  "fields":[
   {"fieldname": "has_loose_tags", "label": "Has Loose Tags", "fieldtype": "Check", "read_only": 1, "hidden": 1, "default": "0", "no_copy": 1},
@@ -107,7 +108,8 @@
   {"fieldname":"existing_lorry_stock_only","label":"Use Existing Unassigned Lorry Stock","fieldtype":"Check","default":"0","read_only":1,"description":"No new warehouse load is planned. Existing ERP stock and all stock/custody checks remain authoritative."},
   {"fieldname":"stop_cancellation","label":"Cancelled Customer Stop","fieldtype":"Link","read_only":1,"options":"CFG Kanban Route Change Request"}
  ,
-  {"fieldname":"follow_on_trip","fieldtype":"Link","options":"CFG Kanban Delivery Trip","label":"Confirmed Existing Stock Trip","read_only":1}
+  {"fieldname":"follow_on_trip","fieldtype":"Link","options":"CFG Kanban Delivery Trip","label":"Confirmed Existing Stock Trip","read_only":1},
+  {"fieldname":"consolidated_customer_orders","label":"Consolidated Customer Orders","fieldtype":"Check","default":"0","read_only":1}
  ],
  "permissions":[
   {"role":"Stock User","read":1,"print":1},

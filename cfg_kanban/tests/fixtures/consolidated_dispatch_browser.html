@@ -1,0 +1,67 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Offline consolidated customer dispatch</title>
+<style>body{font:16px sans-serif;margin:2rem}label{display:block;margin-top:1rem}button,input{font:inherit;margin:.3rem;padding:.6rem}.btn-block{display:block;width:100%;text-align:left}#host{max-width:700px}</style>
+<h1>Offline consolidated customer dispatch</h1>
+<p>Demo RPC only. No ERPNext site, stock posting or printer.</p>
+<div id="host"></div>
+<script src="../../public/js/dispatch_fulfilment.js"></script>
+<script>
+window.__=value=>value;
+class Wrap{
+ constructor(nodes){this.nodes=nodes;}
+ focus(){this.nodes[0]?.focus();return this;}
+ on(event,fn){for(const node of this.nodes)node.addEventListener(event.split('.')[0],fn);return this;}
+ one(event,fn){for(const node of this.nodes)node.addEventListener(event.split('.')[0],fn,{once:true});return this;}
+ html(value){for(const node of this.nodes)node.innerHTML=value;return this;}
+ find(query){return new Wrap(this.nodes.flatMap(n=>[...n.querySelectorAll(query)]));}
+ val(value){if(value===undefined)return this.nodes[0]?.value;for(const node of this.nodes)node.value=value;return this;}
+}
+window.$=node=>new Wrap([node]);
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+async function until(fn){for(let i=0;i<200;i++){if(fn())return;await delay(15);}throw new Error('Timed out: '+fn);}
+window.runConsolidatedDispatchTests=async()=>{
+ await until(()=>window.cfg_dispatch_fulfilment?.open);
+ const checks=[],check=(value,message)=>{if(!value)throw new Error(message);checks.push(message);};
+ let dialog,camera,sequence=0,fail=false;const calls=[],success=[];
+ const scopes=[{name:'DPL-DEMO',business_label:'Customer A',customer_dispatch_stop:'CS-A',quantity_summary:'3 Carton'},
+               {name:'DPL-DEMO',business_label:'Customer B',customer_dispatch_stop:'CS-B',quantity_summary:'2 Carton'}];
+ class Dialog{
+  constructor(config){dialog=this;this.config=config;this.fields_dict={};const host=document.querySelector('#host');host.innerHTML='';this.el=document.createElement('section');host.append(this.el);
+   for(const df of config.fields){const node=document.createElement(df.fieldtype==='HTML'?'div':df.fieldtype==='Button'?'button':'input');node.dataset.field=df.fieldname;this.el.append(node);
+    if(df.fieldtype==='Button'){node.textContent=df.label;node.onclick=df.click;}else if(df.fieldtype!=='HTML')node.addEventListener('change',()=>df.onchange?.());
+    this.fields_dict[df.fieldname]={df,$input:$(node),$wrapper:$(node)};}
+   this.button=document.createElement('button');this.button.textContent=config.primary_action_label;this.button.onclick=config.primary_action;this.el.append(this.button);
+  }
+  get_value(name){return this.fields_dict[name].$input.val();}set_value(name,value){this.fields_dict[name].$input.val(value);}
+  show(){}hide(){this.el.hidden=true;this.onhide?.();}disable_primary_action(){this.button.disabled=true;}enable_primary_action(){this.button.disabled=false;}
+ }
+ const f={utils:{escape_html:v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;')},ui:{Dialog,
+  Scanner:class{constructor(options){this.options=options;camera=this;this.dialog={$wrapper:$(document.createElement('div'))};}hide_dialog(){}}},
+  async call({method,args}){const name=method.split('.').at(-1);calls.push({name,args:structuredClone(args)});
+   if(name==='prepared_delivery_context')return {message:{plans:args.scan_value==='SITE-A'?[scopes[0]]:args.scan_value==='SITE-B'?[scopes[1]]:scopes,
+    customer_scan:args.scan_value.startsWith('SITE-')?args.scan_value:null}};
+   if(fail)throw new Error('Lost response');return {message:{name:'SESSION-DEMO',customer_dispatch_stop:args.customer_dispatch_stop}};
+  }};
+ const launch=()=>window.cfg_dispatch_fulfilment.open({frappe:f,planScan:'DPL-DEMO',owner:()=> 'EMP',token:()=> 'TOKEN',nonce:()=> 'EVENT-'+(++sequence),
+  success:async result=>success.push(result),onClose(){},errorMessage:e=>e.message});
+ const view=await launch();await until(()=>dialog.el.querySelectorAll('.prepared-plan-choice').length===2);
+ check(dialog.button.disabled,'One shared Plan presents two customer choices and requires selection');
+ dialog.el.querySelector('[data-number="2"]').click();await until(()=>view.controller.state.plan?.customer_dispatch_stop==='CS-B');
+ check(document.activeElement===dialog.fields_dict.scan.$input.nodes[0],'Numbered customer selection returns scanner focus');
+ await view.scan('SITE-A');check(!view.controller.state.customerScan,'Wrong customer cannot replace selected scope under the same Plan name');
+ await view.scan('CFG:CMD:PREPARED_DELIVERY_CAMERA');camera.options.on_scan({decodedText:'SITE-B'});
+ await until(()=>view.controller.state.customerScan==='SITE-B');check(!dialog.button.disabled,'Correct Site camera scan enables confirmation');
+ fail=true;dialog.button.click();await until(()=>view.controller.state.message.includes('Lost response'));
+ const first=calls.filter(r=>r.name==='start_prepared_delivery').at(-1).args;
+ check(first.customer_dispatch_stop==='CS-B','Prepared request carries exact customer scope');
+ await view.scan('CFG:SELECT:1');check(view.controller.state.plan.customer_dispatch_stop==='CS-B','An uncertain action prevents changing customer');
+ fail=false;await view.scan('CFG:CMD:CONFIRM');const last=calls.filter(r=>r.name==='start_prepared_delivery').at(-1).args;
+ check(JSON.stringify(first)===JSON.stringify(last),'Retry retains customer scope and event identity');
+ check(success.length===1 && success[0].customer_dispatch_stop==='CS-B','Exactly one recorded customer result is opened');
+ check(!('qty' in last),'Warehouse quantities stay authoritative without driver re-entry');
+ const next=await launch();await next.scan('CFG:SELECT:1');await next.scan('SITE-A');await next.scan('CFG:CMD:CANCEL');
+ check(dialog.el.hidden,'Scanner Cancel safely closes the unused customer selection');
+ return {checks:checks.length,passed:checks};
+};
+</script>

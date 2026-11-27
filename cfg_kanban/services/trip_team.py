@@ -111,7 +111,12 @@ def can_access_delivery(operator, delivery):
     if not any(r.responsibility == 'Customer Delivery' for r in operator.get('responsibilities') or []):return False
     from cfg_kanban.services.dispatch_planning import _assert_plan_authorized
     _assert_plan_authorized(plan,operator)
-    if delivery.get('route_stop'):
+    if delivery.get('customer_dispatch_stop'):
+        if not plan.get('consolidated_customer_orders'):return False
+        source=_read('CFG Kanban Route Stop',delivery.customer_dispatch_stop)
+        if source.dispatch_plan!=plan.name or source.office_delivery_trip!=trip.name or source.delivery_session!=delivery.name:return False
+        key=source.office_stop_key
+    elif delivery.get('route_stop'):
         if trip.get('open_route_plan') != plan.name:return False
         source = _read('CFG Kanban Route Stop',delivery.route_stop)
         if source.dispatch_plan != plan.name or source.delivery_session != delivery.name:return False

@@ -34,6 +34,7 @@
   "plans_tab",
   "dispatch_plans",
   "auto_generate_dispatch",
+  "consolidated_customer_orders",
   "dispatch_profile",
   "open_route_profile",
   "route_stock",
@@ -453,7 +454,14 @@
   {"fieldname":"follow_on_setup","fieldtype":"HTML","label":"Follow-on Setup"},
   {"fieldname":"follow_on_key","fieldtype":"Data","label":"Follow-on Source Key","read_only":1,"hidden":1,"unique":1},
   {"fieldname":"follow_on_request_key","fieldtype":"Data","label":"Follow-on Request Key","read_only":1,"hidden":1,"unique":1},
-  {"fieldname":"follow_on_snapshot_json","fieldtype":"Code","options":"JSON","label":"Confirmed Follow-on Receipt","read_only":1}
+  {"fieldname":"follow_on_snapshot_json","fieldtype":"Code","options":"JSON","label":"Confirmed Follow-on Receipt","read_only":1},
+  {
+   "fieldname": "consolidated_customer_orders",
+   "label": "Consolidated Customer Orders",
+   "fieldtype": "Check",
+   "default": "0",
+   "description": "Generate one Customer Order Dispatch Plan for this Trip. Exact customer stops and Sales Order rows retain their own allocations and Delivery Notes. Select before generating dispatch work."
+  }
  ],
  "autoname": "KTRIP-.YYYY.-.#####",
  "title_field": "trip_title",

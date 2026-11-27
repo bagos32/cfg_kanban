@@ -10,7 +10,8 @@
   "stop_sequence",
   "sales_order",
   "plan_state",
-  "vehicle_warehouse"
+  "vehicle_warehouse",
+  "consolidated_customer_orders"
  ],
  "fields": [
   {
@@ -20,7 +21,7 @@
    "options": "CFG Kanban Dispatch Plan",
    "reqd": 1,
    "in_list_view": 1,
-   "columns": 5
+   "columns": 4
   },
   {
    "fieldname": "stop_key",
@@ -33,9 +34,10 @@
    "fieldname": "stop_sequence",
    "label": "Stop No.",
    "fieldtype": "Int",
-   "reqd": 1,
+   "reqd": 0,
    "in_list_view": 1,
-   "columns": 1
+   "columns": 1,
+   "mandatory_depends_on": "eval:!doc.consolidated_customer_orders"
   },
   {
    "fieldname": "sales_order",
@@ -50,7 +52,7 @@
    "fieldtype": "Data",
    "read_only": 1,
    "in_list_view": 1,
-   "columns": 4
+   "columns": 3
   },
   {
    "fieldname": "vehicle_warehouse",
@@ -58,6 +60,14 @@
    "fieldtype": "Link",
    "read_only": 1,
    "options": "Warehouse"
+  },
+  {
+   "fieldname": "consolidated_customer_orders",
+   "label": "All Customer Stops",
+   "fieldtype": "Check",
+   "default": "0",
+   "read_only": 1,
+   "in_list_view": 1
   }
  ],
  "istable": 1

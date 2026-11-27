@@ -109,6 +109,8 @@ The office no longer needs to prepare separate Plans before assigning the Trip:
 
 - Each exact **Sales Order + customer stop** creates one linked Customer Order Plan, limited to
   this Trip's assigned SO rows and quantities. Repeated Items on different SO rows remain distinct.
+  This remains the default. The optional **Consolidated Customer Orders** setting described below
+  creates one Customer Order Plan for the whole Trip instead.
 - All **Visit Only** stops with a Customer Site share **one Open Route Plan**. Extra goods become
   its warehouse preparation lines. Warehouse staff reserve, select the actual lorry and load them
   through existing E3 controls, alongside the customer orders.
@@ -123,6 +125,58 @@ Repeated saved planning reuses the same requests/visits. **Generate / Refresh Di
 on a saved, clean Draft or Planned Trip, before execution. Unused changes replace requests while
 retaining cancelled history. Reservations/loading/route approval freeze the sources; use existing
 controlled release/cancellation/reconciliation after execution begins. Keep loaded stock unchanged.
+
+### Consolidated Customer Orders — 27 November 2026
+
+On a new **CFG Kanban Delivery Trip**, enable **Generate Dispatch on Mark Planned** and
+**Consolidated Customer Orders** in the dispatch preparation section before generating any Plans.
+Save the Draft, assign the Sales Orders to their exact customer stops, then generate or Mark Planned.
+The linked Plan row shows **All Customer Stops** rather than a single stop number. Leave the
+checkbox clear for the existing one-Plan-per-Sales-Order-and-stop behavior. Generated history cannot
+be regrouped by changing the checkbox, including after its links have been removed.
+
+The consolidated request has one Company, Customer Order Dispatch Profile, loading source Warehouse
+and eventual lorry. Use a Profile suitable for every assigned customer; a Profile restricted to one
+Customer Site cannot authorize other Sites. Stock remains separated by the exact stop, Sales Order
+and Sales Order item row. Repeated SKUs and different order prices do not merge their demand rows.
+If several Sales Orders belong to one stop, their currency/conversion, Price List and Project must
+match for one Delivery Note; use separate planning when those header contexts differ.
+
+Warehouse staff open the single Plan in Kanban Logistics. Each picking line identifies its Customer,
+Site and Sales Order. Select the intended line before scanning its Stock Tag or reserving its exact
+untagged quantity. A whole tag cannot be reserved for two customers; use the existing partial packing
+workflow and **Pack Loose Tag**, selecting the exact customer stop, when breaking bulk. Each box
+retains its own customer and line trace. One lorry claim and one normal loading Manifest cover the
+consolidated request; LIFO instructions still show the customer delivery sequence. Other shared
+Open Route extra goods remain on the separate existing Open Route Plan.
+
+The driver uses the existing route and stop screen. **Begin Delivery** lists only this stop's prepared
+goods. Normal delivery, accepted/refused quantities and reasons, proof and **Complete Stop** still
+apply. Each customer has a separate Delivery Session and Delivery Note. Printed documents and
+assistant access follow that exact Session. Completing the first customer leaves later customers'
+goods committed; old-return pickups keep their existing Return Case/QC workflow. All customers on
+this Plan share one E5 review at the end, with delivered, refused, released and remaining quantities
+retained per source allocation.
+
+For changes, cancel an unused Loose Tag to unpack its own lines back to their original sources.
+Supervisor stop cancellation releases only that customer's unused reservations. If an unused lorry
+claim must be released, its shared loading confirmations are reset and must be confirmed again on
+the new claim. ERP work already started must use the existing E3 recovery gates first. Loaded goods
+remain physically on the lorry: the Supervisor chooses return hold or same-trip release for the
+cancelled customer's sources only. Other customer deliveries and the posted loading evidence stay
+intact. Held goods still require controlled E5 recovery. Confirmed follow-on/carry-in Trips retain
+their existing planning mode and stock handover; this setting does not regroup their history.
+
+Permissions and scanner commands are unchanged: office editor/source-document access for setup;
+dispatch responsibility and Start for picking/loading; assigned driver/team plus Customer Delivery
+for fulfilment; authorized Supervisor for cancellation/release; Logistics Reconciliation for E5.
+From **Start Prepared Customer Delivery**, scan the Plan or Customer Site, use `CFG:SELECT:1` through
+`CFG:SELECT:10` when customer scopes are listed, scan the exact Site, then `CFG:CMD:CONFIRM`.
+`CFG:CMD:PREPARED_DELIVERY_CAMERA`, choice paging and `CFG:CMD:CANCEL` remain available. An uncertain
+request retains its original customer scope and token; resume/reconcile it rather than changing it.
+
+Run [the consolidated acceptance checklist](TEST_CONSOLIDATED_CUSTOMER_ORDERS.md) after migration.
+Offline checks do not establish native ERPNext, concurrency, scanner, tablet or printer acceptance.
 
 If dispatch was generated while the Trip was still Draft, reload the Trip and use **Planning
 Status → Mark Planned**. Saving the unchanged generated links and generation time is supported;

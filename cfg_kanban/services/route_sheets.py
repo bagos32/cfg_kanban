@@ -183,7 +183,10 @@ def _site(name,plan):
         frappe.throw('Every route stop must use an active Customer Site in this Company')
     if frappe.db.get_value('Customer',site.customer,'disabled'):
         frappe.throw('Route stop Customer is disabled')
-    if plan.plan_type=='Customer Order':
+    if plan.get('consolidated_customer_orders'):
+        matches=[r for r in _routes()._stops(plan) if r.customer_scan_point==site.name and r.state not in ('Cancelled','Skipped')]
+        if not matches:frappe.throw('Customer Site is outside this consolidated customer demand')
+    elif plan.plan_type=='Customer Order':
         if plan.customer_site!=site.name or plan.customer!=site.customer or plan.customer_address!=site.customer_address:
             frappe.throw('Customer Order stop must match its assigned Customer and address')
     else:_routes()._assert_site_scope(plan,site)
@@ -321,7 +324,7 @@ def _normal_rows(rows,plans):
         identity=str(raw.get('row_key') or '').strip()
         if not identity or identity in seen:frappe.throw('Every stop needs a distinct stable row identity')
         seen.add(identity);site=_site(raw.get('customer_scan_point'),plan)
-        if plan.plan_type=='Customer Order' and plan.name in covered:
+        if plan.plan_type=='Customer Order' and not plan.get('consolidated_customer_orders') and plan.name in covered:
             frappe.throw('A Customer Order Plan has one prepared customer delivery; include it once')
         covered.add(plan.name)
         result.append(dict(row_key=identity,dispatch_plan=plan.name,customer_scan_point=site.name,
@@ -349,7 +352,7 @@ def _approve(sheet,plans,operator):
     assigned={};used=set()
     for row in sheet.stops:
         plan=by_plan[row.dispatch_plan]
-        if plan.plan_type!='Open Route Stock':continue
+        if plan.plan_type!='Open Route Stock' and not plan.get('consolidated_customer_orders'):continue
         existing=[stop for stop in _routes()._stops(plan,current=True) if stop.state=='Planned'
                   and stop.customer_scan_point==row.customer_scan_point and stop.name not in used
                   and (not row.source_route_stop or row.source_route_stop==stop.name)]
@@ -357,12 +360,13 @@ def _approve(sheet,plans,operator):
         if existing:
             stop=frappe.get_doc('CFG Kanban Route Stop',existing[0].name,for_update=True)
         else:
+            if plan.get('consolidated_customer_orders'):frappe.throw('Retain the exact saved consolidated customer scope')
             site=_site(row.customer_scan_point,plan)
             stop=_routes()._new_stop(plan,site,operator,canonical_key('route-sheet-stop',sheet.name,row.row_key))
         used.add(stop.name);assigned.setdefault(plan.name,[]).append(stop)
         row.source_route_stop=stop.name
     for plan in plans:
-        if plan.plan_type!='Open Route Stock':continue
+        if plan.plan_type!='Open Route Stock' and not plan.get('consolidated_customer_orders'):continue
         old=[row for row in _routes()._stops(plan,current=True) if row.state=='Planned']
         if any(row.name not in used for row in old):
             frappe.throw('Existing planned visits are outside this route; explicitly skip them before approving a replacement')
@@ -598,7 +602,7 @@ def start_route_sheet_stop(route_sheet,row_key,event_token,operator_session_toke
     assert_visit_allowed(plan,site.name,source.name if source else None)
     if not _route_ready(plan):frappe.throw('The assigned Plan must be Loaded before a customer visit starts')
     if plan.plan_type=='Customer Order':
-        delivery=_fulfilment().start_prepared_delivery(plan.name,site.site_code,key,operator_session_token)
+        delivery=_fulfilment().start_prepared_delivery(plan.name,site.site_code,key,operator_session_token,**({'customer_dispatch_stop':source.name} if plan.get('consolidated_customer_orders') and source else {}))
     else:
         if not source or source.state not in ('Planned','In Progress','Delivery Note Pending','Delivered'):
             frappe.throw('This route visit needs Supervisor recovery before starting')
@@ -689,11 +693,14 @@ def _office_trip_seeds(plans):
     names={r.name for r in plans};seeds=[]
     by_stop={}
     for link in trip.dispatch_plans:
-        if link.dispatch_plan in names:by_stop.setdefault(link.stop_key,[]).append(link.dispatch_plan)
+        if link.dispatch_plan in names and not next(p for p in plans if p.name==link.dispatch_plan).get('consolidated_customer_orders'):by_stop.setdefault(link.stop_key,[]).append(link.dispatch_plan)
     native={}
+    for plan in plans:
+        if plan.get('consolidated_customer_orders'):
+            native.update({r.office_stop_key:r for r in _routes()._stops(plan) if r.state=='Planned'})
     if trip.get('open_route_plan') in names:
         pool=next(r for r in plans if r.name==trip.open_route_plan)
-        native={r.office_stop_key:r for r in _routes()._stops(pool) if r.state=='Planned'}
+        native.update({r.office_stop_key:r for r in _routes()._stops(pool) if r.state=='Planned'})
     for stop in trip.stops:
         for name in by_stop.get(stop.stop_key,[]):
             seeds.append(dict(dispatch_plan=name,customer_scan_point=stop.customer_scan_point,instructions=stop.instructions or ''))

@@ -275,7 +275,7 @@ def _scanner_command_catalog(quantity_steps=None):
             ("Delivery: Previous ERP Input Row", "CFG:CMD:DELIVERY_PREVIOUS_ROW", ""),
             ("Delivery: Main Input Fields", "CFG:CMD:DELIVERY_INPUTS", ""),
             ("Delivery: Scan with Camera", "CFG:CMD:DELIVERY_CAMERA", ""),
-            ("Start Prepared Customer Delivery", "CFG:CMD:START_PREPARED_DELIVERY", ""),
+            ("Start Prepared Customer Delivery", "CFG:CMD:START_PREPARED_DELIVERY", "Select the exact customer scope when a consolidated Plan covers several stops."),
             ("Prepared Delivery: Scan Another Source", "CFG:CMD:PREPARED_DELIVERY_SOURCE", ""),
             ("Prepared Delivery: Scan with Camera", "CFG:CMD:PREPARED_DELIVERY_CAMERA", ""),
             ("Repack: Scan with Camera", "CFG:CMD:REPACK_CAMERA", ""),

@@ -87,20 +87,24 @@ def _scope(name, operator, warehouse=False, stop_key=None, choose=False):
     if plan.office_delivery_trip != trip.name:
         frappe.throw('Dispatch Plan Trip changed; refresh before packing')
     shared = plan.plan_type == 'Open Route Stock' and trip.get('open_route_plan') == plan.name
-    target = stop_key if shared else plan.get('office_stop_key')
+    consolidated=bool(plan.get('consolidated_customer_orders'))
+    target = stop_key if shared or consolidated else plan.get('office_stop_key')
+    if consolidated and target:
+        from cfg_kanban.services.consolidated_dispatch import scoped
+        plan=scoped(plan,target,current=True)
     if not shared and stop_key and stop_key != target:
         frappe.throw('Select the exact customer stop assigned to this Dispatch Plan')
     stop = next((r for r in trip.stops if r.stop_key == target), None)
     if (trip.state not in ('Draft','Planned') or plan.fulfilment_mode != 'Vehicle Delivery'
             or plan.company != trip.company or plan.get('stop_cancellation')):
         frappe.throw('Loose Tags require an active office Trip / Vehicle Delivery Plan')
-    if shared and choose and not target:
+    if (shared or consolidated) and choose and not target:
         stop = None
     elif (not stop or stop.get('cancellation_request')
             or (shared and stop.stop_purpose != 'Visit Only')
             or (not shared and (stop.stop_purpose != 'Delivery' or plan.plan_type != 'Customer Order'
                 or plan.customer != stop.customer or plan.customer_site != stop.customer_scan_point
-                or plan.name not in {r.dispatch_plan for r in trip.dispatch_plans if r.stop_key == stop.stop_key}))):
+                or plan.name not in {r.dispatch_plan for r in trip.dispatch_plans if consolidated or r.stop_key == stop.stop_key}))):
         frappe.throw('Select the exact active customer stop for this customer Plan or shared Open Route pool')
     frappe.get_doc('Company', plan.company).check_permission('read')
     frappe.get_doc('Warehouse', plan.source_warehouse).check_permission('read')
@@ -145,7 +149,7 @@ def packing_context(dispatch_plan, operator_session_token, source_scan=None, sto
     if not stop:
         return dict(dispatch_plan=plan.name, delivery_trip=trip.name, stops=[dict(stop_key=r.stop_key,
             customer=r.customer, site_name=r.site_name or r.customer) for r in trip.stops
-            if r.stop_purpose == 'Visit Only' and not r.get('cancellation_request')])
+            if r.stop_purpose == ('Delivery' if plan.get('consolidated_customer_orders') else 'Visit Only') and not r.get('cancellation_request')])
     _planning()._current_reservation_lines(plan)
     rows = []
     unit = _source(source_scan) if source_scan else None
@@ -247,7 +251,7 @@ def create_loose_tag(dispatch_plan, lines, event_token, operator_session_token, 
                 frappe.throw('The packed line has no confirmed Dispatch reservation')
             row.db_set(dict(handling_unit=fill.name, dispatch_allocation=allocation, split_ledger=ledger.name), update_modified=False)
         doc.db_set(dict(state='Ready', qr_payload=PREFIX + doc.name), update_modified=True)
-        plan.db_set('has_loose_tags', 1, update_modified=False)
+        (plan.root if plan.get('consolidated_customer_orders') else plan).db_set('has_loose_tags', 1, update_modified=False)
         _audit(doc, 'Loose Tag Packed', operator, session, key)
         doc.reload()
         return _result(doc)
@@ -396,11 +400,17 @@ def guard_release(allocation, plan):
 
 
 def packs_for_plan(plan, stop_key=None):
+    if plan.get('consolidated_customer_orders') and plan.get('office_stop_key'):stop_key=stop_key or plan.office_stop_key
     return [frappe.get_doc(PACK, r.name) for r in frappe.get_all(PACK,
         filters={'dispatch_plan':plan.name,'state':['!=','Cancelled'], **({'stop_key':stop_key} if stop_key else {})}, fields=['name'], order_by='creation asc', limit_page_length=0)]
 
 
 def _validate_lines(doc, plan, state='Loaded'):
+    if plan.get('consolidated_customer_orders'):
+        from cfg_kanban.services.consolidated_dispatch import scoped
+        if plan.get('office_stop_key') and doc.stop_key!=plan.office_stop_key:
+            frappe.throw('Loose Tag belongs to another consolidated customer stop')
+        plan=scoped(plan,doc.stop_key,current=True)
     if doc.state in ('Cancelled','Processed','In Delivery'):
         frappe.throw('This Loose Tag has already been processed or cancelled; view its recorded result')
     if doc.dispatch_plan != plan.name or doc.company != plan.company or (plan.plan_type == 'Customer Order' and doc.customer != plan.customer):

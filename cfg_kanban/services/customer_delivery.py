@@ -689,7 +689,7 @@ def _customer_delivery_payload(delivery, required_erp_inputs=None):
             "batch_no": row.batch_no,
             "uom": row.stock_uom,
             "qty": row.allocated_qty,
-            "rate": 0 if delivery.get("sales_order") else price_list_rate(
+            "rate": 0 if delivery.get("sales_order") or delivery.get("customer_dispatch_stop") else price_list_rate(
                 delivery.price_list, row.item_code, row.stock_uom,
                 row.batch_no, "selling", delivery.customer,
             ),

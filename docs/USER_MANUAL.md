@@ -6684,3 +6684,33 @@ Delivery Note recovery controls.
 
 If the Batch input is armed after Item selection, scan `CFG:CMD:ROUTE_SOURCE` to return to
 physical-source scanning before scanning a reusable container.
+
+## Consolidated Customer Orders on an Office Delivery Trip
+
+For a new Trip, select **Generate Dispatch on Mark Planned → Consolidated Customer Orders** before
+generating dispatch work. This optional checkbox defaults off. It creates one Customer Order
+Dispatch Plan and one normal loading Manifest for the Trip's customer demand. The linked Plan
+covers **All Customer Stops**. Existing Trips and confirmed carry-in history keep their original mode.
+
+Each picking row retains its Customer, Site, exact Sales Order row and stock UOM quantity. Select
+that customer line before reserving tagged or untagged stock. **Pack Loose Tag** asks for its exact
+customer stop; one box QR still carries multiple SKU/Batch lines for that customer. LIFO loading
+instructions retain the delivery sequence. Optional Open Route stock keeps its existing shared pool.
+
+At delivery, the existing stop screen opens only that customer's sources and creates its own
+Delivery Note and proof. Refusals remain on that customer's outcome. Completing one stop cannot
+release another customer's goods. When several orders share a stop, their currency/conversion,
+Price List and Project must match; line prices and UOM conversions retain their exact order values.
+Normal Company, document, responsibility, driver/team, Site QR and sequence permissions remain.
+
+An unused pack can be undone. Supervisor stop cancellation releases only its unused demand or
+places its loaded stock into the selected return hold/same-trip release workflow. A shared unused
+lorry claim may require fresh physical loading confirmation. Posted loading history is retained.
+The consolidated Plan has one E5 review covering all customer sources; held/cancelled/refused
+quantities must be reconciled through the existing controls.
+
+Scanner entry uses the existing `CFG:CMD:START_PREPARED_DELIVERY`, exact numbered customer scope,
+Site scan and `CFG:CMD:CONFIRM`. Camera, paging and safe Cancel remain available. Unknown outcomes
+retain their original request. See [setup, warehouse, driver and recovery steps](USER_GUIDE_OFFICE_DELIVERY_TRIP.md#consolidated-customer-orders--27-november-2026)
+and [site acceptance](TEST_CONSOLIDATED_CUSTOMER_ORDERS.md). Schema migration and an asset build are
+required; native-site acceptance is pending.
