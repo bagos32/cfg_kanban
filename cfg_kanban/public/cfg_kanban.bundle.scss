@@ -1,0 +1,3 @@
+// Inline before Frappe's PostCSS plugin relocates the compiled entry.
+// Omit .css so Sass includes the file instead of retaining a CSS @import.
+@import "./css/kanban_operator";

@@ -34,6 +34,7 @@ installed in the offline environment; service bodies run against explicit DB/doc
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest cfg_kanban.tests.test_delivery_product_scans cfg_kanban.tests.test_dispatch_fulfilment cfg_kanban.tests.test_route_delivery cfg_kanban.tests.test_warehouse_fulfilment cfg_kanban.tests.test_driver_route_actions cfg_kanban.tests.test_trip_sales cfg_kanban.tests.test_loose_tags cfg_kanban.tests.test_trip_handover cfg_kanban.tests.test_mobile_printing cfg_kanban.tests.test_doctype_schema
 node --test cfg_kanban/tests/test_field_ui.cjs cfg_kanban/tests/test_delivery_product_checks.cjs cfg_kanban/tests/test_office_delivery_trip_ui.cjs cfg_kanban/tests/test_trip_handover_ui.cjs cfg_kanban/tests/test_driver_route_ui.cjs cfg_kanban/tests/test_driver_route_actions_ui.cjs cfg_kanban/tests/test_mobile_print_bridge.cjs cfg_kanban/tests/test_dispatch_fulfilment_ui.cjs cfg_kanban/tests/test_route_delivery_ui.cjs cfg_kanban/tests/test_warehouse_fulfilment_ui.cjs
+node --test cfg_kanban/tests/test_frappe_asset_build.cjs
 node cfg_kanban/tests/run_driver_field_browser.mjs
 CFG_FIELD_INCOGNITO=1 node cfg_kanban/tests/run_driver_field_browser.mjs
 CFG_BROWSER=firefox node cfg_kanban/tests/run_driver_field_browser.mjs
@@ -45,11 +46,14 @@ node cfg_kanban/tests/run_trip_handover_browser.mjs
 `CFG_FIELD_WIDTH=320`, `768` or `1280` selects the isolated Chrome viewport for the field fixture.
 The fixtures have no real stock, ERPNext site, printer, hardware camera or physical scanner.
 
-The field runner builds the CSS entry with esbuild before opening the fixture. It defaults to the
-sibling Frappe app's `node_modules/.bin/esbuild`; set `CFG_ESBUILD` to an existing compatible
-esbuild executable if running outside a Bench. It does not install dependencies or write generated
-bundles into the repository. Generated CSS and isolated browser profiles remain in the temporary
-test directory. `CFG_FIELD_SCREENSHOT` optionally captures the compact headers in Chrome.
+The field runner builds the Sass entry through Frappe's actual PostCSS plugin before opening the
+fixture. It defaults to build dependencies already installed in the sibling Frappe app's
+`node_modules`; set `CFG_FRAPPE_NODE_MODULES` to an existing compatible dependency folder outside a
+Bench. The separate build regression covers both normal and RTL output; it explicitly skips when
+those tools are absent. The JS entry uses the sibling Frappe `node_modules/.bin/esbuild`, or an
+existing `CFG_ESBUILD` executable. Neither test installs dependencies or writes generated bundles
+into the repository. Generated assets and isolated browser profiles remain in temporary test
+directories. `CFG_FIELD_SCREENSHOT` optionally captures the compact headers in Chrome.
 
 Service coverage includes wrong-customer identity, expired/moved/unreleased sources, exact
 untagged quantity and Item, immutable source/quantity evidence, explicit Session permissions,
@@ -152,8 +156,8 @@ same fixture. Both contexts are temporary and connect only to localhost. This ve
 storage separation and client rendering, not real ERPNext login or delivery. The installed test
 browser is headless Chrome 158; the reported Chrome 157 and other PC still need native acceptance.
 Chrome documents separate temporary site data in [Incognito Help](https://support.google.com/chrome/answer/95464).
-The compiler is esbuild 0.14.54 within Frappe v15's declared range; the complete Bench/PostCSS/RTL
-build pipeline is not available offline.
+Those original checks used plain esbuild 0.14.54; they did not exercise the PostCSS/RTL pipeline.
+The native-plugin regression and corrected entry below supersede that build coverage.
 
 Native acceptance remains **Not run**: after the owner's normal `bench build --app cfg_kanban`,
 confirm that `sites/assets/assets.json` maps both bundle names to real hashed URLs and Desk/page
@@ -168,6 +172,38 @@ in a real off-the-record Chrome context at 768 pixels, and Firefox at 1366 pixel
 reported Chrome 158 / Firefox 153. **80 Node tests** and **15 Python contract/live-refresh tests**
 passed. Both CSS/JS entry points compiled with esbuild; the native hook keys and all shared-helper
 page loaders select their hashed entries. No live Trip, stock, delivery or operator session changed.
+
+## Follow-up: native PostCSS asset build failure — 28 November 2026
+
+The owner pulled `062ff1e` and migration completed, but the stylesheet build failed for both normal
+and RTL output. Frappe's PostCSS plugin moved the plain `.bundle.css` entry into a temporary
+directory before esbuild resolved its relative CSS import. The imported stylesheet did not exist
+at that temporary path. Plain esbuild checks had missed this difference. The outdated Browserslist
+notice was unrelated; no dependency or Frappe/ERPNext upgrade is required for this correction.
+
+Replace only the CSS entry with `cfg_kanban/public/cfg_kanban.bundle.scss`, importing
+`./css/kanban_operator` without a `.css` extension. Sass then inlines the original stylesheet
+before PostCSS relocation. The original CSS remains the single style source. The public hook,
+runtime loader and asset-manifest key remain **cfg_kanban.bundle.css**; both source entries must
+not coexist. No schema, permission or stock-data change is involved.
+
+`frappe_asset_build.cjs` shares the real native plugin build with the field browser runner.
+`test_frappe_asset_build.cjs` reproduces the reported temporary-path failure, builds the actual
+replacement entry in both directions, checks the hook/manifest keys and selectors, and verifies
+that editing the imported CSS changes the compiled URL. Tool versions used here match the
+v15.69.2 lockfile: esbuild 0.14.54, Sass 1.69.5, PostCSS 8.4.31, Autoprefixer 10.4.16, rtlcss 4.1.1
+and `@frappe/esbuild-plugin-postcss2` 0.1.3. Temporary local test dependencies do not change the
+app's requirements or server dependencies. Sources: the native build references above and
+[Sass options](https://github.com/frappe/frappe/blob/v15.69.2/esbuild/sass_options.js).
+
+Recorded offline results: **83 Node tests passed**, including all three native-build regressions
+with none skipped; **15 Python contract/live-refresh tests passed**. The field fixture passed
+**52 checks per run** against the native-compiled styles in Chrome 158 (900 pixels), a fresh Chrome
+off-the-record context (768 pixels), and Firefox 153 (1366 pixels). These checks use only localhost
+test data. The complete Bench command, deployed asset manifest and the affected real browsers
+remain owner-run acceptance: **Not run**. After committing/pushing, pull the fix and rerun the CFG
+asset build, cache clear and restart; stop the command sequence if the build fails. Existing
+native acceptance rows remain open.
 
 ## Follow-up: native headers, menu stacking, Plan choices and custody auto print
 

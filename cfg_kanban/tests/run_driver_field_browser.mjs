@@ -5,6 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import assetBuild from './frappe_asset_build.cjs';
 const repo=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const chrome=process.env.CFG_CHROME||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const mode=process.env.CFG_BROWSER||'chrome';
@@ -18,19 +19,17 @@ const legacyStyle='/assets/cfg_kanban/css/kanban_operator.css';
 async function buildStyles(folder){
  const input=path.join(folder,'public'),out=path.join(folder,'dist/css'),meta=path.join(folder,'styles-meta.json');
  await fs.mkdir(path.join(input,'css'),{recursive:true});
- await fs.writeFile(path.join(input,'cfg_kanban.bundle.css'),await fs.readFile(path.join(repo,'cfg_kanban/public/cfg_kanban.bundle.css')));
+ await fs.writeFile(path.join(input,'cfg_kanban.bundle.scss'),await fs.readFile(path.join(repo,'cfg_kanban/public/cfg_kanban.bundle.scss')));
  const source=await fs.readFile(path.join(repo,'cfg_kanban/public/css/kanban_operator.css'),'utf8');
  const split=source.indexOf('.cfg-panel-switch {');if(split<0)throw new Error('Missing field switch CSS regression boundary.');
  const oldCSS=source.slice(0,split);styles.set(legacyStyle,Buffer.from(oldCSS));
  async function compile(css){
   await fs.writeFile(path.join(input,'css/kanban_operator.css'),css);
-  const result=spawnSync(esbuild,[path.join(input,'cfg_kanban.bundle.css'),'--bundle','--minify','--target=es2017','--sourcemap','--entry-names=[name].[hash]','--outdir='+out,'--metafile='+meta],{encoding:'utf8'});
-  if(result.error||result.status!==0)throw new Error('Set CFG_ESBUILD to a Frappe-compatible esbuild executable. '+(result.error?.message||result.stderr));
-  const build=JSON.parse(await fs.readFile(meta,'utf8'));
-  if(!Object.keys(build.inputs).some(file=>file.endsWith('css/kanban_operator.css')))throw new Error('Bundle omitted its imported CFG stylesheet.');
-  const output=Object.keys(build.outputs).find(file=>build.outputs[file].entryPoint&&file.endsWith('.css'));
-  if(!output)throw new Error('No compiled CFG CSS output.');
-  const url='/assets/cfg_kanban/dist/css/'+path.basename(output);styles.set(url,await fs.readFile(output));return url;
+  const build=await assetBuild.buildStyle({entryPoint:path.join(input,'cfg_kanban.bundle.scss'),outdir:out});
+  const asset=build.assets.find(row=>row.key==='cfg_kanban.bundle.css');
+  if(!asset)throw new Error('Native CSS manifest key changed.');
+  const output=await fs.readFile(asset.file);if(output.toString().includes('@import'))throw new Error('Bundle still contains an unresolved CSS import.');
+  const url='/assets/cfg_kanban/dist/css/'+path.basename(asset.file);styles.set(url,output);return url;
  }
  previousStyle=await compile(oldCSS);currentStyle=await compile(source);
  if(previousStyle===currentStyle)throw new Error('Changed imported CSS reused the previous bundle URL.');

@@ -6896,6 +6896,13 @@ avoids mixing a newer Page with the older DOM-parent helper that throws `createD
 After updating, run the normal CFG asset build and cache clear/restart, then reload Desk. The raw
 CSS/JS remain build inputs. No schema or stock-data change is required for this loading correction.
 
+The stylesheet source entry is **cfg_kanban.bundle.scss**. It inlines the existing CSS before
+Frappe's PostCSS stage; its published bundle name remains **cfg_kanban.bundle.css**. If updating
+from `062ff1e`, pull the corrected entry before retrying a build that reports a temporary-path
+`kanban_operator.css` error. This fix requires no dependency or Frappe/ERPNext update. Finish the
+asset build successfully before cache clearing/restarting; the Browserslist warning is separate
+from that missing-file error.
+
 Incognito uses a separate temporary browser session; operator identification and remembered Trip
 data do not carry over from the normal window. Its site data is removed when that private session
 ends ([Chrome Help](https://support.google.com/chrome/answer/95464)). The field pages must still open
