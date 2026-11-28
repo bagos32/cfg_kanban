@@ -24,7 +24,7 @@
   {"fieldname":"asset","label":"Asset","fieldtype":"Link","options":"Asset","in_standard_filter":1},
   {"fieldname":"location","label":"Location","fieldtype":"Data","in_standard_filter":1},
   {"fieldname":"checklist","label":"Checklist","fieldtype":"Small Text","description":"One checklist item per line."},
-  {"fieldname":"task_field_definitions","label":"Dynamic Form Fields","fieldtype":"Table","options":"CFG Kanban Field Definition","description":"Use Applies To = Standalone Task."},
+  {"fieldname":"task_field_definitions","allow_bulk_edit":1,"label":"Dynamic Form Fields","fieldtype":"Table","options":"CFG Kanban Field Definition","description":"Use Applies To = Standalone Task."},
   {"fieldname":"require_supervisor_verification","label":"Require Supervisor Verification","fieldtype":"Check"},
   {"fieldname":"doctype_action_section","label":"Optional DocType Action","fieldtype":"Section Break","collapsible":1,"description":"Bind one validated Action Profile to each generated task occurrence. Leave blank for a normal Service Task."},
   {"fieldname":"doctype_action_profile","label":"DocType Action Profile","fieldtype":"Link","options":"CFG Kanban DocType Action Profile","permlevel":1,"description":"Optional validated profile. Every generated task snapshots this selection so later schedule changes do not alter open occurrences."},

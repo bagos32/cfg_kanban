@@ -3562,6 +3562,34 @@ reacts immediately when the controlling value changes. Unknown Field Keys, cross
 self-references, dependency cycles, and unsupported expressions are rejected when the Schedule or
 Master is saved.
 
+#### Copy dynamic field settings with native Download / Upload
+
+Use ERPNext's standard child-table **Download** and **Upload** buttons at the bottom of:
+
+- **CFG Kanban Task Schedule → Dynamic Form Fields** (`task_field_definitions`).
+- **CFG Kanban Master → Operator Field Definitions** (`operator_field_definitions`, Production).
+
+1. Open the source Schedule or Master and click **Download** below the field-definition table.
+   The CSV contains the field settings, including Applies To, Field Key, label/type, Mandatory,
+   Capture On, options/default, numeric limits, display order and Visible Condition. It contains
+   definitions, not operators' recorded answers.
+2. Open the destination Schedule or Master, including a new unsaved form, and click **Upload**
+   below its field-definition table. Choose the downloaded CSV. Keep the template's preset header
+   rows and internal field names intact; values can be edited in a spreadsheet if needed.
+3. **Upload replaces all current rows in that destination table.** Download its current settings
+   first if they must be retained. The upload updates the form; review the rows before clicking
+   **Save**. Leave the form without saving to discard an unwanted import.
+4. For Schedule-to-Schedule copying, keep **Applies To = Standalone Task**. For Master-to-Master
+   copying, check that Operation and Process Task Key match the destination's configured route
+   and Process Task Profiles. Download/upload does not create those profiles or convert scopes.
+5. Save normally. Existing permissions and validation remain in force, including unique Field Keys,
+   valid operation/task references and visibility conditions within the same capture stage/scope.
+
+The buttons use the native **Allow Bulk Edit** Table option and CSV workflow. Upload is available
+only when the destination table is editable under the user's existing permissions. No separate
+configuration-import API or automatic save is used. Existing task answers and execution history
+are not copied or deleted by transferring the definitions.
+
 ### Sales-demand fields added to CFG Kanban Master
 
 These are Custom Fields installed by the app and therefore do not appear in the base Master JSON:
