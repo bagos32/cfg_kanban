@@ -10,8 +10,21 @@ When it is not yet due, the panel reports the next due time and does not create 
 
 The overlap policy is explicit:
 
-- **Prevent While Open** keeps one actionable occurrence until it is completed or disposed.
+- **Prevent While Open** keeps one actionable occurrence until it is completed or disposed, retaining
+  the overdue due time so a deferred task can appear after closure. This remains the default.
+- **Skipped While Open** drops missed occurrences and advances Next Due On along the original
+  interval/calendar cadence. It records the blocking Task, skipped count/range and next due time
+  as a **Scheduled Task Skipped While Open** event. Final completion, cancellation or bypass also
+  drops elapsed slots when the scheduler did not run during the overlap. Tasks awaiting verification,
+  correction or required document posting remain open. No placeholder Task or ERP document is created.
 - **Allow Parallel Occurrences** preserves every scheduled occurrence independently.
+
+Set the policy on the normal **CFG Kanban Task Schedule** form. An hourly schedule with a 09:00
+task still open until 11:20 skips 10:00/11:00 and next becomes eligible at 12:00. It does not queue
+replacement tasks for skipped slots or restart the interval from completion. Explicit manual requests
+resolve the existing open task. A permanent Service Point scan never generates a future occurrence.
+The hourly scheduler frequency is unchanged. See [Service Schedule overlap acceptance](TEST_SERVICE_SCHEDULE_OVERLAP.md)
+for the live-site procedure; offline tests do not establish scheduler or database-lock acceptance.
 
 Automatic schedules can use an ERPNext Holiday List. With **Skip Listed Holidays**, cron advances
 the recurrence and records a skip event without generating an occurrence. A Supervisor can also

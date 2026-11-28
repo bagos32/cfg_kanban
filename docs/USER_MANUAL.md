@@ -1381,9 +1381,26 @@ the next due time and does not create an early task.
 
 Use **Recurring Task Overlap Policy** deliberately:
 
-- **Prevent While Open** keeps one actionable occurrence until completed or disposed. This is the
-  normal choice for routine cleaning and maintenance.
+- **Prevent While Open** keeps one actionable occurrence until completed or disposed. Its overdue
+  Next Due On is retained, so the deferred occurrence may appear on the next scheduler run or
+  Service Point scan after closure. This remains the default.
+- **Skipped While Open** discards scheduled occurrences that fall while an older task is still open.
+  It advances Next Due On along the original interval/calendar cadence and records a
+  **Scheduled Task Skipped While Open** event against the Schedule and blocking Task. For example,
+  an hourly task generated at 09:00 and closed at 11:20 skips 10:00 and 11:00; the next task is due
+  at 12:00. Completion does not generate the skipped tasks or restart the interval from 11:20.
+  Final completion, cancellation and bypass also advance missed slots if the scheduler has not run
+  during the overlap. Awaiting Verification, Correction Required and Pending Document Posting still
+  count as open work until resolved. Existing measurement and task history is preserved.
 - **Allow Parallel Occurrences** preserves every scheduled occurrence independently.
+
+To enable the new behavior, open **CFG Kanban Task Schedule → Recurring Task Overlap Policy**,
+select **Skipped While Open**, and save. It applies to automatic Time Interval and Calendar
+Schedule recurrence. It creates no placeholder Task for a skipped slot. Authorized manual requests
+still resolve the existing open task instead of discarding the request. Already-generated tasks
+are not removed; use the existing authorized Cancel / Bypass action for an unwanted occurrence.
+Generation still runs on the hourly scheduler or a due Service Point scan, so Next Due On is an
+eligibility time rather than a promise of execution at the exact minute.
 
 For holidays, select **Skip Listed Holidays** and an ERPNext Holiday List. The scheduler advances
 the recurrence and records a skip event without creating the holiday occurrence. If an occurrence
@@ -3317,8 +3334,11 @@ access. The QR is optional; disabling it does not stop scheduled task generation
 
 Confirm the schedule is Active, Next Due On is reached, and the site scheduler is enabled and not
 paused. Review **Recurring Task Overlap Policy**: **Prevent While Open** intentionally suppresses a
-new occurrence while an older occurrence remains actionable. Also check whether **Skip Listed
-Holidays** matched the occurrence date.
+new occurrence while an older occurrence remains actionable, retaining its overdue due time.
+**Skipped While Open** instead drops those missed occurrences and advances Next Due On; check
+**CFG Kanban Event** for **Scheduled Task Skipped While Open**, including the blocking Task,
+skipped count, scheduled range and next due time. Also check whether **Skip Listed Holidays** matched
+the occurrence date.
 
 ### Timestamp or GPS does not appear on a photo
 

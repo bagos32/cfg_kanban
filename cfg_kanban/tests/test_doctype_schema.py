@@ -1834,6 +1834,9 @@ class TestDocTypeSchema(TestCase):
                          "require_supervisor_verification"}.issubset(schedule))
         self.assertTrue({"service_point_enabled", "service_point_code", "overlap_policy",
                          "holiday_policy", "holiday_list"}.issubset(schedule))
+        self.assertEqual(schedule["overlap_policy"]["options"].splitlines(),
+                         ["Prevent While Open", "Skipped While Open", "Allow Parallel Occurrences"])
+        self.assertEqual(schedule["overlap_policy"]["default"], "Prevent While Open")
         self.assertEqual(schedule["task_field_definitions"]["options"],
                          "CFG Kanban Field Definition")
         task = {row["fieldname"]: row for row in schemas["CFG Kanban Task"]["fields"]}

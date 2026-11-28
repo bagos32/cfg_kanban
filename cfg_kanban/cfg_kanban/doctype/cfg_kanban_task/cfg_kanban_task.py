@@ -1,8 +1,15 @@
 import frappe
 from frappe.model.document import Document
 
+from cfg_kanban.services.standalone_tasks import skip_schedule_on_task_close
+
 
 class CFGKanbanTask(Document):
+    def before_save(self):
+        # Native save already holds the Task lock. Generation defers busy Task
+        # rows; a failed close rolls the Schedule advance back with the Task.
+        skip_schedule_on_task_close(self)
+
     def before_validate(self):
         # Repair any in-memory legacy value before Frappe builds Version diffs.
         for row in self.execution_values:

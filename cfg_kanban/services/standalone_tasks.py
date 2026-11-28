@@ -23,6 +23,8 @@ from cfg_kanban.services.task_access import (
     can_view_service_task,
 )
 
+SKIP_WHILE_OPEN = "Skipped While Open"
+
 
 def generate_due_tasks():
     """Hourly scheduler entry; generates only standalone tasks, never manufacturing records."""
@@ -43,16 +45,40 @@ def generate_due_tasks():
 def create_from_schedule(schedule_name, scheduled_for=None, request_source=None,
                          generation_marker=None):
     schedule = frappe.get_doc("CFG Kanban Task Schedule", schedule_name)
+    if schedule.overlap_policy == SKIP_WHILE_OPEN:
+        # Serialize the scheduler, Service Point generation, and task closure.
+        schedule = frappe.get_doc("CFG Kanban Task Schedule", schedule_name, for_update=True)
     if not schedule.active:
         frappe.throw("This Task Schedule is inactive")
-    if (schedule.overlap_policy or "Prevent While Open") == "Prevent While Open":
+    automatic = (request_source in (None, "Schedule") and
+                 schedule.trigger_type in ("Time Interval", "Calendar Schedule"))
+    if schedule.overlap_policy == SKIP_WHILE_OPEN and automatic:
+        # A queued scheduler/scan may carry a due time that another request has
+        # already consumed. Always use the locked schedule's current due time.
+        scheduled_for = schedule.next_due_on
+        if not scheduled_for or get_datetime(scheduled_for) > now_datetime():
+            return None
+    if (schedule.overlap_policy or "Prevent While Open") in ("Prevent While Open", SKIP_WHILE_OPEN):
+        filters = {"task_schedule": schedule.name,
+                   "status": ["not in", ("Completed", "Cancelled", "Bypassed")]}
         open_name = frappe.db.get_value(
-            "CFG Kanban Task",
-            {"task_schedule": schedule.name,
-             "status": ["not in", ("Completed", "Cancelled")]},
+            "CFG Kanban Task", filters,
             "name", order_by="due_on asc, creation asc",
+            for_update=schedule.overlap_policy == SKIP_WHILE_OPEN,
+            skip_locked=schedule.overlap_policy == SKIP_WHILE_OPEN,
         )
+        if (not open_name and schedule.overlap_policy == SKIP_WHILE_OPEN
+                and frappe.db.get_value("CFG Kanban Task", filters, "name")):
+            # Native Task.save locks the Task before its close hook locks the
+            # Schedule. Never wait for that Task while holding this Schedule.
+            # A snapshot may also still show a just-closed Task; defer safely.
+            if automatic:
+                return None
+            frappe.throw("The Service Task is changing; retry this request")
         if open_name:
+            if schedule.overlap_policy == SKIP_WHILE_OPEN and automatic:
+                _skip_open_occurrences(schedule, now_datetime(), open_name)
+                return None
             return frappe.get_doc("CFG Kanban Task", open_name)
     scheduled_for = scheduled_for or schedule.next_due_on or now_datetime()
     if request_source in (None, "Schedule") and _is_skipped_holiday(schedule, scheduled_for):
@@ -103,6 +129,59 @@ def create_from_schedule(schedule_name, scheduled_for=None, request_source=None,
     return task
 
 
+def skip_schedule_on_task_close(task):
+    """Drop missed slots at final closure, even if cron never saw the overlap."""
+    if (task.is_new() or not task.task_schedule
+            or task.status not in ("Completed", "Cancelled", "Bypassed")
+            or not task.has_value_changed("status")):
+        return
+    previous = task.get_doc_before_save()
+    if not previous or previous.status in ("Completed", "Cancelled", "Bypassed"):
+        return
+    schedule = frappe.get_doc("CFG Kanban Task Schedule", task.task_schedule, for_update=True)
+    if schedule.active and schedule.overlap_policy == SKIP_WHILE_OPEN:
+        _skip_open_occurrences(
+            schedule, now_datetime(), task.name,
+            operator=task.disposition_by or task.verified_by or task.completed_by,
+        )
+
+
+def _skip_open_occurrences(schedule, cutoff, open_task, operator=None):
+    if schedule.trigger_type not in ("Time Interval", "Calendar Schedule") or not schedule.next_due_on:
+        return
+    first = get_datetime(schedule.next_due_on)
+    cutoff = get_datetime(cutoff)
+    if first > cutoff:
+        return
+    following = get_datetime(_next_due(schedule, first))
+    if following <= first:
+        frappe.throw("The Service Task interval must advance Next Due On")
+    if schedule.trigger_type == "Time Interval" and schedule.interval_unit == "Months":
+        # Keep native month-end recurrence behavior instead of approximating months.
+        count, last, future = 1, first, following
+        while future <= cutoff:
+            last = future
+            future = get_datetime(_next_due(schedule, future))
+            if future <= last:
+                frappe.throw("The Service Task interval must advance Next Due On")
+            count += 1
+    else:
+        step = following - first
+        count = (cutoff - first) // step + 1
+        last = first + (count - 1) * step
+        future = first + count * step
+    schedule.db_set("next_due_on", future, update_modified=False)
+    record(
+        "Scheduled Task Skipped While Open", reference_doctype=schedule.doctype,
+        reference_name=schedule.name, standalone_task=open_task, operator=operator,
+        idempotency_key=canonical_key("standalone-task-overlap-skip", schedule.name, first, future),
+        notes=(f"Skipped {count} occurrence(s) from {first} through {last} while Task {open_task} "
+               f"was open. Next due: {future}"),
+        payload={"skipped_count": count, "first_scheduled_for": first,
+                 "last_scheduled_for": last, "next_due_on": future},
+    )
+
+
 def create_manual(schedule_name, request_source, priority=None, event_token=None):
     schedule = frappe.get_doc("CFG Kanban Task Schedule", schedule_name)
     task = create_from_schedule(schedule.name, scheduled_for=now_datetime(),
@@ -124,7 +203,7 @@ def resolve_service_point(scan_value, session_token):
     open_name = frappe.db.get_value(
         "CFG Kanban Task",
         {"task_schedule": schedule.name,
-         "status": ["not in", ("Completed", "Cancelled")]},
+         "status": ["not in", ("Completed", "Cancelled", "Bypassed")]},
         "name", order_by="due_on asc, creation asc",
     )
     task = frappe.get_doc("CFG Kanban Task", open_name) if open_name else None
@@ -134,7 +213,10 @@ def resolve_service_point(scan_value, session_token):
         assert_responsibility(schedule.responsible_role, profile)
         require_operator(session_token, "task_start", workstation=schedule.workstation)
         task = create_from_schedule(schedule.name, scheduled_for=schedule.next_due_on)
-        generated = True
+        generated = bool(task)
+        if not task:
+            # A concurrent request or skip may have advanced the due time.
+            schedule = frappe.get_doc("CFG Kanban Task Schedule", schedule.name)
     task_data = None
     if task:
         # A scan grants status discovery only; detailed evidence and actions keep their own gates.
