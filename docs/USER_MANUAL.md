@@ -1483,8 +1483,12 @@ continue to apply, including completion on behalf of an operator. Every Progress
 a separate timestamped measurement row. The task card shows **Progress Reports**, the latest
 operator/time and latest summary. **View Progress** opens all timestamped Progress measurements and
 notes, including while the task is still In Progress, so a Supervisor can monitor work before
-completion. Completion is blocked until every mandatory Progress field has at least one valid
-recorded value. Mandatory Check fields must be checked; zero remains valid for mandatory numeric
+completion. Completion is blocked until every currently visible mandatory Progress field has at
+least one valid recorded value. Visibility is evaluated using the latest recorded Progress answers
+for each controlling Field Key (or its configured default when no answer is recorded), with the same
+conditions used by the Progress form. A field hidden by its condition does not block completion;
+its previous measurements remain in View Progress. Start, Complete and Verify answers do not change
+Progress-field visibility. Mandatory Check fields must be checked; zero remains valid for mandatory numeric
 fields. A mandatory read-only definition must have a Default Value or the Schedule cannot be saved.
 
 When **Require Supervisor Verification** is enabled, completion moves the Task to **Awaiting

@@ -1,8 +1,12 @@
 import frappe
 from frappe.utils import add_to_date, cint, get_datetime, now_datetime
 
-from cfg_kanban.services.dynamic_forms import (normalized_values, standalone_definitions,
-                                               validate_values)
+from cfg_kanban.services.dynamic_forms import (
+    normalized_values,
+    standalone_definitions,
+    validate_values,
+    visible_definitions,
+)
 from cfg_kanban.services.doctype_action_tasks import (
     apply_required_gate,
     cancel_task_action,
@@ -346,12 +350,15 @@ def _progress_summary(captured, notes=None):
 
 def _assert_required_progress(task):
     rows = standalone_definitions(task.task_schedule, "Progress") if task.task_schedule else []
-    required = {row.field_key: row for row in rows if row.mandatory}
+    progress = [row for row in task.execution_values if row.capture_on == "Progress"]
+    # Progress evidence is append-only. Use the latest recorded controller answers
+    # for visibility, retaining the existing at-least-one valid measurement rule.
+    required = {row.field_key: row for row in visible_definitions(rows, progress) if row.mandatory}
     if not required:
         return
     captured = set()
-    for value in task.execution_values:
-        if value.capture_on != "Progress" or value.value in (None, ""):
+    for value in progress:
+        if value.value in (None, ""):
             continue
         definition = required.get(value.field_key)
         if definition and not (definition.field_type == "Check" and not cint(value.value)):

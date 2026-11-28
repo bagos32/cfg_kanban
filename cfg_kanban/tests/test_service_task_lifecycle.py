@@ -11,6 +11,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
+from cfg_kanban.services.field_conditions import (
+    ConditionSyntaxError,
+    evaluate_visible_condition,
+    parse_visible_condition,
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -72,6 +78,10 @@ class TestServiceTaskLifecycle(unittest.TestCase):
         common = dict(frappe=frappe, cint=lambda value: int(value or 0),
                       now_datetime=lambda: self.now, json=json, secrets=secrets, _=lambda value: value,
                       record=self.record, resolve_task_run=self.resolve)
+        self.forms = load('services/dynamic_forms.py', dict(common,
+            flt=lambda value: float(value or 0), ConditionSyntaxError=ConditionSyntaxError,
+            evaluate_visible_condition=evaluate_visible_condition,
+            parse_visible_condition=parse_visible_condition))
         access = load('services/task_access.py', dict(common))
         binding = load('services/doctype_action_tasks.py', dict(common))
         self.ns = load('services/standalone_tasks.py', dict(common,
@@ -82,6 +92,7 @@ class TestServiceTaskLifecycle(unittest.TestCase):
             resolve_for_task_event=binding['resolve_for_task_event'],
             apply_required_gate=binding['apply_required_gate'], cancel_task_action=Mock(),
             standalone_definitions=lambda schedule, stage: self.definitions.get(stage, []),
+            visible_definitions=self.forms['visible_definitions'],
             validate_values=self.validate_values,
             normalized_values=lambda rows, supplied: [dict(row) for row in supplied]))
 
@@ -99,6 +110,16 @@ class TestServiceTaskLifecycle(unittest.TestCase):
         self.task.started_on = self.now
         self.task.started_by = 'OP'
         self.task.status = status
+
+    def use_dynamic_forms(self, *definitions):
+        self.started()
+        self.definitions['Progress'] = list(definitions)
+        self.ns.update(validate_values=self.forms['validate_values'],
+                       normalized_values=self.forms['normalized_values'])
+
+    def progress(self, **answers):
+        return self.ns['progress_task']('KTASK-1', 'TOKEN', values=[
+            {'field_key': key, 'value': value} for key, value in answers.items()])
 
     def assert_no_completion_effects(self, before):
         self.assertEqual(self.task, before)
@@ -221,6 +242,198 @@ class TestServiceTaskLifecycle(unittest.TestCase):
         self.assertEqual(self.task.checklist_evidence, [])
         self.resolve.assert_not_called()
         self.record.assert_not_called()
+
+    def test_hidden_mandatory_progress_does_not_block_completion(self):
+        self.use_dynamic_forms(
+            Doc(field_key='damage', label='Damage Found', field_type='Check'),
+            Doc(field_key='details', label='Damage Details', field_type='Text', mandatory=1,
+                visible_condition='damage == 1'))
+        self.progress(damage=0)
+        self.complete()
+        self.assertEqual(self.task.status, 'Completed')
+        self.assertEqual([(row.field_key, row.value) for row in self.task.execution_values],
+                         [('damage', '0')])
+        self.assertEqual(self.record.call_args.args[0], 'Standalone Task Completed')
+        completed = copy.deepcopy(self.task)
+        event_count = self.record.call_count
+        self.complete()
+        self.assertEqual(self.task, completed)
+        self.assertEqual(self.record.call_count, event_count)
+
+    def test_select_condition_hides_required_check_and_ignores_hidden_payload(self):
+        self.use_dynamic_forms(
+            Doc(field_key='result', label='Result', field_type='Select', options='Pass\nFail'),
+            Doc(field_key='confirmed', label='Correction Confirmed', field_type='Check',
+                mandatory=1, visible_condition='result == Fail'))
+        self.progress(result='Pass', confirmed=0)
+        self.complete()
+        self.assertEqual(self.task.status, 'Completed')
+        self.assertEqual([row.field_key for row in self.task.execution_values], ['result'])
+
+    def test_visible_required_field_still_rejects_incomplete_progress(self):
+        self.use_dynamic_forms(
+            Doc(field_key='damage', label='Damage Found', field_type='Check'),
+            Doc(field_key='details', label='Damage Details', field_type='Text', mandatory=1,
+                visible_condition='damage'))
+        before = copy.deepcopy(self.task)
+        with self.assertRaisesRegex(ValueError, '^Damage Details is required$'):
+            self.progress(damage=1)
+        self.assertEqual(self.task, before)
+        self.record.assert_not_called()
+
+    def test_visible_required_field_still_blocks_completion_of_incomplete_record(self):
+        self.use_dynamic_forms(
+            Doc(field_key='damage', label='Damage Found', field_type='Check'),
+            Doc(field_key='details', label='Damage Details', field_type='Text', mandatory=1,
+                visible_condition='damage'))
+        self.task.execution_values = [Doc(field_key='damage', value='1', capture_on='Progress')]
+        with self.assertRaisesRegex(ValueError, 'Report mandatory Progress fields.*Damage Details'):
+            self.complete()
+        self.assertEqual(self.task.status, 'In Progress')
+        self.assertEqual(self.task.checklist_evidence, [])
+        self.assertEqual(self.task._saves, [])
+        self.resolve.assert_not_called()
+        self.record.assert_not_called()
+
+    def test_progress_visibility_uses_latest_controller_and_preserves_history(self):
+        self.use_dynamic_forms(
+            Doc(field_key='result', label='Result', field_type='Select', options='Pass\nFail'),
+            Doc(field_key='details', label='Failure Details', field_type='Text', mandatory=1,
+                visible_condition='result == Fail'))
+        self.progress(result='Fail', details='Scratch')
+        self.now += datetime.timedelta(minutes=5)
+        self.progress(result='Pass')
+        before = copy.deepcopy(self.task.execution_values)
+        self.complete()
+        self.assertEqual(self.task.status, 'Completed')
+        self.assertEqual(self.task.execution_values, before)
+        self.assertEqual(self.task.progress_count, 2)
+        self.assertEqual([row.value for row in before], ['Fail', 'Scratch', 'Pass'])
+
+    def test_latest_controller_can_reveal_a_missing_required_field(self):
+        self.use_dynamic_forms(
+            Doc(field_key='damage', label='Damage Found', field_type='Check'),
+            Doc(field_key='details', label='Damage Details', field_type='Text', mandatory=1,
+                visible_condition='damage'))
+        self.progress(damage=0)
+        self.task.append('execution_values',
+                         {'field_key': 'damage', 'value': '1', 'capture_on': 'Progress'})
+        with self.assertRaisesRegex(ValueError, 'Report mandatory Progress fields.*Damage Details'):
+            self.complete()
+        self.assertEqual(self.task.status, 'In Progress')
+
+    def test_hidden_dependency_does_not_reveal_a_nested_required_field(self):
+        self.use_dynamic_forms(
+            Doc(field_key='damage', label='Damage Found', field_type='Check'),
+            Doc(field_key='repair', label='Repair', field_type='Check', visible_condition='damage'),
+            Doc(field_key='details', label='Repair Details', field_type='Text', mandatory=1,
+                visible_condition='repair'))
+        # A legacy/stale answer on a hidden dependency must not make its child mandatory.
+        self.task.execution_values = [Doc(field_key='repair', value='1', capture_on='Progress')]
+        self.progress(damage=0, repair=1, details='Hidden answer')
+        before = copy.deepcopy(self.task.execution_values)
+        self.complete()
+        self.assertEqual(self.task.status, 'Completed')
+        self.assertEqual(self.task.execution_values, before)
+        self.assertEqual([row.field_key for row in before], ['repair', 'damage'])
+
+    def test_progress_visibility_ignores_answers_from_other_stages(self):
+        self.use_dynamic_forms(
+            Doc(field_key='damage', label='Damage Found', field_type='Check'),
+            Doc(field_key='details', label='Damage Details', field_type='Text', mandatory=1,
+                visible_condition='damage'))
+        self.progress(damage=0)
+        self.task.append('execution_values',
+                         {'field_key': 'damage', 'value': '1', 'capture_on': 'Complete'})
+        self.complete()
+        self.assertEqual(self.task.status, 'Completed')
+
+    def test_default_controller_can_hide_field_before_any_progress(self):
+        self.use_dynamic_forms(
+            Doc(field_key='result', label='Result', field_type='Select', default_value='Pass'),
+            Doc(field_key='details', label='Failure Details', field_type='Text', mandatory=1,
+                visible_condition='result == Fail'))
+        self.complete()
+        self.assertEqual(self.task.status, 'Completed')
+        self.assertEqual(self.task.execution_values, [])
+
+    def test_visible_default_does_not_replace_required_recorded_evidence(self):
+        self.use_dynamic_forms(
+            Doc(field_key='result', label='Result', field_type='Select', default_value='Fail'),
+            Doc(field_key='details', label='Failure Details', field_type='Text', mandatory=1,
+                default_value='Example only', visible_condition='result == Fail'))
+        with self.assertRaisesRegex(ValueError, 'Report mandatory Progress fields.*Failure Details'):
+            self.complete()
+        self.assertEqual(self.task.status, 'In Progress')
+
+    def test_visible_mandatory_numeric_zero_and_checked_checkbox_still_complete(self):
+        self.use_dynamic_forms(
+            Doc(field_key='reading', label='Reading', field_type='Float', mandatory=1),
+            Doc(field_key='checked', label='Checked', field_type='Check', mandatory=1))
+        with self.assertRaisesRegex(ValueError, '^Checked is required$'):
+            self.progress(reading=0, checked=0)
+        self.progress(reading=0, checked=1)
+        self.complete()
+        self.assertEqual(self.task.status, 'Completed')
+        self.assertEqual([row.value for row in self.task.execution_values], ['0', '1'])
+
+    def test_mandatory_evidence_can_have_been_captured_in_an_earlier_report(self):
+        self.use_dynamic_forms(Doc(field_key='reading', label='Reading', field_type='Float',
+                                   mandatory=1))
+        self.progress(reading=0)
+        self.task.append('execution_values',
+                         {'field_key': 'reading', 'value': '', 'capture_on': 'Progress'})
+        self.complete()
+        self.assertEqual(self.task.status, 'Completed')
+
+    def test_hidden_progress_does_not_bypass_complete_stage_requirements(self):
+        self.use_dynamic_forms(
+            Doc(field_key='damage', label='Damage Found', field_type='Check'),
+            Doc(field_key='details', label='Damage Details', field_type='Text', mandatory=1,
+                visible_condition='damage'))
+        self.definitions['Complete'] = [Doc(field_key='outcome', label='Outcome',
+                                            field_type='Data', mandatory=1)]
+        self.progress(damage=0)
+        with self.assertRaisesRegex(ValueError, '^Outcome is required$'):
+            self.complete()
+        self.assertEqual(self.task.status, 'In Progress')
+
+    def test_unchecked_visible_required_progress_still_blocks_completion(self):
+        self.use_dynamic_forms(Doc(field_key='checked', label='Checked', field_type='Check',
+                                   mandatory=1))
+        self.task.execution_values = [Doc(field_key='checked', value='0', capture_on='Progress')]
+        with self.assertRaisesRegex(ValueError, 'Report mandatory Progress fields.*Checked'):
+            self.complete()
+        self.assertEqual(self.task.status, 'In Progress')
+        self.assertEqual(self.task._saves, [])
+        self.record.assert_not_called()
+
+    def test_hidden_progress_allows_correction_resubmission_with_verification(self):
+        self.use_dynamic_forms(
+            Doc(field_key='damage', label='Damage Found', field_type='Check'),
+            Doc(field_key='details', label='Damage Details', field_type='Text', mandatory=1,
+                visible_condition='damage'))
+        self.progress(damage=0)
+        self.task.update(status='Correction Required', verification_required=1,
+                         verification_status='Rejected', verification_notes='Correct this')
+        before = copy.deepcopy(self.task.execution_values)
+        self.complete()
+        self.assertEqual(self.task.status, 'Awaiting Verification')
+        self.assertEqual(self.task.verification_status, 'Pending')
+        self.assertEqual(self.task.execution_values, before)
+
+    def test_hidden_progress_preserves_required_document_posting_gate(self):
+        self.use_dynamic_forms(
+            Doc(field_key='damage', label='Damage Found', field_type='Check'),
+            Doc(field_key='details', label='Damage Details', field_type='Text', mandatory=1,
+                visible_condition='damage'))
+        self.progress(damage=0)
+        self.task.update(doctype_action_profile='PROFILE', doctype_action_trigger='On Task Complete',
+                         doctype_action_required=1)
+        self.complete()
+        self.assertEqual((self.task.status, self.task.doctype_action_run),
+                         ('Pending Document Posting', 'RUN-1'))
+        self.resolve.assert_called_once()
 
     def test_unstarted_progress_rejected_without_evidence(self):
         self.task.status = 'Overdue'

@@ -80,6 +80,12 @@ def normalized_values(rows, supplied_values):
         if by_key.get(row.field_key, row.default_value) not in (None, "")]
 
 
+def visible_definitions(rows, supplied_values):
+    """Use the form's visibility rules for recorded answers; later answers take priority."""
+    supplied = {row.get("field_key"): row.get("value") for row in supplied_values or []}
+    return _visible_rows(rows, supplied)
+
+
 def validate_condition_definitions(rows):
     rows = list(rows or [])
     by_key = {row.field_key: row for row in rows}
