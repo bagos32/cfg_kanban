@@ -61,6 +61,26 @@ test('field panels mount the compact switch in the native Page heading',()=>{
 test('Trip Handover explicitly loads status helper and its own colour stylesheet',()=>{
  const root=path.resolve(__dirname,'..'),read=name=>fs.readFileSync(path.join(root,name),'utf8');
  const loader=read('cfg_kanban/page/kanban_trip_handover/kanban_trip_handover.js');
- assert.match(loader,/field_ui.js/);assert.match(loader,/trip_handover.css/);
+ assert.match(loader,/cfg_kanban_field_ui\.bundle\.js/);assert.match(loader,/trip_handover.css/);
  const page=read('public/js/trip_handover.js');assert.match(page,/choiceHTML\(row,index\+1/);assert.match(page,/planLegend\(\)/);
+});
+test('both field page entry points request styles even when the global include is missing',()=>{
+ const root=path.resolve(__dirname,'..'),read=name=>fs.readFileSync(path.join(root,name),'utf8');
+ assert.match(read('cfg_kanban/page/kanban_logistics/kanban_logistics.js'),/frappe\.require\(\["cfg_kanban\.bundle\.css", "cfg_kanban_field_ui\.bundle\.js"\]\)/);
+ assert.match(read('cfg_kanban/page/kanban_driver_route/kanban_driver_route.js'),/['"]cfg_kanban\.bundle\.css['"]/);
+});
+test('Logistics initializes without invoking an old helper while its current bundle loads',async()=>{
+ const vm=require('node:vm'),root=path.resolve(__dirname,'..');
+ const source=fs.readFileSync(path.join(root,'cfg_kanban/page/kanban_logistics/kanban_logistics.js'),'utf8');
+ const bootstrap=source.slice(0,source.indexOf('\tconst $sticky ='))+'\nwindow.panelConstructed=true;\n};';
+ let ready,oldCalls=0,newCalls=0,requirements;
+ const page={main:{},get_title_area(){return {};}};
+ const window={cfg_field_ui:{mountSwitch(){oldCalls++;throw new Error('createDocumentFragment');}}};
+ const frappe={pages:{'kanban-logistics':{}},ui:{make_app_page:()=>page},require:items=>{requirements=items;return new Promise(resolve=>ready=resolve);}};
+ vm.runInNewContext(bootstrap,{window,frappe,localStorage:{getItem:()=>null},__:value=>value});
+ frappe.pages['kanban-logistics'].on_page_load({});
+ assert.equal(window.panelConstructed,true);assert.equal(oldCalls,0);
+ assert(requirements.includes('cfg_kanban_field_ui.bundle.js'));
+ window.cfg_field_ui={mountSwitch:target=>{assert.equal(target,page);newCalls++;}};
+ ready();await Promise.resolve();assert.equal(newCalls,1);assert.equal(oldCalls,0);
 });

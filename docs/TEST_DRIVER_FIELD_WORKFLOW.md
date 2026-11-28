@@ -35,6 +35,7 @@ installed in the offline environment; service bodies run against explicit DB/doc
 PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest cfg_kanban.tests.test_delivery_product_scans cfg_kanban.tests.test_dispatch_fulfilment cfg_kanban.tests.test_route_delivery cfg_kanban.tests.test_warehouse_fulfilment cfg_kanban.tests.test_driver_route_actions cfg_kanban.tests.test_trip_sales cfg_kanban.tests.test_loose_tags cfg_kanban.tests.test_trip_handover cfg_kanban.tests.test_mobile_printing cfg_kanban.tests.test_doctype_schema
 node --test cfg_kanban/tests/test_field_ui.cjs cfg_kanban/tests/test_delivery_product_checks.cjs cfg_kanban/tests/test_office_delivery_trip_ui.cjs cfg_kanban/tests/test_trip_handover_ui.cjs cfg_kanban/tests/test_driver_route_ui.cjs cfg_kanban/tests/test_driver_route_actions_ui.cjs cfg_kanban/tests/test_mobile_print_bridge.cjs cfg_kanban/tests/test_dispatch_fulfilment_ui.cjs cfg_kanban/tests/test_route_delivery_ui.cjs cfg_kanban/tests/test_warehouse_fulfilment_ui.cjs
 node cfg_kanban/tests/run_driver_field_browser.mjs
+CFG_FIELD_INCOGNITO=1 node cfg_kanban/tests/run_driver_field_browser.mjs
 CFG_BROWSER=firefox node cfg_kanban/tests/run_driver_field_browser.mjs
 node cfg_kanban/tests/run_mobile_print_browser.mjs
 CFG_BROWSER=firefox node cfg_kanban/tests/run_mobile_print_browser.mjs
@@ -43,6 +44,12 @@ node cfg_kanban/tests/run_trip_handover_browser.mjs
 
 `CFG_FIELD_WIDTH=320`, `768` or `1280` selects the isolated Chrome viewport for the field fixture.
 The fixtures have no real stock, ERPNext site, printer, hardware camera or physical scanner.
+
+The field runner builds the CSS entry with esbuild before opening the fixture. It defaults to the
+sibling Frappe app's `node_modules/.bin/esbuild`; set `CFG_ESBUILD` to an existing compatible
+esbuild executable if running outside a Bench. It does not install dependencies or write generated
+bundles into the repository. Generated CSS and isolated browser profiles remain in the temporary
+test directory. `CFG_FIELD_SCREENSHOT` optionally captures the compact headers in Chrome.
 
 Service coverage includes wrong-customer identity, expired/moved/unreleased sources, exact
 untagged quantity and Item, immutable source/quantity evidence, explicit Session permissions,
@@ -104,6 +111,63 @@ Do not equate fixture results with native stock posting or live-site verificatio
   parsed as JSON. Checkout application and whitespace/hash checks are recorded during final review.
 
 These are offline results. They do not close any native-site/device acceptance row above.
+
+## Follow-up: mixed navigation assets and Incognito — 28 November 2026
+
+Prepared above `fcec0f9`. The reported Chrome screenshot showed plain bordered navigation buttons.
+A read-only fetch of the public development CSS/JS confirmed current source, but the unversioned
+asset responses set `Cache-Control: max-age=31536000`. Hard reload did not resolve the issue.
+The owner then provided CSSOM output showing only the old `.cfg-panel-switcher` rules, and the
+blank Logistics trace showed `field_ui.js:44` calling `prependTo` on a Frappe Page object. That
+matches the older DOM-parent helper, while the current helper locates the native title before
+appending. The failing session was therefore mixing older helper/styles with newer page code.
+Browser observation was blocked by a saved origin permission; no alternate browser surface or
+authenticated HTTP workaround was used. Diagnostics came from the owner and offline fixtures.
+
+Desk now references `cfg_kanban.bundle.css` and `cfg_kanban_field_ui.bundle.js`. Their entries import
+the existing stylesheet/helper and Frappe builds content-hashed assets. The JS entry explicitly
+publishes the shared API after bundling the CommonJS/browser-compatible source. Logistics mounts
+the switch only after loading the current CSS/helper bundles; its ordinary panel construction
+does not invoke the old helper. Driver Route waits for both bundles before mounting. Trip Handover
+also uses the hashed helper, so visiting it cannot reload the stale raw helper over the current
+global. Standard owner build/cache-clear/restart and Desk reload are required. No schema/data
+migration, permission change or stock posting is added.
+
+Native v15.69.2 references:
+[asset discovery, compilation and manifest](https://github.com/frappe/frappe/blob/v15.69.2/esbuild/esbuild.js),
+[bundle URL resolution](https://github.com/frappe/frappe/blob/v15.69.2/frappe/utils/jinja_globals.py),
+[runtime asset loader](https://github.com/frappe/frappe/blob/v15.69.2/frappe/public/js/frappe/assets.js).
+
+The fixture builds both entries with esbuild, proving that changing either imported CSS or the
+helper API changes its URL. It reproduces the plain buttons with stale CSS, checks current raw CSS
+parsing, removes the global current stylesheet and seeds a helper that throws the reported error.
+The actual Driver Route bootstrap must then load the fresh JS/CSS bundles before mounting the
+native Page. Existing header geometry, colours, navigation, Tools layering and scanner/retry checks
+continue. A Node test exercises the real Logistics bootstrap prefix with a pending asset Promise
+and verifies that ordinary initialization continues without calling the obsolete helper.
+
+`CFG_FIELD_INCOGNITO=1` creates a real disposable Chrome off-the-record context. A value seeded in
+the isolated normal profile must be absent from that context's localStorage before running the
+same fixture. Both contexts are temporary and connect only to localhost. This verifies private
+storage separation and client rendering, not real ERPNext login or delivery. The installed test
+browser is headless Chrome 158; the reported Chrome 157 and other PC still need native acceptance.
+Chrome documents separate temporary site data in [Incognito Help](https://support.google.com/chrome/answer/95464).
+The compiler is esbuild 0.14.54 within Frappe v15's declared range; the complete Bench/PostCSS/RTL
+build pipeline is not available offline.
+
+Native acceptance remains **Not run**: after the owner's normal `bench build --app cfg_kanban`,
+confirm that `sites/assets/assets.json` maps both bundle names to real hashed URLs and Desk/page
+loaders request those URLs. Check Logistics directly and via Driver Route/Trip Handover, in normal
+and Incognito sessions on the affected PC/Chrome 157, at desktop/tablet/phone widths, and Firefox.
+Verify that `createDocumentFragment` no longer appears and the same operator, selected Trip and
+scanner commands remain. Also confirm ordinary Production/Service styles and Tools. Public asset
+fetches and isolated browser fixtures do not verify the affected live session.
+
+Recorded offline results: **52 browser checks passed** in normal Chrome at 320 and 1280 CSS pixels,
+in a real off-the-record Chrome context at 768 pixels, and Firefox at 1366 pixels. The browser
+reported Chrome 158 / Firefox 153. **80 Node tests** and **15 Python contract/live-refresh tests**
+passed. Both CSS/JS entry points compiled with esbuild; the native hook keys and all shared-helper
+page loaders select their hashed entries. No live Trip, stock, delivery or operator session changed.
 
 ## Follow-up: native headers, menu stacking, Plan choices and custody auto print
 

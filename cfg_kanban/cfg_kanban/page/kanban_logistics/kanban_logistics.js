@@ -1,6 +1,7 @@
 frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 	const TERMINAL_STATES = new Set(["Received", "Billing Pending", "Partially Billed", "Billed", "Closed", "Cancelled"]);
 	const page = frappe.ui.make_app_page({ parent: wrapper, title: __("Kanban Logistics"), single_column: true });
+	const field_assets = frappe.require(["cfg_kanban.bundle.css", "cfg_kanban_field_ui.bundle.js"]);
 	const session_key = "cfg_kanban_operator_session";
 	const last_manifest_key = "cfg_kanban_last_manifest";
 	const last_reconciliation_key = "cfg_kanban_last_reconciliation";
@@ -11,7 +12,7 @@ frappe.pages["kanban-logistics"].on_page_load = function (wrapper) {
 		recent_reconciliations: [], can_reconcile: false, reconciliation: null,
 		lookup: null, scan_mode: "lookup", live_timer: null, live_revision: null,
 		dispatch_plan_line: null, live_request: false, interaction_epoch: 0 };
-	window.cfg_field_ui?.mountSwitch(page, "logistics", () => ({employee: state.operator?.employee}));
+	field_assets.then(() => window.cfg_field_ui?.mountSwitch(page, "logistics", () => ({employee: state.operator?.employee})));
 	const $sticky = $("<div class='cfg-logistics-sticky'></div>").appendTo(page.main);
 	const $scanner = $(`<div class="frappe-card cfg-logistics-scanner">
 		<div class="cfg-logistics-scanner-head"><div><strong>${__("Logistics Scanner")}</strong>

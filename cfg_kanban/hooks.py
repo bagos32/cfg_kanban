@@ -6,11 +6,11 @@ app_email = "engineering@example.com"
 app_license = "MIT"
 required_apps = ["erpnext"]
 
-app_include_css = "/assets/cfg_kanban/css/kanban_operator.css"
+app_include_css = "cfg_kanban.bundle.css"
 app_include_js = [
     "/assets/cfg_kanban/js/map_defaults.js",
     "/assets/cfg_kanban/js/cfg_kanban_navigation.js",
-    "/assets/cfg_kanban/js/field_ui.js",
+    "cfg_kanban_field_ui.bundle.js",
 ]
 
 doctype_js = {

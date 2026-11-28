@@ -6888,6 +6888,22 @@ The Driver Route / Logistics switch now sits beside the native page title. It is
 above the scanner. Active-panel labels, remembered Trip and scanner navigation commands remain.
 On very narrow screens the native title can truncate to keep both switch buttons accessible.
 
+CFG styles and shared navigation load through **cfg_kanban.bundle.css** and
+**cfg_kanban_field_ui.bundle.js**. Frappe's asset build assigns content-hashed URLs, so new versions
+do not reuse the old raw CSS/helper URLs. Logistics waits for the current helper before mounting its
+switch; Driver Route explicitly loads both bundles, and Trip Handover uses the same helper. This
+avoids mixing a newer Page with the older DOM-parent helper that throws `createDocumentFragment`.
+After updating, run the normal CFG asset build and cache clear/restart, then reload Desk. The raw
+CSS/JS remain build inputs. No schema or stock-data change is required for this loading correction.
+
+Incognito uses a separate temporary browser session; operator identification and remembered Trip
+data do not carry over from the normal window. Its site data is removed when that private session
+ends ([Chrome Help](https://support.google.com/chrome/answer/95464)). The field pages must still open
+and the switch must render in either mode. If a private or another PC's session shows the
+`mountSwitch`/`prependTo` error, verify the deployed bundle build and reload that Desk session;
+repeated refreshes alone do not repair a mixed asset deployment. Incognito is not required for
+normal operation.
+
 Trip Tools and Operator Tools now use the native Frappe `.custom-actions` toolbar layout. Their
 header is above the sticky scanner/identity fields, while native modal backdrops remain above the
 header. Dropdowns retain their viewport edge correction. This is scoped to the existing Trip and

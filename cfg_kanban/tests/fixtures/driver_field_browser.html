@@ -5,7 +5,9 @@
 <style>
 .container{width:100%;min-width:0;box-sizing:border-box}.page-container{position:relative;background:white;margin:12px 0}.page-head{position:sticky;top:0;z-index:6;background:white}.page-head-content{display:flex;align-items:center;justify-content:space-between;height:60px;padding:8px;box-sizing:border-box}.page-title{display:flex;align-items:center;width:33.333%;max-width:33.333%;flex:0 0 33.333%;box-sizing:border-box}.sidebar-toggle-btn{width:20px;flex:none;margin-right:8px;padding:0;border:0;background:none}.title-area{display:inline-flex;align-items:center;width:100%;min-width:0}.title-text{font-size:24px;font-weight:700;margin:0 8px 0 0;max-width:25vw}.ellipsis{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.page-actions{display:flex;align-items:center;justify-content:flex-end;flex:1;min-width:0}.custom-actions{display:flex;align-items:center}.inner-group-button{position:relative;display:inline-flex}.dropdown-menu{top:100%;z-index:1000}.dropdown-item{display:block;padding:8px;line-height:20px;text-decoration:none;color:#222}.page-body{position:relative}.page-form{display:flex;background:#f4f5f6;padding:8px}.cfg-operator-sticky-shell{height:180px;box-sizing:border-box;background:white}.cfg-operator-sticky-shell input{background:#eee}.flex{display:flex}.fill-width{flex:1}#toolbar{min-height:330px}#ordinary{min-height:60px}
 </style>
-<link rel="stylesheet" href="../../public/css/kanban_operator.css">
+<!-- The runner supplies real esbuild outputs and a stale unversioned stylesheet. -->
+<link rel="stylesheet" href="__CFG_LEGACY_STYLESHEET__" data-cfg-legacy-css>
+<link rel="stylesheet" href="__CFG_STYLESHEET__" data-cfg-current-css data-previous="__CFG_PREVIOUS_STYLESHEET__">
 <h2>Offline driver field checks</h2><p>Demo data and simulated RPC. No ERPNext site, stock posting or physical scanner/camera.</p><pre id="result">Running…</pre><input id="main-scanner" aria-label="Scanner Ready"><div id="switch" class="page-container"><div class="page-head flex"><div class="container"><div class="row flex align-center page-head-content justify-between"><div class="col-md-4 col-sm-6 col-xs-7 page-title"><button class="btn-reset sidebar-toggle-btn" aria-label="Sidebar">☰</button><div class="flex fill-width title-area"><div><div class="flex"><h3 class="ellipsis title-text">Driver Route</h3></div><div class="ellipsis sub-heading hide"></div></div></div></div><div class="flex col page-actions justify-content-end"></div></div></div></div><div class="container page-body"><div id="driver-body"></div></div></div><div id="logistics-heading" class="page-container"><div class="page-head flex"><div class="container"><div class="row flex align-center page-head-content justify-between"><div class="col-md-4 col-sm-6 col-xs-7 page-title"><button class="btn-reset sidebar-toggle-btn" aria-label="Sidebar">☰</button><div class="flex fill-width title-area"><div><div class="flex"><h3 class="ellipsis title-text">Kanban Logistics</h3></div><div class="ellipsis sub-heading hide"></div></div></div></div><div class="flex col page-actions justify-content-end"></div></div></div></div><div class="container page-body"><div id="logistics-body"></div></div></div><div id="manifest"></div><div id="handover"></div><div id="toolbar" class="page-container"><div class="page-head flex"><div class="container"><div class="row flex align-center page-head-content justify-between"><div class="col-md-4 col-sm-6 col-xs-7 page-title"><button class="btn-reset sidebar-toggle-btn" aria-label="Sidebar">☰</button><div class="flex fill-width title-area"><div><div class="flex"><h3 class="ellipsis title-text">Kanban Operator</h3></div><div class="ellipsis sub-heading hide"></div></div></div></div><div class="flex col page-actions justify-content-end"><div class="custom-actions"></div></div></div></div></div><div class="container page-body"><div class="page-form">Fixed scanner input</div><div class="cfg-operator-sticky-shell"><label>Scanner Ready</label><input value="Scanner field overlapping the Tools menu"><p>Operator identity / station</p></div></div></div><div id="ordinary" class="page-container"><div class="page-head flex"><div class="container"><div class="row flex align-center page-head-content justify-between"><div class="col-md-4 col-sm-6 col-xs-7 page-title"><button class="btn-reset sidebar-toggle-btn" aria-label="Sidebar">☰</button><div class="flex fill-width title-area"><div><div class="flex"><h3 class="ellipsis title-text">Sales Invoice</h3></div><div class="ellipsis sub-heading hide"></div></div></div></div><div class="flex col page-actions justify-content-end"><div class="custom-actions"><button class="btn">Ordinary ERPNext action</button></div></div></div></div></div><div class="container page-body"></div></div><div id="host"></div>
 <script src="../../public/js/field_ui.js"></script><script src="../../public/js/delivery_product_checks.js"></script><script src="../../public/js/delivery_action_scanner.js"></script><script src="../../public/js/driver_route_actions.js"></script><script>
 class Wrap{constructor(nodes){this.nodes=nodes;nodes.forEach((n,i)=>this[i]=n);this.length=nodes.length;}
@@ -31,8 +33,38 @@ window.runFieldUITests=async()=>{
  const logisticsPage={wrapper:$('#logistics-heading'),main:$('#logistics-body'),get_title_area:()=>$('#logistics-heading .title-area')};
  const nav=cfg_field_ui.mountSwitch(driverPage,'driver',()=>({trip:'KTRIP-DEMO',employee:'DRIVER'}));
  cfg_field_ui.mountSwitch(logisticsPage,'logistics',()=>({employee:'DRIVER'}));
+ const stylesheet=document.querySelector('[data-cfg-current-css]');
+ const helperURL='__CFG_CURRENT_HELPER__',previousHelperURL='__CFG_PREVIOUS_HELPER__';
+ check(helperURL!==previousHelperURL&&/cfg_kanban_field_ui\.bundle\.[A-Z0-9]+\.js$/.test(helperURL),'Navigation API changes receive a fresh hashed script URL');
+ check(/cfg_kanban\.bundle\.[A-Z0-9]+\.css$/.test(stylesheet.href),'Field styles use an actual content-hashed bundle URL');
+ check(!stylesheet.href.endsWith(stylesheet.dataset.previous),'Updating imported CSS changes its bundle URL despite a one-year cache lifetime');
+ stylesheet.disabled=true;await pause(30);
+ check(!['flex','inline-flex'].includes(getComputedStyle(document.querySelector('.cfg-panel-switch')).display),'Stale unversioned CSS reproduces the plain Chrome navigation buttons');
+ const rawStyle=await new Promise((resolve,reject)=>{const link=document.createElement('link');link.rel='stylesheet';link.href='/cfg_kanban/public/css/kanban_operator.css';link.onload=()=>resolve(link);link.onerror=reject;document.head.append(link);});
+ check(['flex','inline-flex'].includes(getComputedStyle(document.querySelector('.cfg-panel-switch')).display),'Current raw CFG CSS also styles the switch before bundling');
+ rawStyle.remove();await pause(30);
+ let requiredAssets=[],pageMounted=false,styledBeforeMount=false,oldHelperCalls=0;
+ f.pages={'kanban-driver-route':{}};
+ f.require=async items=>{requiredAssets=Array.isArray(items)?items:[items];await Promise.all(requiredAssets.map(asset=>{
+  if(asset==='cfg_kanban.bundle.css')return new Promise((resolve,reject)=>{const link=document.createElement('link');link.rel='stylesheet';link.href=stylesheet.href;link.dataset.cfgPageStyles='';link.onload=resolve;link.onerror=reject;document.head.append(link);});
+  if(asset==='cfg_kanban_field_ui.bundle.js')return new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=helperURL;script.onload=resolve;script.onerror=reject;document.head.append(script);});
+ }));};
+ const originalDriver=window.cfg_driver_route;
+ document.querySelector('#switch .cfg-panel-switch').remove();
+ window.cfg_field_ui={...window.cfg_field_ui,mountSwitch(){oldHelperCalls++;throw new Error("Cannot read properties of undefined (reading 'createDocumentFragment')");}};
+ window.cfg_driver_route={mount:()=>{cfg_field_ui.mountSwitch(driverPage,'driver',()=>({trip:'KTRIP-DEMO',employee:'DRIVER'}));pageMounted=true;styledBeforeMount=['flex','inline-flex'].includes(getComputedStyle(document.querySelector('.cfg-panel-switch')).display);return {show:async()=>{},hide(){}};}};
+ await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='/cfg_kanban/cfg_kanban/page/kanban_driver_route/kanban_driver_route.js';script.onload=resolve;script.onerror=reject;document.head.append(script);});
+ f.pages['kanban-driver-route'].on_page_load({});await until(()=>pageMounted);
+ check(requiredAssets.includes('cfg_kanban.bundle.css'),'Actual Driver Route bootstrap explicitly requires its own shared style bundle');
+ check(requiredAssets.includes('cfg_kanban_field_ui.bundle.js')&&oldHelperCalls===0,'Page bootstrap replaces the old helper before mounting the native Page object');
+ check(stylesheet.disabled&&styledBeforeMount,'A missing global stylesheet cannot leave the route unstyled before mount');
+ window.cfg_driver_route=originalDriver;
  for(const id of ['switch','logistics-heading']){
   const root=document.querySelector('#'+id),toggle=root.querySelector('.cfg-panel-switch'),title=root.querySelector('.title-text'),a=toggle.getBoundingClientRect(),b=title.getBoundingClientRect();
+  const buttons=[...toggle.querySelectorAll('button')],slider=toggle.querySelector('.cfg-panel-slider');
+  check(['flex','inline-flex'].includes(getComputedStyle(toggle).display)&&buttons.every(button=>getComputedStyle(button).borderTopWidth==='0px'),id+': fresh bundle restores the rounded segmented switch without raw button borders');
+  check(Math.abs(buttons[0].getBoundingClientRect().top-buttons[1].getBoundingClientRect().top)<2,id+': both panel choices remain on one horizontal row');
+  check(getComputedStyle(slider).backgroundColor===(id==='switch'?'rgb(30, 103, 152)':'rgb(35, 116, 66)'),id+': active panel has its blue/green slider');
   check(root.querySelector('.page-title').contains(toggle)&&!root.querySelector('.page-body').contains(toggle),id+': switch is beside the real native title, outside page body');
   check(Math.abs((a.top+a.bottom)/2-(b.top+b.bottom)/2)<2,id+': switch and title share the same horizontal row');
   check(a.height<=36&&a.width<=212,id+': compact switch stays within 36px height / 212px width');
@@ -125,6 +157,6 @@ window.runFieldUITests=async()=>{
  modal.primary.click();await until(()=>standaloneCalls.length===2&&modal.primary.textContent==='Refresh saved checks');
  check(JSON.stringify(standaloneCalls[0])===JSON.stringify(standaloneCalls[1]),'Logistics retry preserves the original verification token and payload');
  await direct.scan('CFG:CMD:CANCEL');check(standaloneClosed&&document.activeElement.id==='main-scanner','Logistics Cancel closes its check dialog and restores scanner focus');
- document.querySelector('#result').textContent=JSON.stringify({width:innerWidth,passed:results.length,results},null,2);return {width:innerWidth,passed:results.length,results};
+ document.querySelector('#result').textContent=JSON.stringify({width:innerWidth,passed:results.length,results},null,2);return {width:innerWidth,browser:navigator.userAgent,passed:results.length,results};
 };
 </script>
