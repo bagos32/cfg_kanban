@@ -72,7 +72,14 @@
   "follow_on_setup",
   "follow_on_key",
   "follow_on_request_key",
-  "follow_on_snapshot_json"
+  "follow_on_snapshot_json",
+ "planner_tab",
+ "planner_enabled",
+ "planner_load_verified",
+ "planner_panel",
+ "planner_accepted_run",
+ "planner_accepted_by",
+ "planner_accepted_on"
  ],
  "fields": [
   {
@@ -469,7 +476,14 @@
    "fieldtype": "Check",
    "default": "0",
    "description": "Generate one Customer Order Dispatch Plan for this Trip. Exact customer stops and Sales Order rows retain their own allocations and Delivery Notes. Select before generating dispatch work."
-  }
+  },
+ {"fieldname":"planner_tab","label":"Mock Route Planner","fieldtype":"Tab Break"},
+ {"fieldname":"planner_enabled","label":"Enable Mock Route Planner","fieldtype":"Check","default":"0","description":"Office test pilot only. No Google calls, road optimization, stock reservation or posting."},
+ {"fieldname":"planner_load_verified","label":"Packed load and lorry/site fit verified","fieldtype":"Check","default":"0","description":"Office confirms grams per stock UOM include packaging and that volume, stacking, segregation and local vehicle/site access are suitable. Weight is the only modelled capacity."},
+ {"fieldname":"planner_panel","label":"Data Readiness / Proposal Review","fieldtype":"HTML"},
+ {"fieldname":"planner_accepted_run","label":"Last Accepted Mock Proposal","fieldtype":"Link","options":"CFG Kanban Route Planning Run","read_only":1,"ignore_user_permissions":1},
+ {"fieldname":"planner_accepted_by","label":"Planner Acceptance By","fieldtype":"Link","options":"User","read_only":1,"ignore_user_permissions":1},
+ {"fieldname":"planner_accepted_on","label":"Planner Acceptance On","fieldtype":"Datetime","read_only":1}
  ],
  "autoname": "KTRIP-.YYYY.-.#####",
  "title_field": "trip_title",

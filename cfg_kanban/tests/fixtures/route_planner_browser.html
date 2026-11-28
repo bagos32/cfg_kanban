@@ -1,0 +1,72 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offline mock route planner</title>
+<style>body{font:15px Arial;margin:16px;background:#f4f5f6}main{padding:16px;background:#fff;max-width:1100px;margin:auto}.alert{padding:12px;margin:10px 0}.alert-warning{background:#fff3d8}.alert-danger{background:#ffe2e2}.btn{padding:9px;border:1px solid #aaa;border-radius:5px;margin:0 8px 8px 0;background:white}.form-control{display:block;width:100%;padding:9px;box-sizing:border-box;margin-bottom:12px}.table-responsive{overflow:auto}table{width:100%;border-collapse:collapse}td,th{border:1px solid #ccc;padding:10px;text-align:left}.text-danger{color:#a22}.text-muted{color:#666}</style>
+<main><h1>CFG Kanban Delivery Trip — demo</h1><p>Offline normal-form component fixture. No ERPNext site or Google connection.</p><div id="panel"></div><pre id="results">Running…</pre></main>
+<script>
+window.__=value=>value;
+class Wrapper {
+ constructor(node){this.node=node;this.handlers=[];}
+ html(value){this.node.innerHTML=value;return this;}
+ off(){for(const [type,fn] of this.handlers)this.node.removeEventListener(type,fn);this.handlers=[];return this;}
+ on(event,selector,callback){const type=event.split('.')[0],fn=e=>{const target=e.target.closest(selector);if(target&&this.node.contains(target))callback({currentTarget:target});};this.node.addEventListener(type,fn);this.handlers.push([type,fn]);return this;}
+}
+window.$=node=>({attr:key=>node.getAttribute(key),val:()=>node.value});
+const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function until(test){for(let i=0;i<200;i++){if(test())return;await pause(20);}throw new Error('Timed out waiting for fixture');}
+window.runPlannerTests=async()=>{
+ const checks=[],check=(value,label)=>{if(!value)throw new Error(label);checks.push(label);};
+ const element=document.querySelector('#panel'),wrapper=new Wrapper(element),calls=[],routes=[];
+ const run={name:'RPR-DEMO',status:'Ready',source_revision:1,attempt_count:1,
+  original:[{stop_key:'STOP_A',site_name:'Customer A'},{stop_key:'STOP_B',site_name:'Customer B'}],
+  proposed:[{stop_key:'STOP_B',site_name:'Customer B',start_time:'2026-11-22T08:10:00+08:00'},{stop_key:'STOP_A',site_name:'Customer A',start_time:'2026-11-22T08:30:00+08:00'}]};
+ let data={ready:true,settings:'RPS-DEMO',total_load_grams:9000,errors:[],warnings:['Mock fixture: ten-minute legs'],runs:[]},reloads=0;
+ const frm={doc:{name:'TRIP-DEMO',company:'Demo Company',modified:'2026-11-21 10:00:00'},perm:[{write:1}],
+  fields_dict:{planner_panel:{$wrapper:wrapper}},fresh:false,changed:false,is_new(){return this.fresh;},is_dirty(){return this.changed;},
+  async reload_doc(){reloads++;}};
+ window.frappe={user_roles:['Stock Manager'],async call(args){calls.push(args);
+  if(args.method.endsWith('get_planning_panel'))return {message:structuredClone(data)};
+  if(args.method.endsWith('request_mock_proposal')){data.runs=[run];return {message:structuredClone(run)};}
+  if(args.method.endsWith('decide_mock_proposal')){run.status=args.args.decision==='Accept'?'Accepted':'Rejected';return {message:{accepted:run.status==='Accepted',run:structuredClone(run)}};}
+  throw new Error('Unexpected endpoint');},set_route(...args){routes.push(args);},new_doc(...args){routes.push(args);}};
+ check(typeof cfg_route_planner?.mount==='function','The actual compiled bundle publishes its planner API');
+ check(/cfg_route_planner\.bundle\.[A-Z0-9]+\.js$/.test(document.querySelector('[data-planner-bundle]').src),'The form uses a compiled content-hashed JS bundle');
+ let api=cfg_route_planner.mount(frm);await until(()=>element.textContent.includes('Ready for a mock request'));
+ check(element.textContent.includes('test fixtures only'),'The normal form labels the mock explicitly');
+ check(!document.querySelector('.modal'),'Planner review stays inline, with no planning popup');
+ check(element.querySelector('[data-planner-action="request"]')&&!element.querySelector('[data-planner-action="request"]').disabled,'Ready saved Draft exposes generation');
+ element.querySelector('[data-planner-action="request"]').click();await until(()=>element.textContent.includes('RPR-DEMO · Ready'));
+ const request=calls.find(row=>row.method.endsWith('request_mock_proposal'));
+ check(request.args.expected_modified===frm.doc.modified&&request.args.trip_name==='TRIP-DEMO','Generation uses the exact saved Trip and timestamp');
+ check(element.querySelectorAll('tbody tr').length===2,'One comparison row is rendered per original stop');
+ check(element.querySelector('tbody tr').textContent.includes('Customer A')&&element.querySelector('tbody tr').textContent.includes('Customer B'),'Current and reversed mock orders are compared');
+ check(element.textContent.includes('08:10:00 MYT'),'Simulated times are explicitly labelled Malaysia local time');
+ check(element.textContent.includes('no savings are claimed'),'No road savings are invented');
+ element.querySelector('[data-planner-action="accept"]').click();await pause(25);
+ check(!calls.some(row=>row.method.endsWith('decide_mock_proposal')),'Accept requires a reason before an RPC');
+ let reason=element.querySelector('[data-planner-reason]');reason.value='Reviewed demo';reason.dispatchEvent(new Event('input',{bubbles:true}));
+ element.querySelector('[data-planner-action="accept"]').click();await until(()=>reloads===1);
+ const decision=calls.find(row=>row.method.endsWith('decide_mock_proposal'));
+ check(decision.args.run_name==='RPR-DEMO'&&decision.args.reason==='Reviewed demo','Acceptance targets the reviewed Run and reason');
+ check(reloads===1,'Acceptance reloads the normal Trip for its new sequence and LIFO');
+ await api.refresh();check(element.textContent.includes('Accepted'),'Recorded acceptance appears on reload');
+ run.status='Ready';await api.refresh();const beforeLate=reloads,normalBeforeLate=frappe.call;let finishLate;
+ frappe.call=args=>args.method.endsWith('decide_mock_proposal')?new Promise(resolve=>finishLate=resolve):normalBeforeLate(args);
+ element.querySelector('[data-planner-action="accept"]').click();await until(()=>Boolean(finishLate));frm.changed=true;
+ finishLate({message:{accepted:true,run:structuredClone(run)}});await until(()=>element.textContent.includes('Save this Trip'));
+ check(reloads===beforeLate,'A late acceptance reply cannot overwrite unsaved native form edits');
+ frm.changed=false;frappe.call=normalBeforeLate;await api.refresh();
+ run.status='Ready';run.stale=true;data.ready=false;data.errors=['Stop B: entrance pin changed'];await api.refresh();
+ check(element.querySelector('[data-planner-action="accept"]').disabled,'Stale result disables acceptance');
+ check(element.textContent.includes('Stop B: entrance pin changed'),'Exact data-readiness blocker remains visible');
+ run.original[0].site_name='<img src=x onerror=alert(1)>';await api.refresh();
+ check(!element.querySelector('img')&&element.textContent.includes('<img'),'Provider/history text cannot inject HTML');
+ api.destroy();frm.changed=true;const before=calls.length;api=cfg_route_planner.mount(frm);await pause(25);
+ check(calls.length===before&&element.textContent.includes('Save this Trip'),'Dirty forms cannot submit old planning data');
+ api.destroy();frm.changed=false;let finish;const normal=frappe.call;
+ frappe.call=()=>new Promise(resolve=>finish=resolve);api=cfg_route_planner.mount(frm);frm.doc.name='OTHER';finish({message:structuredClone(data)});await pause(25);
+ check(!element.textContent.includes('RPR-DEMO'),'Late response cannot restore another Trip proposal');api.destroy();frappe.call=normal;
+ check(calls.every(row=>row.method.startsWith('cfg_kanban.services.route_planner.')),'The component calls no stock, loading, DN or driver completion endpoint');
+ document.querySelector('#results').textContent=checks.join('\n');return {browser:navigator.userAgent,passed:checks.length,checks};
+};
+</script>
+<script data-planner-bundle src="__CFG_PLANNER_BUNDLE__"></script>

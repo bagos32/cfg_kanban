@@ -21,7 +21,11 @@
   "cancellation_request",
   "stop_cancelled_on",
   "stop_cancelled_by",
-  "stop_cancellation_reason"
+  "stop_cancellation_reason",
+ "planner_service_minutes",
+ "planner_window_start",
+ "planner_window_end",
+ "planner_finish_by_close"
  ],
  "fields": [
   {
@@ -143,7 +147,11 @@
    "label": "Cancellation Reason",
    "fieldtype": "Small Text",
    "read_only": 1
-  }
+  },
+ {"fieldname":"planner_service_minutes","label":"Planner Service Minutes","fieldtype":"Float","precision":"2","description":"Required only for the mock pilot. Planned unloading duration."},
+ {"fieldname":"planner_window_start","label":"Planner Receiving Opens (MYT)","fieldtype":"Time"},
+ {"fieldname":"planner_window_end","label":"Planner Receiving Closes (MYT)","fieldtype":"Time"},
+ {"fieldname":"planner_finish_by_close","label":"Finish Service Before Closing","fieldtype":"Check","default":"0"}
  ],
  "istable": 1
 }

@@ -1,0 +1,159 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Route Planner Settings",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "autoname": "RPS-.#####",
+ "track_changes": 1,
+ "field_order": [
+  "company",
+  "enabled",
+  "provider",
+  "pilot_notice",
+  "source_warehouse",
+  "vehicle_warehouse",
+  "capacity_grams",
+  "shift_start",
+  "shift_end",
+  "start_location",
+  "end_location",
+  "gates_verified",
+  "verified_by",
+  "verified_on",
+  "max_stops",
+  "max_attempts_per_trip"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "enabled",
+   "label": "Enable Mock Pilot",
+   "fieldtype": "Check",
+   "default": "0"
+  },
+  {
+   "fieldname": "provider",
+   "label": "Provider",
+   "fieldtype": "Select",
+   "options": "Mock (test only)",
+   "default": "Mock (test only)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pilot_notice",
+   "label": "Mock Pilot",
+   "fieldtype": "Section Break",
+   "description": "No Google API connection or routing estimates. One Company, one assigned lorry, one empty vehicle load and one day. Manual Trip planning remains available."
+  },
+  {
+   "fieldname": "source_warehouse",
+   "label": "Depot Source Warehouse",
+   "fieldtype": "Link",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "vehicle_warehouse",
+   "label": "Assigned Lorry Warehouse",
+   "fieldtype": "Link",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "capacity_grams",
+   "label": "Usable Packed Payload (grams)",
+   "fieldtype": "Int",
+   "description": "Net usable capacity for this load. Include packaging in the Trip order-row weights. Volume/stacking and local road restrictions need office verification."
+  },
+  {
+   "fieldname": "shift_start",
+   "label": "Depot Departure (MYT)",
+   "fieldtype": "Time"
+  },
+  {
+   "fieldname": "shift_end",
+   "label": "Depot Return Deadline (MYT)",
+   "fieldtype": "Time"
+  },
+  {
+   "fieldname": "start_location",
+   "label": "Verified Depot Departure Gate",
+   "fieldtype": "Geolocation"
+  },
+  {
+   "fieldname": "end_location",
+   "label": "Verified Depot Return Gate",
+   "fieldtype": "Geolocation"
+  },
+  {
+   "fieldname": "gates_verified",
+   "label": "Both Depot Gates Verified",
+   "fieldtype": "Check",
+   "default": "0"
+  },
+  {
+   "fieldname": "verified_by",
+   "label": "Gates Verified By",
+   "fieldtype": "Link",
+   "options": "User",
+   "read_only": 1,
+   "ignore_user_permissions": 1
+  },
+  {
+   "fieldname": "verified_on",
+   "label": "Gates Verified On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "max_stops",
+   "label": "Maximum Visits (1\u201350)",
+   "fieldtype": "Int",
+   "default": "20"
+  },
+  {
+   "fieldname": "max_attempts_per_trip",
+   "label": "Maximum Mock Attempts per Trip (1\u2013100)",
+   "fieldtype": "Int",
+   "default": "10"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "print": 1,
+   "create": 1,
+   "write": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1,
+   "create": 1,
+   "write": 1
+  },
+  {
+   "role": "CFG Kanban System Maintenance",
+   "read": 1,
+   "print": 1,
+   "create": 1,
+   "write": 1
+  }
+ ],
+ "allow_rename": 0,
+ "quick_entry": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

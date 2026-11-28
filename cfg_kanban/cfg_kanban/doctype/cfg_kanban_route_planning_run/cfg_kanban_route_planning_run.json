@@ -1,0 +1,221 @@
+{
+ "doctype": "DocType",
+ "name": "CFG Kanban Route Planning Run",
+ "module": "CFG Kanban",
+ "engine": "InnoDB",
+ "autoname": "RPR-.YYYY.-.#####",
+ "track_changes": 1,
+ "field_order": [
+  "delivery_trip",
+  "company",
+  "provider",
+  "status",
+  "input_key",
+  "source_modified",
+  "source_revision",
+  "attempt_count",
+  "requested_by",
+  "requested_on",
+  "started_on",
+  "finished_on",
+  "failure_message",
+  "snapshot_json",
+  "model_json",
+  "response_json",
+  "attempt_history_json",
+  "accepted_by",
+  "accepted_on",
+  "resulting_revision",
+  "decided_by",
+  "decided_on",
+  "decision_reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "delivery_trip",
+   "label": "Delivery Trip",
+   "fieldtype": "Link",
+   "options": "CFG Kanban Delivery Trip",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "provider",
+   "label": "Provider",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "label": "Status",
+   "fieldtype": "Select",
+   "options": "Queued\nRunning\nReady\nFailed\nTimed Out\nAccepted\nRejected",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "input_key",
+   "label": "Input Fingerprint",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "source_modified",
+   "label": "Source Trip Modified",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_revision",
+   "label": "Source Planning Revision",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "attempt_count",
+   "label": "Attempt Count",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "default": "1"
+  },
+  {
+   "fieldname": "requested_by",
+   "label": "Requested By",
+   "fieldtype": "Link",
+   "options": "User",
+   "read_only": 1,
+   "ignore_user_permissions": 1
+  },
+  {
+   "fieldname": "requested_on",
+   "label": "Requested On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "started_on",
+   "label": "Worker Started On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "finished_on",
+   "label": "Worker Finished On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "failure_message",
+   "label": "Failure / Follow-up",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "snapshot_json",
+   "label": "Local Input Snapshot",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "read_only": 1,
+   "permlevel": 1
+  },
+  {
+   "fieldname": "model_json",
+   "label": "Opaque Mock Provider Input",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "read_only": 1,
+   "permlevel": 1
+  },
+  {
+   "fieldname": "response_json",
+   "label": "Mock Proposal",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "read_only": 1,
+   "permlevel": 1
+  },
+  {
+   "fieldname": "attempt_history_json",
+   "label": "Prior Attempts and Retry Reasons",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "read_only": 1,
+   "permlevel": 1
+  },
+  {
+   "fieldname": "accepted_by",
+   "label": "Accepted By",
+   "fieldtype": "Link",
+   "options": "User",
+   "read_only": 1,
+   "ignore_user_permissions": 1
+  },
+  {
+   "fieldname": "accepted_on",
+   "label": "Accepted On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resulting_revision",
+   "label": "Resulting Planning Revision",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "decided_by",
+   "label": "Decision By",
+   "fieldtype": "Link",
+   "options": "User",
+   "read_only": 1,
+   "ignore_user_permissions": 1
+  },
+  {
+   "fieldname": "decided_on",
+   "label": "Decision On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "decision_reason",
+   "label": "Decision Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "CFG Kanban System Maintenance",
+   "read": 1,
+   "print": 1
+  }
+ ],
+ "allow_rename": 0,
+ "quick_entry": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

@@ -6949,3 +6949,31 @@ operator permissions and source-document checks remain.
 Migrate the new default-off Scan Point field, build CFG assets, clear cache and hard-refresh the
 browser after deploying. This development is verified offline; native-site/device checks remain
 in [the field-workflow acceptance record](TEST_DRIVER_FIELD_WORKFLOW.md).
+
+
+## Mock Draft Trip route planner — 28 November 2026
+
+The normal **CFG Kanban Delivery Trip** form has an optional **Mock Route Planner** tab. Configure
+**CFG Kanban Route Planner Settings** for the Company, verify depot/customer entrance pins, and
+enter per-visit service/receiving windows and per-SO-row packed grams per Stock UOM. Enable the
+Trip pilot and confirm physical load/site fit, then save the Draft before requesting a proposal.
+Both company and Trip enablement default off. Ordinary manual planning remains available.
+
+This first package uses a clearly labelled fixture: Flexible Order reverses its visits, Planned
+Order is preserved, and legs use simulated ten-minute durations. It makes no Google request and
+claims no road or savings estimate. It supports one assigned empty lorry, one day and confirmed
+customer stock orders before dispatch generation; shared stock, Visit Only and follow-on or
+already-committed Trips keep their existing workflows.
+
+Review the original/proposed order inline. An authorised native office editor must enter a
+reason and explicitly accept. The server repeats permission, source SO balance, input fingerprint
+and dispatch-stage checks, preserves exact stop/SO Item identities and quantities, and uses normal
+Trip validation to rebuild LIFO. Run and Event history retain the decision. Duplicate requests
+and acceptance retries reuse their original identity; changed inputs require a new proposal.
+The planner creates no reservations, Manifest, Stock Entry, Delivery Note or stock movement.
+**Mark Planned** and the existing dispatch actions continue to own preparation and execution.
+
+See [Mock Route Planner setup, permissions and recovery](USER_GUIDE_MOCK_ROUTE_PLANNER.md) and
+[offline tests / native acceptance](TEST_MOCK_ROUTE_PLANNER.md). Owner migration and CFG asset
+build are required; no Google credential or dependency/version update is needed for the mock.
+Native database, worker, browser and end-to-end execution acceptance remains pending.

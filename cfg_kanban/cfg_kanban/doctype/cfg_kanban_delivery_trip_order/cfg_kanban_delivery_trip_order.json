@@ -16,7 +16,8 @@
   "is_stock_item",
   "stock_uom",
   "planned_qty",
-  "delivery_date"
+  "delivery_date",
+ "planner_grams_per_stock_uom"
  ],
  "fields": [
   {
@@ -109,7 +110,8 @@
    "label": "SO Delivery Date",
    "fieldtype": "Date",
    "read_only": 1
-  }
+  },
+ {"fieldname":"planner_grams_per_stock_uom","label":"Packed Grams per Stock UOM","fieldtype":"Float","precision":"6","description":"Office-verified packed weight, including packaging, for one Stock UOM. Pilot only; does not alter SO or ERP UOM conversion."}
  ],
  "istable": 1
 }

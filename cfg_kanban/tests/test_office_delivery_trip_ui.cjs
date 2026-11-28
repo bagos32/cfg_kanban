@@ -40,6 +40,15 @@ function harness() {
   };
   return { frm, source, response, handlers, calls, queries, buttons, headlines };
 }
+test('an unavailable optional planner asset cannot block ordinary office form controls', async () => {
+  const h = harness();
+  h.frm.fields_dict.planner_panel = { $wrapper: { value: '', html(value) { this.value = value; } } };
+  frappe.require = async asset => { if (asset === 'cfg_route_planner.bundle.js') throw new Error('Asset missing'); };
+  vm.runInThisContext(fs.readFileSync(formPath, 'utf8'));
+  await h.handlers['CFG Kanban Delivery Trip'].refresh(h.frm);
+  assert.match(h.frm.fields_dict.planner_panel.$wrapper.value, /Normal Trip planning remains available/);
+  assert.ok(h.buttons['Refresh SO Inbox']); assert.ok(h.buttons['Mark Planned']);
+});
 test('inbox assignment updates exact SO row and is saved explicitly', () => {
   const { frm, source } = harness();
   const row = ui.assign(frm, source, 3, 'STOP_KEY_1');

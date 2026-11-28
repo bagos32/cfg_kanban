@@ -16,6 +16,15 @@ frappe.ui.form.on('CFG Kanban Delivery Trip', {
   async refresh(frm) {
     await frappe.require('/assets/cfg_kanban/js/office_delivery_trip.js');
     const ui = window.cfg_office_delivery_trip;
+    if (frm.fields_dict.planner_panel) {
+      frm.__cfg_route_planner?.destroy();
+      try {
+        await frappe.require('cfg_route_planner.bundle.js');
+        frm.__cfg_route_planner = window.cfg_route_planner.mount(frm);
+      } catch (_) {
+        frm.fields_dict.planner_panel.$wrapper.html(`<p class="text-muted">${__('Mock planner assets are unavailable. Complete the CFG asset build and reload to use this optional pilot. Normal Trip planning remains available.')}</p>`);
+      }
+    }
     window.cfg_field_ui?.toolbar(frm.page);
     frm.set_df_property?.('allow_existing_lorry_sales','read_only',!ui.editable(frm)||['In Progress','Completed','Closed Incomplete'].includes(frm.doc.driver_route_state));
     frm.set_df_property?.('consolidated_customer_orders','read_only',!ui.editable(frm)||Boolean(frm.doc.dispatch_generated_on||(frm.doc.dispatch_plans||[]).length||frm.doc.follow_on_of));

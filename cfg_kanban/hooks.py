@@ -13,6 +13,14 @@ app_include_js = [
     "cfg_kanban_field_ui.bundle.js",
 ]
 
+# Planner history inherits its Trip/source access; these hooks grant no new ERP rights.
+has_permission = {
+    "CFG Kanban Route Planning Run": "cfg_kanban.services.route_planner.run_has_permission",
+}
+permission_query_conditions = {
+    "CFG Kanban Route Planning Run": "cfg_kanban.services.route_planner.run_query_conditions",
+}
+
 doctype_js = {
     "BOM": "public/js/bom.js",
     "CFG Kanban Master": "public/js/cfg_kanban_master.js",

@@ -10,6 +10,11 @@ class CFGKanbanDeliveryTrip(Document):
         self.driver_display=trip_driver_display(self)
 
     def validate(self):
+        from cfg_kanban.services.route_planner_model import protect_trip_metadata
+        try:
+            protect_trip_metadata(self, None if self.is_new() else self.get_doc_before_save())
+        except ValueError as exc:
+            frappe.throw(str(exc))
         validate_trip(self)
 
     def on_update(self):

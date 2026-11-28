@@ -29,6 +29,10 @@ class CFGKanbanCustomerScanPoint(Document):
         except ValueError as exc:
             frappe.throw(str(exc))
         before = None if self.is_new() else self.get_doc_before_save()
+        if (any(self.get(f) for f in ('planner_pin_verified', 'planner_pin_verified_by', 'planner_pin_verified_on'))
+                or (before and before.get('planner_pin_verified'))):
+            from cfg_kanban.services.route_planner import verify_site_pin
+            verify_site_pin(self, before)
         if before and before.opaque_token != self.opaque_token:
             frappe.throw("Opaque Scan Token is immutable; replace the Customer Scan Point instead")
         validate_price_list_mode(self.default_price_list, "selling", "Default Price List")
